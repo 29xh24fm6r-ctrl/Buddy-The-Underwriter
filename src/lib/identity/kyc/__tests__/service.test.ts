@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { initiateKyc, handleDiditWebhook, hasValidIal2, mapDiditStatus, type DiditClient } from "@/lib/identity/kyc/service";
+import { initiateKyc, handleDiditWebhook, hasValidIal2, mapDiditStatus, reconcileVerification, reconcilePendingVerifications, type DiditClient } from "@/lib/identity/kyc/service";
 
 type Row = Record<string, any>;
 
@@ -235,4 +235,181 @@ test("mapDiditStatus: maps every documented Didit session status", () => {
   assert.equal(mapDiditStatus("Expired"), "expired");
   assert.equal(mapDiditStatus("KYC Expired"), "expired");
   assert.equal(mapDiditStatus("Abandoned"), "failed");
+});
+
+
+// ── Reconciliation ───────────────────────────────────────────────────────
+//
+// Regression cover for the 2026-08-25 incident: Didit session 252f29e1 was
+// `Approved` while borrower_identity_verifications sat at `created` with
+// completed_at NULL, because the completion webhook was never delivered.
+// Nothing in the product went and looked, so the borrower was stranded
+// behind the sealing gate with no control that could advance anything.
+
+test("reconcileVerification: stranded 'created' row whose vendor session is Approved becomes approved + completed_at", async () => {
+  const db = new FakeDb({
+    borrower_identity_verifications: [
+      {
+        id: "v1",
+        deal_id: "d1",
+        ownership_entity_id: "o1",
+        vendor: "didit",
+        vendor_inquiry_id: "sess_1",
+        status: "created",
+        completed_at: null,
+        created_at: "2026-08-25",
+      },
+    ],
+  });
+
+  const r = await reconcileVerification("v1", { sb: db as any, didit: fakeDidit() });
+
+  assert.equal(r.ok, true);
+  if (r.ok) {
+    assert.equal(r.previousStatus, "created");
+    assert.equal(r.status, "approved");
+    assert.equal(r.changed, true);
+  }
+
+  const row = db.tables.borrower_identity_verifications[0];
+  assert.equal(row.status, "approved");
+  assert.ok(row.completed_at, "completed_at must be stamped so hasValidIal2 passes");
+
+  // The deal timeline has to record that the status moved and that it moved
+  // via reconciliation rather than a webhook.
+  const event = db.tables.deal_events.find((e) => e.kind === "kyc.verification_approved");
+  assert.ok(event, "expected a kyc.verification_approved deal event");
+  assert.equal(event!.payload.source, "reconcile");
+  assert.equal(event!.payload.previous_status, "created");
+});
+
+test("reconcileVerification: hasValidIal2 flips from false to true after reconciling", async () => {
+  const db = new FakeDb({
+    borrower_identity_verifications: [
+      { id: "v1", deal_id: "d1", ownership_entity_id: "o1", vendor: "didit", vendor_inquiry_id: "sess_1", status: "created", completed_at: null, created_at: "2026-08-25" },
+    ],
+  });
+
+  assert.equal(await hasValidIal2("d1", "o1", db as any), false);
+  await reconcileVerification("v1", { sb: db as any, didit: fakeDidit() });
+  assert.equal(await hasValidIal2("d1", "o1", db as any), true);
+});
+
+test("reconcileVerification: idempotent — a second call writes nothing new", async () => {
+  const db = new FakeDb({
+    borrower_identity_verifications: [
+      { id: "v1", deal_id: "d1", ownership_entity_id: "o1", vendor: "didit", vendor_inquiry_id: "sess_1", status: "created", completed_at: null, created_at: "2026-08-25" },
+    ],
+  });
+
+  await reconcileVerification("v1", { sb: db as any, didit: fakeDidit() });
+  const eventsAfterFirst = db.tables.deal_events.length;
+  const completedAt = db.tables.borrower_identity_verifications[0].completed_at;
+
+  const second = await reconcileVerification("v1", { sb: db as any, didit: fakeDidit() });
+
+  assert.equal(second.ok, true);
+  if (second.ok) assert.equal(second.changed, false);
+  assert.equal(db.tables.deal_events.length, eventsAfterFirst, "must not churn deal_events");
+  assert.equal(db.tables.borrower_identity_verifications[0].completed_at, completedAt);
+});
+
+test("reconcileVerification: mock_didit rows are never promoted by a real vendor lookup", async () => {
+  const db = new FakeDb({
+    borrower_identity_verifications: [
+      { id: "v1", deal_id: "d1", ownership_entity_id: "o1", vendor: "mock_didit", vendor_inquiry_id: "sess_1", status: "created", completed_at: null, created_at: "2026-08-25" },
+    ],
+  });
+
+  const r = await reconcileVerification("v1", { sb: db as any, didit: fakeDidit() });
+
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.reason, "NO_VENDOR_SESSION");
+  assert.equal(db.tables.borrower_identity_verifications[0].status, "created");
+});
+
+test("reconcileVerification: vendor failure leaves the row untouched and reports why", async () => {
+  const db = new FakeDb({
+    borrower_identity_verifications: [
+      { id: "v1", deal_id: "d1", ownership_entity_id: "o1", vendor: "didit", vendor_inquiry_id: "sess_1", status: "created", completed_at: null, created_at: "2026-08-25" },
+    ],
+  });
+
+  const didit = fakeDidit({
+    fetchDiditSession: async () => { throw new Error("Didit API /session/ failed: 503"); },
+  });
+
+  const r = await reconcileVerification("v1", { sb: db as any, didit });
+
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.equal(r.reason, "VENDOR_FETCH_FAILED");
+    assert.match(r.detail ?? "", /503/);
+  }
+  assert.equal(db.tables.borrower_identity_verifications[0].status, "created");
+});
+
+test("reconcilePendingVerifications: one dead session does not stop the rest of the batch", async () => {
+  const db = new FakeDb({
+    borrower_identity_verifications: [
+      { id: "v1", deal_id: "d1", ownership_entity_id: "o1", vendor: "didit", vendor_inquiry_id: "bad", status: "created", completed_at: null, created_at: "2026-08-25T01:00:00Z" },
+      { id: "v2", deal_id: "d1", ownership_entity_id: "o2", vendor: "didit", vendor_inquiry_id: "good", status: "created", completed_at: null, created_at: "2026-08-25T02:00:00Z" },
+    ],
+  });
+
+  const didit = fakeDidit({
+    fetchDiditSession: async (id: string) => {
+      if (id === "bad") throw new Error("gone");
+      return { session_id: id, status: "Approved", workflow_id: "wf_1", url: "https://verify.didit.me/x" };
+    },
+  });
+
+  const result = await reconcilePendingVerifications({ dealId: "d1" }, { sb: db as any, didit });
+
+  assert.equal(result.examined, 2);
+  assert.equal(result.failed, 1);
+  assert.equal(result.changed, 1);
+  assert.equal(db.tables.borrower_identity_verifications.find((r) => r.id === "v2")!.status, "approved");
+});
+
+test("reconcilePendingVerifications: already-approved rows are not re-examined", async () => {
+  const db = new FakeDb({
+    borrower_identity_verifications: [
+      { id: "v1", deal_id: "d1", ownership_entity_id: "o1", vendor: "didit", vendor_inquiry_id: "sess_1", status: "approved", completed_at: "2026-08-25", created_at: "2026-08-25" },
+    ],
+  });
+
+  let fetched = 0;
+  const didit = fakeDidit({
+    fetchDiditSession: async (id: string) => {
+      fetched++;
+      return { session_id: id, status: "Approved", workflow_id: "wf_1", url: "https://verify.didit.me/x" };
+    },
+  });
+
+  const result = await reconcilePendingVerifications({ dealId: "d1" }, { sb: db as any, didit });
+
+  assert.equal(result.examined, 0);
+  assert.equal(fetched, 0);
+});
+
+test("reconcileVerification: a Declined vendor session lands as declined, not silently approved", async () => {
+  const db = new FakeDb({
+    borrower_identity_verifications: [
+      { id: "v1", deal_id: "d1", ownership_entity_id: "o1", vendor: "didit", vendor_inquiry_id: "sess_1", status: "pending", completed_at: null, created_at: "2026-08-25" },
+    ],
+  });
+
+  const didit = fakeDidit({
+    fetchDiditSession: async (id: string) => ({ session_id: id, status: "Declined", workflow_id: "wf_1", url: "https://verify.didit.me/x" }),
+  });
+
+  const r = await reconcileVerification("v1", { sb: db as any, didit });
+
+  assert.equal(r.ok, true);
+  if (r.ok) assert.equal(r.status, "declined");
+  const row = db.tables.borrower_identity_verifications[0];
+  assert.equal(row.status, "declined");
+  assert.equal(row.completed_at, null, "a declined verification must never be stamped complete");
+  assert.equal(await hasValidIal2("d1", "o1", db as any), false);
 });

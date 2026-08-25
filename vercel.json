@@ -61,6 +61,10 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/cron/sba-checks?check=kyc-reconcile",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/sba-checks?check=stale-signatures",
       "schedule": "0 13 * * *"
     },

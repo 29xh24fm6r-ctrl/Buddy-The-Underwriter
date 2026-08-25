@@ -2,50 +2,128 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 /**
- * Didit webhook verification, "Simple Signature" scheme (the documented
- * fallback — Didit's preferred scheme, X-Signature-V2, HMACs a
- * recursively key-sorted JSON canonicalization of the full body including
- * the decision object; that canonicalization algorithm hasn't been
- * confirmed against a live account yet, so Simple Signature is implemented
- * here as the verifiable option today).
+ * Didit webhook verification.
  *
- * Header `X-Signature-Simple` = HMAC-SHA256(secret, data), where
- * data = `${timestamp}:${session_id}:${status}:${webhook_type}` and
- * timestamp comes from the `X-Timestamp` header (also used for replay
- * protection — requests older than 5 minutes are rejected).
- * https://docs.didit.me/integration/webhooks
+ * Didit sends THREE signature headers so an integrator can pick whichever
+ * one survives their stack (https://docs.didit.me/integration/webhooks):
  *
- * No live Didit webhook has been registered in this environment to
- * confirm this against; verify at deployment time and adjust if it differs.
+ *   X-Signature         HMAC-SHA256(secret, RAW REQUEST BODY)  ← primary
+ *   X-Signature-V2      HMAC-SHA256(secret, recursively key-sorted JSON)
+ *   X-Signature-Simple  HMAC-SHA256(secret, "<ts>:<session_id>:<status>:<webhook_type>")
+ *
+ * This module previously accepted ONLY X-Signature-Simple, over a `data`
+ * composition that had never been confirmed against a live account (the
+ * old file said so in its own header comment). Any real delivery whose
+ * Simple tuple differed by a single field — or that carried only
+ * X-Signature — was rejected with a bare 401 and NO log line, so a
+ * silently-dropped event was indistinguishable from an event that never
+ * arrived. See the 2026-08-25 Didit completion incident.
+ *
+ * Two changes fix that class of failure:
+ *
+ *  1. X-Signature (raw-body HMAC) is accepted first. It is the
+ *     unambiguous scheme — no canonicalization, no field ordering, no
+ *     guessing which tuple Didit composed. X-Signature-Simple remains as
+ *     a fallback so a v1/v2 destination keeps working.
+ *  2. Failures return a STRUCTURED REASON instead of `false`, so the
+ *     route can log exactly which headers were present and why the
+ *     signature did not match. A dropped webhook must never again be
+ *     invisible.
+ *
+ * Replay protection: when X-Timestamp is present it must be within 5
+ * minutes. A missing timestamp does not by itself reject a request whose
+ * raw-body HMAC is valid — the signature still proves authenticity, and
+ * rejecting on a header Didit may not send is how completions get lost.
  */
 
 const MAX_CLOCK_SKEW_SECONDS = 300;
 
-export function verifyDiditWebhookSignature(params: {
-  sessionId: string;
-  status: string;
-  webhookType: string;
+export type DiditSignatureScheme = "raw_body" | "simple";
+
+export type DiditVerifyResult =
+  | { ok: true; scheme: DiditSignatureScheme }
+  | {
+      ok: false;
+      reason:
+        | "NO_SIGNATURE_HEADER"
+        | "TIMESTAMP_INVALID"
+        | "TIMESTAMP_EXPIRED"
+        | "SIGNATURE_MISMATCH";
+      /** Header names actually present — logged so a misconfiguration is diagnosable. */
+      headersSeen: string[];
+    };
+
+function hmacHex(secret: string, data: string): string {
+  return createHmac("sha256", secret).update(data, "utf8").digest("hex");
+}
+
+/** Constant-time hex compare that tolerates casing and a `sha256=` prefix. */
+function hexEquals(expectedHex: string, providedRaw: string): boolean {
+  const provided = providedRaw.trim().replace(/^sha256=/i, "").toLowerCase();
+  if (!/^[0-9a-f]+$/.test(provided)) return false;
+  const expectedBuf = Buffer.from(expectedHex, "hex");
+  const providedBuf = Buffer.from(provided, "hex");
+  if (expectedBuf.length !== providedBuf.length || expectedBuf.length === 0) return false;
+  return timingSafeEqual(expectedBuf, providedBuf);
+}
+
+export function verifyDiditWebhook(params: {
+  rawBody: string;
+  sessionId: string | undefined;
+  status: string | undefined;
+  webhookType: string | undefined;
   timestampHeader: string | null;
   signatureHeader: string | null;
+  simpleSignatureHeader: string | null;
   secret: string;
-}): boolean {
-  const { sessionId, status, webhookType, timestampHeader, signatureHeader, secret } = params;
-  if (!timestampHeader || !signatureHeader) return false;
+  /** Injectable for tests. */
+  nowMs?: number;
+}): DiditVerifyResult {
+  const {
+    rawBody,
+    sessionId,
+    status,
+    webhookType,
+    timestampHeader,
+    signatureHeader,
+    simpleSignatureHeader,
+    secret,
+  } = params;
+  const now = params.nowMs ?? Date.now();
 
-  const timestamp = Number(timestampHeader);
-  if (!Number.isFinite(timestamp)) return false;
-  if (Math.abs(Date.now() / 1000 - timestamp) > MAX_CLOCK_SKEW_SECONDS) return false;
+  const headersSeen: string[] = [];
+  if (signatureHeader) headersSeen.push("x-signature");
+  if (simpleSignatureHeader) headersSeen.push("x-signature-simple");
+  if (timestampHeader) headersSeen.push("x-timestamp");
 
-  const data = `${timestampHeader}:${sessionId}:${status}:${webhookType}`;
-  const expected = createHmac("sha256", secret).update(data).digest("hex");
-
-  const expectedBuf = Buffer.from(expected, "hex");
-  let actualBuf: Buffer;
-  try {
-    actualBuf = Buffer.from(signatureHeader, "hex");
-  } catch {
-    return false;
+  if (!signatureHeader && !simpleSignatureHeader) {
+    return { ok: false, reason: "NO_SIGNATURE_HEADER", headersSeen };
   }
-  if (expectedBuf.length !== actualBuf.length) return false;
-  return timingSafeEqual(expectedBuf, actualBuf);
+
+  // Replay window — only enforced when Didit actually sent a timestamp.
+  if (timestampHeader) {
+    const timestamp = Number(timestampHeader);
+    if (!Number.isFinite(timestamp)) {
+      return { ok: false, reason: "TIMESTAMP_INVALID", headersSeen };
+    }
+    if (Math.abs(now / 1000 - timestamp) > MAX_CLOCK_SKEW_SECONDS) {
+      return { ok: false, reason: "TIMESTAMP_EXPIRED", headersSeen };
+    }
+  }
+
+  // 1. Raw-body HMAC — the scheme with no ambiguity.
+  if (signatureHeader && hexEquals(hmacHex(secret, rawBody), signatureHeader)) {
+    return { ok: true, scheme: "raw_body" };
+  }
+
+  // 2. Simple tuple fallback. Requires the timestamp, since it is part of
+  //    the signed string.
+  if (simpleSignatureHeader && timestampHeader && sessionId && status && webhookType) {
+    const data = `${timestampHeader}:${sessionId}:${status}:${webhookType}`;
+    if (hexEquals(hmacHex(secret, data), simpleSignatureHeader)) {
+      return { ok: true, scheme: "simple" };
+    }
+  }
+
+  return { ok: false, reason: "SIGNATURE_MISMATCH", headersSeen };
 }
