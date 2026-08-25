@@ -16,6 +16,7 @@ function input(naicsCode: string) {
     naicsCode,
     naicsDescription: "Machine Shops",
     projectedAnnualRevenue: 2_753_880,
+    industryGrowthRate: 0.032,
     research: {
       marketIntelligence: null,
       competitiveLandscape: null,
@@ -26,7 +27,7 @@ function input(naicsCode: string) {
     benchmark: null,
     tradeArea: {
       populationRadius5mi: 978_000,
-      medianHouseholdIncome: null,
+      medianHouseholdIncome: 79_000,
       competitorCount: null,
       populationGrowthRate5yr: null,
     },
@@ -40,6 +41,8 @@ test("manufacturing NAICS excludes consumer population adequacy from decision ev
   assert.equal(result.populationAdequacy.dataAvailable, false);
   assert.match(result.populationAdequacy.detail, /not decision-useful.*B2B/i);
   assert.doesNotMatch(result.populationAdequacy.detail, /revenue per capita/i);
+  assert.equal(result.demandTrend.dataSource, "Governed industry market-growth research");
+  assert.equal(result.dataCompleteness, 2 / 3);
   assert.ok(
     result.flags.some(
       (flag) =>
