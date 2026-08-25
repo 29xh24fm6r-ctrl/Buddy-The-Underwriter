@@ -1,4 +1,4 @@
-import type { TridentBundleMode } from "@/lib/brokerage/trident/generateTridentBundle";
+import type { TridentBundleMode, TridentSbaCheckpoint } from "@/lib/brokerage/trident/generateTridentBundle";
 
 type WorkflowArgs = {
   dealId: string;
@@ -20,7 +20,8 @@ export async function goldenTridentWorkflow(args: WorkflowArgs) {
     const admittedExecution = { ...args, ...snapshot };
     const canonicalBinding = await canonical(admittedExecution);
     const execution = { ...admittedExecution, ...canonicalBinding };
-    await artifacts(execution);
+    const sbaCheckpoint = await sba(execution);
+    await artifacts(execution, sbaCheckpoint);
     return await manifest(execution);
   } catch (error) {
     await fail({ ...args, inputHash: undefined }, error instanceof Error ? error.message : String(error));
@@ -40,10 +41,16 @@ async function canonical(args: ExecutionArgs) {
   return generateCanonicalFactoryArtifacts(args);
 }
 
-async function artifacts(args: ExecutionArgs) {
+async function sba(args: ExecutionArgs) {
+  "use step";
+  const { generateSbaFactoryCheckpoint } = await import("@/lib/brokerage/trident/tridentFactoryStages");
+  return generateSbaFactoryCheckpoint(args);
+}
+
+async function artifacts(args: ExecutionArgs, sbaCheckpoint: TridentSbaCheckpoint) {
   "use step";
   const { runArtifactFactory } = await import("@/lib/brokerage/trident/tridentFactoryStages");
-  return runArtifactFactory(args);
+  return runArtifactFactory(args, sbaCheckpoint);
 }
 
 async function manifest(args: ExecutionArgs) {

@@ -41,6 +41,11 @@ import { assertTridentInputSnapshot, computeTridentInputSnapshot } from "./tride
 
 export type TridentBundleMode = "preview" | "final";
 
+export type TridentSbaCheckpoint = Extract<
+  Awaited<ReturnType<typeof generateSBAPackage>>,
+  { ok: true }
+>;
+
 export async function createTridentBundleRun(args: {
   dealId: string;
   mode: TridentBundleMode;
@@ -96,6 +101,59 @@ export type GenerateResult =
     }
   | { ok: false; bundleId: string | null; error: string };
 
+export async function generateTridentSbaCheckpoint(args: {
+  dealId: string;
+  mode: TridentBundleMode;
+  bundleId: string;
+  bankId: string;
+  inputHash: string;
+  memoInputHash: string;
+  leaseToken: string;
+}): Promise<TridentSbaCheckpoint> {
+  const sb = supabaseAdmin();
+  const { data: bundle, error: bundleError } = await sb
+    .from("buddy_trident_bundles")
+    .select("id")
+    .eq("id", args.bundleId)
+    .eq("deal_id", args.dealId)
+    .eq("bank_id", args.bankId)
+    .eq("input_hash", args.inputHash)
+    .eq("lease_token", args.leaseToken)
+    .in("status", ["pending", "running"])
+    .maybeSingle();
+  if (bundleError || !bundle) {
+    throw new Error(bundleError?.message ?? "Trident lease lost before SBA generation");
+  }
+  await assertTridentInputSnapshot({ sb, dealId: args.dealId, expectedHash: args.inputHash });
+
+  const result = await runWithAIExecutionContext(
+    {
+      dealId: args.dealId,
+      traceId: args.bundleId,
+      artifactType: "trident_bundle",
+      artifactId: args.bundleId,
+      npiTagged: true,
+    },
+    () => generateSBAPackage(args.dealId, { mode: args.mode }),
+  );
+  if (!result.ok) throw new Error(`SBA package generation failed: ${result.error}`);
+
+  const { error: checkpointError } = await sb
+    .from("buddy_trident_bundles")
+    .update({
+      source_sba_package_id: result.packageId,
+      current_stage: "business_plan_review",
+      last_heartbeat_at: new Date().toISOString(),
+    })
+    .eq("id", args.bundleId)
+    .eq("lease_token", args.leaseToken)
+    .eq("input_hash", args.inputHash);
+  if (checkpointError) {
+    throw new Error(`SBA package checkpoint write failed: ${checkpointError.message}`);
+  }
+  return result;
+}
+
 export async function generateTridentBundle(args: {
   dealId: string;
   mode: TridentBundleMode;
@@ -104,6 +162,7 @@ export async function generateTridentBundle(args: {
   inputHash?: string;
   memoInputHash?: string;
   leaseToken?: string;
+  sbaCheckpoint?: TridentSbaCheckpoint;
 }): Promise<GenerateResult> {
   const { dealId, mode } = args;
   const sb = supabaseAdmin();
@@ -122,7 +181,8 @@ export async function generateTridentBundle(args: {
       const admittedExecution = { ...factoryArgs, ...snapshot };
       const canonicalBinding = await generateCanonicalFactoryArtifacts(admittedExecution);
       const execution = { ...admittedExecution, ...canonicalBinding };
-      const result = await runArtifactFactory(execution);
+      const sbaCheckpoint = await generateTridentSbaCheckpoint(execution);
+      const result = await runArtifactFactory(execution, sbaCheckpoint);
       await verifyTridentFactory(execution);
       return result;
     } catch (error) {
@@ -175,9 +235,9 @@ export async function generateTridentBundle(args: {
     // 1. SBA package (business plan PDF + package row).
     const resumedSbaPackageId = (existing.source_sba_package_id as string | null | undefined) ?? null;
     const completedBusinessPlanPath = (existing.business_plan_pdf_path as string | null | undefined) ?? null;
-    const sbaResult = resumedSbaPackageId && completedBusinessPlanPath
+    const sbaResult = args.sbaCheckpoint ?? (resumedSbaPackageId && completedBusinessPlanPath
       ? ({ ok: true, packageId: resumedSbaPackageId, pdfUrl: null, renderInput: null } as const)
-      : await generateSBAPackage(dealId, { mode });
+      : await generateSBAPackage(dealId, { mode }));
     if (!sbaResult.ok) throw new Error(`SBA package generation failed: ${sbaResult.error}`);
 
     // Audit fix (Borrower Intake Program review) — enrichBusinessPlanPackage

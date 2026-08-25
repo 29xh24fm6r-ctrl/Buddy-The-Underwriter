@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateCanonicalMemoArtifact } from "@/lib/creditMemo/canonical/generateCanonicalMemoArtifact";
 import { renderClassicPdfSpread } from "@/lib/classicSpread/classicPdfWorker";
 import { assertTridentInputSnapshot } from "./tridentInputSnapshot";
-import type { TridentBundleMode } from "./generateTridentBundle";
+import type { TridentBundleMode, TridentSbaCheckpoint } from "./generateTridentBundle";
 
 export type TridentFactoryArgs = {
   dealId: string;
@@ -171,12 +171,33 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
   }
 }
 
-export async function runArtifactFactory(args: TridentFactoryExecutionArgs) {
+export async function generateSbaFactoryCheckpoint(
+  args: TridentFactoryExecutionArgs,
+): Promise<TridentSbaCheckpoint> {
+  await writeStage(args, "sba_package", "running");
+  try {
+    await assertFrozen(args);
+    const { generateTridentSbaCheckpoint } = await import("./generateTridentBundle");
+    const checkpoint = await generateTridentSbaCheckpoint(args);
+    await assertFrozen(args);
+    await writeStage(args, "sba_package", "succeeded", {
+      packageId: checkpoint.packageId,
+      pdfUrl: checkpoint.pdfUrl,
+    });
+    return checkpoint;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await writeStage(args, "sba_package", "failed", { message });
+    throw error;
+  }
+}
+
+export async function runArtifactFactory(args: TridentFactoryExecutionArgs, sbaCheckpoint?: TridentSbaCheckpoint) {
   await writeStage(args, "artifact_factory", "running");
   try {
     await assertFrozen(args);
     const { generateTridentBundle } = await import("./generateTridentBundle");
-    const result = await generateTridentBundle(args);
+    const result = await generateTridentBundle({ ...args, sbaCheckpoint });
     if (!result.ok) {
       const permanent = /institutional review|release blocked|acceptance failed|not ready|input_snapshot_changed/i.test(result.error);
       if (permanent) throw new FatalError(result.error);
