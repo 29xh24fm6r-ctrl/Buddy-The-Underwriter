@@ -7,6 +7,8 @@ const marketplaceMigration = readFileSync("supabase/migrations/20260825190000_cr
 const api = readFileSync("src/lib/crm/bankBuyerRoute.ts", "utf8");
 const page = readFileSync("src/components/brokerage/BankBuyersWorkspace.tsx", "utf8");
 const organizationPage = readFileSync("src/components/brokerage/OrganizationWorkspace.tsx", "utf8");
+const tokens = readFileSync("src/components/brokerage/tokens.ts", "utf8");
+const shell = readFileSync("src/components/brokerage/BrokerageShell.tsx", "utf8");
 
 test("bank buyer CRM owns a tenant-scoped multi-lender submission ledger", () => {
   assert.match(migration, /create table public\.crm_lender_profiles/);
@@ -52,4 +54,15 @@ test("bank records keep contacts, marketplace access, appetite, and deals in one
   assert.match(organizationPage, /Lending appetite/);
   assert.match(organizationPage, /Deals sent to this bank/);
   assert.match(organizationPage, /No duplicate organization is needed/);
+});
+
+
+test("CRM uses a scoped high-contrast light theme", () => {
+  assert.match(tokens, /export const crmColors/);
+  assert.match(tokens, /ink: "#F7F5F0"/);
+  assert.match(tokens, /card: "#FFFFFF"/);
+  assert.match(tokens, /paper: "#20242B"/);
+  assert.match(shell, /pathname\.startsWith\("\/admin\/brokerage\/crm"\) \? crmColors : brokerageColors/);
+  assert.match(page, /crmColors as c/);
+  assert.match(organizationPage, /crmColors as c/);
 });
