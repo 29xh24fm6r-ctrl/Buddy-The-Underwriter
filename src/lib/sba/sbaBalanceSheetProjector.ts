@@ -6,6 +6,7 @@
 
 import type {
   AnnualProjectionYear,
+  MonthlyProjection,
   SBAAssumptions,
 } from "./sbaReadinessTypes";
 
@@ -92,6 +93,7 @@ export function buildBalanceSheetProjections(
   assumptions: SBAAssumptions,
   annualProjections: AnnualProjectionYear[],
   baseYear: BalanceSheetBaseYearInputs,
+  monthlyProjections: MonthlyProjection[] = [],
 ): BalanceSheetYear[] {
   const { workingCapital, costAssumptions, loanImpact } = assumptions;
   const dso = workingCapital.targetDSO || 0;
@@ -128,6 +130,9 @@ export function buildBalanceSheetProjections(
   };
 
   const rows: BalanceSheetYear[] = [year0];
+  const year1MonthlyClosingCash = monthlyProjections.length > 0
+    ? baseYear.cash + monthlyProjections[monthlyProjections.length - 1].cumulativeCash
+    : null;
 
   // Project years 1-3
   for (let i = 0; i < Math.min(3, annualProjections.length); i++) {
@@ -157,8 +162,16 @@ export function buildBalanceSheetProjections(
     const currNonCashWC = ar + inventory - ap;
     const changeInWC = currNonCashWC - prevNonCashWC;
 
-    const cash =
+    const annualRollForwardCash =
       prev.cash + y.netIncome + y.depreciation - changeInWC - principalPayments - capexThisYear;
+    // Year 1 has a canonical monthly liquidity ledger that already includes
+    // operating cash flow, debt service, financing inflows, and transaction
+    // uses. Recomputing Year 1 here created a second cash engine and allowed
+    // the business plan to publish contradictory ending-cash figures. Bind
+    // the projected balance sheet to the same closing cash instead.
+    const cash = yearIdx === 1 && year1MonthlyClosingCash != null
+      ? year1MonthlyClosingCash
+      : annualRollForwardCash;
 
     const fixedAssets = prev.fixedAssets + capexThisYear - y.depreciation;
 
