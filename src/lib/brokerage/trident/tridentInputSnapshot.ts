@@ -64,8 +64,15 @@ function canonicalize(value: unknown): unknown {
 }
 
 export function hashTridentManifest(manifest: Record<string, unknown>): string {
+  // Version 5 separates governed source inputs from factory-produced
+  // derivatives. A run may materialize snapshots, validation evidence, memos,
+  // and spreads without invalidating its own admission.
+  const hashDomain =
+    manifest.version === 5 && manifest.sources && typeof manifest.sources === "object"
+      ? manifest.sources
+      : manifest;
   return createHash("sha256")
-    .update(JSON.stringify(canonicalize(semanticTridentSnapshot(manifest))))
+    .update(JSON.stringify(canonicalize(semanticTridentSnapshot(hashDomain))))
     .digest("hex");
 }
 
@@ -146,25 +153,32 @@ export async function computeTridentInputSnapshot(
   ]);
 
   const manifest = canonicalize({
-    version: 4,
-    deal: dealResult.data,
-    financialSnapshots,
-    pricingDecisions,
-    financialFacts,
-    structuralPricing,
-    assumptions,
-    borrowerStories,
-    documents,
-    proceeds,
-    applications,
-    validationReports,
-    researchMissions,
-    researchSources,
-    researchFacts,
-    researchInferences,
-    researchNarratives,
-    researchQualityGates,
-    memoInputHash,
+    version: 5,
+    // Only borrower, underwriting, and governed research sources participate
+    // in inputHash. Financial snapshots and validation reports are derived
+    // materializations produced by the canonical factory itself.
+    sources: {
+      deal: dealResult.data,
+      pricingDecisions,
+      financialFacts,
+      structuralPricing,
+      assumptions,
+      borrowerStories,
+      documents,
+      proceeds,
+      applications,
+      researchMissions,
+      researchSources,
+      researchFacts,
+      researchInferences,
+      researchNarratives,
+      researchQualityGates,
+    },
+    derivedAtAdmission: {
+      financialSnapshots,
+      validationReports,
+      memoInputHash,
+    },
   }) as Record<string, unknown>;
 
   return { inputHash: hashTridentManifest(manifest), memoInputHash, manifest };
