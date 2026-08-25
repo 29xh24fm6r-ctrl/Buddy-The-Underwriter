@@ -111,9 +111,9 @@ export async function bankBuyerPOST(req: NextRequest) {
       marketplace_role: marketplaceRole,
       marketplace_access_status: marketplaceAccessStatus,
       marketplace_onboarding_notes: text(body.marketplaceOnboardingNotes),
-      marketplace_last_active_at: marketplaceAccessStatus === "active" ? now : undefined,
       updated_at: now,
     };
+    if (marketplaceAccessStatus === "active") marketplacePatch.marketplace_last_active_at = now;
     const { data: existing, error: existingError } = await sb.from("crm_lender_profiles").select("*").eq("bank_id", bankId).eq("organization_id", organizationId).maybeSingle();
     if (existingError) return NextResponse.json({ ok: false, error: existingError.message }, { status: 500 });
 
