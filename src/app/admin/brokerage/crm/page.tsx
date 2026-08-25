@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { brokerageColors as c, fmtMoney } from "@/components/brokerage/tokens";
@@ -56,7 +56,7 @@ const TYPE_LABELS: Record<string, string> = {
   borrower_business: "Borrower business",
   cpa_firm: "CPA firm",
   law_firm: "Law firm",
-  lender: "Lender",
+  lender: "Bank / Lender",
   insurance_provider: "Insurance provider",
   appraisal_firm: "Appraisal firm",
   environmental_firm: "Environmental firm",
@@ -122,12 +122,19 @@ export default function BrokerageCrmPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
 
   const [name, setName] = useState("");
   const [type, setType] = useState("referral_source");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const filteredOrgs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return orgs.filter((o) => (typeFilter === "all" || o.organization_type === typeFilter) && (!q || [o.name, o.city, o.state, TYPE_LABELS[o.organization_type]].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))));
+  }, [orgs, search, typeFilter]);
 
   async function load() {
     setLoading(true);
@@ -186,7 +193,7 @@ export default function BrokerageCrmPage() {
       )}
 
       {/* Summary tiles */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(165px, 1fr))", gap: 12, marginBottom: 20 }}>
         <Tile label="Organizations" value={summary ? String(summary.organizationCount) : "—"} accent={c.brass} />
         <Tile label="Contacts" value={summary ? String(summary.contactCount) : "—"} accent={c.brass} />
         <Tile label="Deals sourced" value={summary ? String(summary.dealsReferredCount) : "—"} accent={c.sage} />
@@ -195,7 +202,7 @@ export default function BrokerageCrmPage() {
       </div>
 
       {/* Needs attention + feeds */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12, marginBottom: 20 }}>
         <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ padding: "11px 16px", borderBottom: `1px solid ${c.border}`, fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 14 }}>
             Needs attention
@@ -253,7 +260,11 @@ export default function BrokerageCrmPage() {
         </div>
       </div>
 
-      <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+        <div>
+          <div style={{ color: c.paper, fontFamily: "var(--font-brokerage-display)", fontSize: 18, fontWeight: 650 }}>Relationship directory</div>
+          <div style={{ color: c.textMuted, fontSize: 11.5, marginTop: 3 }}>Banks, bankers, referral partners, borrowers, and every organization you work with.</div>
+        </div>
         <button
           onClick={() => setShowForm((s) => !s)}
           style={{
@@ -271,9 +282,14 @@ export default function BrokerageCrmPage() {
         </button>
       </div>
 
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(170px, .35fr)", gap: 10, marginBottom: 12 }}>
+        <input aria-label="Search relationships" style={inputStyle()} placeholder="Search organizations, cities, or types…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select aria-label="Filter by organization type" style={inputStyle()} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}><option value="all">All relationship types</option>{Object.entries(TYPE_LABELS).map(([value, title]) => <option key={value} value={value}>{title}</option>)}</select>
+      </div>
+
       {showForm && (
         <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16, marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1fr", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
             <input style={inputStyle()} placeholder="Organization name" value={name} onChange={(e) => setName(e.target.value)} />
             <select style={inputStyle()} value={type} onChange={(e) => setType(e.target.value)}>
               {Object.entries(TYPE_LABELS).map(([value, label]) => (
@@ -330,16 +346,16 @@ export default function BrokerageCrmPage() {
 
         {loading ? (
           <div style={{ padding: "54px 20px", textAlign: "center", color: c.textMuted, fontSize: 12 }}>Loading…</div>
-        ) : orgs.length === 0 ? (
+        ) : filteredOrgs.length === 0 ? (
           <div style={{ padding: "54px 20px", textAlign: "center" }}>
             <div style={{ fontSize: 30, opacity: 0.35, marginBottom: 8 }}>◇</div>
             <div style={{ fontFamily: "var(--font-brokerage-display)", fontSize: 16, color: "#C9C3B6", marginBottom: 4 }}>
-              No referral sources yet
+              No organizations yet
             </div>
-            <div style={{ fontSize: 12, color: c.textMuted }}>Add the CPAs, attorneys, and brokers who send you deals.</div>
+            <div style={{ fontSize: 12, color: c.textMuted }}>Add a bank, banker, referral partner, borrower, or other relationship to get started.</div>
           </div>
         ) : (
-          orgs.map((o) => (
+          filteredOrgs.map((o) => (
             <Link
               key={o.id}
               href={`/admin/brokerage/crm/${o.id}`}
