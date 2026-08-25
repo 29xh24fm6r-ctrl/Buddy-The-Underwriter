@@ -229,6 +229,10 @@ test("the admitted snapshot captures every evidence layer without hashing resear
   assert.match(governedEvidence, /researchQualityGates/);
   assert.match(snapshot, /semanticTridentSnapshot/);
   assert.match(snapshot, /TRIDENT_VOLATILE_SNAPSHOT_KEYS/);
+  assert.match(snapshot, /summarizeTridentSourceDrift/);
+  assert.match(snapshot, /changed_sources=/);
+  assert.match(stages, /snapshot_manifest_json/);
+  assert.match(stages, /expectedManifest:/);
 });
 
 
