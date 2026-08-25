@@ -34,6 +34,7 @@ export interface FeasibilityNarrativeInput {
   isFranchise: boolean;
   brandName: string | null;
   managementTeam: ManagementMemberLite[];
+  industry: string | null;
 }
 
 export async function generateFeasibilityNarratives(
@@ -97,6 +98,7 @@ Return ONLY valid JSON: { "executiveSummary": "..." }`),
     callGeminiJSON(`You are writing the Market Demand section of a feasibility study.
 
 Borrower: ${params.dealName}
+Industry: ${params.industry ?? "Not specified"}
 Location: ${locationStr}
 Score: ${params.marketDemand.overallScore}/100
 
@@ -123,6 +125,7 @@ RULES:
 - Ground every claim in the score data or research. No invented statistics.
 - If data was unavailable for a dimension, state that honestly.
 - Use the exact numbers from the dimension details.
+- If a dimension says it is not applicable or not decision-useful for a B2B/manufacturing borrower, do not present its neutral score as positive demand evidence. State the limitation directly and rely on customer, contract, backlog, industry, and competitive evidence instead.
 
 CRITICAL: When research context is provided, reference specific facts from it — named competitors, specific demographic data, specific industry trends. The reader should feel that the analyst studied this specific business and market deeply. Generic statements like "the local economy appears healthy" when the research says "Flowery Branch median household income is $78,400 and population grew 12% from 2020-2025" are unacceptable.
 ${params.research.marketIntelligence ? `\n\nBIE Market Intelligence (use specific claims from this):\n${params.research.marketIntelligence.slice(0, 3000)}` : ""}
@@ -145,6 +148,11 @@ Dimensions:
 Flags: ${JSON.stringify(params.financialViability.flags)}
 
 Write 600-800 words. Use exact DSCR numbers, break-even amounts, and margin of safety percentages.
+
+EVIDENCE BOUNDARY:
+- The supplied break-even is operating-only. Do not add debt service to it or calculate a debt-service-inclusive break-even, residual cushion, or new margin percentage.
+- Do not derive or present any new financial threshold. If a useful metric is absent, identify it as unavailable and recommend that the deterministic model produce it.
+- Every numeric claim must appear verbatim in the dimension details or supplied research.
 
 CRITICAL: When research context is provided, reference specific facts from it — named competitors, specific demographic data, specific industry trends. The reader should feel that the analyst studied this specific business and market deeply. Generic statements like "the local economy appears healthy" when the research says "Flowery Branch median household income is $78,400 and population grew 12% from 2020-2025" are unacceptable.
 ${params.research.industryOverview ? `\n\nIndustry Context:\n${params.research.industryOverview.slice(0, 1500)}` : ""}
