@@ -97,11 +97,12 @@ class FakeDb {
     };
     if (opts?.storage !== false) {
       const uploadFails = opts?.uploadFails ?? false;
+      const uploads: Array<{ bucket: string; path: string; opts: any }> = [];
       this.storage = {
-        uploads: [] as Array<{ bucket: string; path: string; opts: any }>,
+        uploads,
         from: (bucket: string) => ({
           upload: async (path: string, _data: Buffer, uploadOpts?: any) => {
-            this.storage.uploads.push({ bucket, path, opts: uploadOpts });
+            uploads.push({ bucket, path, opts: uploadOpts });
             return uploadFails ? { error: { message: "upload_failed" } } : { error: null };
           },
         }),
@@ -178,6 +179,10 @@ test("requestSignature: with IAL2 -> creates document + writes esign.requested e
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.requested"));
   assert.equal(db.tables.signing_requests?.length, 1);
   assert.equal(db.tables.signing_requests?.[0].signwell_document_id, "12345");
+  assert.deepEqual(db.tables.signing_requests?.[0].metadata, {
+    template_version: "v1",
+    identity_verification_id: "v1",
+  });
 });
 
 test("requestSignature: pdf render fails -> SUBMISSION_FAILED, no document created", async () => {
