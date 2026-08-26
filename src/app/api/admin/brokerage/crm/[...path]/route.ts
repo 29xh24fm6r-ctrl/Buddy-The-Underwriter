@@ -129,7 +129,7 @@ async function dispatch(method: Method, req: NextRequest, ctx: Ctx) {
       if (method === "POST") return (await import("./_handlers/leads")).POST(req);
       return METHOD_NOT_ALLOWED(["GET", "POST"]);
     case "organizations":
-      if (method === "GET") return (await import("./_handlers/organizations")).GET(req);
+      if (method === "GET") return (await import("./_handlers/organizations")).GET();
       if (method === "POST") return (await import("./_handlers/organizations")).POST(req);
       return METHOD_NOT_ALLOWED(["GET", "POST"]);
     case "people":
@@ -137,7 +137,7 @@ async function dispatch(method: Method, req: NextRequest, ctx: Ctx) {
       if (method === "POST") return (await import("./_handlers/people")).POST(req);
       return METHOD_NOT_ALLOWED(["GET", "POST"]);
     case "relationships":
-      if (method === "GET") return (await import("./_handlers/relationships")).GET(req);
+      if (method === "GET") return (await import("./_handlers/relationships")).GET();
       return METHOD_NOT_ALLOWED(["GET"]);
     case "search":
       if (method === "GET") return (await import("./_handlers/search")).GET(req);
@@ -150,7 +150,7 @@ async function dispatch(method: Method, req: NextRequest, ctx: Ctx) {
       if (method === "POST") return (await import("./_handlers/comms-send")).POST(req);
       return METHOD_NOT_ALLOWED(["POST"]);
     case "comms/templates":
-      if (method === "GET") return (await import("./_handlers/comms-templates")).GET(req);
+      if (method === "GET") return (await import("./_handlers/comms-templates")).GET();
       if (method === "PUT") return (await import("./_handlers/comms-templates")).PUT(req);
       return METHOD_NOT_ALLOWED(["GET", "PUT"]);
     case "intelligence/ai-assist":
