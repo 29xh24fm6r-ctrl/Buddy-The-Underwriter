@@ -209,8 +209,8 @@ test("handleSignwellWebhook: event.type=document_viewed -> ignored", async () =>
   if (r.ok) assert.equal((r as any).ignored, true);
 });
 
-test("handleSignwellWebhook: document_completed without IAL2 -> anomaly event + no signed_documents row", async () => {
-  const db = new FakeDb();
+test("handleSignwellWebhook: durable request without IAL2 -> anomaly event + no signed_documents row", async () => {
+  const db = new FakeDb({ signing_requests: withSigningRequest() });
   const r = await handleSignwellWebhook(
     { event: { type: "document_completed" }, data: { object: { id: 1, metadata: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}` } } } },
     { sb: db as any, signwell: fakeSignwell() },
