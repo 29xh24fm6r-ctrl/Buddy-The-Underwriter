@@ -104,6 +104,13 @@ test("Clerk-to-Supabase JWT subject matches Buddy's RLS identity", () => {
   assert.doesNotMatch(exchange, /\.setSubject\(appUserId\)/);
 });
 
+test("usage increments never downgrade to a non-atomic fallback", () => {
+  const limits = read("src/lib/usage/limits.ts");
+  assert.match(limits, /throw error/);
+  assert.doesNotMatch(limits, /\.raw\(/);
+  assert.doesNotMatch(limits, /free_continues_used \+ 1/);
+});
+
 test("usage SECURITY DEFINER function is service-role only", () => {
   const migration = read(
     "supabase/migrations/20260826163000_usage_function_privilege_boundary.sql",
