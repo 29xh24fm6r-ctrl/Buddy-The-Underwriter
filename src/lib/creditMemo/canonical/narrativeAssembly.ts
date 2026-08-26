@@ -34,7 +34,7 @@ export type MemoNarratives = {
 
 const NARRATIVES_SCHEMA = `{
   "executive_summary": "2-3 paragraphs: lead with verdict + DSCR, then deal structure, then key risks. Committee should reach a preliminary judgment from this section alone.",
-  "income_analysis": "One paragraph per applicable ratio category (Liquidity/Leverage/Coverage/Profitability/Activity). Cite only governed values present in the input. Reconcile every financial_trend DSCR discussed to the underwriting DSCR and its debt-service basis; if periods differ, name the period and basis rather than implying a contradiction. If governed stress evidence is present, state DSCR in dollars and the EBITDA cushion to the governed floor. If it is absent, identify the evidence gap without estimating. Close with a synthesis tying Five Cs to repayment.",
+  "income_analysis": "One paragraph per applicable ratio category (Liquidity/Leverage/Coverage/Profitability/Activity). Cite only governed values present in the input. For every financial_trend period, use that row\'s cash_flow_available and debt_service as the denominator pair for calculated_dscr; never compare a period DSCR to the underwriting DSCR without naming both periods and bases. If periods differ, name the period and basis rather than implying a contradiction. If governed stress evidence is present, state DSCR in dollars and the EBITDA cushion to the governed floor. If it is absent, identify the evidence gap without estimating. Close with a synthesis tying Five Cs to repayment.",
   "repayment_analysis": "Synthesize only governed stress results present in the input. State the policy floor and citation, EBITDA cushion (never call it revenue cushion), and worst modeled DSCR when available. Otherwise state that quantitative stress is withheld pending governed EBITDA and debt-service evidence. Connect to covenant structure without inventing a policy threshold.",
   "property_description": "1 paragraph: collateral type, condition, location, market context, advance rate applied.",
   "borrower_background": "1 paragraph: legal entity, ownership structure with percentages, operating history, geography.",
@@ -238,8 +238,34 @@ export function buildNarrativeInput(
       label: row.label,
       revenue: row.revenue,
       cash_flow_available: row.cash_flow_available,
+      debt_service: row.debt_service,
       dscr: row.dscr,
+      calculated_dscr:
+        typeof row.cash_flow_available === "number" &&
+        typeof row.debt_service === "number" &&
+        row.debt_service > 0
+          ? row.cash_flow_available / row.debt_service
+          : null,
+      basis: "cash_flow_available / period_debt_service",
     })),
+
+    // Give generation and review the same explicit bridge between the current
+    // underwriting metric and each historical/trend period. This prevents a
+    // reviewer from treating two correctly calculated, differently based DSCRs
+    // as a contradiction or accepting a narrative that silently mixes them.
+    underwriting_reconciliation: {
+      cash_flow_available: memo.financial_analysis.cash_flow_available.value,
+      debt_service: memo.financial_analysis.debt_service.value,
+      dscr: memo.key_metrics.dscr_uw.value,
+      calculated_dscr:
+        typeof memo.financial_analysis.cash_flow_available.value === "number" &&
+        typeof memo.financial_analysis.debt_service.value === "number" &&
+        memo.financial_analysis.debt_service.value > 0
+          ? memo.financial_analysis.cash_flow_available.value /
+            memo.financial_analysis.debt_service.value
+          : null,
+      basis: "underwriting_cash_flow_available / underwriting_debt_service",
+    },
 
     // ── Phase 92 (d): business context from overrides ───────────────────
     business_context: {
