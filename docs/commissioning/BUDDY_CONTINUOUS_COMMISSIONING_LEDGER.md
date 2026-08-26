@@ -285,5 +285,9 @@ Unresolved:
   available.
 - Direct production-row verification remains blocked by the Buddy Supabase
   connector's internal `-32603` connection error.
+- Legacy identity namespaces remain an evidence-classification target:
+  `platform_admins.user_id` points at `app_users.id`, while `user_usage.user_id`
+  still carries an older `auth.users(id)` foreign key. No destructive FK or
+  production-row rewrite is authorized without connector evidence.
 - Authorized transactional fixtures remain required for Golden Trident delivery,
   SignWell replay, and reconciliation workers.
