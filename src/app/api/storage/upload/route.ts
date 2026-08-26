@@ -6,6 +6,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import crypto from "node:crypto";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +45,14 @@ export async function POST(req: NextRequest) {
       return json(400, { ok: false, error: "Missing dealId" });
     }
 
+    try {
+      await assertDealAccess(dealId);
+    } catch (error) {
+      const accessResponse = accessErrorToResponse(error);
+      if (accessResponse) return accessResponse;
+      return json(500, { ok: false, error: "access_check_failed" });
+    }
+
     if (!filename) {
       filename = file.name;
     }
@@ -51,7 +61,9 @@ export async function POST(req: NextRequest) {
     const docStore = String(process.env.DOC_STORE || "").toLowerCase();
 
     if (!storage) {
-      // Fallback: Save to local file system (development)
+      if (process.env.NODE_ENV === "production") {
+        return json(503, { ok: false, error: "storage_unavailable" });
+      }
       return await handleLocalUpload(file, dealId, applicationId, filename);
     }
 
@@ -136,8 +148,8 @@ export async function POST(req: NextRequest) {
       });
 
     if (error) {
-      console.error("[storage/upload] Supabase error:", error);
-      return json(500, { ok: false, error: error.message });
+      console.error("[storage/upload] Supabase upload failed");
+      return json(500, { ok: false, error: "upload_failed" });
     }
 
     return json(200, {
@@ -147,9 +159,9 @@ export async function POST(req: NextRequest) {
       size: file.size,
       bucket: "deal_uploads",
     });
-  } catch (e: any) {
-    console.error("[storage/upload] error:", e);
-    return json(500, { ok: false, error: e.message });
+  } catch (error: unknown) {
+    console.error("[storage/upload] unexpected failure", error);
+    return json(500, { ok: false, error: "upload_failed" });
   }
 }
 
