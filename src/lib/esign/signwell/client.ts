@@ -55,6 +55,12 @@ const DocumentSchema = z.object({
   id: z.union([z.string(), z.number()]),
   status: z.string(),
   test_mode: z.boolean().optional(),
+  metadata: z
+    .object({
+      external_id: z.string().optional(),
+    })
+    .passthrough()
+    .optional(),
   recipients: z.array(RecipientSchema),
   completed_pdf_url: z.string().nullable().optional(),
 });
