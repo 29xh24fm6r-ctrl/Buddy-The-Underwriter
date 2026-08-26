@@ -103,4 +103,8 @@ test("fails closed when automated repair is unavailable", async () => {
   assert.equal(result.verdict, "flagged");
   assert.equal(result.repaired, false);
   assert.equal(result.flaggedClaims.length, 1);
+  assert.equal(result.reviewIssues.length, 1);
+  assert.equal(result.reviewIssues[0].sectionKey, "repayment");
+  assert.equal(result.reviewIssues[0].category, "unsupported_fact");
+  assert.equal(result.reviewIssues[0].repairInstruction, "Remove it");
 });
