@@ -12,6 +12,26 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function formatGenerationFailure(body: Record<string, unknown>, status: number): string {
+  const reasons = Array.isArray(body.reasons) ? body.reasons.map(String) : [];
+  const verification = body.verification && typeof body.verification === "object"
+    ? body.verification as Record<string, unknown>
+    : null;
+  const issues = Array.isArray(verification?.reviewIssues)
+    ? verification.reviewIssues
+    : [];
+  const issueLines = issues.map((issue: Record<string, unknown>) => {
+    const section = typeof issue.sectionKey === "string" ? issue.sectionKey.replace(/_/g, " ") : "artifact";
+    const category = typeof issue.category === "string" ? issue.category.replace(/_/g, " ") : "review";
+    const reason = typeof issue.reason === "string" ? issue.reason : "Institutional review finding.";
+    const repair = typeof issue.repairInstruction === "string" ? ` Repair: ${issue.repairInstruction}` : "";
+    return `[${section} · ${category}] ${reason}${repair}`;
+  });
+  return [...reasons, body.error, ...issueLines]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ") || `Generation failed (${status})`;
+}
+
 function waitForDocumentVisible(): Promise<void> {
   if (document.visibilityState === "visible") return Promise.resolve();
 
@@ -126,8 +146,7 @@ export function GoldenTridentLabClient({
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || body.ok === false) {
-        const reasons = Array.isArray(body.reasons) ? body.reasons.join(" ") : null;
-        throw new Error(reasons || body.error || `Generation failed (${response.status})`);
+        throw new Error(formatGenerationFailure(body, response.status));
       }
       if (kind === "analysis" && body.result?.status !== "succeeded") {
         const blockers = Array.isArray(body.result?.blockers) ? body.result.blockers.join(", ") : "";

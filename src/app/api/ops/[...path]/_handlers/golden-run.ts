@@ -13,9 +13,11 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/ops/golden-run
  *
- * Phase 9 — executes the deterministic golden brokerage run end-to-end:
+ * Phase 9 compatibility simulator — validates synthetic table choreography:
  * intake → score → trident → seal → listing → claim → pick → unlock →
- * ops validation. Synthetic data only; lender side uses the dedicated
+ * ops validation. It does not invoke the Final Golden Trident, release gate,
+ * sealing gate, identity, SignWell, or real-route distribution. Synthetic data
+ * only; lender side uses the dedicated
  * "Golden Test Bank".
  *
  * Body (all optional):
