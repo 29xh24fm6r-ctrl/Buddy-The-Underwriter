@@ -6,6 +6,53 @@ out of scope.
 
 ## 2026-08-26
 
+### Post-OTP chooser-cookie signing boundary
+
+Evidence:
+
+- The QA and general borrower application chooser cookies both selected
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` when the service-role secret was unavailable.
+  That key is intentionally browser-visible and cannot authenticate a server-only
+  post-OTP identity.
+- The QA verifier passed attacker-controlled signature buffers of arbitrary length
+  to `timingSafeEqual`, which throws when lengths differ instead of returning a
+  normal authentication failure.
+- Both cookies separately implemented the same HMAC protocol, allowing their
+  security behavior to drift.
+
+Repair: PR 900, branch `commissioning/chooser-cookie-signing-boundary`.
+
+- Centralize server-only key selection. Prefer
+  `BORROWER_CHOOSER_SIGNING_SECRET`, preserve the existing service-role secret
+  as a deployment-safe fallback, never accept public keys, and fail closed in
+  production if neither server secret exists.
+- Centralize HMAC-SHA256 token signing and strict base64url/64-hex verification.
+- Reject malformed lengths and encodings before constant-time comparison.
+- Preserve cookie names, payload shapes, ten-minute TTLs, and all session flows.
+- Add direct round-trip, tamper, wrong-key, malformed-token, and wiring tests.
+- No schema, dependency, permission, provider, or production-data change.
+
+Verification:
+
+- Exact crypto path passed focused Node tests: 2 passed, 0 failed.
+- PR 900 is open and mergeable; Vercel preview and required checks are pending.
+- GitHub Actions had not created workflow runs for the head while GitHub's
+  confirmed Actions incident remained active.
+
+Open checkpoints:
+
+1. PR 899 remains open and mergeable; its required Actions checks are externally
+   blocked.
+2. PR 897 merged on 2026-08-26. Its schema-classification change is deployed
+   through current main; production-row reconciliation remains blocked by the
+   database connector.
+3. After Actions recovers, rerun and require all checks green on PRs 899 and 900.
+4. Continue the shared Supabase server-client privilege-boundary audit after this
+   chooser repair.
+5. Authorized state-changing fixtures remain required for Golden Trident delivery,
+   signing replay, and reconciliation workers.
+
+
 ### Schema-drift evidence classification factory
 
 Evidence:
