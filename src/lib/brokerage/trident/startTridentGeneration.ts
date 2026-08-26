@@ -52,8 +52,9 @@ export async function startTridentGeneration(args: {
   }
 
   const sb = supabaseAdmin();
+  let run: Awaited<ReturnType<typeof start>>;
   try {
-    const run = await start(goldenTridentWorkflow, [
+    run = await start(goldenTridentWorkflow, [
       {
         dealId,
         mode,
@@ -61,21 +62,11 @@ export async function startTridentGeneration(args: {
         leaseToken: created.leaseToken,
       },
     ]);
-
-    const { error: runPersistError } = await sb
-      .from("buddy_trident_bundles")
-      .update({ workflow_run_id: run.runId, last_heartbeat_at: new Date().toISOString() })
-      .eq("id", created.bundleId)
-      .eq("lease_token", created.leaseToken);
-    if (runPersistError) {
-      throw new Error(`Workflow identity persistence failed: ${runPersistError.message}`);
-    }
-
-    return { ok: true, accepted: true, bundleId: created.bundleId, runId: run.runId };
   } catch (error) {
-    // The admission succeeded but the run did not start. Release the lease
-    // now rather than leaving it to expire, so the borrower can retry
-    // immediately instead of waiting out the janitor.
+    // The admission succeeded but the durable run did not start. Only this
+    // failure is allowed to release the lease. Once start() returns, the
+    // workflow owns the bundle and may already be executing; marking it failed
+    // after a tracking-write error would admit a duplicate generation.
     const message = error instanceof Error ? error.message : String(error);
     const { data: admitted } = await sb
       .from("buddy_trident_bundles")
@@ -93,4 +84,22 @@ export async function startTridentGeneration(args: {
     }
     return { ok: false, bundleId: created.bundleId, error: message };
   }
+
+  const { error: runPersistError } = await sb
+    .from("buddy_trident_bundles")
+    .update({ workflow_run_id: run.runId, last_heartbeat_at: new Date().toISOString() })
+    .eq("id", created.bundleId)
+    .eq("lease_token", created.leaseToken);
+  if (runPersistError) {
+    // The durable workflow is already running. Preserve its lease and return
+    // the run identity to the caller; failing the bundle here would allow a
+    // retry to start a second workflow against the same deal and mode.
+    console.error("[trident] workflow started but identity persistence failed", {
+      bundleId: created.bundleId,
+      runId: run.runId,
+      error: runPersistError.message,
+    });
+  }
+
+  return { ok: true, accepted: true, bundleId: created.bundleId, runId: run.runId };
 }
