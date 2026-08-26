@@ -94,6 +94,16 @@ test("canonical route contexts separate Clerk IDs from UUID actor IDs", () => {
   assert.match(dealContext, /wrong_bank/);
 });
 
+test("Clerk-to-Supabase JWT subject matches Buddy's RLS identity", () => {
+  const exchange = read("src/app/api/auth/supabase-jwt/route.ts");
+  assert.match(exchange, /\.from\("profiles"\)/);
+  assert.match(exchange, /\.eq\("clerk_user_id", clerkUserId\)/);
+  assert.match(exchange, /\.setSubject\(buddyUserId\)/);
+  assert.match(exchange, /app_user_id: appUserId/);
+  assert.match(exchange, /profile_id: buddyUserId/);
+  assert.doesNotMatch(exchange, /\.setSubject\(appUserId\)/);
+});
+
 test("usage SECURITY DEFINER function is service-role only", () => {
   const migration = read(
     "supabase/migrations/20260826163000_usage_function_privilege_boundary.sql",
