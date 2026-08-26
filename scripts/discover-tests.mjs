@@ -91,17 +91,18 @@ function isExcludedPath(rel) {
 /**
  * Turn a real path into a pattern `node --test` can resolve.
  *
- * `?` matches any single character, so `?dealId?` matches the literal
- * `[dealId]`. Unlike the `[[]`/`[]]` glob-class form this replaced, it does
- * not collapse back to a bare `[dealId]` if something expands it on the way.
+ * Node's glob parser accepts `[[]` and `[]]` as literal bracket matches.
+ * The shell-free runner is load-bearing: an unquoted shell would expand these
+ * patterns before node receives them and recreate the original false-green.
  */
 export function toNodeTestPattern(rel) {
-  return rel.replace(/[[\]]/g, "?");
+  return rel.replace(/\[/g, "[[]").replace(/\]/g, "[]]");
 }
 
-/** A pattern is only safe if it selects exactly the file it came from. */
+/** A pattern is only safe if it maps back to exactly the file it came from. */
 function patternRegex(pattern) {
-  const escaped = pattern.replace(/[.*+^${}()|\\]/g, "\\$&").replace(/\?/g, ".");
+  const literal = pattern.replace(/\[\[\]/g, "[").replace(/\[\]\]/g, "]");
+  const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`^${escaped}$`);
 }
 
