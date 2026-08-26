@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
+import { hasValidAdminDebugToken } from "@/lib/auth/hasValidAdminDebugToken";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,14 +12,13 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ dealId: string }> };
 
 /**
- * GET /api/admin/deals/[dealId]/checklist/list?token=...
+ * GET /api/admin/deals/[dealId]/checklist/list
  *
- * Token-protected admin helper to fetch checklist items without Clerk cookies.
+ * Header-token-protected admin helper to fetch checklist items without Clerk cookies.
  */
 export async function GET(req: NextRequest, ctx: Ctx) {
-  const url = new URL(req.url);
 
-  // Allow either Clerk super-admin OR an explicit debug token (for terminal debugging).
+  // Allow either Clerk super-admin OR an explicit bearer token (for terminal debugging).
   let isSuperAdmin = false;
   try {
     await requireSuperAdmin();
@@ -27,9 +27,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     isSuperAdmin = false;
   }
   if (!isSuperAdmin) {
-    const token = url.searchParams.get("token") || "";
-    const expected = process.env.ADMIN_DEBUG_TOKEN || "";
-    if (!expected || token !== expected) {
+    if (!hasValidAdminDebugToken(req)) {
       return NextResponse.json(
         { ok: false, error: "unauthorized" },
         { status: 401 },
