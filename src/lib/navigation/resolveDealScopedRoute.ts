@@ -30,21 +30,25 @@ export function extractDealIdFromPath(pathname: string): string | null {
 
 const LAST_DEAL_KEY = "buddy:lastDealId";
 
-/** Read the last active dealId from localStorage. SSR-safe. */
-export function getLastDealId(): string | null {
+function lastDealKey(bankId?: string | null): string {
+  return bankId ? `${LAST_DEAL_KEY}:${bankId}` : LAST_DEAL_KEY;
+}
+
+/** Read the last active dealId for the current tenant from localStorage. SSR-safe. */
+export function getLastDealId(bankId?: string | null): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return localStorage.getItem(LAST_DEAL_KEY);
+    return localStorage.getItem(lastDealKey(bankId));
   } catch {
     return null;
   }
 }
 
 /** Persist the active dealId to localStorage. SSR-safe. */
-export function setLastDealId(dealId: string): void {
+export function setLastDealId(dealId: string, bankId?: string | null): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(LAST_DEAL_KEY, dealId);
+    localStorage.setItem(lastDealKey(bankId), dealId);
   } catch {
     // quota exceeded or private browsing — non-fatal
   }
