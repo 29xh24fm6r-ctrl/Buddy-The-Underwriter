@@ -13,20 +13,33 @@
 //     (import errors). Each carries a SPEC-CI-2 reason and is inventoried in
 //     specs/ci-2/backlog.md. This list is remove-only.
 //
-// FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): paths containing `[`
-// or `]` (Next.js dynamic-segment dirs, e.g. `[dealId]`) were previously
-// excluded entirely with the comment "node --test cannot resolve these (runs
-// 0 tests silently, memory #30)". That's half-true: `node --test <path>`
-// treats its positional args as glob patterns, and `[dealId]` parses as a
-// glob character class rather than a literal directory name — so the file
-// resolves to nothing and node --test silently reports "0 tests, 0 fail"
-// instead of erroring, with zero signal that a real test file was skipped.
-// The actual fix is to escape each literal `[`/`]` as the single-char glob
-// class `[[]`/`[]]` in the printed path (verified: 9 test files across the
-// repo, 54 tests total, were dead this way — all pass once escaped). Paths
-// containing `(` (Next.js route groups, e.g. `(app)`) were also excluded but
-// were never actually a problem — `(`/`)` aren't glob metacharacters here;
-// removing that exclusion needed no escaping to work.
+// Dynamic-segment paths (`[dealId]`, `[token]`) were the long-running problem
+// here, and the reason this file no longer emits anything clever.
+//
+// `node --test <arg>` changed meaning between the Node the repo develops on
+// and the Node CI runs:
+//
+//   form              Node 20 (CI, .nvmrc)     Node 22 (engines.node)
+//   [dealId] literal  runs the file            globs to nothing -> "0 tests"
+//   ?dealId? wildcard "Could not find"         runs the file
+//
+// Node 20 does not glob positional arguments at all; Node 22 does. So no
+// single string form works on both, and every previous attempt here was a
+// string form. The `[[]dealId[]]` escaping was written for Node 22 semantics
+// and only ever reached CI as a bare `[dealId]` because package.json fed it
+// through an unquoted `$(...)` that let the shell undo the escaping first —
+// which is exactly what made it work on Node 20 and mask the split.
+//
+// The consequence was asymmetric rather than catastrophic: CI (Node 20) ran
+// these 17 files the whole time; a developer on Node 22 silently lost them
+// and saw a smaller suite. A test that runs in one place and not the other is
+// still a broken signal.
+//
+// The fix is to stop passing paths as positional arguments. scripts/
+// run-unit-tests.mjs uses node:test's programmatic run({ files }) API, which
+// takes literal paths with no glob semantics on any version — verified
+// identical on Node 20 and Node 22. This file therefore prints REAL paths and
+// nothing else; there is no escaping left to get wrong.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -72,19 +85,6 @@ function isExcludedPath(rel) {
   return false;
 }
 
-/** Escape literal `[`/`]` as single-char glob classes so node --test's
- * glob-pattern argument parsing resolves them as literal directory names
- * instead of (mis)parsing them as character classes. */
-function escapeForNodeTestGlob(rel) {
-  let out = "";
-  for (const ch of rel) {
-    if (ch === "[") out += "[[]";
-    else if (ch === "]") out += "[]]";
-    else out += ch;
-  }
-  return out;
-}
-
 function walk(dir, out = []) {
   const abs = path.join(ROOT, dir);
   if (!fs.existsSync(abs)) return out;
@@ -100,36 +100,48 @@ function walk(dir, out = []) {
   return out;
 }
 
-// `--react-server` prints the react-server-condition list instead of the
-// default list, so package.json can drive both runners from one discoverer.
-const wantReactServer = process.argv.includes("--react-server");
+/**
+ * The discovered REAL paths (not patterns). Exported so the runner and the
+ * CI-honesty guard can work from the same list this file prints.
+ */
+export function discoverTestFiles({ reactServer = false } = {}) {
+  const files = reactServer
+    ? [...REACT_SERVER_ONLY]
+        .filter((rel) => {
+          // Fail loudly rather than silently dropping a renamed or deleted
+          // entry. `node --test` with no positional args falls back to
+          // scanning the whole tree, so an empty list here would quietly run
+          // the entire suite under the react-server condition instead of
+          // these few files.
+          if (fs.existsSync(path.join(ROOT, rel))) return true;
+          console.error(`discover-tests: REACT_SERVER_ONLY entry not found: ${rel}`);
+          process.exit(1);
+        })
+        .sort()
+    : SCAN_DIRS.flatMap((d) => walk(d))
+        .map((f) => f.split(path.sep).join("/"))
+        .filter((rel) => !isExcludedPath(rel))
+        .sort();
 
-const files = wantReactServer
-  ? [...REACT_SERVER_ONLY]
-      .filter((rel) => {
-        // Fail loudly rather than silently dropping a renamed or deleted
-        // entry. `node --test` with no positional args falls back to scanning
-        // the whole tree, so an empty list here would quietly run the entire
-        // suite under the react-server condition instead of these few files.
-        if (fs.existsSync(path.join(ROOT, rel))) return true;
-        console.error(`discover-tests: REACT_SERVER_ONLY entry not found: ${rel}`);
-        process.exit(1);
-      })
-      .sort()
-      .map(escapeForNodeTestGlob)
-  : SCAN_DIRS.flatMap((d) => walk(d))
-      .map((f) => f.split(path.sep).join("/"))
-      .filter((rel) => !isExcludedPath(rel))
-      .sort()
-      .map(escapeForNodeTestGlob);
-
-if (files.length === 0) {
-  console.error(
-    wantReactServer
-      ? "discover-tests: react-server list is empty — refusing to emit nothing, which would make node --test scan the whole tree."
-      : "discover-tests: no test files discovered.",
-  );
-  process.exit(1);
+  if (files.length === 0) {
+    console.error(
+      reactServer
+        ? "discover-tests: react-server list is empty — refusing to emit nothing, which would make node --test scan the whole tree."
+        : "discover-tests: no test files discovered.",
+    );
+    process.exit(1);
+  }
+  return files;
 }
 
-process.stdout.write(files.join("\n") + "\n");
+// CLI. `--react-server` prints the react-server list instead of the default
+// one. The output is real paths; the runner passes them to run({ files }),
+// which never glob-expands. Do NOT reintroduce a positional
+// `node --test $(node scripts/discover-tests.mjs)` — that is the shape whose
+// behaviour differs between Node 20 and Node 22.
+const isCli =
+  process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
+if (isCli) {
+  const files = discoverTestFiles({ reactServer: process.argv.includes("--react-server") });
+  process.stdout.write(files.join("\n") + "\n");
+}

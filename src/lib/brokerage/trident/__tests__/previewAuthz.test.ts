@@ -15,14 +15,9 @@ const state: {
   generateCalls: [],
   generateReturn: {
     ok: true,
+    accepted: true,
     bundleId: "bundle-1",
-    mode: "preview",
-    paths: {
-      businessPlanPdf: "deal-1/preview/x_business_plan.pdf",
-      projectionsPdf: null,
-      projectionsXlsx: null,
-      feasibilityPdf: "deal-1/preview/x_feasibility.pdf",
-    },
+    runId: "run-1",
   },
 };
 
@@ -31,14 +26,9 @@ function reset() {
   state.generateCalls = [];
   state.generateReturn = {
     ok: true,
+    accepted: true,
     bundleId: "bundle-1",
-    mode: "preview",
-    paths: {
-      businessPlanPdf: "deal-1/preview/x_business_plan.pdf",
-      projectionsPdf: null,
-      projectionsXlsx: null,
-      feasibilityPdf: "deal-1/preview/x_feasibility.pdf",
-    },
+    runId: "run-1",
   };
 }
 
@@ -52,13 +42,13 @@ require.cache[require.resolve("@/lib/brokerage/sessionToken")] = {
 } as any;
 
 require.cache[
-  require.resolve("@/lib/brokerage/trident/generateTridentBundle")
+  require.resolve("@/lib/brokerage/trident/startTridentGeneration")
 ] = {
-  id: "gen-stub",
-  filename: "gen-stub",
+  id: "start-stub",
+  filename: "start-stub",
   loaded: true,
   exports: {
-    generateTridentBundle: async (args: { dealId: string; mode: string }) => {
+    startTridentGeneration: async (args: { dealId: string; mode: string }) => {
       state.generateCalls.push(args);
       return state.generateReturn;
     },
@@ -97,13 +87,17 @@ test("cookie deal mismatches URL → 404 and never calls generator", async () =>
   assert.equal(state.generateCalls.length, 0);
 });
 
-test("cookie matches → generator called with mode=preview", async () => {
+test("[F-17] cookie matches → run is admitted with mode=preview and 202 returned", async () => {
   reset();
   state.session = { deal_id: "deal-1", tokenHash: "h" };
   const { status, body } = await call("deal-1");
-  assert.equal(status, 200);
+  // 202: admitted and handed to the durable workflow. This route used to
+  // await the entire factory inside its own request ceiling.
+  assert.equal(status, 202);
   assert.equal(body.ok, true);
+  assert.equal(body.accepted, true);
   assert.equal(body.mode, "preview");
+  assert.equal(body.bundleId, "bundle-1");
   assert.equal(state.generateCalls.length, 1);
   assert.deepEqual(state.generateCalls[0], {
     dealId: "deal-1",
@@ -118,7 +112,7 @@ test("preview route NEVER lets caller request mode=final", async () => {
   assert.equal(state.generateCalls[0].mode, "preview");
 });
 
-test("generator failure surfaces as 500 with error", async () => {
+test("admission failure surfaces as 500 with error", async () => {
   reset();
   state.session = { deal_id: "deal-1", tokenHash: "h" };
   state.generateReturn = {
