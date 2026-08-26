@@ -23,7 +23,7 @@ test("worker fan-out URL preserves NEXT_PUBLIC_APP_URL precedence", () => {
 test("borrower upload completion follows ingestion and durable artifact queueing", () => {
   const src = read("src/app/api/portal/[token]/files/record/route.ts");
   const ingest = src.indexOf("const result = await ingestDocument");
-  const queue = src.indexOf("await queueArtifact", ingest);
+  const queue = src.indexOf("await requireArtifactQueued", ingest);
   const complete = src.indexOf("await completeUploadSessionFile", queue);
   assert.ok(ingest > 0, "canonical ingestion must exist");
   assert.ok(queue > ingest, "artifact queueing must follow canonical ingestion");
@@ -37,7 +37,8 @@ test("borrower upload completion follows ingestion and durable artifact queueing
 
 test("duplicate uploads are cleaned and retries requeue the canonical document", () => {
   const src = read("src/app/api/portal/[token]/files/record/route.ts");
-  assert.match(src, /sourceId: duplicate\.id/);
+  assert.match(src, /documentId: duplicate\.id/);
+  assert.match(src, /if \(!queued\.ok\)/);
   assert.match(src, /removeRedundantUpload/);
 });
 
