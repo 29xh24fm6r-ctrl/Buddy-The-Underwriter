@@ -35,15 +35,31 @@ export async function mockCreateSignwellDocumentFromFile(_args: {
   };
 }
 
-export async function mockFetchSignwellDocument(documentId: string): Promise<{
+export async function mockFetchSignwellDocument(
+  documentId: string,
+  canonical: { externalId: string; recipientEmail: string },
+): Promise<{
   id: string | number;
   status: string;
-  recipients: Array<{ id: string | number; signing_url?: string | null; embedded_signing_url?: string | null }>;
+  metadata: { external_id: string };
+  recipients: Array<{
+    id: string | number;
+    email: string;
+    signing_url?: string | null;
+    embedded_signing_url?: string | null;
+  }>;
 }> {
   return {
     id: documentId,
     status: "completed",
-    recipients: [{ id: "1", embedded_signing_url: `https://www.signwell.com/embed/mock-${documentId}` }],
+    metadata: { external_id: canonical.externalId },
+    recipients: [
+      {
+        id: "1",
+        email: canonical.recipientEmail,
+        embedded_signing_url: `https://www.signwell.com/embed/mock-${documentId}`,
+      },
+    ],
   };
 }
 
