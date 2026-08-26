@@ -107,23 +107,26 @@ export async function GET(
   });
   const fieldProgress: FieldProgress = computeFieldProgress(facts, formCodes);
 
-  // Verification counts — positive evidence for the borrower review checklist.
-  // D-0: deriveVerifications must use counted records, not gate-string inversions.
-  const { count: identityVerificationCount } = await sb
-    .from("borrower_identity_verifications")
-    .select("id", { count: "exact", head: true })
-    .eq("deal_id", dealId);
-
-  const { count: ownershipEntityCount } = await sb
-    .from("ownership_entities")
-    .select("id", { count: "exact", head: true })
-    .eq("deal_id", dealId);
-
-  // Document count (stage 2 — "upload documents").
-  const { count: documentsUploadedCount } = await sb
-    .from("deal_documents")
-    .select("id", { count: "exact", head: true })
-    .eq("deal_id", dealId);
+  // Independent checklist counts share one database wave. These reads used
+  // to run serially on every poll.
+  const [
+    { count: identityVerificationCount },
+    { count: ownershipEntityCount },
+    { count: documentsUploadedCount },
+  ] = await Promise.all([
+    sb
+      .from("borrower_identity_verifications")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId),
+    sb
+      .from("ownership_entities")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId),
+    sb
+      .from("deal_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId),
+  ]);
 
   // Franchise match — deal_franchises linked to an SBA-eligible brand.
   const { data: franchiseLink } = await sb
