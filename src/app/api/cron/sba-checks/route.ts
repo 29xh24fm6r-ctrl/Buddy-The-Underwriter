@@ -26,7 +26,7 @@ import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { pollAndReconcileIrsTranscripts } from "@/lib/jobs/pollIrsTranscripts";
 import { pollVendorTranscriptRequest } from "@/lib/integrations/irsTranscripts/client";
-import { findStaleSignatures, writeStaleSignatureGaps } from "@/lib/jobs/staleSignatureChecker";
+import { reconcileStaleSignatureGaps } from "@/lib/jobs/staleSignatureChecker";
 import { findOverdueThirdPartyOrders, writeOverdueThirdPartyGaps } from "@/lib/jobs/thirdPartyOverdueChecker";
 import { findExpiringEtranCredentials } from "@/lib/jobs/etranCertExpiryChecker";
 import { findTemplateStaleness, writeTemplateStalenessFindings } from "@/lib/jobs/templateStalenessChecker";
@@ -96,9 +96,15 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ ok: true, check, result, durationMs: Date.now() - start });
       }
       case "stale-signatures": {
-        const findings = await findStaleSignatures(sb as any);
-        const written = await writeStaleSignatureGaps(sb as any, findings);
-        return NextResponse.json({ ok: true, check, found: findings.length, gapsWritten: written, durationMs: Date.now() - start });
+        const result = await reconcileStaleSignatureGaps(sb as any);
+        return NextResponse.json({
+          ok: true,
+          check,
+          found: result.findings.length,
+          gapsWritten: result.gapsWritten,
+          gapsResolved: result.gapsResolved,
+          durationMs: Date.now() - start,
+        });
       }
       case "third-party-overdue": {
         const findings = await findOverdueThirdPartyOrders(sb as any);
