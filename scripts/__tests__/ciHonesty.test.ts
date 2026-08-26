@@ -142,6 +142,15 @@ describe("SPEC-CI-1 §5.2 — test:unit glob coverage floor", () => {
     const runner = fs.readFileSync(path.join(REPO, "scripts/run-unit-tests.mjs"), "utf8");
     assert.match(runner, /from "node:test"/, "runner must use the node:test run API");
     assert.match(runner, /run\(\s*\{\s*files/, "runner must pass an explicit files array");
+    // Keeping a shell out of the path is necessary but not sufficient: a
+    // spawnSync(..., {shell:false}) runner passing literal paths measured
+    // 13187/0 on Node 20 and 13104 with 83 files missing on Node 22. Assert
+    // the runner does not go back to spawning node --test at all.
+    assert.doesNotMatch(
+      runner,
+      /["'`]--test["'`]/,
+      "runner must not spawn a positional `node --test` — that is the version-divergent form",
+    );
 
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf8"));
     for (const script of ["test:unit", "test:unit:react-server"]) {

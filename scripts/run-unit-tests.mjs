@@ -23,6 +23,14 @@
 // `--conditions=react-server` reach them — hence package.json invokes this as
 // `node --import tsx scripts/run-unit-tests.mjs`.
 //
+// This supersedes a spawnSync(..., { shell: false }) version that passed the
+// literal paths to `node --test`. That preserved argv exactly, which is what
+// Node 20 needs — measured 13187 tests, 0 fail on Node 20 — but on Node 22 it
+// measured 13104 tests with the 17 dynamic-segment files silently absent.
+// Preserving argv is necessary and not sufficient: the remaining divergence
+// is inside node --test's own argument handling, which only run({ files })
+// avoids.
+//
 // Usage: node --import tsx scripts/run-unit-tests.mjs [--react-server]
 import { run } from "node:test";
 import { tap } from "node:test/reporters";
