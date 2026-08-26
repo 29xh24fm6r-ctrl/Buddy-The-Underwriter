@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  collectMissingFindings,
   exitCodeForFindings,
   extractExpectedObjects,
   isAllowed,
@@ -157,6 +158,29 @@ test("extractExpectedObjects: ignores DROP / SELECT / INSERT statements", () => 
     "INSERT INTO deals (id) VALUES (gen_random_uuid());",
   ]);
   assert.deepEqual(got, []);
+});
+
+test("collectMissingFindings binds provenance to the creating statement", () => {
+  const got = collectMissingFindings(
+    {
+      version: "20250101",
+      name: "rebuild_vector_index",
+      statements: [
+        "DROP INDEX IF EXISTS bank_policy_chunks_embedding_ivfflat;",
+        "CREATE INDEX bank_policy_chunks_embedding_ivfflat ON public.bank_policy_chunks (embedding);",
+      ],
+    },
+    {
+      tables: new Set(),
+      columns: new Set(),
+      indexes: new Set(),
+      functions: new Set(),
+    },
+  );
+
+  assert.equal(got.length, 1);
+  assert.equal(got[0].object.kind, "index");
+  assert.match(got[0].source_statement, /^CREATE INDEX/);
 });
 
 test("statementMentionsObject: column-kind requires both table and column names", () => {
