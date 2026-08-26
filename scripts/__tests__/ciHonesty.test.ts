@@ -96,9 +96,7 @@ describe("SPEC-CI-1 §5.2 — test:unit glob coverage floor", () => {
     const stillExcluded = lines.filter((l) => l.includes("__invariants__"));
     assert.deepEqual(stillExcluded, [], `discovery must still exclude __invariants__: ${stillExcluded.join(", ")}`);
 
-    // Every emitted pattern must select exactly one real file. `?` matches any
-    // single character, so an over-broad pattern could silently pull in a
-    // different file — or none, which is the bug this whole area is about.
+    // Every emitted pattern must map back to exactly one real file.
     const realPaths = execFileSync("node", ["scripts/discover-tests.mjs", "--paths"], {
       cwd: REPO,
       encoding: "utf8",
@@ -130,15 +128,15 @@ describe("SPEC-CI-1 §5.2 — test:unit glob coverage floor", () => {
     const knownDynamicFile = lines.find((l) => l.includes("sourceArtifactViewer.test.ts"));
     assert.ok(knownDynamicFile, "sourceArtifactViewer.test.ts must be discovered, not excluded");
     assert.ok(
-      knownDynamicFile!.includes("?dealId?") && knownDynamicFile!.includes("?action?"),
-      `dynamic segments must be emitted as resolvable wildcards, got: ${knownDynamicFile}`,
+      knownDynamicFile!.includes("[[]dealId[]]") && knownDynamicFile!.includes("[[]action[]]"),
+      `dynamic segments must use literal-bracket glob escapes, got: ${knownDynamicFile}`,
     );
   });
 
   it("[F-24] a dynamic-segment test file actually RUNS, not just discovers", () => {
     // The property the old guard could not see. If this file reports 0 tests
     // it is dead in CI no matter how correct its path looks in the listing.
-    const target = "src/app/api/borrower/portal/?token?/__tests__/assumptionConfirmDeadendFix.test.ts";
+    const target = "src/app/api/borrower/portal/[[]token[]]/__tests__/assumptionConfirmDeadendFix.test.ts";
     // NODE_TEST_CONTEXT is set in this process because THIS file is running
     // under node --test. Inheriting it makes the child emit worker-protocol
     // output instead of TAP, so the "# tests" line never appears and the
@@ -162,7 +160,7 @@ describe("SPEC-CI-1 §5.2 — test:unit glob coverage floor", () => {
   });
 
   it("[F-24] the unit runner never hands test paths to a shell", () => {
-    // shell:true would re-expand the `?` wildcards and silently resurrect the
+    // shell:true would consume the bracket escapes and silently resurrect the
     // bug. The runner exists only to prevent that.
     const runner = fs.readFileSync(path.join(REPO, "scripts/run-unit-tests.mjs"), "utf8");
     assert.match(runner, /shell:\s*false/, "run-unit-tests must spawn with shell:false");
