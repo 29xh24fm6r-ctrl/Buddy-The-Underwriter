@@ -42,9 +42,10 @@ BEGIN
     UPDATE deal_documents
     SET
       quality_status = 'PASSED',
-      finalized_at = COALESCE(finalized_at, v_now)
+      finalized_at = v_now
     WHERE deal_id = p_deal_id
       AND is_active = true
+      AND finalized_at IS NULL
     RETURNING id
   )
   SELECT array_agg(id), count(*)
