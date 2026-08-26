@@ -568,3 +568,76 @@ buddysba.com borrower funnel or lender-side. Each warrants its own pass.
 §5.1 and §5.2 are established by code reading, and their production impact is bounded by the
 0-row state of `borrower_portal_links` and `borrower_invites`. No load, penetration, or
 dependency-vulnerability testing was run. No production data was modified.
+
+---
+
+## 8. Remediation log — 2026-08-26
+
+Everything in §5 was worked. This section records what shipped, what was
+deliberately *not* changed and why, and what still needs a human.
+
+### Fixed in code
+
+| Finding | Fix |
+|---|---|
+| §5.1 unauthenticated `create-link` / `send-link` | `ensureDealBankAccess` on both; `bank_id` derived from the deal rather than the request body; the SMS note is prepended and capped rather than substituted, so the message always carries the link the route just minted |
+| §5.2 invite/deal IDOR (4 routes) | New `requireInviteForDeal()` binds the invite to the URL `dealId`; applied to ownership findings/refresh/confirm and share-links |
+| §5.3 no perimeter enforcement | New `guard-api-route-auth.mjs` covers the whole `/api` tree, wired into `guard:all`, 9 fixture tests. It found 11 unprotected service-role routes — **all 11 fixed, so the guard ships with an empty allowlist** |
+| §5.4 worker secret | Constant-time via the existing `secretEquals`; `?token=` query-param auth removed |
+| §5.5 score runaway | `findUnchangedActiveScore` — recomputing with unchanged inputs reuses the active row instead of superseding it; locked rows are never reused |
+| §5.6 idle logged as error | Processors report `idle: true`; `withBuddyGuard` treats it as a no-op. `ok` stays `false` so the worker tick's loop control flow is unchanged |
+| §5.7 observer "Attachment not found" loop | Dedupe on `source_job_id` — a job already recorded dead is not re-reported every tick |
+| §5.7 `buddy_system_events` at 360 MB | **The purge already existed and worked**; `/api/cron/nightly` was simply never in `vercel.json`. Scheduled. The route was also POST-only (Vercel cron sends GET) and skipped its secret check when `CRON_SECRET` was unset — both fixed |
+| §5.8 SBA policy never activates | `normalizeProductType` / `resolveProductType`; `loadIntakeScenario` derives from the deal; `product_type` stamped at session creation; `'7a'` no longer maps to CRE. 13 regression tests |
+| §5.9 unclaimed `document_uploaded` | Added to the Pulse allowlist, plus the unclaimed-kind watchdog that file's own comment promised, wired into the observer tick |
+| §5.10 franchise pipeline | `runFranchiseSyncJanitor` in the nightly job: finalizes orphaned runs, warns on sources that report `complete` while carrying errors, warns on sources that have gone quiet. 4 tests |
+| §5.11 stale gateway justification | Comment corrected — the blocker (all providers PENDING) was resolved 2026-08-17 |
+| §5.12 SMS ignored the kill switch | `sendSmsWithConsent` honours `BROKERAGE_COMMS_MODE`; suppressed sends are ledgered under a distinct key so they don't pollute failure alerting |
+| §5.13 uploads that skip processing | `queueArtifact` moved inside `ingestDocument` — idempotent and non-fatal, so no caller can forget it |
+| §5.15 headers not in version control | HSTS, nosniff, Referrer-Policy, X-Frame-Options, X-DNS-Prefetch-Control and a **Report-Only** CSP moved into `next.config.mjs` |
+
+Verification: `pnpm typecheck` clean, `pnpm guard:all` green (both access
+guards pass), `pnpm test:invariants` 86/86, `pnpm test:unit` 12,944 passing.
+
+### Deliberately not changed
+
+**§5.17 `REVOKE EXECUTE` on `can_access_deal` / `is_deal_banker`.** Not done,
+and it should not be done as written. Both functions are used *inside* RLS
+policy expressions — 5 policies reference `can_access_deal`, 8 reference
+`is_deal_banker` — and Postgres evaluates a policy expression with the
+querying role's privileges. Revoking `EXECUTE` from `authenticated` would
+break all 13 policies and lock signed-in users out of the tables the advisor
+is trying to protect. The actual exposure is small: each function returns a
+boolean about *the caller's own* access, which the caller can already
+determine by querying the table. Accepted as-is.
+
+**§5.17 extensions in the `public` schema.** `vector` and `pg_trgm` should
+live in their own schema, but 13 columns are typed `vector` and carry indexes
+built on the extension's operator classes. `ALTER EXTENSION … SET SCHEMA` on a
+live database with dependent objects needs a maintenance window and a tested
+rollback, not a drive-by migration. Deferred with the reasoning recorded.
+
+**CSP is Report-Only, not enforcing.** This app loads Clerk, Sentry, PostHog,
+Vercel analytics and Google Fonts. An enforcing policy written without
+traffic data would break the borrower funnel on deploy. Promote it once the
+violation reports are clean.
+
+**`AI_GATEWAY_CONCIERGE_ENABLED` left off.** Its stated blocker is gone, but
+flipping it changes the model path for every live borrower conversation and
+wants a staged rollout, not a deploy-time surprise. The comment now says that
+instead of citing a resolved blocker.
+
+### Still needs a human
+
+1. **Run `scripts/maintenance/2026-08-26-audit-cleanup.sql`** — the one-time
+   prune of the 12,605 score rows and the 5,748 orphaned franchise runs. Every
+   `DELETE` is preceded by its preview `SELECT`. It is not run automatically
+   because it is irreversible; the code fixes stop the growth either way.
+2. **Remove the duplicate Vercel Project Routes header rule** (`vercel routes
+   list` → `vercel routes rm`) after deploying, or two header sets will race —
+   the same failure that silently blocked the microphone on `/start`.
+3. **The back half of the funnel still has zero production rows** (§3).
+   Disclosures, Form 159, fee ledger, e-sign, sealing, marketplace. Nothing in
+   this branch changes that; it needs one deliberate end-to-end run.
+4. **Provision lender programs** — `matchLendersToDeal` is correct but has one
+   row to match against.
