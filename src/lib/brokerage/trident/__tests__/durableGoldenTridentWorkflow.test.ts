@@ -77,6 +77,16 @@ test("final Trident generation is accepted into a multi-stage durable workflow",
   const startFailureBoundary = startHelper.slice(0, workflowStartCatchEnd);
   const postStartBoundary = startHelper.slice(workflowStartCatchEnd);
   assert.match(startFailureBoundary, /fail_trident_bundle_run/);
+  assert.match(startFailureBoundary, /p_input_hash: created\\.inputHash/);
+  assert.doesNotMatch(
+    startFailureBoundary,
+    /\\.select\\("input_hash"\\)/,
+    "startup cleanup must use the admitted input identity without a second database read",
+  );
+  assert.match(startFailureBoundary, /const \\{ error: releaseError \\}/);
+  assert.match(startFailureBoundary, /workflow start failed and lease release failed/);
+  assert.match(startFailureBoundary, /lease cleanup failed; retry after reconciliation/);
+  assert.match(generator, /inputHash: snapshot\\.inputHash/);
   assert.doesNotMatch(
     postStartBoundary,
     /fail_trident_bundle_run/,
