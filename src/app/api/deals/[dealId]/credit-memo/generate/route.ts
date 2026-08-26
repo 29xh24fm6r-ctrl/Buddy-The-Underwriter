@@ -62,14 +62,23 @@ export async function POST(
         deal_id: dealId,
         event_key: "credit_memo_generation_failed",
         status: "error",
-        payload: { error: result.error, canonical: true },
+        payload: {
+          error: result.error,
+          canonical: true,
+          verification: result.verification ?? null,
+        },
       });
       void writeEvent({
         dealId,
         kind: "memo.generation.failed",
         scope: "memo",
         action: "generate",
-        meta: { error: result.error, canonical: true },
+        meta: {
+          error: result.error,
+          canonical: true,
+          review_passes: result.verification?.reviewPasses ?? null,
+          review_issues: result.verification?.reviewIssues ?? [],
+        },
       });
       return NextResponse.json(result, { status: result.status });
     }
