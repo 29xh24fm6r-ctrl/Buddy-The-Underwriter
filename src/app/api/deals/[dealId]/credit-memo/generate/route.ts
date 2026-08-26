@@ -57,6 +57,7 @@ export async function POST(
     });
 
     if (!result.ok) {
+      const verification = "verification" in result ? result.verification : null;
       await logPipelineLedger(sb, {
         bank_id: bankId,
         deal_id: dealId,
@@ -65,7 +66,7 @@ export async function POST(
         payload: {
           error: result.error,
           canonical: true,
-          verification: result.verification ?? null,
+          verification,
         },
       });
       void writeEvent({
@@ -76,8 +77,8 @@ export async function POST(
         meta: {
           error: result.error,
           canonical: true,
-          review_passes: result.verification?.reviewPasses ?? null,
-          review_issues: result.verification?.reviewIssues ?? [],
+          review_passes: verification?.reviewPasses ?? null,
+          review_issues: verification?.reviewIssues ?? [],
         },
       });
       return NextResponse.json(result, { status: result.status });
