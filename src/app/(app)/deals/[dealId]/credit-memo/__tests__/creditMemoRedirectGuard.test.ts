@@ -71,3 +71,12 @@ test("[memo-redirect-3] page allows render when banker_submitted snapshot exists
     "Submitted-snapshot detection must reference the banker_submitted status",
   );
 });
+
+
+test("[memo-access-4] brokerage review uses the same scoped authorization as generation", () => {
+  const body = read();
+  assert.match(body, /ensureDealBankAccessAllowingBrokerageStaff\(dealId\)/);
+  assert.match(body, /const bankId = access\.bankId/);
+  assert.match(body, /executionContext: "authorized_route"/);
+  assert.doesNotMatch(body, /tryGetCurrentBankId/);
+});
