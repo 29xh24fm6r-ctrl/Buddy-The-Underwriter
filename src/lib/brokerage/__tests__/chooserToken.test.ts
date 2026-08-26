@@ -24,8 +24,10 @@ test("chooser token rejects payload and signature tampering", () => {
     verifyChooserPayload(`${payload}x.${signature}`, KEY),
     null,
   );
+  const tamperedSignature =
+    signature.slice(0, -1) + (signature.endsWith("0") ? "1" : "0");
   assert.equal(
-    verifyChooserPayload(`${payload}.${signature.slice(0, -1)}0`, KEY),
+    verifyChooserPayload(`${payload}.${tamperedSignature}`, KEY),
     null,
   );
   assert.equal(
