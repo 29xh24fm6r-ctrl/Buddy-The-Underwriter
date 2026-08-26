@@ -340,6 +340,22 @@ test("handleSignwellWebhook: missing durable signing request fails closed", asyn
   assert.equal(db.storage.uploads.length, 0);
 });
 
+test("handleSignwellWebhook: unknown provider document cannot trigger a deal-scoped IAL2 anomaly", async () => {
+  const db = new FakeDb();
+  const r = await handleSignwellWebhook(
+    {
+      event: { type: "document_completed" },
+      data: { object: { id: 1, metadata: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}` } } },
+    },
+    { sb: db as any, signwell: fakeSignwell() },
+  );
+
+  assert.deepEqual(r, { ok: false, reason: "SIGNING_REQUEST_NOT_FOUND" });
+  assert.equal(db.tables.deal_events.length, 0);
+  assert.equal(db.tables.signed_documents.length, 0);
+  assert.equal(db.storage.uploads.length, 0);
+});
+
 test("handleSignwellWebhook: provider recipient mismatch fails closed", async () => {
   const db = new FakeDb({
     borrower_identity_verifications: withIal2(),
