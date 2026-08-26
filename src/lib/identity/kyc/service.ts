@@ -261,7 +261,7 @@ export type ReconcileResult =
  */
 export async function reconcileVerification(
   verificationId: string,
-  deps: { sb: KycSupabaseClient; didit: Pick<DiditClient, "fetchDiditSession"> },
+  deps: { sb: KycSupabaseClient; didit: Pick<DiditClient, "fetchDiditSession" | "getDiditSessionDecision"> },
 ): Promise<ReconcileResult> {
   const { sb, didit } = deps;
 
@@ -338,7 +338,7 @@ export type ReconcileBatchResult = {
  */
 export async function reconcilePendingVerifications(
   args: { dealId?: string; limit?: number },
-  deps: { sb: KycSupabaseClient; didit: Pick<DiditClient, "fetchDiditSession"> },
+  deps: { sb: KycSupabaseClient; didit: Pick<DiditClient, "fetchDiditSession" | "getDiditSessionDecision"> },
 ): Promise<ReconcileBatchResult> {
   const { sb } = deps;
   const limit = args.limit ?? 50;
