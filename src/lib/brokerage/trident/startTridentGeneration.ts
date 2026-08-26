@@ -68,20 +68,36 @@ export async function startTridentGeneration(args: {
     // workflow owns the bundle and may already be executing; marking it failed
     // after a tracking-write error would admit a duplicate generation.
     const message = error instanceof Error ? error.message : String(error);
-    const { data: admitted } = await sb
-      .from("buddy_trident_bundles")
-      .select("input_hash")
-      .eq("id", created.bundleId)
-      .eq("lease_token", created.leaseToken)
-      .maybeSingle();
-    if (admitted?.input_hash) {
-      await sb.rpc("fail_trident_bundle_run", {
+    let releaseErrorMessage: string | null = null;
+    try {
+      const { error: releaseError } = await sb.rpc("fail_trident_bundle_run", {
         p_bundle_id: created.bundleId,
         p_lease_token: created.leaseToken,
-        p_input_hash: admitted.input_hash,
+        p_input_hash: created.inputHash,
         p_error: `Workflow start failed: ${message}`,
       });
+      releaseErrorMessage = releaseError?.message ?? null;
+    } catch (releaseError) {
+      releaseErrorMessage =
+        releaseError instanceof Error ? releaseError.message : String(releaseError);
     }
+
+    if (releaseErrorMessage) {
+      // The durable run never started, but the admission lease may remain live.
+      // Surface that distinct condition instead of silently reporting only the
+      // start failure and making the next request appear mysteriously reused.
+      console.error("[trident] workflow start failed and lease release failed", {
+        bundleId: created.bundleId,
+        startError: message,
+        releaseError: releaseErrorMessage,
+      });
+      return {
+        ok: false,
+        bundleId: created.bundleId,
+        error: `${message} (lease cleanup failed; retry after reconciliation)`,
+      };
+    }
+
     return { ok: false, bundleId: created.bundleId, error: message };
   }
 
