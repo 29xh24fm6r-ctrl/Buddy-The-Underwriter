@@ -21,12 +21,20 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import postgres from "postgres";\n\nimport { classifyDriftFindings } from "./drift-classify";
+import postgres from "postgres";
+
+import { classifyDriftFindings } from "./drift-classify";
 
 export type ExpectedObject =
   | { kind: "table"; schema: string; name: string }
   | { kind: "column"; schema: string; table: string; name: string }
-  | {\n      kind: "index";\n      schema: string;\n      name: string;\n      table_schema?: string;\n      table?: string;\n    }
+  | {
+      kind: "index";
+      schema: string;
+      name: string;
+      table_schema?: string;
+      table?: string;
+    }
   | { kind: "function"; schema: string; name: string };
 
 export type DriftFinding = {
