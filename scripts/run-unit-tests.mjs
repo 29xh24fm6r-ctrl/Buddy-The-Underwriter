@@ -6,13 +6,13 @@
 //   node --test --import tsx $(node scripts/discover-tests.mjs)
 // and the unquoted command substitution meant the shell word-split AND
 // glob-expanded the discoverer's output before node saw it. Dynamic-segment
-// paths are emitted as patterns (`?token?`) precisely so node's own glob
+// paths are emitted with node-glob bracket escapes (`[[]token[]]`) so node's own glob
 // matching can resolve the literal brackets — but a shell expands those
 // patterns first, handing node the bare `[token]` it cannot resolve, and node
 // reports "0 tests" for them without failing. Seventeen files were dead that
 // way (audit F-24).
 //
-// Spawning with shell:false removes that layer entirely: the patterns reach
+// Spawning with shell:false removes that layer entirely: the escapes reach
 // node exactly as written.
 //
 // Usage: node scripts/run-unit-tests.mjs [--react-server]
