@@ -1,9 +1,8 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { clerkAuth } from "@/lib/auth/clerkServer";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { resolveUserApiContext } from "@/lib/server/userApiContext";
 
 export type DealApiContext = {
   ok: true;
@@ -20,6 +19,7 @@ export type DealApiContextFailure = {
   error:
     | "not_authenticated"
     | "profile_required"
+    | "profile_lookup_failed"
     | "bank_context_unavailable"
     | "deal_fetch_failed"
     | "deal_not_found"
@@ -32,16 +32,15 @@ export type DealApiContextResult = DealApiContext | DealApiContextFailure;
  * Canonical Clerk-authenticated context for JSON deal routes.
  *
  * Database work uses the service-role client only after Clerk authentication,
- * bank resolution, and an explicit deal-to-bank comparison. UUID audit fields
- * use profiles.id; Clerk IDs are never written into UUID columns.
+ * profile resolution, bank resolution, and an explicit deal-to-bank comparison.
  */
 export async function resolveDealApiContext(
   dealId: string,
 ): Promise<DealApiContextResult> {
-  const { userId: clerkUserId } = await clerkAuth();
-  if (!clerkUserId) {
-    return { ok: false, status: 401, error: "not_authenticated" };
-  }
+  const user = await resolveUserApiContext();
+  if (!user.ok) return user;
+
+  const { sb, clerkUserId, actorProfileId } = user;
 
   let bankId: string;
   try {
@@ -67,15 +66,11 @@ export async function resolveDealApiContext(
     };
   }
 
-  const sb = supabaseAdmin();
-  const [dealResult, profileResult] = await Promise.all([
-    sb.from("deals").select("id, bank_id").eq("id", dealId).maybeSingle(),
-    sb
-      .from("profiles")
-      .select("id")
-      .eq("clerk_user_id", clerkUserId)
-      .maybeSingle(),
-  ]);
+  const dealResult = await sb
+    .from("deals")
+    .select("id, bank_id")
+    .eq("id", dealId)
+    .maybeSingle();
 
   if (dealResult.error) {
     console.error("[resolveDealApiContext] deal lookup failed", {
@@ -100,24 +95,11 @@ export async function resolveDealApiContext(
     return { ok: false, status: 403, error: "wrong_bank" };
   }
 
-  if (profileResult.error) {
-    console.error("[resolveDealApiContext] profile lookup failed", {
-      dealId,
-      clerkUserId,
-      code: profileResult.error.code,
-    });
-    return { ok: false, status: 500, error: "profile_required" };
-  }
-
-  if (!profileResult.data?.id) {
-    return { ok: false, status: 403, error: "profile_required" };
-  }
-
   return {
     ok: true,
     sb,
     clerkUserId,
-    actorProfileId: String(profileResult.data.id),
+    actorProfileId,
     dealId: String(dealResult.data.id),
     bankId: String(dealResult.data.bank_id),
   };
