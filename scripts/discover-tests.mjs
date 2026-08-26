@@ -96,7 +96,9 @@ function isExcludedPath(rel) {
  * patterns before node receives them and recreate the original false-green.
  */
 export function toNodeTestPattern(rel) {
-  return rel.replace(/\[/g, "[[]").replace(/\]/g, "[]]");
+  return [...rel]
+    .map((char) => (char === "[" ? "[[]" : char === "]" ? "[]]" : char))
+    .join("");
 }
 
 /** A pattern is only safe if it maps back to exactly the file it came from. */
