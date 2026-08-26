@@ -593,12 +593,18 @@ Verification:
 - Exact-head preview `dpl_4cSZXDnQPvPxmrnsk47NumFCx8wh` was READY, returned
   HTTP 200 with the matching head SHA, and had no error/fatal runtime logs.
 - After PR 909 merged, current `main` was reconciled into PR 910 with no
-  overlapping files. The final exact-head CI/preview rerun is required before
-  the PR can be marked merge-ready.
+  overlapping files. On reconciled head
+  `ef7631b6a1cfa395c3b0987818f4f34c1394a53f`, CI, Build Check, Secret Scan,
+  Route Budget, all guards, and public Playwright passed; GitHub reported the
+  PR clean and mergeable with zero commits behind `main`.
+- Exact-head preview `dpl_9QSXct9SpnYaxg8RtQBmsYTYRMRw` was READY, returned
+  HTTP 200 with the matching `x-buddy-build` SHA, and had no error/fatal
+  runtime logs.
 
 Open checkpoints:
 
-- Do not merge PR 910 until its post-reconciliation exact-head checks are green.
+- PR 910 is safe for Matt to merge after the documentation-only ledger close
+  receives the same required exact-head checks; the commissioning agent did not merge it.
 - After PR 910 merges, execute one authorized SignWell completion/replay fixture
   and verify the signed-document row, storage artifact, audit event, and durable
   request transition.
