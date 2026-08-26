@@ -54,7 +54,17 @@ class Q {
   }
   private commitInsert() {
     if (this.db.writeFailures.has(this.table)) return { data: null, error: { message: `${this.table}_write_failed` } };
-    if (!this._insertCommitted) { this.db.tables[this.table] ??= []; this.db.tables[this.table].push(...(this._i ?? [])); this._insertCommitted = true; }
+    if (!this._insertCommitted) {
+      this.db.tables[this.table] ??= [];
+      if (this.table === "brokerage_lender_message_outbox") {
+        for (const row of this._i ?? []) {
+          row.attempts ??= 0;
+          row.last_attempt_at ??= null;
+        }
+      }
+      this.db.tables[this.table].push(...(this._i ?? []));
+      this._insertCommitted = true;
+    }
     return { data: this._i, error: null };
   }
   private commitUpdate() {
