@@ -38,6 +38,9 @@ export type GoldenRunResult = {
   elapsed: number;
   failedStage?: string;
   failedReason?: string;
+  /** This harness validates table choreography only; it never commissions artifacts. */
+  evidenceClass: "synthetic_direct_insert";
+  commissionsGoldenTrident: false;
 };
 
 type StepResult = { ok: boolean; error?: string; data?: Record<string, any> };
@@ -209,10 +212,10 @@ export async function runGoldenBrokerageRun(args: {
     const r = await step.fn(c);
     if (!r.ok) {
       if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId).catch(() => {});
-      return { ok: false, dealId: c.dealId, listingId: c.listingId, claimId: c.claimId, pickId: c.pickId, accessId: c.accessId, lenderBankId: c.lenderBankId, lenderName: LENDER, score: c.score, band: c.band, elapsed: Date.now() - start, failedStage: step.name, failedReason: r.error };
+      return { ok: false, dealId: c.dealId, listingId: c.listingId, claimId: c.claimId, pickId: c.pickId, accessId: c.accessId, lenderBankId: c.lenderBankId, lenderName: LENDER, score: c.score, band: c.band, elapsed: Date.now() - start, evidenceClass: "synthetic_direct_insert", commissionsGoldenTrident: false, failedStage: step.name, failedReason: r.error };
     }
   }
 
   if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId).catch(() => {});
-  return { ok: true, dealId: c.dealId, listingId: c.listingId, claimId: c.claimId, pickId: c.pickId, accessId: c.accessId, lenderBankId: c.lenderBankId, lenderName: LENDER, score: c.score, band: c.band, elapsed: Date.now() - start };
+  return { ok: true, dealId: c.dealId, listingId: c.listingId, claimId: c.claimId, pickId: c.pickId, accessId: c.accessId, lenderBankId: c.lenderBankId, lenderName: LENDER, score: c.score, band: c.band, elapsed: Date.now() - start, evidenceClass: "synthetic_direct_insert", commissionsGoldenTrident: false };
 }
