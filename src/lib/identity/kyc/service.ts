@@ -21,7 +21,7 @@ export type DiditClient = {
     workflow_id: string;
     url: string;
   }>;
-  fetchDiditSession: (sessionId: string) => Promise<{ session_id: string; status: string; workflow_id: string; url: string }>;
+  fetchDiditSession: (sessionId: string) => Promise<{ session_id: string; status: string; [key: string]: unknown }>;
   getDiditSessionDecision: (sessionId: string) => Promise<{ session_id: string; status: string; [key: string]: unknown }>;
 };
 
@@ -202,17 +202,10 @@ export async function handleDiditWebhook(
 
   const update: Record<string, any> = { status };
   if (TERMINAL_SUCCESS_STATUSES.includes(status)) {
+    // fetchDiditSession already returned Didit's canonical decision payload.
+    // Decision details remain intentionally unmapped until their production
+    // shape is verified; status persistence must not issue a second vendor GET.
     update.completed_at = new Date().toISOString();
-    // Didit's decision payload field paths (document type/name/DOB, selfie
-    // match score, liveness) haven't been confirmed against a live account
-    // yet — fetched here for the audit record but not mapped into the
-    // Persona-shaped id_document_* / selfie_match_score columns until that
-    // shape is verified. See docs/build-logs/ARC00_VENDOR_PROVISIONING_CHECKLIST.md.
-    try {
-      await didit.getDiditSessionDecision(sessionId);
-    } catch {
-      // Non-fatal — status is already updated; decision detail is best-effort.
-    }
   }
 
   await sb.from("borrower_identity_verifications").update(update).eq("id", record.id);
@@ -305,12 +298,9 @@ export async function reconcileVerification(
 
   const update: Record<string, any> = { status };
   if (reachedSuccess && !record.completed_at) {
+    // The canonical fetch above already returned the decision payload; avoid
+    // a redundant vendor round-trip while stamping the successful result.
     update.completed_at = new Date().toISOString();
-    try {
-      await didit.getDiditSessionDecision(record.vendor_inquiry_id);
-    } catch {
-      // Best-effort audit detail only — never block the status write.
-    }
   }
 
   await sb.from("borrower_identity_verifications").update(update).eq("id", record.id);
