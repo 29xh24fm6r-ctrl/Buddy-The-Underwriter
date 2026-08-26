@@ -12,7 +12,7 @@ import { isBorrowerUploadAllowed } from "@/lib/deals/lifecycleGuards";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { validateUploadSession } from "@/lib/uploads/uploadSession";
 import { queueArtifact } from "@/lib/artifacts/queueArtifact";
-import { gcsObjectExists } from "@/lib/storage/gcs";
+import { deleteGcsObject, gcsObjectExists } from "@/lib/storage/gcs";
 import { findExistingDocBySha } from "@/lib/storage/dedupe";
 
 export const runtime = "nodejs";
@@ -21,6 +21,62 @@ export const dynamic = "force-dynamic";
 type Context = {
   params: Promise<{ token: string }>;
 };
+
+async function completeUploadSessionFile(args: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  sessionId: string;
+  sessionFileId: string;
+  sizeBytes: number;
+}): Promise<void> {
+  const { error: fileError } = await args.sb
+    .from("deal_upload_session_files")
+    .update({
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      size_bytes: args.sizeBytes,
+    })
+    .eq("id", args.sessionFileId);
+
+  if (fileError) throw new Error(`Unable to complete upload file: ${fileError.message}`);
+
+  const [totalRes, completeRes] = await Promise.all([
+    args.sb
+      .from("deal_upload_session_files")
+      .select("id", { count: "exact", head: true })
+      .eq("session_id", args.sessionId),
+    args.sb
+      .from("deal_upload_session_files")
+      .select("id", { count: "exact", head: true })
+      .eq("session_id", args.sessionId)
+      .eq("status", "completed"),
+  ]);
+
+  if (totalRes.error) throw new Error(`Unable to count upload files: ${totalRes.error.message}`);
+  if (completeRes.error) throw new Error(`Unable to count completed uploads: ${completeRes.error.message}`);
+
+  const status =
+    (totalRes.count ?? 0) > 0 && totalRes.count === completeRes.count
+      ? "completed"
+      : "uploading";
+  const { error: sessionError } = await args.sb
+    .from("deal_upload_sessions")
+    .update({ status })
+    .eq("id", args.sessionId);
+  if (sessionError) throw new Error(`Unable to update upload session: ${sessionError.message}`);
+}
+
+async function removeRedundantUpload(args: {
+  sb: ReturnType<typeof supabaseAdmin>;
+  bucket: string;
+  path: string;
+}): Promise<void> {
+  if (args.bucket === process.env.GCS_BUCKET) {
+    await deleteGcsObject({ bucket: args.bucket, key: args.path });
+    return;
+  }
+  const { error } = await args.sb.storage.from(args.bucket).remove([args.path]);
+  if (error) throw new Error(`Unable to remove duplicate upload: ${error.message}`);
+}
 
 /**
  * POST /api/portal/[token]/files/record
@@ -62,9 +118,6 @@ export async function POST(req: NextRequest, ctx: Context) {
     let resolvedPath = storage_path || object_path;
     let resolvedBucket =
       storage_bucket || process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
-
-    let dealIdForLog: string | null = null;
-    let bankIdForLog: string | null = null;
 
     console.log("[UPLOAD RECORD ROUTE HIT - PORTAL]", {
       token,
@@ -285,40 +338,8 @@ export async function POST(req: NextRequest, ctx: Context) {
     resolvedPath = sessionObjectKey;
     resolvedBucket = sessionBucket;
 
-    await sb
-      .from("deal_upload_session_files")
-      .update({
-        status: "completed",
-        completed_at: new Date().toISOString(),
-        size_bytes: size_bytes ?? 0,
-      })
-      .eq("id", existingFile.data.id);
-
-    const totalRes = await sb
-      .from("deal_upload_session_files")
-      .select("id", { count: "exact", head: true })
-      .eq("session_id", resolvedSessionId);
-
-    const completeRes = await sb
-      .from("deal_upload_session_files")
-      .select("id", { count: "exact", head: true })
-      .eq("session_id", resolvedSessionId)
-      .eq("status", "completed");
-
-    const total = totalRes.count ?? 0;
-    const completed = completeRes.count ?? 0;
-
-    if (total > 0 && total === completed) {
-      await sb
-        .from("deal_upload_sessions")
-        .update({ status: "completed" })
-        .eq("id", resolvedSessionId);
-    } else {
-      await sb
-        .from("deal_upload_sessions")
-        .update({ status: "uploading" })
-        .eq("id", resolvedSessionId);
-    }
+    // The session remains uploading until storage verification, canonical
+    // ingestion, and durable artifact queueing have all succeeded.
 
     const { data: refreshed } = await sb
       .from("deals")
@@ -410,6 +431,31 @@ export async function POST(req: NextRequest, ctx: Context) {
             source: "borrower_portal",
           },
         });
+        // Ensure a previous partial attempt is durably queued before reporting
+        // success. This also makes record retries self-healing.
+        await queueArtifact({
+          dealId,
+          bankId: deal.bank_id,
+          sourceTable: "deal_documents",
+          sourceId: duplicate.id,
+        });
+
+        if (
+          duplicate.storage_bucket &&
+          duplicate.storage_path &&
+          (duplicate.storage_bucket !== resolvedBucket ||
+            duplicate.storage_path !== resolvedPath)
+        ) {
+          await removeRedundantUpload({ sb, bucket: resolvedBucket, path: resolvedPath });
+        }
+
+        await completeUploadSessionFile({
+          sb,
+          sessionId: resolvedSessionId,
+          sessionFileId: existingFile.data.id,
+          sizeBytes: size_bytes ?? 0,
+        });
+
         // Success, not an error: from the borrower's point of view the file
         // IS on the application. Returning a failure here would send them
         // right back into the re-upload loop this check exists to end.
@@ -504,18 +550,14 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
     });
 
-    // Queue for Magic Intake classification (non-blocking)
+    // Classification is required operational work. Do not report the upload
+    // complete until its durable artifact job exists.
     if (result.documentId) {
-      queueArtifact({
+      await queueArtifact({
         dealId,
         bankId: deal.bank_id,
         sourceTable: "deal_documents",
         sourceId: result.documentId,
-      }).catch((err) => {
-        console.warn("[portal/files/record] queueArtifact failed (non-fatal)", {
-          documentId: result.documentId,
-          error: err?.message,
-        });
       });
     }
 
@@ -594,6 +636,13 @@ export async function POST(req: NextRequest, ctx: Context) {
       file_id,
       original_filename,
       checklist_key,
+    });
+
+    await completeUploadSessionFile({
+      sb,
+      sessionId: resolvedSessionId,
+      sessionFileId: existingFile.data.id,
+      sizeBytes: size_bytes ?? 0,
     });
 
     await logLedgerEvent({
