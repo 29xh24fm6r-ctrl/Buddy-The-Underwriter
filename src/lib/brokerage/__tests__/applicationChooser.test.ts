@@ -8,6 +8,8 @@ function readSrc(path: string): string {
 }
 
 const SRC = "src/lib/brokerage/applicationChooser.ts";
+const TOKEN_SRC = "src/lib/brokerage/chooserToken.ts";
+const SIGNING_KEY_SRC = "src/lib/brokerage/chooserSigningKey.ts";
 
 test("exports set/get/clear cookie functions", () => {
   const source = readSrc(SRC);
@@ -21,11 +23,17 @@ test("cookie payload carries both email and bankId, not email alone", () => {
   assert.match(source, /email.*bankId.*expiresAt|payload = `\$\{email\}:\$\{bankId\}:\$\{expiresAt\}`/);
 });
 
-test("cookie uses HMAC-SHA256 signing with constant-time comparison", () => {
+test("cookie delegates to the centralized HMAC-SHA256 signer", () => {
   const source = readSrc(SRC);
-  assert.ok(source.includes("createHmac"));
-  assert.ok(source.includes("sha256"));
-  assert.ok(source.includes("timingSafeEqual"));
+  const tokenSource = readSrc(TOKEN_SRC);
+  const keySource = readSrc(SIGNING_KEY_SRC);
+
+  assert.ok(source.includes("signChooserPayload"));
+  assert.ok(source.includes("verifyChooserPayload"));
+  assert.ok(tokenSource.includes("createHmac"));
+  assert.ok(tokenSource.includes("sha256"));
+  assert.ok(tokenSource.includes("timingSafeEqual"));
+  assert.doesNotMatch(keySource, /process\.env\.NEXT_PUBLIC_/);
 });
 
 test("cookie is httpOnly, secure, sameSite=lax, 10-minute TTL", () => {
@@ -48,7 +56,7 @@ test("clear sets maxAge: 0, invalidating the cookie", () => {
 
 test("cookie name is distinct from the QA chooser and the real session cookie", () => {
   const source = readSrc(SRC);
-  assert.ok(source.includes('"buddy_application_chooser"'));
-  assert.doesNotMatch(source, /"buddy_qa_chooser"/);
-  assert.doesNotMatch(source, /"buddy_borrower_session"/);
+  assert.match(source, /const COOKIE_NAME = "buddy_application_chooser"/);
+  assert.doesNotMatch(source, /const COOKIE_NAME = "buddy_qa_chooser"/);
+  assert.doesNotMatch(source, /const COOKIE_NAME = "buddy_borrower_session"/);
 });

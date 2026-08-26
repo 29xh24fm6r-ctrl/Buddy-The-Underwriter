@@ -40,11 +40,17 @@ describe("QA chooser session cookie — creation and validation", () => {
     assert.ok(source.includes("export async function clearQAChooserCookie"), "Must export clearQAChooserCookie");
   });
 
-  it("Cookie uses HMAC-SHA256 signing with server-side secret", () => {
+  it("Cookie delegates to the centralized HMAC-SHA256 signer", () => {
     const source = readSource("src/lib/brokerage/qaChooser.ts");
-    assert.ok(source.includes("createHmac"), "Must use HMAC");
-    assert.ok(source.includes("sha256"), "Must use SHA-256");
-    assert.ok(source.includes("timingSafeEqual"), "Must use constant-time comparison");
+    const tokenSource = readSource("src/lib/brokerage/chooserToken.ts");
+    const keySource = readSource("src/lib/brokerage/chooserSigningKey.ts");
+
+    assert.ok(source.includes("signChooserPayload"), "Must use the shared signer");
+    assert.ok(source.includes("verifyChooserPayload"), "Must use the shared verifier");
+    assert.ok(tokenSource.includes("createHmac"), "Must use HMAC");
+    assert.ok(tokenSource.includes("sha256"), "Must use SHA-256");
+    assert.ok(tokenSource.includes("timingSafeEqual"), "Must use constant-time comparison");
+    assert.doesNotMatch(keySource, /process\.env\.NEXT_PUBLIC_/, "Must not accept browser-visible keys");
   });
 
   it("Cookie is httpOnly, secure, sameSite=lax, 10-minute TTL", () => {
