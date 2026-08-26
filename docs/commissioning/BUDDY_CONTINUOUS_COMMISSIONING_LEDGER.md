@@ -312,3 +312,38 @@ Unresolved:
   `user_usage.user_id` retains an older `auth.users(id)` foreign key. No
   destructive FK or production-row rewrite is authorized without restored
   Supabase connector evidence.
+
+
+### Atomic intake RPC privilege boundary
+
+Evidence and root cause:
+
+- PR 903 introduced `finalize_intake_and_enqueue_processing` as a
+  `SECURITY DEFINER` function that locks and finalizes documents, writes the deal
+  event and processing outbox, and transitions the deal.
+- The application route correctly authenticates and calls
+  `ensureDealBankAccess(dealId)` before using the service-role client.
+- The migration nevertheless granted direct EXECUTE permission to
+  `authenticated`. A client could therefore bypass the authorized route and
+  supply arbitrary deal, bank, actor, snapshot, and run identifiers to the
+  privileged function.
+
+Repair branch: `security/finalize-intake-rpc-privilege-boundary`.
+
+Repair:
+
+- Add a forward migration that fixes the function search path, revokes EXECUTE
+  from `PUBLIC`, `anon`, and `authenticated`, and grants only
+  `service_role`.
+- Preserve the authorized server route and its atomic transaction unchanged.
+- Add regression coverage that binds the RPC to the tenant-authorized server
+  route and enforces the service-role-only grant contract.
+- No borrower data, document data, deal state, function body, dependency, or
+  provider configuration is changed.
+
+Verification target:
+
+- Focused privilege-boundary test, migration guards, full required CI, and exact
+  Vercel preview must pass before merge.
+- Post-merge database verification remains dependent on restoration of the Buddy
+  Supabase connector, currently returning `-32603`.
