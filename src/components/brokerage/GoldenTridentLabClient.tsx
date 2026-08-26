@@ -4,6 +4,27 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { TridentReadiness } from "@/lib/brokerage/trident/tridentReadiness";
 
+const TRIDENT_POLL_MIN_MS = 5_000;
+const TRIDENT_POLL_MAX_MS = 30_000;
+const TRIDENT_POLL_REQUEST_TIMEOUT_MS = 10_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForDocumentVisible(): Promise<void> {
+  if (document.visibilityState === "visible") return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      resolve();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+  });
+}
+
 export function GoldenTridentLabClient({
   dealId,
   readiness,
@@ -17,21 +38,64 @@ export function GoldenTridentLabClient({
 
   async function waitForTrident(bundleId: string) {
     const deadline = Date.now() + 30 * 60 * 1000;
+    let pollDelayMs = TRIDENT_POLL_MIN_MS;
+    let lastProgressKey: string | null = null;
+
     while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      const response = await fetch(`/api/brokerage/deals/${dealId}/trident/generate`, {
-        method: "GET",
-        cache: "no-store",
-      });
+      await waitForDocumentVisible();
+      await sleep(pollDelayMs);
+      if (document.visibilityState !== "visible") continue;
+
+      const controller = new AbortController();
+      const timeout = window.setTimeout(
+        () => controller.abort(),
+        TRIDENT_POLL_REQUEST_TIMEOUT_MS,
+      );
+
+      let response: Response;
+      try {
+        response = await fetch(
+          `/api/brokerage/deals/${dealId}/trident/generate?bundleId=${encodeURIComponent(bundleId)}`,
+          {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal,
+          },
+        );
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          pollDelayMs = Math.min(TRIDENT_POLL_MAX_MS, Math.ceil(pollDelayMs * 1.5));
+          setMessage("Golden Trident status is temporarily slow. Generation continues in the background; retrying.");
+          continue;
+        }
+        throw error;
+      } finally {
+        window.clearTimeout(timeout);
+      }
+
       const body = await response.json().catch(() => ({}));
       if (!response.ok || body.ok === false) {
         throw new Error(body.error || `Status check failed (${response.status})`);
       }
-      if (body.bundle?.id !== bundleId) continue;
+      if (body.bundle?.id !== bundleId) {
+        throw new Error("The accepted Golden Trident run could not be resolved.");
+      }
       if (body.bundle.status === "succeeded") return;
       if (body.bundle.status === "failed") {
         throw new Error(body.bundle.generation_error || "Generation failed");
       }
+
+      const progressKey = [
+        body.bundle.status,
+        body.bundle.current_stage,
+        body.bundle.last_heartbeat_at,
+        body.stages?.length ?? 0,
+      ].join(":");
+      pollDelayMs = progressKey === lastProgressKey
+        ? Math.min(TRIDENT_POLL_MAX_MS, Math.ceil(pollDelayMs * 1.5))
+        : TRIDENT_POLL_MIN_MS;
+      lastProgressKey = progressKey;
+
       const stage = body.bundle?.current_stage ? String(body.bundle.current_stage).replace(/_/g, " ") : "factory";
       setMessage(`Golden Trident is running: ${stage}. You may leave this page.`);
     }
