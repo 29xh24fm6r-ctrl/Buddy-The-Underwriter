@@ -12,9 +12,11 @@ export type FrontierArtifactResult = {
   flaggedClaims: FlaggedClaim[];
   repaired: boolean;
   reviewPasses: number;
+  /** Complete structured findings from the terminal independent review. */
+  reviewIssues: ReviewIssue[];
 };
 
-type ReviewIssue = {
+export type ReviewIssue = {
   sectionKey: string;
   claim: string;
   reason: string;
@@ -210,7 +212,7 @@ export async function finishInstitutionalArtifact(input: {
     reviewPasses += 1;
     remaining = issues.filter((issue) => issue.severity !== "info");
     if (remaining.length === 0) {
-      return { sections, verdict: "pass", flaggedClaims: [], repaired, reviewPasses };
+      return { sections, verdict: "pass", flaggedClaims: [], repaired, reviewPasses, reviewIssues: [] };
     }
     if (cycle === 3) break;
 
@@ -262,5 +264,6 @@ export async function finishInstitutionalArtifact(input: {
     flaggedClaims: remaining.map(({ claim, reason, severity }) => ({ claim, reason, severity })),
     repaired,
     reviewPasses,
+    reviewIssues: remaining,
   };
 }
