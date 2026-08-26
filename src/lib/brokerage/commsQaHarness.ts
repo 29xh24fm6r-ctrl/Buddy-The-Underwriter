@@ -129,6 +129,7 @@ export async function runCommsQaScenario(name: QaScenarioName, sb: SB): Promise<
     }
     case "provider_retry_then_success": {
       const { id } = await enqueueCommsMessage({ idempotencyKey: `qa-retry-${dealId}`, channel: "email", provider: "resend", recipient: "qa@test.com", body: "Test", dealId }, stubSb);
+      db.tables.brokerage_comms_outbox[0].next_attempt_at = new Date(Date.now() - 1000).toISOString();
       const claimed = await claimDueCommsMessages(stubSb);
       check("claimed", claimed.length >= 1, `claimed=${claimed.length}`);
       // First attempt: retryable failure
@@ -153,7 +154,9 @@ export async function runCommsQaScenario(name: QaScenarioName, sb: SB): Promise<
       // Process 3 times
       for (let i = 0; i < 3; i++) {
         const item = db.tables.brokerage_comms_outbox[0];
-        if (item.status === "retry_scheduled") { item.next_attempt_at = new Date(Date.now() - 1000).toISOString(); }
+        if (item.status === "pending" || item.status === "retry_scheduled") {
+          item.next_attempt_at = new Date(Date.now() - 1000).toISOString();
+        }
         const claimed = await claimDueCommsMessages(stubSb);
         if (claimed.length > 0) await processCommsOutboxItem(claimed[0], failAdapter, stubSb);
       }
@@ -293,11 +296,19 @@ class QaQB {
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
   maybeSingle(): Promise<{ data: any; error: any }> {
-    if (this._u) { for (const r of this.rows()) Object.assign(r, this._u); return Promise.resolve({ data: this.rows()[0], error: null }); }
+    if (this._u) {
+      const matched = this.rows();
+      for (const row of matched) Object.assign(row, this._u);
+      return Promise.resolve({ data: matched[0] ?? null, error: null });
+    }
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
   then(f: any, r?: any) {
-    if (this._u) { for (const row of this.rows()) Object.assign(row, this._u); return Promise.resolve({ data: this.rows(), error: null }).then(f, r); }
+    if (this._u) {
+      const matched = this.rows();
+      for (const row of matched) Object.assign(row, this._u);
+      return Promise.resolve({ data: matched, error: null }).then(f, r);
+    }
     if (this._i) return Promise.resolve({ data: this._i, error: null }).then(f, r);
     return Promise.resolve({ data: this.rows(), error: null }).then(f, r);
   }
