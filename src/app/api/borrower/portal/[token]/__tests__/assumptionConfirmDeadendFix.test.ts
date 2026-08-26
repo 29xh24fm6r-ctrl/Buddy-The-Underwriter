@@ -8,9 +8,10 @@
  * path end to end: the failed research call is logged, a subsequent
  * confirm (what the new "editing"-phase Confirm button now calls) always
  * succeeds regardless of research having failed, and confirming triggers
- * generateTridentBundle — the second gap the spec explicitly warned might
+ * Trident generation — the second gap the spec explicitly warned might
  * exist "immediately behind" the first one (it did: /generate-pdf never
- * called it).
+ * called it). That trigger now admits the run into the durable workflow
+ * instead of awaiting the factory in-request (audit F-17).
  *
  * Same require.cache module-stub convention as
  * src/app/api/brokerage/voice/__tests__/dispatchAuthz.test.ts — this route
@@ -35,14 +36,14 @@ const state: {
   assumptions: [],
   events: [],
   researchShouldThrow: false,
-  bundleResult: { ok: true, bundleId: "bundle-1", mode: "preview", paths: {}, businessPlanAttested: false },
+  bundleResult: { ok: true, accepted: true, bundleId: "bundle-1", runId: "run-1" },
 };
 
 function resetState() {
   state.assumptions = [];
   state.events = [];
   state.researchShouldThrow = false;
-  state.bundleResult = { ok: true, bundleId: "bundle-1", mode: "preview", paths: {}, businessPlanAttested: false };
+  state.bundleResult = { ok: true, accepted: true, bundleId: "bundle-1", runId: "run-1" };
 }
 
 function makeQueryBuilder(tableName: string) {
@@ -153,12 +154,12 @@ require.cache[require.resolve("@/lib/sba/sbaResearchProjectionGenerator")] = {
   },
 } as any;
 
-require.cache[require.resolve("@/lib/brokerage/trident/generateTridentBundle")] = {
-  id: "trident-bundle-stub",
-  filename: "trident-bundle-stub",
+require.cache[require.resolve("@/lib/brokerage/trident/startTridentGeneration")] = {
+  id: "trident-start-stub",
+  filename: "trident-start-stub",
   loaded: true,
   exports: {
-    generateTridentBundle: async () => state.bundleResult,
+    startTridentGeneration: async () => state.bundleResult,
   },
 } as any;
 
@@ -244,19 +245,28 @@ test("research fails → confirm still succeeds (the actual dead-end this spec f
 
   // 3. The second gap the spec explicitly flagged: confirming must
   //    actually trigger bundle generation, not just flip a status column.
+  //    It now ADMITS the run and hands it to the durable workflow rather
+  //    than awaiting the factory inside this 120s request (audit F-17), so
+  //    the recorded outcome is "accepted", not "succeeded" — the bundle row
+  //    is what records whether the run finished.
   assert.equal(confirmResult.body.bundleGeneration?.ok, true);
   assert.equal(confirmResult.body.bundleGeneration?.bundleId, "bundle-1");
 
   const confirmedEvent = state.events.find((e) => e.event_type === "confirmed");
   assert.ok(confirmedEvent);
-  const bundleEvent = state.events.find((e) => e.event_type === "bundle_generation_succeeded");
-  assert.ok(bundleEvent);
+  const bundleEvent = state.events.find((e) => e.event_type === "bundle_generation_accepted");
+  assert.ok(bundleEvent, "confirming must record that a run was admitted");
   assert.equal(bundleEvent.detail.bundleId, "bundle-1");
+  assert.equal(
+    state.events.some((e) => e.event_type === "bundle_generation_succeeded"),
+    false,
+    "confirm cannot claim the factory succeeded — it no longer waits for it",
+  );
 });
 
-test("bundle generation failure does not undo or fail the assumptions confirmation itself", async () => {
+test("bundle admission failure does not undo or fail the assumptions confirmation itself", async () => {
   resetState();
-  state.bundleResult = { ok: false, bundleId: null, error: "SBA package generation failed: boom" };
+  state.bundleResult = { ok: false, bundleId: null, error: "Workflow start failed: boom" };
   const token = "tok-bundle-fail";
 
   const confirmResult = await callConfirm(token);
@@ -270,7 +280,7 @@ test("bundle generation failure does not undo or fail the assumptions confirmati
 
   const failedEvent = state.events.find((e) => e.event_type === "bundle_generation_failed");
   assert.ok(failedEvent, "bundle failure must be logged — this is exactly the class of gap that made every downstream table sit at 0 rows unnoticed");
-  assert.match(failedEvent.detail.error, /SBA package generation failed/);
+  assert.match(failedEvent.detail.error, /Workflow start failed/);
 });
 
 test("a non-confirm PATCH (plain autosave) does not trigger bundle generation", async () => {

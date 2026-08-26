@@ -13,20 +13,37 @@
 //     (import errors). Each carries a SPEC-CI-2 reason and is inventoried in
 //     specs/ci-2/backlog.md. This list is remove-only.
 //
-// FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): paths containing `[`
-// or `]` (Next.js dynamic-segment dirs, e.g. `[dealId]`) were previously
-// excluded entirely with the comment "node --test cannot resolve these (runs
-// 0 tests silently, memory #30)". That's half-true: `node --test <path>`
-// treats its positional args as glob patterns, and `[dealId]` parses as a
-// glob character class rather than a literal directory name — so the file
-// resolves to nothing and node --test silently reports "0 tests, 0 fail"
-// instead of erroring, with zero signal that a real test file was skipped.
-// The actual fix is to escape each literal `[`/`]` as the single-char glob
-// class `[[]`/`[]]` in the printed path (verified: 9 test files across the
-// repo, 54 tests total, were dead this way — all pass once escaped). Paths
-// containing `(` (Next.js route groups, e.g. `(app)`) were also excluded but
-// were never actually a problem — `(`/`)` aren't glob metacharacters here;
-// removing that exclusion needed no escaping to work.
+// Dynamic-segment paths (`[dealId]`, `[token]`) need care: `node --test`
+// treats its positional arguments as GLOB PATTERNS, so `[dealId]` parses as a
+// character class rather than a literal directory name, resolves to nothing,
+// and node reports "0 tests, 0 fail" with no signal that a real file was
+// skipped.
+//
+// This was previously handled by printing each `[`/`]` as the glob class
+// `[[]`/`[]]`. That escaping is correct in isolation and its guard verified
+// the printed strings round-tripped — but the strings were never the thing
+// that mattered. package.json invoked the runner as
+// `node --test --import tsx $(node scripts/discover-tests.mjs)`, and the
+// UNQUOTED command substitution let the SHELL glob-expand `[[]dealId[]]`
+// straight back to the literal `[dealId]` before node ever saw it. Node then
+// globbed that to nothing, exactly as before. Seventeen test files — every
+// test under a dynamic-route directory, including the borrower portal's
+// identity, owners, and assumptions-confirm routes and the seal route's
+// hostile-interrogation wiring — silently contributed zero tests to CI while
+// the coverage-floor guard counted them as discovered (audit F-24).
+//
+// Two changes fix it, and both are needed:
+//   1. `?` instead of `[[]`/`[]]`. A single-char wildcard matches the literal
+//      bracket and survives as a pattern node can resolve.
+//   2. scripts/run-unit-tests.mjs spawns node with shell:false, so no shell
+//      ever gets a chance to expand the pattern first. The CLI output of this
+//      file must NOT be used through an unquoted `$(...)` again.
+// Each emitted pattern is checked to resolve to exactly one discovered file,
+// so an ambiguous or non-resolving wildcard fails the run instead of quietly
+// selecting the wrong file or nothing.
+//
+// Paths containing `(` (Next.js route groups, e.g. `(app)`) were never a
+// problem — `(`/`)` aren't glob metacharacters here.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -72,17 +89,40 @@ function isExcludedPath(rel) {
   return false;
 }
 
-/** Escape literal `[`/`]` as single-char glob classes so node --test's
- * glob-pattern argument parsing resolves them as literal directory names
- * instead of (mis)parsing them as character classes. */
-function escapeForNodeTestGlob(rel) {
-  let out = "";
-  for (const ch of rel) {
-    if (ch === "[") out += "[[]";
-    else if (ch === "]") out += "[]]";
-    else out += ch;
-  }
-  return out;
+/**
+ * Turn a real path into a pattern `node --test` can resolve.
+ *
+ * `?` matches any single character, so `?dealId?` matches the literal
+ * `[dealId]`. Unlike the `[[]`/`[]]` glob-class form this replaced, it does
+ * not collapse back to a bare `[dealId]` if something expands it on the way.
+ */
+export function toNodeTestPattern(rel) {
+  return rel.replace(/[[\]]/g, "?");
+}
+
+/** A pattern is only safe if it selects exactly the file it came from. */
+function patternRegex(pattern) {
+  const escaped = pattern.replace(/[.*+^${}()|\\]/g, "\\$&").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`);
+}
+
+/**
+ * Fail loudly if any wildcard is ambiguous or matches nothing. Silent
+ * mis-selection is the failure mode this whole file exists to prevent.
+ */
+function assertPatternsResolve(files, patterns) {
+  patterns.forEach((pattern, i) => {
+    if (!pattern.includes("?")) return;
+    const re = patternRegex(pattern);
+    const matches = files.filter((f) => re.test(f));
+    if (matches.length !== 1 || matches[0] !== files[i]) {
+      console.error(
+        `discover-tests: pattern "${pattern}" resolves to ${matches.length} discovered file(s) ` +
+          `(${matches.join(", ") || "none"}); expected exactly ${files[i]}.`,
+      );
+      process.exit(1);
+    }
+  });
 }
 
 function walk(dir, out = []) {
@@ -100,36 +140,61 @@ function walk(dir, out = []) {
   return out;
 }
 
-// `--react-server` prints the react-server-condition list instead of the
-// default list, so package.json can drive both runners from one discoverer.
-const wantReactServer = process.argv.includes("--react-server");
+/**
+ * The discovered REAL paths (not patterns). Exported so the runner and the
+ * CI-honesty guard can work from the same list this file prints.
+ */
+export function discoverTestFiles({ reactServer = false } = {}) {
+  const files = reactServer
+    ? [...REACT_SERVER_ONLY]
+        .filter((rel) => {
+          // Fail loudly rather than silently dropping a renamed or deleted
+          // entry. `node --test` with no positional args falls back to
+          // scanning the whole tree, so an empty list here would quietly run
+          // the entire suite under the react-server condition instead of
+          // these few files.
+          if (fs.existsSync(path.join(ROOT, rel))) return true;
+          console.error(`discover-tests: REACT_SERVER_ONLY entry not found: ${rel}`);
+          process.exit(1);
+        })
+        .sort()
+    : SCAN_DIRS.flatMap((d) => walk(d))
+        .map((f) => f.split(path.sep).join("/"))
+        .filter((rel) => !isExcludedPath(rel))
+        .sort();
 
-const files = wantReactServer
-  ? [...REACT_SERVER_ONLY]
-      .filter((rel) => {
-        // Fail loudly rather than silently dropping a renamed or deleted
-        // entry. `node --test` with no positional args falls back to scanning
-        // the whole tree, so an empty list here would quietly run the entire
-        // suite under the react-server condition instead of these few files.
-        if (fs.existsSync(path.join(ROOT, rel))) return true;
-        console.error(`discover-tests: REACT_SERVER_ONLY entry not found: ${rel}`);
-        process.exit(1);
-      })
-      .sort()
-      .map(escapeForNodeTestGlob)
-  : SCAN_DIRS.flatMap((d) => walk(d))
-      .map((f) => f.split(path.sep).join("/"))
-      .filter((rel) => !isExcludedPath(rel))
-      .sort()
-      .map(escapeForNodeTestGlob);
-
-if (files.length === 0) {
-  console.error(
-    wantReactServer
-      ? "discover-tests: react-server list is empty — refusing to emit nothing, which would make node --test scan the whole tree."
-      : "discover-tests: no test files discovered.",
-  );
-  process.exit(1);
+  if (files.length === 0) {
+    console.error(
+      reactServer
+        ? "discover-tests: react-server list is empty — refusing to emit nothing, which would make node --test scan the whole tree."
+        : "discover-tests: no test files discovered.",
+    );
+    process.exit(1);
+  }
+  return files;
 }
 
-process.stdout.write(files.join("\n") + "\n");
+/** The patterns to hand to `node --test`, validated against the real list. */
+export function discoverTestPatterns(opts) {
+  const files = discoverTestFiles(opts);
+  const patterns = files.map(toNodeTestPattern);
+  assertPatternsResolve(files, patterns);
+  return patterns;
+}
+
+// CLI. `--react-server` prints the react-server-condition list instead of the
+// default one. NOTE: this output contains `?` wildcards — pass it through a
+// shell-free spawn (scripts/run-unit-tests.mjs), never an unquoted `$(...)`,
+// or the shell will expand the patterns before node can resolve them.
+const isCli =
+  process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
+if (isCli) {
+  const reactServer = process.argv.includes("--react-server");
+  // `--paths` prints the REAL file paths instead of the node --test patterns.
+  // Guards need both: the patterns to check what the runner receives, and the
+  // paths to check those patterns each resolve to exactly one real file.
+  const out = process.argv.includes("--paths")
+    ? discoverTestFiles({ reactServer })
+    : discoverTestPatterns({ reactServer });
+  process.stdout.write(out.join("\n") + "\n");
+}

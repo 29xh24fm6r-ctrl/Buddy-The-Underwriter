@@ -410,6 +410,7 @@ export async function generateTridentBundle(args: {
     // the raw workbook can't be uncovered by stripping a layer or copying
     // the page. Final unwatermarked workbook ships at lender pick.
     let projectionsPdfPath = (existing.projections_pdf_path as string | null | undefined) ?? null;
+    let projectionsPreviewError: string | null = null;
     if (mode === "preview" && !projectionsPdfPath) {
       try {
         const { data: pkgRowPrev } = await sb
@@ -448,11 +449,19 @@ export async function generateTridentBundle(args: {
             contentType: "application/pdf",
             upsert: true,
           });
-        if (!uploadErr) projectionsPdfPath = previewPath;
+        if (uploadErr) throw new Error(`upload failed: ${uploadErr.message}`);
+        projectionsPdfPath = previewPath;
       } catch (e) {
+        // Non-fatal by design — a preview must still deliver the business
+        // plan and feasibility study if the projections summary cannot be
+        // produced. But it used to be non-fatal AND silent: the bundle went
+        // to `succeeded` with a null path, the borrower's download 404'd,
+        // and nothing recorded why. Record the reason on the run so the
+        // missing artifact is explainable after the fact (audit F-23).
+        projectionsPreviewError = e instanceof Error ? e.message : String(e);
         console.warn(
           "[trident] projections preview render failed (non-fatal):",
-          e instanceof Error ? e.message : String(e),
+          projectionsPreviewError,
         );
       }
     }
@@ -462,6 +471,19 @@ export async function generateTridentBundle(args: {
       projections_xlsx_path: projectionsXlsxPath,
       current_stage: "projections",
       last_heartbeat_at: new Date().toISOString(),
+      // A preview that ships without its projections summary is a degraded
+      // run, not a clean one. Keep the reason with the bundle so support can
+      // answer "why is this download missing?" without a log dig.
+      ...(projectionsPreviewError
+        ? {
+            stage_error_json: {
+              stage: "projections",
+              code: "preview_projections_render_failed",
+              message: projectionsPreviewError,
+              degraded: true,
+            },
+          }
+        : {}),
       // Redaction provenance. redactor.ts's contract is "every change bumps
       // REDACTOR_VERSION; the bundle row records the version used", and both
       // latest-preview endpoints surface it — but nothing ever wrote it, so

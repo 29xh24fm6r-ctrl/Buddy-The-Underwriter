@@ -73,17 +73,20 @@ describe("SPEC-CI-1 §5.2 — test:unit glob coverage floor", () => {
     );
   });
 
-  // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): dynamic-segment
-  // paths (`[dealId]`) are no longer excluded — they're glob-escaped so
-  // `node --test` resolves them as literal directory names instead of
-  // (mis)parsing `[dealId]` as a glob character class, which previously made
-  // discover-tests.mjs exclude them AND made node --test silently report "0
-  // tests" for them even when passed directly (verified: 9 real test files,
-  // 54 tests, were dead this way — all pass once escaped). __invariants__ is
-  // still excluded (owned by a different runner). Route-group parens
-  // (`(app)`) were never actually a problem for node --test and are no
-  // longer excluded either.
-  it("discovery escapes bracket paths instead of excluding them, still excludes __invariants__", () => {
+  // Dynamic-segment paths (`[dealId]`, `[token]`) are emitted as `?`
+  // wildcards so `node --test` resolves them, and run through
+  // scripts/run-unit-tests.mjs so no shell expands the wildcards first.
+  //
+  // The previous version of this guard checked that the printed paths were
+  // glob-escaped and round-trippable. Both were true, and both were beside
+  // the point: package.json fed the output through an unquoted `$(...)`, the
+  // shell expanded the escaping back to a literal `[dealId]`, and node
+  // globbed that to nothing. Seventeen files reported "0 tests" while this
+  // guard counted them as discovered (audit F-24).
+  //
+  // So the assertion below is EXECUTION, not spelling: a known
+  // dynamic-segment test file must actually run tests.
+  it("discovery still excludes __invariants__ and emits resolvable paths", () => {
     const out = execFileSync("node", ["scripts/discover-tests.mjs"], {
       cwd: REPO,
       encoding: "utf8",
@@ -93,21 +96,89 @@ describe("SPEC-CI-1 §5.2 — test:unit glob coverage floor", () => {
     const stillExcluded = lines.filter((l) => l.includes("__invariants__"));
     assert.deepEqual(stillExcluded, [], `discovery must still exclude __invariants__: ${stillExcluded.join(", ")}`);
 
-    // Every discovered path must actually exist on disk once the glob-escaping
-    // is reversed — proves the escaping is round-trippable, not corrupting paths.
-    const unescape = (s: string) => s.replace(/\[\[\]/g, "[").replace(/\[\]\]/g, "]");
-    const missing = lines.filter((l) => !fs.existsSync(path.join(REPO, unescape(l))));
-    assert.deepEqual(missing, [], `discovered paths must exist on disk after unescaping: ${missing.join(", ")}`);
+    // Every emitted pattern must select exactly one real file. `?` matches any
+    // single character, so an over-broad pattern could silently pull in a
+    // different file — or none, which is the bug this whole area is about.
+    const realPaths = execFileSync("node", ["scripts/discover-tests.mjs", "--paths"], {
+      cwd: REPO,
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(Boolean);
+    assert.equal(lines.length, realPaths.length, "pattern list and path list must correspond 1:1");
 
-    // A known real dynamic-segment test file (research system audit finding
-    // C1) must be present, and present in ESCAPED form — not silently
-    // dropped, and not passed through unescaped (which node --test can't
-    // resolve).
+    const ambiguous: string[] = [];
+    lines.forEach((pattern, i) => {
+      const re = new RegExp(
+        "^" +
+          pattern
+            .split("?")
+            .map((part) => part.replace(/[.*+^${}()|[\]\\]/g, "\\$&"))
+            .join(".") +
+          "$",
+      );
+      const matches = realPaths.filter((real) => re.test(real));
+      if (matches.length !== 1 || matches[0] !== realPaths[i]) {
+        ambiguous.push(`${pattern} -> ${matches.length} match(es)`);
+      }
+      if (!fs.existsSync(path.join(REPO, realPaths[i]))) {
+        ambiguous.push(`${realPaths[i]} (missing on disk)`);
+      }
+    });
+    assert.deepEqual(ambiguous, [], `every pattern must resolve to exactly one file: ${ambiguous.join(", ")}`);
+
     const knownDynamicFile = lines.find((l) => l.includes("sourceArtifactViewer.test.ts"));
     assert.ok(knownDynamicFile, "sourceArtifactViewer.test.ts must be discovered, not excluded");
     assert.ok(
-      knownDynamicFile!.includes("[[]dealId[]]") && knownDynamicFile!.includes("[[]action[]]"),
-      `sourceArtifactViewer.test.ts path must be glob-escaped, got: ${knownDynamicFile}`,
+      knownDynamicFile!.includes("?dealId?") && knownDynamicFile!.includes("?action?"),
+      `dynamic segments must be emitted as resolvable wildcards, got: ${knownDynamicFile}`,
     );
+  });
+
+  it("[F-24] a dynamic-segment test file actually RUNS, not just discovers", () => {
+    // The property the old guard could not see. If this file reports 0 tests
+    // it is dead in CI no matter how correct its path looks in the listing.
+    const target = "src/app/api/borrower/portal/?token?/__tests__/assumptionConfirmDeadendFix.test.ts";
+    // NODE_TEST_CONTEXT is set in this process because THIS file is running
+    // under node --test. Inheriting it makes the child emit worker-protocol
+    // output instead of TAP, so the "# tests" line never appears and the
+    // check would read 0 for a perfectly healthy file. Strip it.
+    const { NODE_TEST_CONTEXT: _drop, NODE_OPTIONS: _dropOpts, ...cleanEnv } = process.env;
+    let stdout: string;
+    try {
+      stdout = execFileSync(
+        process.execPath,
+        ["--test", "--import", "tsx", target],
+        { cwd: REPO, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: cleanEnv },
+      );
+    } catch (err: any) {
+      stdout = String(err.stdout ?? "");
+    }
+    const reported = Number((stdout.match(/^# tests (\d+)/m) ?? [])[1] ?? 0);
+    assert.ok(
+      reported > 0,
+      `dynamic-segment test file reported ${reported} tests — it is not executing in CI`,
+    );
+  });
+
+  it("[F-24] the unit runner never hands test paths to a shell", () => {
+    // shell:true would re-expand the `?` wildcards and silently resurrect the
+    // bug. The runner exists only to prevent that.
+    const runner = fs.readFileSync(path.join(REPO, "scripts/run-unit-tests.mjs"), "utf8");
+    assert.match(runner, /shell:\s*false/, "run-unit-tests must spawn with shell:false");
+
+    const pkg = JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf8"));
+    for (const script of ["test:unit", "test:unit:react-server"]) {
+      assert.match(
+        pkg.scripts[script],
+        /run-unit-tests\.mjs/,
+        `${script} must go through the shell-free runner`,
+      );
+      assert.doesNotMatch(
+        pkg.scripts[script],
+        /\$\(/,
+        `${script} must not use command substitution — the shell expands the patterns`,
+      );
+    }
   });
 });

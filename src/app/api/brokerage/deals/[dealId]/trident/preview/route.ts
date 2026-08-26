@@ -13,14 +13,19 @@ import "server-only";
  * Final-mode generation is NEVER reachable from this route. The mode is
  * hard-coded to "preview". Final release is gated behind borrower lender
  * pick and is invoked from a different surface.
+ *
+ * Generation is admitted here and run by the durable workflow. This route
+ * previously awaited the inline generator inside its 300s ceiling; a
+ * reclaimed function left the bundle holding a 90-minute lease in `running`
+ * that refused every retry until the janitor reclaimed it (audit F-17).
+ * Callers receive 202 and read completion from /trident/latest-preview.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
-import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
+import { startTridentGeneration } from "@/lib/brokerage/trident/startTridentGeneration";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
 
 export async function POST(
   _req: NextRequest,
@@ -33,18 +38,22 @@ export async function POST(
     return NextResponse.json({ ok: false }, { status: 404 });
   }
 
-  const result = await generateTridentBundle({ dealId, mode: "preview" });
-  if (!result.ok) {
+  const started = await startTridentGeneration({ dealId, mode: "preview" });
+  if (!started.ok) {
     return NextResponse.json(
-      { ok: false, error: result.error, bundleId: result.bundleId },
+      { ok: false, error: started.error, bundleId: started.bundleId },
       { status: 500 },
     );
   }
 
-  return NextResponse.json({
-    ok: true,
-    bundleId: result.bundleId,
-    mode: result.mode,
-    paths: result.paths,
-  });
+  return NextResponse.json(
+    {
+      ok: true,
+      accepted: true,
+      bundleId: started.bundleId,
+      mode: "preview",
+      alreadyRunning: started.alreadyRunning === true,
+    },
+    { status: 202 },
+  );
 }

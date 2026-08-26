@@ -47,16 +47,38 @@ export function semanticTridentSnapshot(value: unknown): unknown {
   return value;
 }
 
+/**
+ * Byte-order comparison, deliberately NOT localeCompare.
+ *
+ * localeCompare consults a collation table chosen from the runtime's default
+ * locale, and different locales order the same strings differently — sv-SE
+ * sorts "ä" after "z" where en-US sorts it after "a". This function decides
+ * the byte layout that gets hashed into the admission digest. Admission
+ * computes that digest in a request; assertTridentInputSnapshot recomputes it
+ * inside the workflow's steps, nine times over a run, in different
+ * invocations. If any two of those resolved different default locales, the
+ * digests would diverge on identical data and the run would die with
+ * `input_snapshot_changed` — which runArtifactFactory classifies as
+ * permanent, so it would not retry, and the message would blame the borrower
+ * for an edit that never happened (audit F-19).
+ *
+ * Codepoint order is the same everywhere. A content hash has no business
+ * asking what language the machine is set to.
+ */
+function byCodepoint(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map(canonicalize).sort((a, b) =>
-      JSON.stringify(a).localeCompare(JSON.stringify(b)),
-    );
+    return value
+      .map(canonicalize)
+      .sort((a, b) => byCodepoint(JSON.stringify(a), JSON.stringify(b)));
   }
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as JsonRecord)
-        .sort(([a], [b]) => a.localeCompare(b))
+        .sort(([a], [b]) => byCodepoint(a, b))
         .map(([key, child]) => [key, canonicalize(child)]),
     );
   }
