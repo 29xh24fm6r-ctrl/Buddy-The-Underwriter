@@ -29,11 +29,13 @@ export type SignwellClient = {
   }) => Promise<{
     id: string | number;
     status: string;
+    metadata?: { external_id?: string; [key: string]: unknown };
     recipients: Array<{ id: string | number; email?: string | null; signing_url?: string | null; embedded_signing_url?: string | null }>;
   }>;
   fetchSignwellDocument: (documentId: string) => Promise<{
     id: string | number;
     status: string;
+    metadata?: { external_id?: string; [key: string]: unknown };
     recipients: Array<{ id: string | number; email?: string | null; signing_url?: string | null; embedded_signing_url?: string | null }>;
   }>;
   downloadSignwellCompletedPdf: (documentId: string) => Promise<Buffer>;
@@ -197,6 +199,7 @@ export type HandleSignwellWebhookResult =
         | "MISSING_DOCUMENT_ID"
         | "SIGNING_REQUEST_NOT_FOUND"
         | "SIGNING_REQUEST_MISMATCH"
+        | "PROVIDER_DOCUMENT_MISMATCH"
         | "SIGNER_MISMATCH"
         | "IAL2_GATE_FAILED_AT_COMPLETION"
         | "PDF_UPLOAD_FAILED"
@@ -263,17 +266,6 @@ export async function handleSignwellWebhook(
     return { ok: true, signedDocumentId: String(existingSignedDocument.id), reused: true };
   }
 
-  // Defense in depth — re-confirm IAL2 still holds at completion time.
-  const ial2Valid = await hasValidIal2(dealId, signerOwnershipEntityId, sb);
-  if (!ial2Valid) {
-    await sb.from("deal_events").insert({
-      deal_id: dealId,
-      kind: "esign.completed_without_ial2_anomaly",
-      payload: { form_code: formCode, signer_ownership_entity_id: signerOwnershipEntityId, raw_payload: payload },
-    });
-    return { ok: false, reason: "IAL2_GATE_FAILED_AT_COMPLETION" };
-  }
-
   const { data: signingRequest } = await sb
     .from("signing_requests")
     .select("deal_id, bank_id, form_code, signer_ownership_entity_id, signer_role, recipient_email, metadata, created_at")
@@ -290,12 +282,42 @@ export async function handleSignwellWebhook(
     return { ok: false, reason: "SIGNING_REQUEST_MISMATCH" };
   }
 
+  // Defense in depth — re-confirm IAL2 still holds at completion time.
+  const ial2Valid = await hasValidIal2(dealId, signerOwnershipEntityId, sb);
+  if (!ial2Valid) {
+    await sb.from("deal_events").insert({
+      deal_id: dealId,
+      kind: "esign.completed_without_ial2_anomaly",
+      payload: { form_code: formCode, signer_ownership_entity_id: signerOwnershipEntityId, raw_payload: payload },
+    });
+    return { ok: false, reason: "IAL2_GATE_FAILED_AT_COMPLETION" };
+  }
+
+  // SignWell's documented event hash covers event.type and event.time, not
+  // data.object. Treat the webhook object only as a lookup hint, then bind
+  // completion to the provider's canonical document before downloading or
+  // persisting signed bytes.
   const document = await signwell.fetchSignwellDocument(documentId);
+  if (String(document.id) !== documentId) {
+    return { ok: false, reason: "PROVIDER_DOCUMENT_MISMATCH", detail: "document_id_mismatch" };
+  }
+  const canonicalStatus = document.status.trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (canonicalStatus !== "completed" && canonicalStatus !== "manually completed") {
+    return { ok: false, reason: "PROVIDER_DOCUMENT_MISMATCH", detail: `status_not_completed:${canonicalStatus || "missing"}` };
+  }
+  if (document.metadata?.external_id !== externalId) {
+    return { ok: false, reason: "PROVIDER_DOCUMENT_MISMATCH", detail: "external_id_mismatch" };
+  }
+
   const signer = document.recipients.find((recipient) => String(recipient.id) === "1") ?? document.recipients[0];
   const requestedEmail = normalizeEmail(signingRequest.recipient_email);
   const completedEmail = normalizeEmail(signer?.email);
-  if (requestedEmail && completedEmail && requestedEmail !== completedEmail) {
-    return { ok: false, reason: "SIGNER_MISMATCH" };
+  if (!requestedEmail || !completedEmail || requestedEmail !== completedEmail) {
+    return {
+      ok: false,
+      reason: "SIGNER_MISMATCH",
+      detail: !requestedEmail ? "request_email_missing" : !completedEmail ? "provider_email_missing" : "recipient_email_mismatch",
+    };
   }
 
   const { data: deal } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
