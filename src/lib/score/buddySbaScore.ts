@@ -260,11 +260,36 @@ async function findUnchangedActiveScore(
   if (row.score !== payload.score) return null;
   if (row.eligibility_passed !== payload.eligibility_passed) return null;
 
-  const sameInputs =
-    JSON.stringify(row.input_snapshot ?? null) ===
-    JSON.stringify(payload.input_snapshot ?? null);
+  return canonicalJson(row.input_snapshot) === canonicalJson(payload.input_snapshot)
+    ? String(row.id)
+    : null;
+}
 
-  return sameInputs ? String(row.id) : null;
+/**
+ * Order-independent JSON serialization for comparing a jsonb round-trip
+ * against a freshly built object.
+ *
+ * Postgres `jsonb` does not preserve key insertion order — it normalizes keys
+ * (by length, then bytewise) — so the object that comes back from
+ * input_snapshot can have a different key order than the identical object we
+ * just computed. A plain JSON.stringify comparison would therefore report
+ * "changed" on almost every call and silently defeat the dedupe. Sort keys
+ * recursively so the comparison is on content.
+ */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortDeep(value ?? null));
+}
+
+function sortDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortDeep);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value as Record<string, unknown>)
+        .sort()
+        .map((k) => [k, sortDeep((value as Record<string, unknown>)[k])]),
+    );
+  }
+  return value;
 }
 
 async function persistScore(sb: SupabaseClient, score: BuddySBAScore): Promise<void> {

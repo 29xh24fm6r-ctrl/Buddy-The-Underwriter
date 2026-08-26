@@ -88,6 +88,19 @@ describe("resolveProductType", () => {
   it("returns null when nothing identifies the product", () => {
     assert.equal(resolveProductType({ product_type: null, deal_type: null }), null);
   });
+
+  it("reads product_type STRICTLY — an ambiguous value there is not guessed at", () => {
+    // dealProductType.test.ts pins that getProductType('sba') is null:
+    // product_type is the canonical column and 'sba' does not say whether the
+    // deal is 7(a), 504 or Express. resolveProductType must preserve that,
+    // and fall through to the legacy fields rather than guessing.
+    assert.equal(resolveProductType({ product_type: "sba" }), null);
+    assert.equal(
+      resolveProductType({ product_type: "sba", loan_type: "sba_504" }),
+      "SBA_504",
+      "an ambiguous product_type must not shadow a specific legacy field",
+    );
+  });
 });
 
 describe("SBA predicates on the production deal shape", () => {

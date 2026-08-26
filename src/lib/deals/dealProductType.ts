@@ -38,13 +38,38 @@ const LOC_PRODUCTS: ReadonlySet<ProductType> = new Set([
   "LINE_OF_CREDIT",
 ]);
 
+/**
+ * STRICT reader for the canonical `deals.product_type` column.
+ *
+ * Deliberately does NOT accept the loose legacy spellings: a bare "SBA" in
+ * product_type is ambiguous between 7(a), 504 and Express, and this column is
+ * the one place that is supposed to be specific. See normalizeProductType
+ * below for the lenient reconciler used on the legacy fields.
+ */
 function readProductType(deal: DealLike): ProductType | null {
-  return normalizeProductType(deal.product_type);
+  const raw = String(deal.product_type ?? "").trim().toUpperCase();
+  if (!raw) return null;
+  switch (raw) {
+    case "LINE_OF_CREDIT":
+    case "TERM_LOAN":
+    case "CRE":
+    case "CRE_OWNER_OCCUPIED":
+    case "CRE_INVESTOR":
+    case "SBA_7A":
+    case "SBA_504":
+    case "SBA_EXPRESS":
+      return raw;
+    default:
+      return null;
+  }
 }
 
 /**
- * Normalise any of the loan/product spellings this codebase has accumulated
- * into a canonical ProductType.
+ * LENIENT reconciler for the legacy loan/product fields.
+ *
+ * Use this on `deals.loan_type`, `deals.deal_type` and `deal_intake.loan_type`
+ * — the columns that accumulated free-form spellings — NOT on
+ * `deals.product_type`, which readProductType keeps strict on purpose.
  *
  * SPEC-PRODUCT-TYPE-CANON-1. The 2026-08-26 audit found five fields carrying
  * four different vocabularies for "this is an SBA 7(a) deal":
@@ -119,8 +144,11 @@ export function resolveProductType(deal: DealLike & {
   loan_type?: string | null;
   intake_loan_type?: string | null;
 }): ProductType | null {
+  // product_type is read STRICTLY — it is the canonical column and an
+  // ambiguous value there should not be guessed at. The legacy fields are
+  // read leniently, because that is where "7a" and "SBA" actually live.
   return (
-    normalizeProductType(deal.product_type) ??
+    readProductType(deal) ??
     normalizeProductType(deal.loan_type) ??
     normalizeProductType(deal.intake_loan_type) ??
     normalizeProductType(deal.deal_type)
