@@ -1,5 +1,3 @@
-import "server-only";
-
 export type StressScenarioAssessment = "Passes" | "Marginal" | "Fails" | "N/A";
 
 export type StressScenarioRow = {

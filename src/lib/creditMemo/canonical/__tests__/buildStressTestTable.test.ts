@@ -1,14 +1,8 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
-
-vi.mock("server-only", () => ({}));
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { buildStressTestTable } from "../buildStressTestTable";
 
 describe("buildStressTestTable governed evidence contract", () => {
-  let buildStressTestTable: typeof import("../buildStressTestTable").buildStressTestTable;
-
-  beforeAll(async () => {
-    ({ buildStressTestTable } = await import("../buildStressTestTable"));
-  });
-
   it("uses the resolved policy floor and labels EBITDA cushion accurately", () => {
     const result = buildStressTestTable({
       ebitda: 360_000,
@@ -20,12 +14,12 @@ describe("buildStressTestTable governed evidence contract", () => {
       inputsCertified: true,
     });
 
-    expect(result.policy_dscr_floor).toBe(1.2);
-    expect(result.breakeven_ebitda_125x).toBe(180_000);
-    expect(result.ebitda_cushion_pct).toBe(50);
-    expect(result.revenue_cushion_pct).toBeNull();
-    expect(result.narrative).toContain("EBITDA can decline");
-    expect(result.narrative).not.toContain("Revenue");
+    assert.equal(result.policy_dscr_floor, 1.2);
+    assert.equal(result.breakeven_ebitda_125x, 180_000);
+    assert.equal(result.ebitda_cushion_pct, 50);
+    assert.equal(result.revenue_cushion_pct, null);
+    assert.match(result.narrative, /EBITDA can decline/);
+    assert.doesNotMatch(result.narrative, /Revenue/);
   });
 
   it("withholds all quantitative stress claims when inputs are not governed", () => {
@@ -38,9 +32,9 @@ describe("buildStressTestTable governed evidence contract", () => {
       inputsCertified: false,
     });
 
-    expect(result.baseline_dscr).toBeNull();
-    expect(result.worst_case_dscr).toBeNull();
-    expect(result.scenarios.every((row) => row.assessment === "N/A")).toBe(true);
-    expect(result.narrative).toContain("withheld");
+    assert.equal(result.baseline_dscr, null);
+    assert.equal(result.worst_case_dscr, null);
+    assert.equal(result.scenarios.every((row) => row.assessment === "N/A"), true);
+    assert.match(result.narrative, /withheld/);
   });
 });
