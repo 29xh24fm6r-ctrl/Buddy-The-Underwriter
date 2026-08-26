@@ -14,6 +14,7 @@ import "server-only";
  *     client request body.
  *   - Lookup hits borrower_portal_links by exact token match.
  *   - Expired links (expires_at < now) reject.
+ *   - Revoked links (revoked_at set) reject — terminal, ahead of expiry.
  *   - All failure modes return null so the caller can surface a 404 (never
  *     403) — matches the leak-resistant pattern of the cookie routes.
  *
@@ -48,11 +49,19 @@ export async function resolvePortalToken(
   const client = sb ?? supabaseAdmin();
   const { data: link } = await client
     .from("borrower_portal_links")
-    .select("deal_id, expires_at")
+    .select("deal_id, expires_at, revoked_at")
     .eq("token", token)
     .maybeSingle();
 
   if (!link?.deal_id) return null;
+  // A revoked link is terminal. SPEC-BROKERAGE-LAUNCH-BLOCKERS-V1 §3.3 added
+  // borrower_portal_links.revoked_at precisely so a leaked or superseded URL
+  // can be killed ahead of its expiry, and the sibling resolver in
+  // /api/borrower/resolve already honours it. This resolver checked only
+  // expires_at, so a revoked link still reached every borrower-portal Trident
+  // surface it gates — preview generation, latest-preview, and the signed
+  // download of the business plan, projections, and feasibility study.
+  if (link.revoked_at) return null;
   if (
     link.expires_at &&
     new Date(link.expires_at as string).getTime() < Date.now()

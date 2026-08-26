@@ -233,7 +233,10 @@ const supabaseStub = {
         id, deal_id: params.p_deal_id, bank_id: "bank-1", mode: params.p_mode,
         status: "pending", input_hash: params.p_input_hash,
         memo_input_hash: params.p_memo_input_hash, lease_token: lease,
-        redactor_version: params.p_mode === "preview" ? "1.0.0" : null,
+        // redactor_version is deliberately NOT seeded here. The real
+        // acquire_trident_bundle_run RPC does not set it either, so seeding it
+        // made the assertion below pass on a value this stub invented rather
+        // than one the generator wrote — the generator never wrote it at all.
         superseded_at: null,
       });
       return Promise.resolve({ data: { bundle_id: id, reused: false, lease_token: lease }, error: null });
@@ -365,6 +368,7 @@ require.cache[require.resolve("@/lib/classicSpread/classicPdfWorker")] = {
 // Load the orchestrator now that shims are in place.
 const { generateTridentBundle } =
   require("../generateTridentBundle") as typeof import("../generateTridentBundle");
+const { REDACTOR_VERSION } = require("../redactor") as typeof import("../redactor");
 
 // ─── Tests ────────────────────────────────────────────────────────────
 
@@ -379,7 +383,10 @@ test("preview happy path: pending → running → succeeded with redactor_versio
   const row = state.bundles[0];
   assert.equal(row.status, "succeeded");
   assert.equal(row.mode, "preview");
-  assert.equal(row.redactor_version, "1.0.0");
+  // Asserted against the generator's own constant, so a version bump without
+  // a corresponding write cannot silently pass.
+  assert.equal(row.redactor_version, REDACTOR_VERSION);
+  assert.match(row.redactor_version, /^\d+\.\d+\.\d+$/);
   assert.ok(row.business_plan_pdf_path);
   assert.equal(row.projections_xlsx_path, null); // preview = no XLSX
   assert.equal(state.enrichBusinessPlanPackageCalls.length, 1, "verification must run on preview generation too");

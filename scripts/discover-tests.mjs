@@ -33,30 +33,44 @@ import path from "node:path";
 const ROOT = process.env.DISCOVER_ROOT || process.cwd();
 const SCAN_DIRS = ["src", "scripts"];
 
-// SPEC-CI-2 quarantine — files that error at import time under node --test.
-const QUARANTINE = new Set([
-  // Imports a module chain that pulls in "server-only" (not resolvable under
-  // node --test → "Cannot find module 'server-only'"). Class C harness issue.
-  "src/core/nextStep/__tests__/computeNextStep.test.ts",
+// Files that resolve `server-only` correctly ONLY under the `react-server`
+// export condition, which plain `node --test` does not set. They are excluded
+// from the default list and run by `test:unit:react-server` instead, so they
+// are covered by CI rather than silently skipped.
+//
+// These were previously lumped into QUARANTINE below and therefore never ran
+// anywhere — including financialViabilityAnalysis, which builds the
+// dimension-detail strings the Trident preview redactor has to strip, and
+// projectionsXlsx, which renders a shipped Trident artifact.
+export const REACT_SERVER_ONLY = new Set([
   // financialViabilityAnalysis.ts has `import "server-only"` — the package
   // throws unconditionally unless resolved with the `react-server` export
-  // condition, which plain `node --test` doesn't set. Passes under
-  // `node --conditions=react-server --test ...` (see
-  // docs/archive/brokerage-sba-ready-v1/T1-AAR.md).
+  // condition (see docs/archive/brokerage-sba-ready-v1/T1-AAR.md).
   "src/lib/feasibility/__tests__/financialViabilityAnalysis.test.ts",
   // projectionsXlsx.ts has `import "server-only"` — same class as above.
-  // Passes under `node --conditions=react-server --test ...`.
   "src/lib/brokerage/trident/__tests__/projectionsXlsx.test.ts",
   // Same class: imports geminiClient.ts, which has `import "server-only"`
-  // (it reads GEMINI_API_KEY). Passes under
-  // `node --conditions=react-server --test ...`.
+  // (it reads GEMINI_API_KEY).
   "src/lib/ai/__tests__/streamGeminiText.test.ts",
+]);
+
+// SPEC-CI-2 quarantine — files that cannot run under node --test at all.
+const QUARANTINE = new Set([
+  // NOT a harness issue, despite the original note. Under
+  // `node --conditions=react-server` the file imports cleanly and then FAILS
+  // two assertions: computeNextStep returns `request_docs` where the suite
+  // expects `open_underwriting` / `set_pricing_assumptions`. Real behavioural
+  // drift between the next-step engine and its spec — needs an owner decision
+  // on which side is correct, so it stays excluded rather than being moved to
+  // REACT_SERVER_ONLY and turning CI red on unrelated code.
+  "src/core/nextStep/__tests__/computeNextStep.test.ts",
 ]);
 
 function isExcludedPath(rel) {
   if (rel.includes("node_modules")) return true;
   if (rel.includes("__invariants__")) return true;
   if (QUARANTINE.has(rel)) return true;
+  if (REACT_SERVER_ONLY.has(rel)) return true;
   return false;
 }
 
@@ -88,10 +102,19 @@ function walk(dir, out = []) {
   return out;
 }
 
-const files = SCAN_DIRS.flatMap((d) => walk(d))
-  .map((f) => f.split(path.sep).join("/"))
-  .filter((rel) => !isExcludedPath(rel))
-  .sort()
-  .map(escapeForNodeTestGlob);
+// `--react-server` prints the react-server-condition list instead of the
+// default list, so package.json can drive both runners from one discoverer.
+const wantReactServer = process.argv.includes("--react-server");
+
+const files = wantReactServer
+  ? [...REACT_SERVER_ONLY]
+      .filter((rel) => fs.existsSync(path.join(ROOT, rel)))
+      .sort()
+      .map(escapeForNodeTestGlob)
+  : SCAN_DIRS.flatMap((d) => walk(d))
+      .map((f) => f.split(path.sep).join("/"))
+      .filter((rel) => !isExcludedPath(rel))
+      .sort()
+      .map(escapeForNodeTestGlob);
 
 process.stdout.write(files.join("\n") + "\n");

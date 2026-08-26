@@ -47,11 +47,33 @@ export function assessBusinessPlanNarratives(
   };
 }
 
+/**
+ * The five sections a lender-facing feasibility study must actually contain:
+ * the executive summary plus one narrative per scored dimension.
+ *
+ * Deliberately excludes riskAssessment, recommendation, and the nullable
+ * franchiseComparisonNarrative. The check used to count ANY five narrative
+ * values over the word threshold, so those three could stand in for missing
+ * dimension analysis — a study could pass with three of the four scored
+ * dimensions blank, and the renderer prints each dimension narrative in its
+ * own section, so the committee PDF shipped with visible gaps.
+ */
+const FEASIBILITY_REQUIRED_NARRATIVES = [
+  "executiveSummary",
+  "marketDemandNarrative",
+  "financialViabilityNarrative",
+  "operationalReadinessNarrative",
+  "locationSuitabilityNarrative",
+] as const;
+
 export function assessFeasibilityNarratives(
   narratives: Record<string, unknown> | null,
 ): { ok: boolean; substantive: number; required: number } {
-  const substantive = Object.values(narratives ?? {}).filter(
-    (value) => wordCount(value) >= 45,
+  const substantive = FEASIBILITY_REQUIRED_NARRATIVES.filter(
+    (field) => wordCount(narratives?.[field]) >= 45,
   ).length;
-  return { ok: substantive >= 5, substantive, required: 5 };
+  const required = FEASIBILITY_REQUIRED_NARRATIVES.length;
+  // Same threshold as before — five substantive sections — but they must now
+  // be the five that matter rather than any five keys on the object.
+  return { ok: substantive === required, substantive, required };
 }

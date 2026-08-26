@@ -455,6 +455,14 @@ export async function generateTridentBundle(args: {
       projections_xlsx_path: projectionsXlsxPath,
       current_stage: "projections",
       last_heartbeat_at: new Date().toISOString(),
+      // Redaction provenance. redactor.ts's contract is "every change bumps
+      // REDACTOR_VERSION; the bundle row records the version used", and both
+      // latest-preview endpoints surface it — but nothing ever wrote it, so
+      // every bundle reported null. Without it there is no way to tell which
+      // stored preview artifacts came from which redactor, which is exactly
+      // what the column is for after a redaction fix. Final mode applies no
+      // redaction, so it stays null.
+      redactor_version: mode === "preview" ? REDACTOR_VERSION : null,
     }).eq("id", bundleId).eq("lease_token", args.leaseToken);
     if (projectionsPersistError) throw new Error(`Projection manifest write failed: ${projectionsPersistError.message}`);
 
