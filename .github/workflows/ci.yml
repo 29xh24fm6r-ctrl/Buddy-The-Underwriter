@@ -55,6 +55,15 @@ jobs:
       - name: Unit tests (CI-blocking)
         timeout-minutes: 18
         run: pnpm -s test:unit
+      # Files whose module chain imports "server-only", which only resolves
+      # under the react-server export condition. They were previously listed
+      # as SPEC-CI-2 quarantine and so ran nowhere at all — including
+      # financialViabilityAnalysis (builds the dimension-detail strings the
+      # Trident preview redactor must strip) and projectionsXlsx (renders a
+      # shipped Trident artifact). Same discoverer, second condition.
+      - name: Unit tests — react-server condition (CI-blocking)
+        timeout-minutes: 6
+        run: pnpm -s test:unit:react-server
       # specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1: this harness existed
       # but was invisible to CI entirely — including the one case explicitly
       # marked "Mandatory regression — yacht-charter memo failure must never
