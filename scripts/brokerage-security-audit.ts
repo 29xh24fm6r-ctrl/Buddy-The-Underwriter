@@ -68,7 +68,7 @@ async function main() {
 
   const sb = supabaseAdmin();
 
-  const [listingsRes, claimsRes, agreementsRes, banksRes, accessesRes, picksRes, dealsRes, tokensRes] = await Promise.all([
+  const [listingsRes, claimsRes, agreementsRes, banksRes, accessesRes, picksRes, dealsRes, tokensRes, previewBundlesRes] = await Promise.all([
     sb.from("marketplace_listings").select("id, deal_id, status, matched_lender_bank_ids, kfs").limit(LIMIT),
     sb.from("marketplace_claims").select("id, listing_id, lender_bank_id, status").limit(LIMIT),
     sb.from("lender_marketplace_agreements").select("lender_bank_id, status").limit(LIMIT),
@@ -79,12 +79,17 @@ async function main() {
     // Real borrower_session_tokens — used to drive borrowerIsolation with a
     // genuine hash->deal_id resolver instead of two invented strings.
     sb.from("borrower_session_tokens").select("token_hash, deal_id, expires_at").order("created_at", { ascending: false }).limit(200),
+    // Preview bundles still in circulation. auditPreviewRedactionProvenance
+    // was implemented and unit-tested but never fed by any caller, so the
+    // check ran only against its own fixtures (audit F-22).
+    sb.from("buddy_trident_bundles").select("id, mode, status, superseded_at, redactor_version").eq("mode", "preview").limit(LIMIT),
   ]);
 
   for (const [label, res] of [
     ["marketplace_listings", listingsRes], ["marketplace_claims", claimsRes], ["lender_marketplace_agreements", agreementsRes],
     ["banks", banksRes], ["marketplace_package_access", accessesRes], ["marketplace_picks", picksRes],
     ["deals", dealsRes], ["borrower_session_tokens", tokensRes],
+    ["buddy_trident_bundles", previewBundlesRes],
   ] as const) {
     if ((res as any).error) console.error(`  !! ${label}: ${(res as any).error.message}`);
   }
@@ -131,6 +136,7 @@ async function main() {
     adminPayloads: { payloads: adminPayloads },
     apiMethodSafety: { routes },
     rateLimits: { specs: rateLimits },
+    previewRedaction: { bundles: (previewBundlesRes.data ?? []) as Row[] },
     categories,
   });
 

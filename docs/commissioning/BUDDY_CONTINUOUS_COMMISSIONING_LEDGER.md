@@ -463,3 +463,74 @@ Verification target:
   fixture. Direct database verification remains blocked until the owned Buddy
   Supabase project is explicitly available; the differently named project exposed
   by the generic connector was not queried.
+
+### PR 907 production closure and PR 909 Golden Trident request-boundary / CI-honesty factory
+
+Production evidence:
+
+- PR 907 merged externally as `199df7ceb14db01af6cfd6bca97a470acbd51281`;
+  the commissioning agent did not merge it.
+- Vercel production deployment `dpl_9wLdAQSXDcQmH9PxRh1AZ2Br8t5S` is READY
+  on that exact merge. `www.buddysba.com` returned HTTP 200 with the exact
+  `x-buddy-build` SHA, and no error/fatal runtime cluster was observed in the
+  post-deploy window.
+- Source and merge-ref inspection confirms PR 909 retains PR 907's startup-failure
+  lease convergence and post-admission workflow ownership boundaries.
+
+PR 909 evidence and root causes:
+
+- Three Golden Trident initiation surfaces still performed request-scoped inline
+  generation. A platform timeout could terminate the request while the durable
+  bundle lease remained active, producing a 90-minute apparent lockout and an
+  unsafe retry experience.
+- Seventeen tests below Next.js dynamic-route directories were discovered and
+  counted but did not execute. The package script handed bracketed paths through
+  unquoted shell command substitution, allowing the shell to expand or discard
+  them before Node received its positional arguments.
+- Input snapshot ordering used locale-sensitive comparison, feasibility
+  acceptance admitted placeholder narratives, artifact downloads lacked audit
+  events, preview redaction provenance was not wired to the response, and
+  degraded previews did not explain their reason.
+
+Repair:
+
+- Route all three generation entry points through the durable workflow starter and
+  return accepted run identity instead of generating inline.
+- Replace shell command substitution with a `shell:false` argv runner that passes
+  exact literal test paths. Add a guard that executes a real `[token]` route test
+  and requires a non-zero test count.
+- Make snapshot hashing locale-independent, reject placeholder feasibility text,
+  record artifact-download audit events, surface persisted redaction provenance,
+  and give degraded previews an explicit reason.
+- Preserve existing URLs, authorization, workflow admission semantics, and PR 907
+  lease ownership. No schema, migration, dependency, credential, permission,
+  provider configuration, or production-data change is included.
+
+Verification on PR 909 head `badded1be9b87043243e5cbcffe6c001a32e80b8`:
+
+- GitHub reports the branch mergeable, clean, and zero commits behind `main`.
+- CI: 13,214 tests; 13,205 passed, 0 failed, 9 skipped.
+- The effect-based F-24 guard passed, proving tests below dynamic Next.js
+  segment directories execute rather than merely being discovered.
+- React-server condition: 18 passed, 0 failed.
+- Research evaluation: 7 passed, 0 failed, 13 placeholder cases skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500, schema
+  select, and report-only schema-drift gates passed.
+- Build Check, Secret Scan, Route Budget, and public Playwright passed.
+  Public Playwright ran 6 tests: 1 passed and 5 intentionally skipped.
+  Authenticated smoke was unavailable and explicitly skipped.
+- Exact-head Vercel preview `dpl_8s7KrEzvtaptcZEy1Bh6Q4WAzSuY` is READY,
+  returned HTTP 200 with `x-buddy-build` matching the GitHub head, and had no
+  error/fatal runtime logs in the post-deploy observation window.
+- PR 909 is safe for Matt to merge. The commissioning agent did not merge it.
+
+Open checkpoints:
+
+- After merge and deployment, execute one authorized Golden Trident generation
+  and failure/retry fixture to close the transactional lease and delivery path.
+- Direct production-row verification remains blocked until a verified
+  Buddy-owned Supabase project connection is available; the currently exposed
+  differently named project remains unqueried.
+- Replace the 13 research golden-set placeholders with production-backed cases.
+
+
