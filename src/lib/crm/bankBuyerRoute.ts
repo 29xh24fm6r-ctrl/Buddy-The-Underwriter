@@ -45,7 +45,7 @@ export async function bankBuyerGET() {
   const [{ data: profiles, error: profileError }, { data: submissions, error: submissionError }, { data: deals, error: dealError }] = await Promise.all([
     sb.from("crm_lender_profiles").select("*").eq("bank_id", bankId).order("created_at", { ascending: false }),
     sb.from("crm_deal_lender_submissions").select("*").eq("bank_id", bankId).order("updated_at", { ascending: false }),
-    sb.from("deals").select("id, display_name, borrower_name, name, loan_amount, brokerage_stage, crm_tracking_only, external_deal_source, external_reference, product_type, state, created_at").eq("bank_id", bankId).order("created_at", { ascending: false }).limit(500),
+    sb.from("deals").select("id, display_name, borrower_name, name, loan_amount, brokerage_stage, crm_tracking_only, external_deal_source, external_reference, product_type, state, is_test, created_at").eq("bank_id", bankId).order("created_at", { ascending: false }).limit(500),
   ]);
   if (profileError || submissionError || dealError) return NextResponse.json({ ok: false, error: profileError?.message ?? submissionError?.message ?? dealError?.message }, { status: 500 });
 
@@ -77,7 +77,7 @@ export async function bankBuyerGET() {
     ok: true,
     profiles: enrichedProfiles,
     submissions: rows,
-    deals: deals ?? [],
+    deals: (deals ?? []).filter((deal: any) => !deal.is_test),
     summary: {
       bankBuyers: enrichedProfiles.length,
       marketplaceMembers: enrichedProfiles.filter((profile: any) => !!profile.marketplace_role).length,
@@ -264,8 +264,13 @@ export async function bankBuyerPOST(req: NextRequest) {
     if (amount === null || amount <= 0) return NextResponse.json({ ok: false, error: "Enter a valid requested amount" }, { status: 400 });
     if (!PRODUCT_TYPES.has(productType)) return NextResponse.json({ ok: false, error: "Invalid loan program" }, { status: 400 });
 
-    const { data: profile } = await sb.from("crm_lender_profiles").select("id").eq("id", lenderProfileId).eq("bank_id", bankId).maybeSingle();
+    const { data: profile } = await sb.from("crm_lender_profiles").select("id, organization_id").eq("id", lenderProfileId).eq("bank_id", bankId).maybeSingle();
     if (!profile) return NextResponse.json({ ok: false, error: "Bank relationship not found in this brokerage" }, { status: 404 });
+    const bankerPersonId = text(body.bankerPersonId);
+    if (bankerPersonId) {
+      const { data: banker } = await sb.from("crm_people").select("id").eq("id", bankerPersonId).eq("bank_id", bankId).eq("organization_id", profile.organization_id).maybeSingle();
+      if (!banker) return NextResponse.json({ ok: false, error: "Selected banker is not associated with this bank" }, { status: 400 });
+    }
 
     const sentAt = timestamp(body.sentAt) ?? new Date().toISOString();
     const { data: deal, error: dealError } = await sb.from("deals").insert({
@@ -296,7 +301,7 @@ export async function bankBuyerPOST(req: NextRequest) {
       bank_id: bankId,
       deal_id: deal.id,
       lender_profile_id: lenderProfileId,
-      banker_person_id: text(body.bankerPersonId),
+      banker_person_id: bankerPersonId,
       status: "sent",
       amount_sent: amount,
       sent_at: sentAt,
@@ -330,12 +335,17 @@ export async function bankBuyerPOST(req: NextRequest) {
     if (!STATUSES.has(status)) return NextResponse.json({ ok: false, error: "Invalid status" }, { status: 400 });
     const [{ data: deal }, { data: profile }] = await Promise.all([
       sb.from("deals").select("id, loan_amount").eq("id", dealId).eq("bank_id", bankId).maybeSingle(),
-      sb.from("crm_lender_profiles").select("id").eq("id", lenderProfileId).eq("bank_id", bankId).maybeSingle(),
+      sb.from("crm_lender_profiles").select("id, organization_id").eq("id", lenderProfileId).eq("bank_id", bankId).maybeSingle(),
     ]);
     if (!deal || !profile) return NextResponse.json({ ok: false, error: "Deal or bank not found in this brokerage" }, { status: 404 });
+    const bankerPersonId = text(body.bankerPersonId);
+    if (bankerPersonId) {
+      const { data: banker } = await sb.from("crm_people").select("id").eq("id", bankerPersonId).eq("bank_id", bankId).eq("organization_id", profile.organization_id).maybeSingle();
+      if (!banker) return NextResponse.json({ ok: false, error: "Selected banker is not associated with this bank" }, { status: 400 });
+    }
     const now = new Date().toISOString();
     const { data, error } = await sb.from("crm_deal_lender_submissions").insert({
-      bank_id: bankId, deal_id: dealId, lender_profile_id: lenderProfileId, banker_person_id: text(body.bankerPersonId), status,
+      bank_id: bankId, deal_id: dealId, lender_profile_id: lenderProfileId, banker_person_id: bankerPersonId, status,
       amount_sent: num(body.amountSent) ?? num(deal.loan_amount), sent_at: status === "planned" ? null : (timestamp(body.sentAt) ?? now), next_follow_up_at: timestamp(body.nextFollowUpAt), fit_rationale: text(body.fitRationale), notes: text(body.notes), created_by_clerk_user_id: userId, updated_by_clerk_user_id: userId,
     }).select("*").single();
     if (error || !data) return NextResponse.json({ ok: false, error: error?.code === "23505" ? "This deal has already been sent to that bank" : error?.message }, { status: 400 });
