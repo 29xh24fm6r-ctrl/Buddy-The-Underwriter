@@ -128,12 +128,34 @@ export async function GET(
       .eq("deal_id", dealId),
   ]);
 
-  // Franchise match — deal_franchises linked to an SBA-eligible brand.
-  const { data: franchiseLink } = await sb
-    .from("deal_franchises")
-    .select("brand_id")
-    .eq("deal_id", dealId)
-    .maybeSingle();
+  // Listing, franchise, score, and sealability are mutually independent.
+  // Start them together so the gate's two bounded database waves determine
+  // latency instead of accumulating behind more serial polling reads.
+  const [
+    { data: franchiseLink },
+    { data: listing },
+    gate,
+    score,
+  ] = await Promise.all([
+    sb
+      .from("deal_franchises")
+      .select("brand_id")
+      .eq("deal_id", dealId)
+      .maybeSingle(),
+    sb
+      .from("marketplace_listings")
+      .select(
+        "id, status, score, band, published_rate_bps, preview_opens_at, claim_opens_at, claim_closes_at, matched_lender_bank_ids",
+      )
+      .eq("deal_id", dealId)
+      .not("status", "eq", "expired")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    canSeal(dealId, sb),
+    loadScoreForResponse(dealId, sb),
+  ]);
+
   let franchiseMatched = false;
   if (franchiseLink?.brand_id) {
     const { data: brand } = await sb
@@ -144,25 +166,8 @@ export async function GET(
     franchiseMatched = Boolean((brand as any)?.sba_eligible);
   }
 
-  // Current active listing if one exists.
-  const { data: listing } = await sb
-    .from("marketplace_listings")
-    .select(
-      "id, status, score, band, published_rate_bps, preview_opens_at, claim_opens_at, claim_closes_at, matched_lender_bank_ids",
-    )
-    .eq("deal_id", dealId)
-    .not("status", "eq", "expired")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  // Status polling is deliberately read-only. Expensive score, assumptions, and
-  // Trident work belongs to explicit mutation/workflow commands; running it
-  // from this frequently-polled GET caused production 30-second timeouts and
-  // allowed a page refresh to launch durable factory work.
-
-  // Gate evaluation (even when already sealed — surfaces re-seal readiness).
-  const gate = await canSeal(dealId, sb);
+  // Status polling is deliberately read-only. Expensive score, assumptions,
+  // and Trident work belongs to explicit mutation/workflow commands.
 
   if (listing) {
     const row = listing as any;
@@ -233,7 +238,7 @@ export async function GET(
       },
       claims,
       manifest,
-      score: await loadScoreForResponse(dealId, sb),
+      score,
       canSeal: gate.ok,
       gateReasons: gate.ok ? [] : gate.reasons,
     });
@@ -249,7 +254,7 @@ export async function GET(
     facts,
     fieldProgress,
     sealed: false,
-    score: await loadScoreForResponse(dealId, sb),
+    score,
     canSeal: gate.ok,
     gateReasons: gate.ok ? [] : gate.reasons,
   });
