@@ -30,6 +30,8 @@ const privilegedDealRoutes = [
   "src/app/api/deals/[dealId]/recompute/route.ts",
   "src/app/api/deals/[dealId]/ask/route.ts",
   "src/app/api/deals/[dealId]/memo/generate/route.ts",
+  "src/app/api/deals/[dealId]/memo/section/route.ts",
+  "src/app/(app)/deals/[dealId]/spreads/page.tsx",
 ] as const;
 
 const borrowerTokenRoutes = [
