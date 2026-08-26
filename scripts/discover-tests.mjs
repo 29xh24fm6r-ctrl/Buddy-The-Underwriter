@@ -13,36 +13,16 @@
 //     (import errors). Each carries a SPEC-CI-2 reason and is inventoried in
 //     specs/ci-2/backlog.md. This list is remove-only.
 //
-// Dynamic-segment paths (`[dealId]`, `[token]`) need care: `node --test`
-// treats its positional arguments as GLOB PATTERNS, so `[dealId]` parses as a
-// character class rather than a literal directory name, resolves to nothing,
-// and node reports "0 tests, 0 fail" with no signal that a real file was
-// skipped.
+// Dynamic-segment paths (`[dealId]`, `[token]`) need care at the shell
+// boundary. The old package script used unquoted command substitution, so the
+// shell glob-expanded or discarded bracketed paths before Node received them.
+// Seventeen dynamic-route test files silently contributed zero tests while the
+// discovery guard still counted them (audit F-24).
 //
-// This was previously handled by printing each `[`/`]` as the glob class
-// `[[]`/`[]]`. That escaping is correct in isolation and its guard verified
-// the printed strings round-tripped — but the strings were never the thing
-// that mattered. package.json invoked the runner as
-// `node --test --import tsx $(node scripts/discover-tests.mjs)`, and the
-// UNQUOTED command substitution let the SHELL glob-expand `[[]dealId[]]`
-// straight back to the literal `[dealId]` before node ever saw it. Node then
-// globbed that to nothing, exactly as before. Seventeen test files — every
-// test under a dynamic-route directory, including the borrower portal's
-// identity, owners, and assumptions-confirm routes and the seal route's
-// hostile-interrogation wiring — silently contributed zero tests to CI while
-// the coverage-floor guard counted them as discovered (audit F-24).
-//
-// Two changes fix it, and both are needed:
-//   1. Keep the node-glob escapes `[[]`/`[]]` that match literal brackets.
-//      Node 20 does not expand `?` in positional test arguments, so replacing
-//      brackets with question marks makes the path fail loudly instead.
-//   2. scripts/run-unit-tests.mjs spawns node with shell:false, so no shell
-//      gets a chance to collapse the glob escapes before node receives them.
+// Node 20 treats positional test arguments as literal paths. The repair passes
+// the real paths unchanged through scripts/run-unit-tests.mjs with shell:false.
 // The execution guard runs a real dynamic-segment test and requires a non-zero
-// test count, proving the path is not merely listed but actually executed.
-//
-// Paths containing `(` (Next.js route groups, e.g. `(app)`) were never a
-// problem — `(`/`)` aren't glob metacharacters here.
+// test count, proving the file is executed rather than merely discovered.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -88,39 +68,17 @@ function isExcludedPath(rel) {
   return false;
 }
 
-/**
- * Turn a real path into a pattern `node --test` can resolve.
- *
- * Node's glob parser accepts `[[]` and `[]]` as literal bracket matches.
- * The shell-free runner is load-bearing: an unquoted shell would expand these
- * patterns before node receives them and recreate the original false-green.
- */
+/** Return the exact real path that Node's test runner must execute. */
 export function toNodeTestPattern(rel) {
-  return [...rel]
-    .map((char) => (char === "[" ? "[[]" : char === "]" ? "[]]" : char))
-    .join("");
+  return rel;
 }
 
-/** A pattern is only safe if it maps back to exactly the file it came from. */
-function patternRegex(pattern) {
-  const literal = pattern.replace(/\[\[\]/g, "[").replace(/\[\]\]/g, "]");
-  const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^${escaped}$`);
-}
-
-/**
- * Fail loudly if any wildcard is ambiguous or matches nothing. Silent
- * mis-selection is the failure mode this whole file exists to prevent.
- */
+/** Fail loudly if discovery and execution arguments ever diverge. */
 function assertPatternsResolve(files, patterns) {
   patterns.forEach((pattern, i) => {
-    if (!pattern.includes("[[]") && !pattern.includes("[]]")) return;
-    const re = patternRegex(pattern);
-    const matches = files.filter((f) => re.test(f));
-    if (matches.length !== 1 || matches[0] !== files[i]) {
+    if (pattern !== files[i] || !fs.existsSync(path.join(ROOT, pattern))) {
       console.error(
-        `discover-tests: pattern "${pattern}" resolves to ${matches.length} discovered file(s) ` +
-          `(${matches.join(", ") || "none"}); expected exactly ${files[i]}.`,
+        `discover-tests: execution path "${pattern}" does not resolve exactly to ${files[i]}.`,
       );
       process.exit(1);
     }
@@ -184,17 +142,14 @@ export function discoverTestPatterns(opts) {
   return patterns;
 }
 
-// CLI. `--react-server` prints the react-server-condition list instead of the
-// default one. NOTE: dynamic segments use node-glob bracket escapes. Pass this
-// output through the shell-free runner, never an unquoted `$(...)`, or the
-// shell will consume the escapes before node can resolve them.
+// CLI. `--react-server` prints the react-server-condition list instead of
+// the default one. Pass this output through the shell-free runner; never use
+// unquoted command substitution for bracketed Next.js route paths.
 const isCli =
   process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
 if (isCli) {
   const reactServer = process.argv.includes("--react-server");
-  // `--paths` prints the REAL file paths instead of the node --test patterns.
-  // Guards need both: the patterns to check what the runner receives, and the
-  // paths to check those patterns each resolve to exactly one real file.
+  // `--paths` remains a compatibility alias for the exact execution paths.
   const out = process.argv.includes("--paths")
     ? discoverTestFiles({ reactServer })
     : discoverTestPatterns({ reactServer });
