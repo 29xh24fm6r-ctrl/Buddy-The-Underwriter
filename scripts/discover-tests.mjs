@@ -108,7 +108,15 @@ const wantReactServer = process.argv.includes("--react-server");
 
 const files = wantReactServer
   ? [...REACT_SERVER_ONLY]
-      .filter((rel) => fs.existsSync(path.join(ROOT, rel)))
+      .filter((rel) => {
+        // Fail loudly rather than silently dropping a renamed or deleted
+        // entry. `node --test` with no positional args falls back to scanning
+        // the whole tree, so an empty list here would quietly run the entire
+        // suite under the react-server condition instead of these few files.
+        if (fs.existsSync(path.join(ROOT, rel))) return true;
+        console.error(`discover-tests: REACT_SERVER_ONLY entry not found: ${rel}`);
+        process.exit(1);
+      })
       .sort()
       .map(escapeForNodeTestGlob)
   : SCAN_DIRS.flatMap((d) => walk(d))
@@ -116,5 +124,14 @@ const files = wantReactServer
       .filter((rel) => !isExcludedPath(rel))
       .sort()
       .map(escapeForNodeTestGlob);
+
+if (files.length === 0) {
+  console.error(
+    wantReactServer
+      ? "discover-tests: react-server list is empty — refusing to emit nothing, which would make node --test scan the whole tree."
+      : "discover-tests: no test files discovered.",
+  );
+  process.exit(1);
+}
 
 process.stdout.write(files.join("\n") + "\n");
