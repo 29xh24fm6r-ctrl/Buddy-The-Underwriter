@@ -11,6 +11,11 @@ type Row = Record<string, any>;
 
 class OS {
   tables: Record<string, Row[]>;
+  readFailures = new Set<string>();
+  insertFailures = new Set<string>();
+  updateFailures = new Set<string>();
+  claimConflicts = new Set<string>();
+
   constructor(init?: Partial<Record<string, Row[]>>) {
     this.tables = { brokerage_comms_outbox: [], brokerage_comms_ledger: [], ...init };
   }
@@ -22,6 +27,7 @@ class OQ {
   filters: Array<{ t: string; k: string; v: any }>;
   _u: Row | null; _i: Row[] | null; _l: number | null;
   _ord: { key: string; asc: boolean } | null;
+  _insertCommitted = false;
 
   constructor(db: OS, t: string) {
     this.db = db; this.table = t;
@@ -38,28 +44,62 @@ class OQ {
 
   insert(p: Row | Row[]) {
     const rows = Array.isArray(p) ? p : [p];
-    const wi = rows.map(r => ({ id: r.id ?? `id-${Math.random().toString(36).slice(2, 8)}`, ...r }));
-    this.db.tables[this.table] ??= [];
-    this.db.tables[this.table].push(...wi);
-    this._i = wi; return this;
+    this._i = rows.map(r => ({ id: r.id ?? `id-${Math.random().toString(36).slice(2, 8)}`, ...r }));
+    return this;
   }
 
   update(u: Row) { this._u = u; return this; }
 
   single(): Promise<{ data: any; error: any }> {
-    if (this._i) return Promise.resolve({ data: this._i[0], error: null });
+    if (this._i) {
+      const result = this.commitInsert();
+      return Promise.resolve({
+        data: Array.isArray(result.data) ? result.data[0] ?? null : result.data,
+        error: result.error,
+      });
+    }
+    if (this.db.readFailures.has(this.table)) return Promise.resolve({ data: null, error: { message: `${this.table}_read_failed` } });
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
 
   maybeSingle(): Promise<{ data: any; error: any }> {
-    if (this._u) { for (const r of this.rows()) Object.assign(r, this._u); return Promise.resolve({ data: this.rows()[0], error: null }); }
+    if (this._u) return Promise.resolve(this.commitUpdate());
+    if (this.db.readFailures.has(this.table)) return Promise.resolve({ data: null, error: { message: `${this.table}_read_failed` } });
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
 
   then(f: any, r?: any) {
-    if (this._u) { for (const row of this.rows()) Object.assign(row, this._u); return Promise.resolve({ data: this.rows(), error: null }).then(f, r); }
-    if (this._i) return Promise.resolve({ data: this._i, error: null }).then(f, r);
+    if (this._u) return Promise.resolve(this.commitUpdate()).then(f, r);
+    if (this._i) return Promise.resolve(this.commitInsert()).then(f, r);
+    if (this.db.readFailures.has(this.table)) {
+      return Promise.resolve({ data: null, error: { message: `${this.table}_read_failed` } }).then(f, r);
+    }
     return Promise.resolve({ data: this.rows(), error: null }).then(f, r);
+  }
+
+  private commitInsert(): { data: any; error: any } {
+    if (this.db.insertFailures.has(this.table)) {
+      return { data: null, error: { message: `${this.table}_insert_failed` } };
+    }
+    if (!this._insertCommitted) {
+      this.db.tables[this.table] ??= [];
+      this.db.tables[this.table].push(...(this._i ?? []));
+      this._insertCommitted = true;
+    }
+    return { data: this._i, error: null };
+  }
+
+  private commitUpdate(): { data: any; error: any } {
+    if (this.db.updateFailures.has(this.table)) {
+      return { data: null, error: { message: `${this.table}_update_failed` } };
+    }
+    const matched = this.rows();
+    const isClaim = this._u?.status === "sending";
+    if (isClaim && matched.some(row => this.db.claimConflicts.has(String(row.id)))) {
+      return { data: null, error: null };
+    }
+    for (const row of matched) Object.assign(row, this._u);
+    return { data: matched[0] ?? null, error: null };
   }
 
   private rows() {
@@ -197,6 +237,114 @@ test("sending lock prevents double-processing", async () => {
   // Second claim should find nothing (status is now "sending")
   const items2 = await m.claimDueCommsMessages(db as any);
   assert.equal(items2.length, 0);
+});
+
+test("lost compare-and-set claim is never returned to a sender", async () => {
+  const db = new OS();
+  await m.enqueueCommsMessage(BASE_ARGS, db as any);
+  const id = String(db.tables.brokerage_comms_outbox[0].id);
+  db.claimConflicts.add(id);
+
+  const items = await m.claimDueCommsMessages(db as any);
+  assert.equal(items.length, 0);
+});
+
+test("expired sending lease is reclaimed while an active lease is skipped", async () => {
+  const db = new OS({
+    brokerage_comms_outbox: [
+      {
+        id: "stale-claim", idempotency_key: "stale", channel: "email", provider: "resend",
+        recipient: "stale@example.com", body: "stale", status: "sending", attempt_count: 1,
+        max_attempts: 3, next_attempt_at: new Date(Date.now() - 60_000).toISOString(),
+      },
+      {
+        id: "active-claim", idempotency_key: "active", channel: "email", provider: "resend",
+        recipient: "active@example.com", body: "active", status: "sending", attempt_count: 1,
+        max_attempts: 3, next_attempt_at: new Date(Date.now() + 60_000).toISOString(),
+      },
+    ],
+  });
+
+  const items = await m.claimDueCommsMessages(db as any);
+  assert.deepEqual(items.map(item => item.id), ["stale-claim"]);
+  assert.equal(items[0].status, "sending");
+  assert.ok(new Date(items[0].nextAttemptAt!).getTime() > Date.now());
+});
+
+test("claim read failure is surfaced instead of reporting an empty queue", async () => {
+  const db = new OS();
+  db.readFailures.add("brokerage_comms_outbox");
+  await assert.rejects(
+    () => m.claimDueCommsMessages(db as any),
+    /claim_read: brokerage_comms_outbox_read_failed/,
+  );
+});
+
+test("adapter exception becomes a durable retry instead of abandoning the claim", async () => {
+  const db = new OS();
+  await m.enqueueCommsMessage(BASE_ARGS, db as any);
+  const [item] = await m.claimDueCommsMessages(db as any);
+
+  const outcome = await m.processCommsOutboxItem(
+    item,
+    async () => { throw new Error("provider_transport_failed"); },
+    db as any,
+  );
+
+  assert.equal(outcome, "retry_scheduled");
+  assert.equal(db.tables.brokerage_comms_outbox[0].status, "retry_scheduled");
+  assert.equal(db.tables.brokerage_comms_outbox[0].attempt_count, 1);
+});
+
+test("ledger failure prevents provider invocation and leaves the leased row recoverable", async () => {
+  const db = new OS();
+  await m.enqueueCommsMessage(BASE_ARGS, db as any);
+  const [item] = await m.claimDueCommsMessages(db as any);
+  db.insertFailures.add("brokerage_comms_ledger");
+  let providerCalls = 0;
+
+  await assert.rejects(
+    () => m.processCommsOutboxItem(item, async () => {
+      providerCalls++;
+      return { ok: true };
+    }, db as any),
+    /comms-ledger.*write_failed/,
+  );
+
+  assert.equal(providerCalls, 0);
+  assert.equal(db.tables.brokerage_comms_outbox[0].status, "sending");
+});
+
+test("state-transition failure is surfaced after a provider success", async () => {
+  const db = new OS();
+  await m.enqueueCommsMessage(BASE_ARGS, db as any);
+  const [item] = await m.claimDueCommsMessages(db as any);
+  db.updateFailures.add("brokerage_comms_outbox");
+
+  await assert.rejects(
+    () => m.processCommsOutboxItem(item, async () => ({ ok: true, providerMessageId: "provider-1" }), db as any),
+    /mark_sent: brokerage_comms_outbox_update_failed/,
+  );
+
+  assert.equal(db.tables.brokerage_comms_outbox[0].status, "sending");
+});
+
+test("only a claimed sending row may reach a provider", async () => {
+  const db = new OS();
+  const pending = {
+    id: "pending-1", idempotencyKey: "pending", channel: "email" as const, provider: "resend" as const,
+    recipient: "x@y.com", subject: null, body: "hi", dealId: null, triggerKey: null,
+    status: "pending" as const, attemptCount: 0, maxAttempts: 3, nextAttemptAt: null,
+    lastFailureCode: null, providerMessageId: null,
+  };
+  let calls = 0;
+  const outcome = await m.processCommsOutboxItem(pending, async () => {
+    calls++;
+    return { ok: true };
+  }, db as any);
+
+  assert.equal(outcome, "skipped");
+  assert.equal(calls, 0);
 });
 
 // ── Ledger integration ──────────────────────────────────────────────────────

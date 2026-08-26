@@ -63,7 +63,7 @@ export function scrubSecrets(text: string): string {
 // ── Ledger writers ──────────────────────────────────────────────────────────
 
 async function writeEvent(sb: SB, entry: CommsLedgerEntry): Promise<void> {
-  await sb.from("brokerage_comms_ledger").insert({
+  const { error } = await sb.from("brokerage_comms_ledger").insert({
     event_type: entry.eventType,
     channel: entry.channel,
     deal_id: entry.dealId ?? null,
@@ -76,6 +76,11 @@ async function writeEvent(sb: SB, entry: CommsLedgerEntry): Promise<void> {
     metadata: entry.metadata ?? {},
     created_at: new Date().toISOString(),
   });
+
+  if (error) {
+    const message = typeof error.message === "string" ? scrubSecrets(error.message) : "database_error";
+    throw new Error(`[comms-ledger] write_failed: ${message}`);
+  }
 }
 
 export async function recordCommsSendRequested(

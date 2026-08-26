@@ -67,6 +67,40 @@ type Adapter = (msg: { recipient: string; subject: string | null; body: string }
 function str(v: unknown): string | null { return typeof v === "string" && v.trim() ? v.trim() : null; }
 function now(): string { return new Date().toISOString(); }
 
+const CLAIM_LEASE_MS = 5 * 60_000;
+
+type QueryError = { message?: string } | null | undefined;
+
+function assertDbOk(error: QueryError, operation: string): void {
+  if (error) {
+    throw new Error(`[comms-outbox] ${operation}: ${str(error.message) ?? "database_error"}`);
+  }
+}
+
+function requireRow<T>(data: T | null | undefined, error: QueryError, operation: string): T {
+  assertDbOk(error, operation);
+  if (!data) throw new Error(`[comms-outbox] ${operation}: row_missing`);
+  return data;
+}
+
+async function updateSendingItem(
+  id: string,
+  patch: Row,
+  sb: SB,
+  operation: string,
+): Promise<void> {
+  const { data, error } = await sb
+    .from("brokerage_comms_outbox")
+    .update(patch)
+    .eq("id", id)
+    .eq("status", "sending")
+    .select("id")
+    .maybeSingle();
+
+  assertDbOk(error, operation);
+  if (!data) throw new Error(`[comms-outbox] ${operation}: item_not_sending`);
+}
+
 // ── Enqueue ─────────────────────────────────────────────────────────────────
 
 export async function enqueueCommsMessage(
@@ -74,7 +108,7 @@ export async function enqueueCommsMessage(
   sb: SB,
 ): Promise<{ id: string; created: boolean }> {
   // Idempotency: check existing non-terminal item with same key
-  const { data: existing } = await sb
+  const { data: existing, error: lookupError } = await sb
     .from("brokerage_comms_outbox")
     .select("id, status")
     .eq("idempotency_key", args.idempotencyKey)
@@ -82,11 +116,12 @@ export async function enqueueCommsMessage(
     .limit(1)
     .maybeSingle();
 
+  assertDbOk(lookupError, "enqueue_lookup");
   if (existing) {
     return { id: String(existing.id), created: false };
   }
 
-  const { data: inserted } = await sb
+  const { data: inserted, error: insertError } = await sb
     .from("brokerage_comms_outbox")
     .insert({
       idempotency_key: args.idempotencyKey,
@@ -108,7 +143,8 @@ export async function enqueueCommsMessage(
     .select("id")
     .single();
 
-  return { id: String(inserted?.id ?? ""), created: true };
+  const insertedRow = requireRow<Row>(inserted, insertError, "enqueue_insert");
+  return { id: String(insertedRow.id), created: true };
 }
 
 // ── Claim due items ─────────────────────────────────────────────────────────
@@ -117,28 +153,44 @@ export async function claimDueCommsMessages(
   sb: SB,
   limit = 10,
 ): Promise<OutboxItem[]> {
-  const { data } = await sb
+  const { data, error } = await sb
     .from("brokerage_comms_outbox")
     .select("*")
-    .in("status", ["pending", "retry_scheduled"])
+    .in("status", ["pending", "retry_scheduled", "sending"])
     .order("next_attempt_at", { ascending: true })
     .limit(limit);
+
+  assertDbOk(error, "claim_read");
 
   const items: OutboxItem[] = [];
   const nowMs = Date.now();
 
   for (const row of (data ?? []) as Row[]) {
     const nextAt = str(row.next_attempt_at);
-    if (nextAt && new Date(nextAt).getTime() > nowMs) continue; // not due yet
+    if (nextAt && new Date(nextAt).getTime() > nowMs) continue;
 
-    // Claim: set status to "sending"
-    await sb
+    // Compare-and-set the exact row version observed above. For an abandoned
+    // "sending" row, next_attempt_at is the lease deadline; comparing it as
+    // well as status prevents two reclaimers from both winning.
+    const leaseUntil = new Date(nowMs + CLAIM_LEASE_MS).toISOString();
+    let claim = sb
       .from("brokerage_comms_outbox")
-      .update({ status: "sending" })
+      .update({ status: "sending", next_attempt_at: leaseUntil })
       .eq("id", row.id)
-      .eq("status", row.status); // optimistic lock via status match
+      .eq("status", row.status);
 
-    items.push(mapRow(row));
+    claim = nextAt
+      ? claim.eq("next_attempt_at", nextAt)
+      : claim.is("next_attempt_at", null);
+
+    const { data: claimed, error: claimError } = await claim
+      .select("*")
+      .maybeSingle();
+
+    assertDbOk(claimError, "claim_update");
+    if (!claimed) continue; // another worker changed this row first
+
+    items.push(mapRow(claimed));
   }
 
   return items;
@@ -153,8 +205,8 @@ export async function processCommsOutboxItem(
 ): Promise<"sent" | "retry_scheduled" | "exhausted" | "failed" | "skipped"> {
   // Already sent = no-op
   if (item.status === "sent") return "skipped";
-  // Not in sending state = skip (another worker may have claimed it)
-  if (item.status !== "sending" && item.status !== "pending" && item.status !== "retry_scheduled") return "skipped";
+  // Only a successfully compare-and-set claimed row may reach a provider.
+  if (item.status !== "sending") return "skipped";
 
   const attempt = item.attemptCount + 1;
 
@@ -166,15 +218,25 @@ export async function processCommsOutboxItem(
     triggerKey: item.triggerKey ?? undefined,
   });
 
-  // Send
-  const result = await adapter({
-    recipient: item.recipient,
-    subject: item.subject,
-    body: item.body,
-  });
+  // Send. Adapter exceptions are retryable delivery failures; the row remains
+  // durably owned by this claim until the transition below succeeds.
+  let result: SendResult;
+  try {
+    result = await adapter({
+      recipient: item.recipient,
+      subject: item.subject,
+      body: item.body,
+    });
+  } catch (error: unknown) {
+    result = {
+      ok: false,
+      error: error instanceof Error ? error.message : "adapter_threw",
+      retryable: true,
+    };
+  }
 
   if (result.ok) {
-    await markSent(item.id, result.providerMessageId ?? null, sb);
+    await markSent(item.id, attempt, result.providerMessageId ?? null, sb);
     await recordCommsSendSucceeded(sb, {
       channel: item.channel,
       recipient: item.recipient,
@@ -231,9 +293,12 @@ export async function processCommsOutboxItem(
   }
 
   // Non-retryable failure
-  await sb.from("brokerage_comms_outbox")
-    .update({ status: "failed", attempt_count: attempt, last_failure_code: decision.failureCode })
-    .eq("id", item.id);
+  await updateSendingItem(
+    item.id,
+    { status: "failed", attempt_count: attempt, last_failure_code: decision.failureCode },
+    sb,
+    "mark_failed",
+  );
 
   // Phase 12B: escalate failed borrower nudges to banker
   if (isBorrowerNudgeTrigger(item.triggerKey) && item.dealId) {
@@ -245,23 +310,32 @@ export async function processCommsOutboxItem(
 
 // ── Status transitions ──────────────────────────────────────────────────────
 
-export async function markSent(id: string, providerMessageId: string | null, sb: SB): Promise<void> {
-  await sb.from("brokerage_comms_outbox")
-    .update({ status: "sent", provider_message_id: providerMessageId, attempt_count: 1 })
-    .eq("id", id);
+export async function markSent(id: string, attempt: number, providerMessageId: string | null, sb: SB): Promise<void> {
+  await updateSendingItem(
+    id,
+    { status: "sent", provider_message_id: providerMessageId, attempt_count: attempt, next_attempt_at: null },
+    sb,
+    "mark_sent",
+  );
 }
 
 export async function markRetryScheduled(id: string, attempt: number, delaySec: number, failureCode: string, sb: SB): Promise<void> {
   const nextAt = new Date(Date.now() + delaySec * 1000).toISOString();
-  await sb.from("brokerage_comms_outbox")
-    .update({ status: "retry_scheduled", attempt_count: attempt, next_attempt_at: nextAt, last_failure_code: failureCode })
-    .eq("id", id);
+  await updateSendingItem(
+    id,
+    { status: "retry_scheduled", attempt_count: attempt, next_attempt_at: nextAt, last_failure_code: failureCode },
+    sb,
+    "mark_retry_scheduled",
+  );
 }
 
 export async function markExhausted(id: string, attempt: number, failureCode: string, sb: SB): Promise<void> {
-  await sb.from("brokerage_comms_outbox")
-    .update({ status: "exhausted", attempt_count: attempt, last_failure_code: failureCode })
-    .eq("id", id);
+  await updateSendingItem(
+    id,
+    { status: "exhausted", attempt_count: attempt, next_attempt_at: null, last_failure_code: failureCode },
+    sb,
+    "mark_exhausted",
+  );
 }
 
 // ── Batch processor ─────────────────────────────────────────────────────────

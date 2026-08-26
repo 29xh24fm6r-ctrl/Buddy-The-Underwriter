@@ -10,6 +10,7 @@ type Row = Record<string, any>;
 
 class LS {
   tables: Record<string, Row[]>;
+  failWrites = false;
   constructor() { this.tables = { brokerage_comms_ledger: [] }; }
   from(t: string) { return new LQ(this, t); }
 }
@@ -23,7 +24,12 @@ class LQ {
     this.db.tables[this.table].push(...rows);
     this._i = rows; return this;
   }
-  then(f: any, r?: any) { return Promise.resolve({ data: this._i, error: null }).then(f, r); }
+  then(f: any, r?: any) {
+    const result = this.db.failWrites
+      ? { data: null, error: { message: "Bearer re_secret_should_be_scrubbed" } }
+      : { data: this._i, error: null };
+    return Promise.resolve(result).then(f, r);
+  }
 }
 
 // ── Ledger events ───────────────────────────────────────────────────────────
@@ -50,6 +56,21 @@ test("failed event is generated", async () => {
   assert.equal(db.tables.brokerage_comms_ledger[0].event_type, "brokerage_comms_send_failed");
   assert.equal(db.tables.brokerage_comms_ledger[0].retryable, true);
   assert.equal(db.tables.brokerage_comms_ledger[0].attempt_number, 1);
+});
+
+test("ledger database failure is surfaced with secrets scrubbed", async () => {
+  const db = new LS();
+  db.failWrites = true;
+  await assert.rejects(
+    () => ledger.recordCommsSendRequested(db as any, { channel: "email", recipient: "test@example.com" }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /comms-ledger.*write_failed/);
+      assert.ok(!error.message.includes("re_secret_should_be_scrubbed"));
+      assert.match(error.message, /\[REDACTED\]/);
+      return true;
+    },
+  );
 });
 
 // ── Recipient masking ───────────────────────────────────────────────────────
