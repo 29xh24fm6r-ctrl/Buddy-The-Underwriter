@@ -100,16 +100,13 @@ test("classification leaves objects on present tables independently actionable",
 });
 
 test("classification is deterministic regardless of input order", () => {
-  const a = finding("20250102", {
-    kind: "function",
-    schema: "public",
-    name: "zeta",
-  });
-  const b = finding("20250101", {
+  const a = finding("20250101", {
     kind: "function",
     schema: "public",
     name: "alpha",
   });
+  const b = { ...a, source_statement: "second ddl" };
+  a.source_statement = "first ddl";
 
   assert.deepEqual(
     classifyDriftFindings([a, b]),
