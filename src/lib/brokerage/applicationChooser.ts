@@ -25,55 +25,29 @@ import "server-only";
  */
 
 import { cookies } from "next/headers";
-import crypto from "node:crypto";
+import { getChooserSigningKey } from "@/lib/brokerage/chooserSigningKey";
+import { signChooserPayload, verifyChooserPayload } from "@/lib/brokerage/chooserToken";
 
 const COOKIE_NAME = "buddy_application_chooser";
 const COOKIE_MAX_AGE_SECONDS = 10 * 60; // 10 minutes
 
-function getSigningKey(): string {
-  return (
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-    "buddy-application-chooser-dev-key"
+function sign(email: string, bankId: string, expiresAt: number): string {
+  return signChooserPayload(
+    `${email}:${bankId}:${expiresAt}`,
+    getChooserSigningKey(),
   );
 }
 
-function sign(email: string, bankId: string, expiresAt: number): string {
-  const payload = `${email}:${bankId}:${expiresAt}`;
-  const hmac = crypto.createHmac("sha256", getSigningKey());
-  hmac.update(payload);
-  const signature = hmac.digest("hex");
-  return `${Buffer.from(payload).toString("base64url")}.${signature}`;
-}
-
 function verify(token: string): { email: string; bankId: string; expiresAt: number } | null {
-  const dotIdx = token.lastIndexOf(".");
-  if (dotIdx <= 0) return null;
-
-  const payloadB64 = token.slice(0, dotIdx);
-  const providedSig = token.slice(dotIdx + 1);
-
-  let payload: string;
-  try {
-    payload = Buffer.from(payloadB64, "base64url").toString("utf-8");
-  } catch {
-    return null;
-  }
+  const payload = verifyChooserPayload(token, getChooserSigningKey());
+  if (!payload) return null;
 
   const parts = payload.split(":");
   if (parts.length !== 3) return null;
+
   const [email, bankId, expiresAtRaw] = parts;
-  const expiresAt = parseInt(expiresAtRaw, 10);
-  if (!email || !bankId || isNaN(expiresAt)) return null;
-
-  const hmac = crypto.createHmac("sha256", getSigningKey());
-  hmac.update(payload);
-  const expectedSig = hmac.digest("hex");
-
-  if (providedSig.length !== expectedSig.length) return null;
-  if (!crypto.timingSafeEqual(Buffer.from(providedSig), Buffer.from(expectedSig))) {
-    return null;
-  }
+  const expiresAt = Number.parseInt(expiresAtRaw, 10);
+  if (!email || !bankId || !Number.isFinite(expiresAt)) return null;
 
   return { email, bankId, expiresAt };
 }
