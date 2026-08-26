@@ -21,6 +21,22 @@ const repairedRoutes = [
   "src/app/api/deals/[dealId]/policy/mitigants/route.ts",
 ] as const;
 
+const privilegedDealRoutes = [
+  "src/app/api/deals/[dealId]/replay/route.ts",
+  "src/app/api/deals/[dealId]/delight/route.ts",
+  "src/app/api/deals/[dealId]/examiner/route.ts",
+  "src/app/api/deals/[dealId]/examiner/simulate/route.ts",
+  "src/app/api/deals/[dealId]/missing-docs/route.ts",
+  "src/app/api/deals/[dealId]/recompute/route.ts",
+  "src/app/api/deals/[dealId]/ask/route.ts",
+  "src/app/api/deals/[dealId]/memo/generate/route.ts",
+] as const;
+
+const borrowerTokenRoutes = [
+  "src/app/api/borrower/[token]/submit/route.ts",
+  "src/app/api/borrower/[token]/upload-event/route.ts",
+] as const;
+
 test("privileged Supabase compatibility clients are server-only and fail closed", () => {
   const server = read("src/lib/supabase/server.ts");
   assert.match(server, /import "server-only"/);
@@ -77,6 +93,28 @@ test("user-driven routes do not authenticate against a sessionless service clien
       /resolveDealApiContext/,
       `${path} must enforce canonical deal tenant access`,
     );
+  }
+});
+
+test("all service-role deal routes enforce Clerk and tenant authorization", () => {
+  for (const path of privilegedDealRoutes) {
+    const route = read(path);
+    assert.match(
+      route,
+      /resolveDealApiContext/,
+      `${path} must enforce canonical deal tenant access`,
+    );
+    assert.doesNotMatch(route, /@\/lib\/supabase\/server/);
+  }
+});
+
+test("borrower mutations bind a valid portal token to its deal", () => {
+  for (const path of borrowerTokenRoutes) {
+    const route = read(path);
+    assert.match(route, /resolveBorrowerToken\(token\)/);
+    assert.match(route, /resolved\.deal_id/);
+    assert.match(route, /borrower_link_deal_mismatch/);
+    assert.doesNotMatch(route, /@\/lib\/supabase\/server/);
   }
 });
 
