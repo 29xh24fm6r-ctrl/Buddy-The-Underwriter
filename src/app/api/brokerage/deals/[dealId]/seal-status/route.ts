@@ -171,6 +171,12 @@ export async function GET(
 
   if (listing) {
     const row = listing as any;
+    // Begin the picked-package manifest immediately; claim presentation is
+    // independent and should not delay it.
+    const manifestPromise: Promise<PackageManifest | null> =
+      row.status === "picked"
+        ? buildPackageManifest(dealId, "full", sb as any)
+        : Promise.resolve(null);
 
     // Active claims — the lenders who have claimed this listing. The borrower
     // needs these to pick a lender (the pick step previously had no data source,
@@ -208,10 +214,7 @@ export async function GET(
     // download). Computed here rather than exposed via a new route.ts to
     // stay under this repo's Vercel serverless-function slot budget (see
     // routeConsolidationGuard.test.ts).
-    let manifest: PackageManifest | null = null;
-    if (row.status === "picked") {
-      manifest = await buildPackageManifest(dealId, "full", sb as any);
-    }
+    const manifest = await manifestPromise;
 
     return NextResponse.json({
       ok: true,
