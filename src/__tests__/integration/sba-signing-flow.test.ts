@@ -145,7 +145,12 @@ test("full IAL2 -> e-sign happy path", async () => {
   // 3. Request signature — IAL2 gate must now pass
   const signwell: SignwellClient = {
     createSignwellDocumentFromFile: async () => ({ id: 99, status: "pending", recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_xyz" }] }),
-    fetchSignwellDocument: async () => ({ id: 99, status: "completed", recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_xyz" }] }),
+    fetchSignwellDocument: async () => ({
+      id: 99,
+      status: "completed",
+      metadata: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}` },
+      recipients: [{ id: "1", email: "jane@example.com", embedded_signing_url: "https://www.signwell.com/embed/sub_xyz" }],
+    }),
     downloadSignwellCompletedPdf: async () => Buffer.from("pdf-bytes"),
   };
   const renderFilledPdf = async () => ({ ok: true as const, pdfBytes: Buffer.from("filled-pdf-bytes") });
