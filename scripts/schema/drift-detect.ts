@@ -178,6 +178,49 @@ function describeObject(obj: ExpectedObject): string {
   return `${obj.schema}.${obj.name}`;
 }
 
+export type MigrationHistoryEntry = {
+  version: string;
+  name: string;
+  statements: string[];
+};
+
+export type LiveSchemaCatalog = {
+  tables: Set<string>;
+  columns: Set<string>;
+  indexes: Set<string>;
+  functions: Set<string>;
+};
+
+export function collectMissingFindings(
+  migration: MigrationHistoryEntry,
+  catalog: LiveSchemaCatalog,
+): DriftFinding[] {
+  const findings: DriftFinding[] = [];
+  for (const statement of migration.statements ?? []) {
+    for (const object of extractExpectedObjects([statement])) {
+      const present =
+        object.kind === "table"
+          ? catalog.tables.has(`${object.schema}.${object.name}`)
+          : object.kind === "column"
+            ? catalog.columns.has(
+                `${object.schema}.${object.table}.${object.name}`,
+              )
+            : object.kind === "index"
+              ? catalog.indexes.has(`${object.schema}.${object.name}`)
+              : catalog.functions.has(`${object.schema}.${object.name}`);
+      if (present) continue;
+      findings.push({
+        migration_version: migration.version,
+        migration_name: migration.name,
+        object,
+        status: "missing",
+        source_statement: statement.slice(0, 240),
+      });
+    }
+  }
+  return findings;
+}
+
 // ─── Main (DB-side; not exported) ───────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -195,7 +238,7 @@ async function main(): Promise<void> {
   try {
     // 1. Pull migration history with full statements.
     const migrations = await sql<
-      Array<{ version: string; name: string; statements: string[] }>
+      Array<MigrationHistoryEntry>
     >`
       SELECT version, name, statements
       FROM supabase_migrations.schema_migrations
@@ -249,32 +292,10 @@ async function main(): Promise<void> {
     );
 
     // 3. Compare each migration's expected objects against live state.
-    const findings: DriftFinding[] = [];
-    for (const m of migrations) {
-      for (const statement of m.statements ?? []) {
-        const expected = extractExpectedObjects([statement]);
-        for (const exp of expected) {
-          const present =
-            exp.kind === "table"
-              ? tables.has(`${exp.schema}.${exp.name}`)
-              : exp.kind === "column"
-                ? columns.has(`${exp.schema}.${exp.table}.${exp.name}`)
-                : exp.kind === "index"
-                  ? indexes.has(`${exp.schema}.${exp.name}`)
-                  : functions.has(`${exp.schema}.${exp.name}`);
-          if (present) continue;
-
-          findings.push({
-            migration_version: m.version,
-            migration_name: m.name,
-            object: exp,
-            status: "missing",
-            source_statement: statement.slice(0, 240),
-          });
-        }
-      }
-    }
-
+    const catalog: LiveSchemaCatalog = { tables, columns, indexes, functions };
+    const findings = migrations.flatMap((migration) =>
+      collectMissingFindings(migration, catalog),
+    );
     // 4. Apply allow-list to separate blocking from acknowledged drift.
     const allowlist = loadAllowlist();
     const blocking = findings.filter((f) => !isAllowed(f, allowlist));
