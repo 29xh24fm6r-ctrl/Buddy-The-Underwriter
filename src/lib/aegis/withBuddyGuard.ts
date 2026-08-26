@@ -61,8 +61,20 @@ export function withBuddyGuard<TArgs extends any[], TReturn>(
         result !== null &&
         (result as any).ok === true;
 
+      // SPEC-OBS-IDLE-NOT-ERROR-1: a processor that reports `idle: true` found
+      // an empty queue. That is the normal steady state for a cron-driven
+      // worker, not a failure — writing an error event for it buried the real
+      // failures and pinned the pipeline's error rate at 100%. Treat idle as a
+      // no-op: no event, no failure counted against the worker.
+      const isIdle =
+        typeof result === "object" &&
+        result !== null &&
+        (result as any).idle === true;
+
       if (isOk) {
         recordJobCompletion(workerId, false).catch(() => {});
+      } else if (isIdle) {
+        // no-op
       } else {
         // Processor handled the failure internally (marked job FAILED/QUEUED for retry)
         // We still record it for Aegis observability

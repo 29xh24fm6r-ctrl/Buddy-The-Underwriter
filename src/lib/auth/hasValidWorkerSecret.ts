@@ -1,10 +1,11 @@
 import "server-only";
 
 import { NextRequest } from "next/server";
+import { secretEquals } from "@/lib/brokerage/secretEquals";
 
 export type WorkerAuthMatch = {
   matched: boolean;
-  method?: "bearer" | "header" | "query";
+  method?: "bearer" | "header";
   tokenType?: "worker" | "cron";
 };
 
@@ -23,21 +24,13 @@ export function getWorkerAuthMatch(req: NextRequest): WorkerAuthMatch {
   const auth = req.headers.get("authorization") ?? "";
   if (auth.startsWith("Bearer ")) {
     const token = auth.slice("Bearer ".length);
-    if (workerSecret && token === workerSecret) return { matched: true, method: "bearer", tokenType: "worker" };
-    if (cronSecret && token === cronSecret) return { matched: true, method: "bearer", tokenType: "cron" };
+    if (secretEquals(token, workerSecret)) return { matched: true, method: "bearer", tokenType: "worker" };
+    if (secretEquals(token, cronSecret)) return { matched: true, method: "bearer", tokenType: "cron" };
   }
 
   // 3: x-worker-secret header
   const hdr = req.headers.get("x-worker-secret") ?? "";
-  if (hdr && workerSecret && hdr === workerSecret) return { matched: true, method: "header", tokenType: "worker" };
-
-  // 4: ?token= query param
-  const url = new URL(req.url);
-  const qToken = url.searchParams.get("token") ?? "";
-  if (qToken) {
-    if (workerSecret && qToken === workerSecret) return { matched: true, method: "query", tokenType: "worker" };
-    if (cronSecret && qToken === cronSecret) return { matched: true, method: "query", tokenType: "cron" };
-  }
+  if (secretEquals(hdr, workerSecret)) return { matched: true, method: "header", tokenType: "worker" };
 
   return { matched: false };
 }
@@ -49,9 +42,16 @@ export function getWorkerAuthMatch(req: NextRequest): WorkerAuthMatch {
  *   1. Authorization: Bearer <CRON_SECRET>   — Vercel injects this automatically on cron invocations
  *   2. Authorization: Bearer <WORKER_SECRET>  — external schedulers / manual callers
  *   3. x-worker-secret: <WORKER_SECRET>       — header-based auth
- *   4. ?token=<WORKER_SECRET|CRON_SECRET>      — legacy query-param auth
  *
  * At least one of WORKER_SECRET or CRON_SECRET must be set in env.
+ *
+ * SPEC-SEC-WORKER-AUTH-1:
+ *   - Comparison is constant-time (secretEquals) — a plain `===` on a shared
+ *     secret leaks its prefix through response timing.
+ *   - `?token=` query-param auth was REMOVED. Query strings are recorded in
+ *     Vercel/CDN access logs, proxy logs, and Referer headers, so a secret
+ *     passed that way is a secret written to disk in several places. Callers
+ *     that used it must move to the Authorization or x-worker-secret header.
  */
 export function hasValidWorkerSecret(req: NextRequest): boolean {
   return getWorkerAuthMatch(req).matched;

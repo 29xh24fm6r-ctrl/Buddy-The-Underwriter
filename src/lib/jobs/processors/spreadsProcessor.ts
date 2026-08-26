@@ -1485,7 +1485,14 @@ export async function processNextSpreadJob(leaseOwner: string = "worker-1") {
     .limit(1);
 
   if (!jobs || jobs.length === 0) {
-    return { ok: false as const, error: "No jobs available" };
+    // SPEC-OBS-IDLE-NOT-ERROR-1: an empty queue is the normal steady state,
+    // not a failure. `idle: true` tells withBuddyGuard not to write a
+    // buddy_system_events error row — without it, every cron tick on an idle
+    // queue logged an error and the pipeline's error rate sat permanently at
+    // 100%, making error-rate alerting useless.
+    // `ok` stays false so the worker tick's "no more jobs -> break" control
+    // flow is unchanged.
+    return { ok: false as const, idle: true as const, error: "No jobs available" };
   }
 
   return await processSpreadJob(String(jobs[0].id), leaseOwner);

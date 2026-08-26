@@ -329,6 +329,31 @@ async function handleFailedJob(
 
   // ── Decision: Is this error class never-retry? ──
   if (isNeverRetry(classified.errorClass)) {
+    // SPEC-OBS-DEAD-JOB-DEDUP-1.
+    // find_stuck_or_failed_jobs returns EVERY row with status='FAILED', with no
+    // upper bound on age, and this branch does not (and cannot) change that
+    // status — 'DEAD' is not in the document_jobs / deal_spread_jobs status
+    // CHECK constraint, and the retry branch below is the only one that writes
+    // the job row back. So without a dedup check the observer re-emitted an
+    // identical "job_marked_dead" event for the same permanently-failed job on
+    // every tick, forever. In production that was 18 permanently-FAILED
+    // document_jobs re-reported every 10 minutes — 7,776 rows in three days,
+    // and the single largest live contributor to buddy_system_events.
+    //
+    // A job already recorded dead is recorded. Emit once, then stay quiet.
+    const { data: alreadyDead } = await sb
+      .from("buddy_system_events" as any)
+      .select("id")
+      .eq("source_job_id", job.job_id)
+      .eq("resolution_status", "dead")
+      .limit(1)
+      .maybeSingle();
+
+    if (alreadyDead) {
+      result.actions.suppressed++;
+      return;
+    }
+
     writeSystemEvent({
       event_type: "error",
       severity: classified.errorClass === "auth" ? "critical" : "error",
