@@ -65,6 +65,24 @@ async function completeUploadSessionFile(args: {
   if (sessionError) throw new Error(`Unable to update upload session: ${sessionError.message}`);
 }
 
+async function requireArtifactQueued(args: {
+  dealId: string;
+  bankId: string;
+  documentId: string;
+}): Promise<void> {
+  const queued = await queueArtifact({
+    dealId: args.dealId,
+    bankId: args.bankId,
+    sourceTable: "deal_documents",
+    sourceId: args.documentId,
+  });
+  if (!queued.ok) {
+    throw new Error(
+      `Unable to queue document ${args.documentId} for processing: ${queued.error ?? "unknown error"}`,
+    );
+  }
+}
+
 async function removeRedundantUpload(args: {
   sb: ReturnType<typeof supabaseAdmin>;
   bucket: string;
@@ -433,11 +451,10 @@ export async function POST(req: NextRequest, ctx: Context) {
         });
         // Ensure a previous partial attempt is durably queued before reporting
         // success. This also makes record retries self-healing.
-        await queueArtifact({
+        await requireArtifactQueued({
           dealId,
           bankId: deal.bank_id,
-          sourceTable: "deal_documents",
-          sourceId: duplicate.id,
+          documentId: duplicate.id,
         });
 
         if (
@@ -553,11 +570,10 @@ export async function POST(req: NextRequest, ctx: Context) {
     // Classification is required operational work. Do not report the upload
     // complete until its durable artifact job exists.
     if (result.documentId) {
-      await queueArtifact({
+      await requireArtifactQueued({
         dealId,
         bankId: deal.bank_id,
-        sourceTable: "deal_documents",
-        sourceId: result.documentId,
+        documentId: result.documentId,
       });
     }
 
