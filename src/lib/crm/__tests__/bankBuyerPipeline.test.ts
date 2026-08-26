@@ -10,6 +10,8 @@ const page = readFileSync("src/components/brokerage/BankBuyersWorkspace.tsx", "u
 const organizationPage = readFileSync("src/components/brokerage/OrganizationWorkspace.tsx", "utf8");
 const tokens = readFileSync("src/components/brokerage/tokens.ts", "utf8");
 const shell = readFileSync("src/components/brokerage/BrokerageShell.tsx", "utf8");
+const crmHome = readFileSync("src/app/admin/brokerage/crm/page.tsx", "utf8");
+const crmTabs = readFileSync("src/components/brokerage/CrmTabs.tsx", "utf8");
 
 test("bank buyer CRM owns a tenant-scoped multi-lender submission ledger", () => {
   assert.match(migration, /create table public\.crm_lender_profiles/);
@@ -79,4 +81,25 @@ test("off-platform deals can be recorded directly in the bank submission ledger"
   assert.match(page, /Enter off-platform deal/);
   assert.match(page, /Deal \/ business name \*/);
   assert.match(page, /lightweight CRM-only record/);
+});
+
+test("CRM navigation and activity stay clear on every nested workspace", () => {
+  assert.match(shell, /sort\(\(\[a\], \[b\]\) => b\.length - a\.length\)/);
+  assert.match(shell, /it\.href === "\/admin\/brokerage"/);
+  assert.match(crmTabs, /Contacts/);
+  assert.match(crmTabs, /Deal partners/);
+  assert.match(crmTabs, /aria-current/);
+  assert.match(crmHome, /Choose relationship type/);
+  assert.match(crmHome, /displayActivity/);
+  assert.match(crmHome, /seen\.has\(key\)/);
+});
+
+test("deal distribution is searchable, test-safe, and banker-scoped", () => {
+  assert.match(page, /Search Buddy deals/);
+  assert.match(page, /visibleDeals/);
+  assert.match(page, /deal\.is_test/);
+  assert.match(page, /soleBankerId/);
+  assert.match(api, /is_test/);
+  assert.match(api, /Selected banker is not associated with this bank/);
+  assert.match(api, /eq\("organization_id", profile\.organization_id\)/);
 });
