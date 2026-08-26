@@ -65,7 +65,14 @@ export function classifyDriftFindings(
 
   const items: DriftClassificationItem[] = [...grouped.entries()]
     .map(([identity, occurrences]) => {
-      const object = occurrences[0].object;
+      const orderedOccurrences = [...occurrences].sort((a, b) => {
+        const aKey = `${a.migration_version}:${a.migration_name}:${a.source_statement}:${JSON.stringify(a.object)}`;
+        const bKey = `${b.migration_version}:${b.migration_name}:${b.source_statement}:${JSON.stringify(b.object)}`;
+        return aKey.localeCompare(bKey);
+      });
+      // The newest expectation is the closest available representation of the
+      // current intended owner when an identity was recreated historically.
+      const object = orderedOccurrences[orderedOccurrences.length - 1].object;
       const parent = parentTableIdentity(object);
       const dependsOn = parent && missingTables.has(parent) ? parent : undefined;
       const triageClass: DriftTriageClass = dependsOn
@@ -83,17 +90,11 @@ export function classifyDriftFindings(
         triage_class: triageClass,
         object,
         ...(dependsOn ? { depends_on: dependsOn } : {}),
-        occurrences: occurrences
-          .map((finding) => ({
-            migration_version: finding.migration_version,
-            migration_name: finding.migration_name,
-            source_statement: finding.source_statement,
-          }))
-          .sort((a, b) =>
-            `${a.migration_version}:${a.migration_name}`.localeCompare(
-              `${b.migration_version}:${b.migration_name}`,
-            ),
-          ),
+        occurrences: orderedOccurrences.map((finding) => ({
+          migration_version: finding.migration_version,
+          migration_name: finding.migration_name,
+          source_statement: finding.source_statement,
+        })),
       };
     })
     .sort((a, b) => a.identity.localeCompare(b.identity));
