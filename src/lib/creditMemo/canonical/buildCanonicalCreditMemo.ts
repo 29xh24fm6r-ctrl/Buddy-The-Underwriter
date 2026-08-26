@@ -229,6 +229,10 @@ export async function buildCanonicalCreditMemo(args: {
       if (!dealRow) return { ok: false, error: "deal_not_found" };
       bankId = String(dealRow.bank_id);
     } else if (args.executionContext !== "system" && args.executionContext !== "authorized_route") {
+      // `authorized_route` is accepted only after the route has resolved the
+      // deal-owned bank through an authenticated access guard. Both trusted
+      // contexts still pass through the bank-scoped deal query below; neither
+      // permits an unscoped or caller-selected tenant read.
       const access = await ensureDealBankAccess(args.dealId);
       if (!access.ok) return { ok: false, error: access.error };
       if (String(access.bankId) !== String(bankId)) return { ok: false, error: "tenant_mismatch" };
