@@ -39,10 +39,7 @@ Repair:
 
 Production checkpoint:
 
-- PR 894 merged on 2026-08-26. Its Vercel status and a newer main deployment were
-  still pending at this checkpoint, so deployed-route closure remains open.
-- The public Buddy landing journey rendered successfully with the expected title
-  and content; no Buddy application console error was observed.
+- PR 894 and the newer current-main Vercel deployment both reached successful,  status on 2026-08-26.,- The public Buddy landing journey rendered successfully with the expected title,  and content; no Buddy application console error was observed.,- Production responses proved the consolidated catch-all is live:,  `/crm/search` returned the preserved unauthenticated 401, `/crm/activities`,  returned 405 with `Allow: POST`, and an unknown route returned 404. All three,  reported `x-matched-path: /api/admin/brokerage/crm/[...path]`.
 - Authorized transactional Golden Trident, SignWell, cron, and delivery fixtures
   remain required for state-changing closure.
 - Direct production-row verification remains blocked by the Buddy Supabase
@@ -52,7 +49,7 @@ Next targets:
 
 1. Run the classifier against production metadata in CI and classify the reduced
    independent set by historical drop/rename versus true current ownership.
-2. Reverify PR 894 route contracts after the exact main deployment becomes READY.
+2. Rotate to the next independent application/privacy/provider audit while PR 897 awaits review.
 3. Continue non-conflicting privacy, provider, and critical-path regression rotation.
 
 ### Production baseline and merged repair verification
