@@ -184,11 +184,12 @@ test("brokerage memo recovery preserves its preauthorized tenant and governed re
   assert.match(canonicalMemoBuilder, /args\.executionContext !== "authorized_route"/);
   assert.match(narrativeAssembly, /balance_sheet: memo\.financial_analysis\.balance_sheet_table/);
   assert.match(narrativeAssembly, /total_liabilities: row\.total_liabilities/);
-  assert.match(narrativeAssembly, /Reconcile financial_trend DSCR values/);
+  assert.match(narrativeAssembly, /For every financial_trend period/);
+  assert.match(narrativeAssembly, /underwriting_reconciliation/);
 });
 
 test("durable canonical-credit workers use an explicit bank-scoped system boundary", () => {
-  assert.match(canonicalMemoBuilder, /executionContext\?: "interactive" \| "system"/);
+  assert.match(canonicalMemoBuilder, /executionContext\?: "interactive" \| "authorized_route" \| "system"/);
   assert.match(canonicalMemoBuilder, /args\.executionContext !== "system"/);
   assert.match(canonicalMemoBuilder, /\.eq\("bank_id", bankId\)/);
   assert.match(canonicalMemoArtifact, /executionContext: args\.executionContext/);
