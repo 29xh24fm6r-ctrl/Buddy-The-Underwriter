@@ -1,3 +1,6 @@
+// route-class: PUBLIC — external decision-integrity verification. The whole
+// point is that a regulator or auditor can verify a decision hash WITHOUT
+// credentials; the hash is the capability and reveals nothing on a miss.
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 

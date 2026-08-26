@@ -1,3 +1,6 @@
+// route-class: PUBLIC — Stitch screen artifact read, anonymous allowed for
+// public screens (the handler filters non-public ones). Screen artifacts
+// carry no deal, borrower or bank data.
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isValidScreenId } from "@/lib/screens/idgen";

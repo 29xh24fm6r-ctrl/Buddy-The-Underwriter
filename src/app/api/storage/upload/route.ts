@@ -3,6 +3,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseStorageClient } from "@/lib/supabase/client";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import crypto from "node:crypto";
@@ -41,6 +42,20 @@ export async function POST(req: NextRequest) {
 
     if (!dealId) {
       return json(400, { ok: false, error: "Missing dealId" });
+    }
+
+    // SPEC-SEC-API-AUTH-1: this writes a file into a deal's storage prefix
+    // using the service role. Unauthenticated, anyone holding a deal UUID
+    // could push files into that deal. No in-app caller uses this route
+    // (verified 2026-08-26), so requiring banker access on the deal is the
+    // conservative gate; a borrower upload path already exists at
+    // /api/portal/[token]/files/{sign,record}.
+    const access = await ensureDealBankAccess(String(dealId));
+    if (!access.ok) {
+      return json(
+        access.error === "unauthorized" ? 401 : access.error === "deal_not_found" ? 404 : 403,
+        { ok: false, error: access.error },
+      );
     }
 
     if (!filename) {
