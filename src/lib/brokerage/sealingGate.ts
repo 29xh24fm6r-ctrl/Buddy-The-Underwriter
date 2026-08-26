@@ -39,10 +39,34 @@ function validateFinalTrident(bundle: FinalTridentEvidence | null): string[] {
 }
 
 export async function canSeal(dealId: string, sb: SupabaseClient): Promise<SealabilityResult> {
+  // Every gate is an independent read. Running them together keeps this
+  // frequently-polled path to two database waves (owner roster, then batched
+  // identity evidence) instead of six serial reads plus one read per owner.
+  const [
+    { data: score },
+    { data: assumptions },
+    { data: finalBundle },
+    { data: validation },
+    { data: existing },
+    ownersWithoutIal2,
+  ] = await Promise.all([
+    sb.from("buddy_sba_scores")
+      .select("score, band, eligibility_passed").eq("deal_id", dealId)
+      .eq("score_status", "locked").order("computed_at", { ascending: false }).limit(1).maybeSingle(),
+    sb.from("buddy_sba_assumptions")
+      .select("status, loan_impact").eq("deal_id", dealId).maybeSingle(),
+    sb.from("buddy_trident_bundles")
+      .select("id, release_gate_json, input_hash, memo_input_hash, canonical_memo_input_hash, source_credit_memo_id, source_spread_id, business_plan_pdf_path, projections_xlsx_path, feasibility_pdf_path")
+      .eq("deal_id", dealId).eq("mode", "final").eq("status", "succeeded")
+      .is("superseded_at", null).order("generated_at", { ascending: false }).limit(1).maybeSingle(),
+    sb.from("buddy_validation_reports")
+      .select("overall_status").eq("deal_id", dealId).order("run_at", { ascending: false }).limit(1).maybeSingle(),
+    sb.from("buddy_sealed_packages")
+      .select("id").eq("deal_id", dealId).is("unsealed_at", null).maybeSingle(),
+    ownersNeedingIal2(dealId, sb),
+  ]);
+
   const reasons: string[] = [];
-  const { data: score } = await sb.from("buddy_sba_scores")
-    .select("score, band, eligibility_passed").eq("deal_id", dealId)
-    .eq("score_status", "locked").order("computed_at", { ascending: false }).limit(1).maybeSingle();
   if (!score) reasons.push("No locked Buddy SBA Score exists yet.");
   else {
     const s = score as any;
@@ -51,8 +75,6 @@ export async function canSeal(dealId: string, sb: SupabaseClient): Promise<Seala
     if (!s.eligibility_passed) reasons.push("SBA eligibility checks did not pass.");
   }
 
-  const { data: assumptions } = await sb.from("buddy_sba_assumptions")
-    .select("status, loan_impact").eq("deal_id", dealId).maybeSingle();
   if (!assumptions || (assumptions as any).status !== "confirmed") reasons.push("SBA assumptions not yet confirmed.");
   else {
     const li = ((assumptions as any).loan_impact ?? {}) as Record<string, unknown>;
@@ -60,21 +82,11 @@ export async function canSeal(dealId: string, sb: SupabaseClient): Promise<Seala
     if (typeof li.loanAmount !== "number" || li.loanAmount <= 0) reasons.push("Loan amount (loan_impact.loanAmount) is missing or invalid.");
   }
 
-  const { data: finalBundle } = await sb.from("buddy_trident_bundles")
-    .select("id, release_gate_json, input_hash, memo_input_hash, canonical_memo_input_hash, source_credit_memo_id, source_spread_id, business_plan_pdf_path, projections_xlsx_path, feasibility_pdf_path")
-    .eq("deal_id", dealId).eq("mode", "final").eq("status", "succeeded")
-    .is("superseded_at", null).order("generated_at", { ascending: false }).limit(1).maybeSingle();
   reasons.push(...validateFinalTrident(finalBundle as FinalTridentEvidence | null));
-
-  const { data: validation } = await sb.from("buddy_validation_reports")
-    .select("overall_status").eq("deal_id", dealId).order("run_at", { ascending: false }).limit(1).maybeSingle();
   if ((validation as any)?.overall_status === "FAIL") reasons.push("Validation report is in FAIL state.");
-
-  const { data: existing } = await sb.from("buddy_sealed_packages")
-    .select("id").eq("deal_id", dealId).is("unsealed_at", null).maybeSingle();
   if (existing) reasons.push("Deal is already sealed.");
 
-  for (const owner of await ownersNeedingIal2(dealId, sb)) {
+  for (const owner of ownersWithoutIal2) {
     reasons.push(`${owner.display_name ?? "An owner"} has not completed identity verification yet.`);
   }
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };

@@ -69,8 +69,19 @@ function makeQB(table: string) {
     // Array-returning queries with no terminal .maybeSingle() call —
     // ownersNeedingIal2's ownership_entities lookup.
     then(resolve: (r: { data: any; error: null }) => void) {
-      const data = table === "ownership_entities" ? state.owners : [];
-      resolve({ data, error: null });
+      if (table === "ownership_entities") {
+        resolve({ data: state.owners, error: null });
+        return;
+      }
+      if (table === "borrower_identity_verifications") {
+        const requested = new Set(this._filters["ownership_entity_id"]?.in ?? []);
+        const data = Array.from(state.verifiedOwnerIds)
+          .filter((ownerId) => requested.has(ownerId))
+          .map((ownerId) => ({ ownership_entity_id: ownerId }));
+        resolve({ data, error: null });
+        return;
+      }
+      resolve({ data: [], error: null });
     },
   };
   return q;
