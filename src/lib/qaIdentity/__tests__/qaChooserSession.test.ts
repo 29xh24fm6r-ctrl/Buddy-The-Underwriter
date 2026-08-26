@@ -57,6 +57,14 @@ describe("QA chooser session cookie — creation and validation", () => {
       !source.includes("createHmac"),
       "Must not reimplement signing locally",
     );
+
+    // Two properties no behavioural test can observe from outside the module:
+    // a plain === compare would satisfy every round-trip assertion, and a
+    // browser-visible signing key would still verify correctly.
+    const tokenSource = readSource("src/lib/brokerage/chooserToken.ts");
+    assert.ok(tokenSource.includes("timingSafeEqual"), "Must use constant-time comparison");
+    const keySource = readSource("src/lib/brokerage/chooserSigningKey.ts");
+    assert.doesNotMatch(keySource, /process\.env\.NEXT_PUBLIC_/, "Must not accept browser-visible keys");
   });
 
   it("Cookie is httpOnly, secure, sameSite=lax, 10-minute TTL", () => {

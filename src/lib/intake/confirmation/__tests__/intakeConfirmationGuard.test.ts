@@ -881,9 +881,9 @@ test("[guard-52] confirm route snapshot query filters by logical_key", () => {
 
 // ── Guard 53: every deal_documents read in confirm is active-scoped ──
 
-// This counted occurrences of "is_active" and required ≥2, which made it a
+// This counted occurrences of "is_active" and required >=2, which made it a
 // proxy for "the filter is applied" that broke every time the route was
-// consolidated — first from ≥3 to ≥2, then to red when #903's single-pass
+// consolidated — first from >=3 to >=2, then to red when #903's single-pass
 // refactor legitimately reduced the route to ONE deal_documents query that
 // does carry the filter. Assert the invariant instead: a confirm route may
 // read deal_documents as many or as few times as it likes, but never without
@@ -901,6 +901,19 @@ test("[guard-53] every deal_documents query in confirm is scoped to active rows"
       `deal_documents query #${i + 1} in the confirm route is not scoped to is_active=true`,
     );
   });
+});
+
+// #905 moved the locking itself into an atomic finalizer, so the route filter
+// above is only half the boundary — the RPC must constrain its lock and its
+// stamp to active rows too, or a deactivated document can still be finalized.
+test("[guard-53b] the atomic finalize RPC constrains both updates to active rows", () => {
+  const migrationSrc = readSource(
+    "supabase/migrations/20260827010000_atomic_intake_locking.sql",
+  );
+  assert.ok(
+    (migrationSrc.match(/AND is_active = true/g) ?? []).length >= 2,
+    "Atomic finalizer must constrain both lock and stamp updates to active documents",
+  );
 });
 
 // ── Guard 54: processConfirmedIntake queries filter is_active ────────

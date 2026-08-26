@@ -8,6 +8,8 @@ function readSrc(path: string): string {
 }
 
 const SRC = "src/lib/brokerage/applicationChooser.ts";
+const TOKEN_SRC = "src/lib/brokerage/chooserToken.ts";
+const SIGNING_KEY_SRC = "src/lib/brokerage/chooserSigningKey.ts";
 
 test("exports set/get/clear cookie functions", () => {
   const source = readSrc(SRC);
@@ -34,6 +36,14 @@ test("cookie signing is delegated to the shared, tested signer", () => {
   assert.match(source, /verifyChooserPayload\(/);
   // Signing must not be reimplemented locally: one signer, one contract.
   assert.doesNotMatch(source, /createHmac/);
+
+  // Two properties the behavioural suite cannot observe from outside:
+  // constant-time comparison (a plain === would pass every behavioural test),
+  // and the signing key never coming from a client-visible env var.
+  const tokenSource = readSrc(TOKEN_SRC);
+  assert.ok(tokenSource.includes("timingSafeEqual"), "compare must be constant-time");
+  const keySource = readSrc(SIGNING_KEY_SRC);
+  assert.doesNotMatch(keySource, /process\.env\.NEXT_PUBLIC_/);
 });
 
 test("cookie is httpOnly, secure, sameSite=lax, 10-minute TTL", () => {
@@ -56,7 +66,7 @@ test("clear sets maxAge: 0, invalidating the cookie", () => {
 
 test("cookie name is distinct from the QA chooser and the real session cookie", () => {
   const source = readSrc(SRC);
-  assert.ok(source.includes('"buddy_application_chooser"'));
-  assert.doesNotMatch(source, /"buddy_qa_chooser"/);
-  assert.doesNotMatch(source, /"buddy_borrower_session"/);
+  assert.match(source, /const COOKIE_NAME = "buddy_application_chooser"/);
+  assert.doesNotMatch(source, /const COOKIE_NAME = "buddy_qa_chooser"/);
+  assert.doesNotMatch(source, /const COOKIE_NAME = "buddy_borrower_session"/);
 });

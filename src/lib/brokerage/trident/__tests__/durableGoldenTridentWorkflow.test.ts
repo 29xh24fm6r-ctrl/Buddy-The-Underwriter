@@ -196,13 +196,15 @@ test("brokerage memo recovery preserves its preauthorized tenant and governed re
   assert.match(narrativeAssembly, /balance_sheet: memo\.financial_analysis\.balance_sheet_table/);
   assert.match(narrativeAssembly, /total_liabilities: row\.total_liabilities/);
   // #898 worded this instruction "Reconcile financial_trend DSCR values";
-  // #902 rewrote it and this guard went red. Assert the requirement the
+  // #902 rewrote it and this guard went red. Assert the identifiers the
   // prompt has to carry — per-period DSCR tied to that period's own
   // denominator pair — rather than one draft's phrasing.
   assert.match(narrativeAssembly, /financial_trend/);
   assert.match(narrativeAssembly, /cash_flow_available/);
   assert.match(narrativeAssembly, /debt_service/);
   assert.match(narrativeAssembly, /calculated_dscr/);
+  // #905: the prompt must also route the period through reconciliation.
+  assert.match(narrativeAssembly, /underwriting_reconciliation/);
 });
 
 test("durable canonical-credit workers use an explicit bank-scoped system boundary", () => {
@@ -215,9 +217,11 @@ test("durable canonical-credit workers use an explicit bank-scoped system bounda
       `executionContext must still admit "${context}"`,
     );
   }
-  // Trust is now a verified grant, not a caller-asserted string.
+  // Trust is now a verified grant, not a caller-asserted string. The
+  // "authorized_route" member this guard previously required is gone by
+  // design: any caller could assert it without having authenticated.
   assert.match(canonicalMemoBuilder, /isDealBankAccessGrantFor\(args\.accessGrant/);
-  assert.doesNotMatch(canonicalMemoBuilder, /"authorized_route"[^\n]*executionContext/);
+  assert.doesNotMatch(canonicalMemoBuilder, /executionContext\?:[^;]*"authorized_route"/);
   assert.match(canonicalMemoBuilder, /args\.executionContext !== "system"/);
   assert.match(canonicalMemoBuilder, /\.eq\("bank_id", bankId\)/);
   assert.match(canonicalMemoArtifact, /executionContext: args\.executionContext/);
