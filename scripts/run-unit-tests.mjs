@@ -1,42 +1,70 @@
 // scripts/run-unit-tests.mjs
 //
-// Spawns `node --test` over the discovered unit-test files.
+// Runs the discovered unit tests through node:test's programmatic run() API.
 //
-// This exists because of the shell. package.json used to run
-//   node --test --import tsx $(node scripts/discover-tests.mjs)
-// and the unquoted command substitution meant the shell word-split AND
-// glob-expanded the discoverer's output before node saw it. Dynamic-segment
-// paths are emitted as patterns (`?token?`) precisely so node's own glob
-// matching can resolve the literal brackets — but a shell expands those
-// patterns first, handing node the bare `[token]` it cannot resolve, and node
-// reports "0 tests" for them without failing. Seventeen files were dead that
-// way (audit F-24).
+// Why not `node --test <paths...>`: that form's meaning changed between the
+// Node CI runs (20, per .nvmrc and ci.yml) and the Node the package declares
+// (22, per engines.node).
 //
-// Spawning with shell:false removes that layer entirely: the patterns reach
-// node exactly as written.
+//   form              Node 20                  Node 22
+//   [dealId] literal  runs the file            globs to nothing -> "0 tests"
+//   ?dealId? wildcard "Could not find"         runs the file
 //
-// Usage: node scripts/run-unit-tests.mjs [--react-server]
-import { spawnSync } from "node:child_process";
-import { discoverTestPatterns } from "./discover-tests.mjs";
+// Node 20 does not glob positional arguments; Node 22 does. No single string
+// form works on both, so every fix attempted at the string level moved the
+// breakage rather than removing it — and the silent direction (Node 22
+// reporting "0 tests, 0 fail") is the dangerous one, because it looks green.
+//
+// run({ files }) takes literal paths and applies no glob semantics on any
+// version. Verified identical on Node 20 and Node 22 against paths containing
+// both `[dealId]` and `(app)`.
+//
+// The child processes inherit this process's execArgv, which is how `tsx` and
+// `--conditions=react-server` reach them — hence package.json invokes this as
+// `node --import tsx scripts/run-unit-tests.mjs`.
+//
+// Usage: node --import tsx scripts/run-unit-tests.mjs [--react-server]
+import { run } from "node:test";
+import { tap } from "node:test/reporters";
+import process from "node:process";
+import { discoverTestFiles } from "./discover-tests.mjs";
 
 const reactServer = process.argv.includes("--react-server");
-const patterns = discoverTestPatterns({ reactServer });
 
-const nodeArgs = [
-  ...(reactServer ? ["--conditions=react-server"] : []),
-  "--test",
-  "--import",
-  "tsx",
-  ...patterns,
-];
+// `--files-probe` runs ONLY the discovered test files that live under a
+// Next.js dynamic-segment directory. Those are the files whose execution
+// depends on how the running Node interprets `[dealId]`, so a guard can call
+// this to prove they actually run on whichever Node is executing, rather than
+// inspecting path strings that look correct on both versions.
+const filesProbe = process.argv.includes("--files-probe");
 
-const result = spawnSync(process.execPath, nodeArgs, {
-  stdio: "inherit",
-  shell: false, // load-bearing — see the header.
-});
+const discovered = discoverTestFiles({ reactServer });
+const files = filesProbe
+  ? discovered.filter((f) => /[[\]]/.test(f))
+  : discovered;
 
-if (result.error) {
-  console.error("run-unit-tests: failed to spawn node --test:", result.error.message);
+if (filesProbe && files.length === 0) {
+  console.error("run-unit-tests: --files-probe matched no dynamic-segment test files.");
   process.exit(1);
 }
-process.exit(result.status ?? 1);
+
+let failures = 0;
+const stream = run({ files, concurrency: true });
+stream.on("test:fail", (event) => {
+  // Suites report a failure for each failing child; counting only leaf
+  // failures would still be nonzero, but counting all of them keeps the exit
+  // code honest without needing to model the tree.
+  if (event?.todo || event?.skip) return;
+  failures += 1;
+});
+
+stream.compose(tap).pipe(process.stdout);
+
+stream.on("end", () => {
+  if (files.length === 0) {
+    console.error("run-unit-tests: no test files discovered — refusing to report success.");
+    process.exitCode = 1;
+    return;
+  }
+  process.exitCode = failures > 0 ? 1 : 0;
+});
