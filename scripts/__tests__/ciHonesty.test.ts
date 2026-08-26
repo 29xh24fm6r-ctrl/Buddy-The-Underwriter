@@ -73,9 +73,9 @@ describe("SPEC-CI-1 §5.2 — test:unit glob coverage floor", () => {
     );
   });
 
-  // Dynamic-segment paths (`[dealId]`, `[token]`) are emitted as `?`
-  // wildcards so `node --test` resolves them, and run through
-  // scripts/run-unit-tests.mjs so no shell expands the wildcards first.
+  // Dynamic-segment paths (`[dealId]`, `[token]`) use node-glob literal
+  // bracket escapes and run through scripts/run-unit-tests.mjs so no shell
+  // consumes those escapes before node receives them.
   //
   // The previous version of this guard checked that the printed paths were
   // glob-escaped and round-trippable. Both were true, and both were beside
@@ -107,17 +107,9 @@ describe("SPEC-CI-1 §5.2 — test:unit glob coverage floor", () => {
 
     const ambiguous: string[] = [];
     lines.forEach((pattern, i) => {
-      const re = new RegExp(
-        "^" +
-          pattern
-            .split("?")
-            .map((part) => part.replace(/[.*+^${}()|[\]\\]/g, "\\$&"))
-            .join(".") +
-          "$",
-      );
-      const matches = realPaths.filter((real) => re.test(real));
-      if (matches.length !== 1 || matches[0] !== realPaths[i]) {
-        ambiguous.push(`${pattern} -> ${matches.length} match(es)`);
+      const literal = pattern.replace(/\[\[\]/g, "[").replace(/\[\]\]/g, "]");
+      if (literal !== realPaths[i]) {
+        ambiguous.push(`${pattern} -> ${literal}; expected ${realPaths[i]}`);
       }
       if (!fs.existsSync(path.join(REPO, realPaths[i]))) {
         ambiguous.push(`${realPaths[i]} (missing on disk)`);
