@@ -107,6 +107,10 @@
     {
       "path": "/api/cron/crm-automation?run=sequences",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/nightly",
+      "schedule": "30 7 * * *"
     }
   ]
 }

@@ -1,3 +1,6 @@
+// route-class: PUBLIC — franchise brand reference data (FDD / SBA franchise
+// directory). Non-tenant, non-PII public record data; the borrower funnel
+// searches it before any account exists. Read-only; no deal or bank scope.
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 

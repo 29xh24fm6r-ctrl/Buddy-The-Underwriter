@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { resolveProductType } from "@/lib/deals/dealProductType";
 import type { IntakeScenario, BusinessStage } from "./types";
 import { generateSlotsForScenario } from "./policies";
 import { ENTITY_SCOPED_DOC_TYPES } from "../identity/entityScopedDocTypes";
@@ -28,7 +29,7 @@ export async function loadIntakeScenario(
     .eq("deal_id", dealId)
     .maybeSingle();
 
-  if (!data) return null;
+  if (!data) return deriveScenarioFromDeal(dealId);
 
   return {
     product_type: data.product_type,
@@ -37,6 +38,70 @@ export async function loadIntakeScenario(
     has_financial_statements: data.has_financial_statements ?? true,
     has_projections: data.has_projections ?? false,
     entity_age_months: data.entity_age_months ?? null,
+  };
+}
+
+/**
+ * Derive an intake scenario from the deal itself when no deal_intake_scenario
+ * row exists.
+ *
+ * SPEC-PRODUCT-TYPE-CANON-1. deal_intake_scenario is written only by two
+ * banker routes (/intake/set from the deal setup cards, and /intake/scenario,
+ * which has no client caller at all). Borrower-originated deals — every deal
+ * that starts on buddysba.com — never got a row, so loadIntakeScenario
+ * returned null and the caller fell back to CONVENTIONAL_FALLBACK.
+ *
+ * The production consequence, confirmed 2026-08-26: deal_intake_scenario had
+ * ZERO rows, so resolveSlotPolicy() had never once selected SBA_7A_POLICY.
+ * The SBA_1919 / SBA_413 / SBA_DEBT_SCHEDULE slots, and the STARTUP and
+ * ACQUISITION branches, had never been generated for any deal in the system's
+ * history — every SBA borrower was collected against the conventional slot
+ * set.
+ *
+ * Deriving here rather than at every call site keeps one definition of "what
+ * product is this deal", and means an explicit scenario row still wins when a
+ * banker has set one. Returns null only when the deal's product genuinely
+ * cannot be determined, preserving the conventional fallback for that case.
+ */
+async function deriveScenarioFromDeal(
+  dealId: string,
+): Promise<IntakeScenario | null> {
+  const sb = supabaseAdmin();
+
+  const { data: deal } = await (sb as any)
+    .from("deals")
+    .select("product_type, loan_type, deal_type")
+    .eq("id", dealId)
+    .maybeSingle();
+
+  if (!deal) return null;
+
+  const { data: intake } = await (sb as any)
+    .from("deal_intake")
+    .select("loan_type")
+    .eq("deal_id", dealId)
+    .maybeSingle();
+
+  const product = resolveProductType({
+    product_type: deal.product_type,
+    loan_type: deal.loan_type,
+    deal_type: deal.deal_type,
+    intake_loan_type: intake?.loan_type ?? null,
+  });
+
+  if (!product) return null;
+
+  // Stage/history flags are genuinely unknown without a scenario row. The
+  // policy's own defaults (EXISTING, has returns, has statements) are the
+  // right assumption for an established business, and a startup is detected
+  // downstream from the concierge facts.
+  return {
+    product_type: product,
+    borrower_business_stage: "EXISTING",
+    has_business_tax_returns: true,
+    has_financial_statements: true,
+    has_projections: false,
+    entity_age_months: null,
   };
 }
 

@@ -28,3 +28,36 @@ export async function requireValidInvite(token: string): Promise<PortalInvite> {
 
   return invite as PortalInvite;
 }
+
+/**
+ * Validate a borrower invite token AND bind it to the deal being addressed.
+ *
+ * SPEC-SEC-INVITE-BIND-1. `requireValidInvite` only proves the caller holds
+ * *some* live invite; it says nothing about which deal that invite is for.
+ * Any route that takes a `dealId` from the URL and then queries with
+ * `supabaseAdmin()` (service role — RLS does not apply) must use this
+ * instead, or a borrower holding their own valid invite can address another
+ * bank's deal.
+ *
+ * Throws "Link is not valid for this application" on mismatch; callers map
+ * thrown errors to 400/401 as they already do for the other invite errors.
+ */
+export async function requireInviteForDeal(
+  token: string,
+  dealId: string,
+): Promise<PortalInvite> {
+  const invite = await requireValidInvite(token);
+  if (invite.deal_id !== dealId) {
+    console.warn("[requireInviteForDeal] invite/deal mismatch", {
+      inviteDealId: invite.deal_id,
+      requestedDealId: dealId,
+    });
+    throw new Error("Link is not valid for this application");
+  }
+  return invite;
+}
+
+/** Extracts a bearer token from an Authorization header value. */
+export function bearerToken(headerValue: string | null | undefined): string {
+  return String(headerValue ?? "").replace(/^Bearer\s+/i, "");
+}

@@ -1,6 +1,6 @@
 // src/app/api/portal/deals/[dealId]/share-links/route.ts
 import { NextResponse } from "next/server";
-import { requireValidInvite } from "@/lib/portal/auth";
+import { bearerToken, requireInviteForDeal } from "@/lib/portal/auth";
 import { createShareLink } from "@/lib/portal/shareLinks";
 
 export const runtime = "nodejs";
@@ -11,10 +11,14 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    await requireValidInvite(
-      String((req as any)?.headers?.get?.("x-invite") ?? ""),
-    );
     const { dealId } = await ctx.params;
+    // The invite must be for THIS deal — a share link grants a third party
+    // read access to the named deal's checklist items for 7 days, so an
+    // unbound invite here would let any borrower mint access to any deal.
+    await requireInviteForDeal(
+      bearerToken(req.headers.get("x-invite")),
+      dealId,
+    );
     const body = await req.json();
     const checklistItemIds = Array.isArray(body?.checklistItemIds)
       ? body.checklistItemIds.map(String)

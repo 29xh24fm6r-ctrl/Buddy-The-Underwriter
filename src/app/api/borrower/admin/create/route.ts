@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { generateToken } from "@/lib/borrower/token";
 
 export const runtime = "nodejs";
@@ -7,6 +8,13 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
+    // SPEC-SEC-API-AUTH-1: this mints a borrower application token bound to a
+    // caller-supplied user_id and deal_id. Unauthenticated, it let anyone
+    // create or poison a borrower_applications row for someone else's deal —
+    // and borrower_applications feeds loan_type, NAICS and business identity
+    // into the SBA scoring path. Admin only; the route name always implied it.
+    await requireAdmin();
+
     const body = await req.json();
     const { user_id, deal_id } = body;
 

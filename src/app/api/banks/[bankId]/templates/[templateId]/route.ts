@@ -1,6 +1,8 @@
 // src/app/api/banks/[bankId]/templates/[templateId]/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireBankAdmin } from "@/lib/auth/requireBankAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +12,18 @@ export async function PATCH(
   ctx: { params: Promise<{ bankId: string; templateId: string }> },
 ) {
   const { bankId, templateId } = await ctx.params;
+  // SPEC-SEC-API-AUTH-1: mutating a bank's document template is tenant
+  // configuration; require a bank admin of that bank. Middleware does not
+  // gate /api/**.
+  const { userId } = await clerkAuth();
+  if (!userId) {
+    return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  }
+  try {
+    await requireBankAdmin(bankId, userId);
+  } catch {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
   const sb = supabaseAdmin();
 
   const body = await req.json().catch(() => ({}));
@@ -70,6 +84,18 @@ export async function DELETE(
   ctx: { params: Promise<{ bankId: string; templateId: string }> },
 ) {
   const { bankId, templateId } = await ctx.params;
+  // SPEC-SEC-API-AUTH-1: mutating a bank's document template is tenant
+  // configuration; require a bank admin of that bank. Middleware does not
+  // gate /api/**.
+  const { userId } = await clerkAuth();
+  if (!userId) {
+    return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  }
+  try {
+    await requireBankAdmin(bankId, userId);
+  } catch {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
   const sb = supabaseAdmin();
 
   const { error } = await sb
