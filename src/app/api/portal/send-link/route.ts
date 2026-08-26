@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { sendSmsWithConsent } from "@/lib/sms/send";
 import { upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";
 import { normalizeE164 } from "@/lib/sms/phone";
@@ -14,10 +15,19 @@ function randomToken() {
 
 /**
  * POST /api/portal/send-link
- * 
+ *
  * Banker sends portal link via SMS (Twilio)
  * Body: { deal_id, to_phone, label?, expires_hours?, single_use?, message? }
- * 
+ *
+ * AUTH (SPEC-SEC-PORTAL-LINK-1): Clerk banker on the deal's own bank.
+ * Without this check the route is an open SMS relay — it sends
+ * caller-supplied text to a caller-supplied number from the platform's
+ * Twilio account — as well as a portal-token mint for any deal_id.
+ * Middleware does not gate /api/** (see src/proxy.ts), so the check
+ * lives here. `message` is only honoured for an authenticated banker on
+ * the deal, and is length-capped; the portal URL is always appended so a
+ * custom body can never replace the link with an attacker's.
+ *
  * Now includes STOP/HELP compliance:
  * - Checks opt-out status before sending
  * - Throws if borrower has opted out
@@ -39,6 +49,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "deal_id and to_phone required" },
         { status: 400 }
+      );
+    }
+
+    const access = await ensureDealBankAccess(String(deal_id));
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.error },
+        { status: access.error === "unauthorized" ? 401 : access.error === "deal_not_found" ? 404 : 403 },
       );
     }
 
@@ -95,10 +113,17 @@ export async function POST(req: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     const portalUrl = `${appUrl}/upload/${link.token}`;
 
-    // 3. Build message
-    const msg =
-      message ||
-      `Buddy upload link: ${portalUrl}\n(Expires in ${expires_hours}h)`;
+    // 3. Build message.
+    // A banker-supplied note is prepended, never substituted — the portal
+    // URL and expiry are always appended so the link in the SMS is the one
+    // this route just minted. Capped so a long body can't fan out into
+    // many billable segments.
+    const MAX_NOTE_CHARS = 300;
+    const note =
+      typeof message === "string" && message.trim()
+        ? `${message.trim().slice(0, MAX_NOTE_CHARS)}\n\n`
+        : "";
+    const msg = `${note}Buddy upload link: ${portalUrl}\n(Expires in ${expires_hours}h)`;
 
     // 4. Send via Twilio with consent enforcement
     try {

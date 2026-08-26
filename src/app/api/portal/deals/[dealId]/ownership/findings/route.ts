@@ -1,6 +1,6 @@
 // src/app/api/portal/deals/[dealId]/ownership/findings/route.ts
 import { NextResponse } from "next/server";
-import { requireValidInvite } from "@/lib/portal/auth";
+import { bearerToken, requireInviteForDeal } from "@/lib/portal/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -25,10 +25,8 @@ export async function GET(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const authHeader = req.headers.get("authorization") ?? "";
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    const invite = await requireValidInvite(token);
     const { dealId } = await ctx.params;
+    await requireInviteForDeal(bearerToken(req.headers.get("authorization")), dealId);
     const sb = supabaseAdmin();
 
     // Get proposed findings

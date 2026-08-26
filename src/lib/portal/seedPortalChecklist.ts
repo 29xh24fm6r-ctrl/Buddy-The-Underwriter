@@ -19,6 +19,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildChecklistForLoanType, type LoanType } from "@/lib/deals/checklistPresets";
+import { normalizeProductType } from "@/lib/deals/dealProductType";
 
 const GROUP_NAME = "Application Documents";
 
@@ -67,12 +68,42 @@ const KNOWN_LOAN_TYPES: LoanType[] = [
   "SBA_504",
 ];
 
-/** buildChecklistForLoanType's LoanType union is stricter than every loan_type spelling seen elsewhere (e.g. the intake wizard's "SBA"/"sba_7a"). Normalize the loose aliases; default to CRE like buildChecklistForLoanType's own default branch. */
+/**
+ * buildChecklistForLoanType's LoanType union is stricter than every loan_type
+ * spelling seen elsewhere. Normalize the loose aliases; default to CRE like
+ * buildChecklistForLoanType's own default branch.
+ *
+ * SPEC-PRODUCT-TYPE-CANON-1: routes through normalizeProductType so this stays
+ * in sync with every other product-type reader. The bare "7a" that the
+ * borrower concierge writes to deals.loan_type previously fell through to
+ * "CRE" here — it is not in KNOWN_LOAN_TYPES and was not among the aliases —
+ * so an SBA 7(a) borrower was shown a CRE document checklist.
+ */
 export function normalizeLoanTypeForChecklist(loanType: string | null | undefined): LoanType {
   const upper = (loanType ?? "").toUpperCase().trim();
   if ((KNOWN_LOAN_TYPES as string[]).includes(upper)) return upper as LoanType;
-  if (upper === "SBA" || upper === "SBA7A") return "SBA_7A";
-  if (upper === "SBA504") return "SBA_504";
+
+  const canonical = normalizeProductType(loanType);
+  switch (canonical) {
+    case "SBA_7A":
+    // 7(a) checklist is the closest match for Express — same forms, same
+    // eligibility documents; the difference is process, not paperwork.
+    case "SBA_EXPRESS":
+      return "SBA_7A";
+    case "SBA_504":
+      return "SBA_504";
+    case "LINE_OF_CREDIT":
+      return "LOC";
+    case "TERM_LOAN":
+      return "TERM";
+    case "CRE":
+    case "CRE_OWNER_OCCUPIED":
+    case "CRE_INVESTOR":
+      return canonical as LoanType;
+    default:
+      break;
+  }
+
   if (upper === "C&I" || upper === "CI") return "TERM";
   return "CRE";
 }

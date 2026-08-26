@@ -60,13 +60,24 @@ import {
   persistAssumptionsDraft,
 } from "@/lib/sba/sbaAssumptionsBootstrap";
 
-// SPEC-M5 CONVERSATIONAL-INTAKE-1 — off by default. Flipping this on routes
-// the concierge's turn call through the AI gateway's `interviewer` role
-// (runRole) instead of calling Gemini directly. Left OFF until Matt approves
-// a provider in docs/vendors/<provider>.md (VENDOR_NPI_APPROVAL) — turning
-// this on while every provider is still PENDING would make the gateway's
-// NPI gate refuse every single borrower turn in production, since this
-// route's payload is npiTagged. See gateway.ts / vendorApproval.ts.
+// SPEC-M5 CONVERSATIONAL-INTAKE-1 — routes the concierge's turn call through
+// the AI gateway's `interviewer` role (runRole) instead of calling Gemini
+// directly, which brings it under the gateway's NPI vendor gate, its per-role
+// daily token budget, and the ai_gateway_calls ledger (the SR 11-7 audit
+// trail).
+//
+// STATUS 2026-08-26: the original blocker is GONE. This was held off "until
+// Matt approves a provider in docs/vendors/<provider>.md", because an
+// npiTagged call against an all-PENDING roster would have been refused on
+// every borrower turn. Matt approved google, anthropic and openai for
+// borrower-NPI processing on 2026-08-17 (see vendorApproval.ts), so the gate
+// now passes.
+//
+// It is still default-OFF only because flipping it changes the model path for
+// every live borrower conversation, which wants a staged rollout rather than
+// a deploy-time surprise — not because the approval is missing. Until it is
+// on, this is the one borrower-facing LLM path with no budget cap and no
+// ledger entry.
 const AI_GATEWAY_CONCIERGE_ENABLED = process.env.AI_GATEWAY_CONCIERGE_ENABLED === "true";
 
 export const runtime = "nodejs";

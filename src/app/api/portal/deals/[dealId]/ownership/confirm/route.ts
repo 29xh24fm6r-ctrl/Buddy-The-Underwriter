@@ -1,6 +1,6 @@
 // src/app/api/portal/deals/[dealId]/ownership/confirm/route.ts
 import { NextResponse } from "next/server";
-import { requireValidInvite } from "@/lib/portal/auth";
+import { bearerToken, requireInviteForDeal } from "@/lib/portal/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { parseOwnershipText } from "@/lib/ownership/nlp";
 import {
@@ -33,10 +33,8 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const authHeader = req.headers.get("authorization") ?? "";
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    const invite = await requireValidInvite(token);
     const { dealId } = await ctx.params;
+    await requireInviteForDeal(bearerToken(req.headers.get("authorization")), dealId);
     const sb = supabaseAdmin();
 
     const body = await req.json();

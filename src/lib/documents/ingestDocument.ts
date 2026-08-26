@@ -195,6 +195,45 @@ export async function ingestDocument(input: IngestDocumentInput) {
     },
   });
 
+  /**
+   * SPEC-INGEST-ALWAYS-QUEUE-1 — every ingested document enters the
+   * processing pipeline, without the caller having to remember.
+   *
+   * queueArtifact() used to be the caller's job, and three callers forgot:
+   * /api/public/upload, /api/portal/share/[action] and builderUploadCore all
+   * inserted a deal_documents row and queued nothing. Those documents got no
+   * OCR, so no canonical_type, so processConfirmedIntake's extract-eligible
+   * filter skipped them permanently — a silent dead end with no error
+   * anywhere. Queuing here makes that class of bug impossible: if a document
+   * exists, it is queued.
+   *
+   * Idempotent (queueArtifact returns the existing artifact when one is
+   * already queued), so callers that still queue explicitly are unaffected.
+   * Non-fatal: a queue failure must not fail an upload the borrower already
+   * completed — the artifact backfill route and the intake outbox both
+   * recover from it.
+   */
+  try {
+    const { queueArtifact } = await import("@/lib/artifacts/queueArtifact");
+    const queued = await queueArtifact({
+      dealId: input.dealId,
+      bankId: input.bankId,
+      sourceTable: "deal_documents",
+      sourceId: String(doc.id),
+    });
+    if (!queued.ok) {
+      console.warn("[ingestDocument] queueArtifact returned not-ok (non-fatal)", {
+        documentId: doc.id,
+        error: queued.error,
+      });
+    }
+  } catch (err: any) {
+    console.warn("[ingestDocument] queueArtifact failed (non-fatal)", {
+      documentId: doc.id,
+      error: err?.message ?? String(err),
+    });
+  }
+
   return {
     documentId: doc.id,
     checklistKey: stamped.matched ? stamped.checklist_key ?? checklistKey ?? null : null,

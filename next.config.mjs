@@ -53,11 +53,61 @@ const nextConfig = {
   // NOTE: if the old Project Routes rule for /deals and /credit-memo is
   // still active, remove it (`vercel routes list` -> `vercel routes rm`)
   // so there's a single source of truth instead of two competing headers.
+  //
+  // SPEC-SEC-HEADERS-IN-REPO-1 (2026-08-26): the security headers moved back
+  // here from Vercel Project Routes. Headers configured in the Vercel
+  // dashboard are invisible to code review, to CI, and to anyone reading this
+  // repository — an auditor cannot confirm the app sets HSTS or a CSP, and
+  // neither can the next engineer. The mic incident above is the same failure
+  // mode: a dashboard-only rule diverged from the code and nobody could see
+  // it. Version control is the single source of truth.
+  //
+  // ACTION REQUIRED on deploy: remove the duplicate global security rule from
+  // Project Routes (`vercel routes list` -> `vercel routes rm`), or two
+  // competing header sets will race exactly as the mic rule did.
+  //
+  // Content-Security-Policy ships as Report-Only deliberately. This app loads
+  // Clerk, Sentry, PostHog, Vercel analytics and Google fonts, and an
+  // enforcing policy written without traffic data would break the borrower
+  // funnel on deploy. Report-Only collects violations against the real policy;
+  // promote it to `Content-Security-Policy` once the reports are clean.
   async headers() {
+    const csp = [
+      "default-src 'self'",
+      // 'unsafe-inline'/'unsafe-eval' are required by Next's inline bootstrap
+      // and by Clerk. Tighten with nonces when the policy is enforced.
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.accounts.dev https://*.clerk.com https://*.vercel-scripts.com https://*.posthog.com",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' data: https://fonts.gstatic.com",
+      "img-src 'self' data: blob: https:",
+      "connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev https://*.clerk.com https://*.sentry.io https://*.ingest.sentry.io https://*.posthog.com https://vitals.vercel-insights.com",
+      "frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com",
+      "frame-ancestors 'self'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
+    ].join("; ");
+
     return [
       {
         source: "/(.*)",
-        headers: [{ key: "Permissions-Policy", value: "microphone=(self)" }],
+        headers: [
+          { key: "Permissions-Policy", value: "microphone=(self)" },
+          // Buddy handles borrower NPI; never serve it over plain HTTP.
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains; preload",
+          },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          // Referrer must not leak deal or portal tokens that appear in paths.
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // SAMEORIGIN rather than DENY: the app renders its own surfaces in
+          // frames (stitch previews). frame-ancestors above is the modern
+          // equivalent; both are sent for older browsers.
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "X-DNS-Prefetch-Control", value: "off" },
+          { key: "Content-Security-Policy-Report-Only", value: csp },
+        ],
       },
     ];
   },

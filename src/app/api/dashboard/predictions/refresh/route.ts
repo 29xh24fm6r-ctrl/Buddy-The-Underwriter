@@ -1,6 +1,7 @@
 // src/app/api/dashboard/predictions/refresh/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { requireSignedIn } from "@/lib/auth/requireAdmin";
 import { fetchDealsForDashboard } from "@/lib/dashboard/analytics";
 import { scoreDealRulesV1 } from "@/lib/dashboard/rules";
 
@@ -9,6 +10,10 @@ export const dynamic = "force-dynamic";
 
 export async function POST() {
   try {
+    // SPEC-SEC-API-AUTH-1: this scans every open deal and writes prediction
+    // rows. It is a signed-in dashboard action, not a public one.
+    await requireSignedIn();
+
     const sb = supabaseAdmin();
 
     const deals = await fetchDealsForDashboard({});
