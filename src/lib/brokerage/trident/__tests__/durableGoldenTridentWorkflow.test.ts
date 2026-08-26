@@ -70,6 +70,20 @@ test("final Trident generation is accepted into a multi-stage durable workflow",
   assert.match(startHelper, /createTridentBundleRun\(/);
   assert.match(startHelper, /workflow_run_id: run\.runId/);
   assert.match(startHelper, /fail_trident_bundle_run/);
+  const workflowStartCatchEnd = startHelper.indexOf(
+    "const { error: runPersistError }",
+  );
+  assert.ok(workflowStartCatchEnd > 0, "tracking persistence must follow the workflow-start catch");
+  const startFailureBoundary = startHelper.slice(0, workflowStartCatchEnd);
+  const postStartBoundary = startHelper.slice(workflowStartCatchEnd);
+  assert.match(startFailureBoundary, /fail_trident_bundle_run/);
+  assert.doesNotMatch(
+    postStartBoundary,
+    /fail_trident_bundle_run/,
+    "a tracking-write failure must not release a lease owned by a live workflow",
+  );
+  assert.match(postStartBoundary, /workflow started but identity persistence failed/);
+  assert.match(postStartBoundary, /return \{ ok: true, accepted: true/);
   assert.match(workflow, /"use workflow"/);
   assert.equal((workflow.match(/"use step"/g) ?? []).length, 6);
   assert.match(workflow, /prepare\(args\)/);
