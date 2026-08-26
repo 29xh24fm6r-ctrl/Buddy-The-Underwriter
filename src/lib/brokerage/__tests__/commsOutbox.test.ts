@@ -51,7 +51,13 @@ class OQ {
   update(u: Row) { this._u = u; return this; }
 
   single(): Promise<{ data: any; error: any }> {
-    if (this._i) return Promise.resolve(this.commitInsert());
+    if (this._i) {
+      const result = this.commitInsert();
+      return Promise.resolve({
+        data: Array.isArray(result.data) ? result.data[0] ?? null : result.data,
+        error: result.error,
+      });
+    }
     if (this.db.readFailures.has(this.table)) return Promise.resolve({ data: null, error: { message: `${this.table}_read_failed` } });
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
