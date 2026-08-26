@@ -12,10 +12,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function formatGenerationFailure(body: Record<string, any>, status: number): string {
+function formatGenerationFailure(body: Record<string, unknown>, status: number): string {
   const reasons = Array.isArray(body.reasons) ? body.reasons.map(String) : [];
-  const issues = Array.isArray(body.verification?.reviewIssues)
-    ? body.verification.reviewIssues
+  const verification = body.verification && typeof body.verification === "object"
+    ? body.verification as Record<string, unknown>
+    : null;
+  const issues = Array.isArray(verification?.reviewIssues)
+    ? verification.reviewIssues
     : [];
   const issueLines = issues.map((issue: Record<string, unknown>) => {
     const section = typeof issue.sectionKey === "string" ? issue.sectionKey.replace(/_/g, " ") : "artifact";
