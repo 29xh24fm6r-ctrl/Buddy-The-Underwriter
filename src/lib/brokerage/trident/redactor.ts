@@ -12,7 +12,7 @@ import "server-only";
  * REDACTOR_VERSION; the bundle row records the version used.
  */
 
-export const REDACTOR_VERSION = "1.0.0";
+export const REDACTOR_VERSION = "1.1.0";
 
 const PREVIEW_PLACEHOLDER = "[Unlocks when you pick a lender]";
 
@@ -67,6 +67,17 @@ export type FeasibilityInputs = {
   locationSuitabilityScore: number;
   narratives: Record<string, string>;
 };
+
+/**
+ * Free-text fields inside the feasibility dimension trees. Both are rendered
+ * verbatim into the PDF (feasibilityRenderer's renderDimensionDetail and
+ * renderFlagList), and both interpolate exact borrower figures — e.g.
+ * "Projected revenue exceeds break-even by $487,250", "Year 1 DSCR: 1.42x",
+ * "Working capital reserve: 4.3 months". Scores, weights, dataSource and
+ * dataAvailable carry no precise borrower values and stay intact: per the
+ * S3-1 contract the scores ARE the preview signal.
+ */
+const FEASIBILITY_FREE_TEXT_KEYS = new Set(["detail", "message"]);
 
 /** Redact an SBA package inputs bundle to preview mode. */
 export function redactSBAPackageForPreview(
@@ -156,6 +167,34 @@ export function redactSBAPackageForPreview(
     // operating history.
     planThesis: inputs.planThesis,
   };
+}
+
+/**
+ * Deep-redact the feasibility dimension detail trees for preview.
+ *
+ * Structure-preserving: every score, weight, flag severity, dimension label,
+ * and data-source string survives, so the rendered preview keeps its shape
+ * and its signal. Only the free-text fields that embed precise borrower
+ * figures are replaced. Applied at the DATA layer, before the renderer sees
+ * the object — stripping the watermark cannot recover the numbers.
+ */
+export function redactFeasibilityDetailForPreview<T>(value: T): T {
+  return redactDetailNode(value) as T;
+}
+
+function redactDetailNode(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactDetailNode);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+        key,
+        FEASIBILITY_FREE_TEXT_KEYS.has(key) && typeof child === "string"
+          ? PREVIEW_PLACEHOLDER
+          : redactDetailNode(child),
+      ]),
+    );
+  }
+  return value;
 }
 
 /** Redact feasibility inputs for preview. */

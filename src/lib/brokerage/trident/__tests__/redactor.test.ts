@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const {
   redactSBAPackageForPreview,
   redactFeasibilityForPreview,
+  redactFeasibilityDetailForPreview,
   REDACTOR_VERSION,
 } = require("../redactor") as typeof import("../redactor");
 
@@ -182,4 +183,75 @@ test("roundToBucket: zero stays zero, non-finite → 0", () => {
   inputs.baseYear.depreciation = 0;
   const r = redactSBAPackageForPreview(inputs);
   assert.equal(r.baseYear.depreciation, 0);
+});
+
+// ── Feasibility dimension details (audit F-03) ──────────────────────────────
+// These trees reach the PDF renderer verbatim (renderDimensionDetail /
+// renderFlagList) and interpolate exact borrower figures. Before this fix the
+// preview redactor touched only `narratives`, so the "zero precise borrower
+// numbers" contract at the top of redactor.ts did not actually hold.
+
+function sampleFinancialViabilityDetail() {
+  return {
+    overallScore: 71,
+    debtServiceCoverage: {
+      score: 78,
+      weight: 0.3,
+      dataSource: "SBA projection model — DSCR",
+      dataAvailable: true,
+      detail: "Year 1 DSCR: 1.42x. The business covers debt service comfortably.",
+    },
+    breakEvenMargin: {
+      score: 64,
+      weight: 0.2,
+      dataSource: "SBA projection model — break-even analysis",
+      dataAvailable: true,
+      detail:
+        "Margin of safety: 23.4%. Projected revenue exceeds break-even by $487,250.",
+    },
+    flags: [
+      {
+        severity: "warning",
+        dimension: "Financial viability",
+        message: "Working capital reserve of 1.8 months is below the 3-month guideline.",
+      },
+    ],
+  };
+}
+
+test("feasibility detail redaction removes every precise borrower figure", () => {
+  const r = redactFeasibilityDetailForPreview(sampleFinancialViabilityDetail());
+  const serialized = JSON.stringify(r);
+  for (const leak of ["487,250", "1.42x", "23.4%", "1.8 months"]) {
+    assert.equal(serialized.includes(leak), false, `preview leaked ${leak}`);
+  }
+});
+
+test("feasibility detail redaction preserves the preview signal", () => {
+  const r = redactFeasibilityDetailForPreview(sampleFinancialViabilityDetail()) as any;
+  // Scores ARE the preview signal per the S3-1 contract — they survive.
+  assert.equal(r.overallScore, 71);
+  assert.equal(r.debtServiceCoverage.score, 78);
+  assert.equal(r.debtServiceCoverage.weight, 0.3);
+  assert.equal(r.debtServiceCoverage.dataAvailable, true);
+  // Traceability strings carry no borrower values and survive.
+  assert.equal(r.debtServiceCoverage.dataSource, "SBA projection model — DSCR");
+  // Flag severity and dimension survive; only the message text is replaced.
+  assert.equal(r.flags[0].severity, "warning");
+  assert.equal(r.flags[0].dimension, "Financial viability");
+  assert.ok(r.flags[0].message.includes("Unlocks when you pick a lender"));
+});
+
+test("feasibility detail redaction is structure-preserving and total", () => {
+  const r = redactFeasibilityDetailForPreview({
+    nested: { deep: [{ detail: "Equity injection: 12.5%." }] },
+    untouched: 42,
+  }) as any;
+  assert.equal(r.untouched, 42);
+  assert.equal(r.nested.deep[0].detail.includes("12.5%"), false);
+  assert.ok(r.nested.deep[0].detail.includes("Unlocks when you pick a lender"));
+});
+
+test("REDACTOR_VERSION was bumped for the detail-layer change", () => {
+  assert.notEqual(REDACTOR_VERSION, "1.0.0");
 });

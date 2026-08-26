@@ -19,7 +19,11 @@ import { matchLendersToDeal } from "@/lib/brokerage/matchLenders";
 import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 import { buildKFS } from "@/lib/brokerage/buildKFS";
 import { computeListingCadence } from "@/lib/brokerage/cadence";
-import { buildSealedSnapshot, SealSnapshotError } from "@/lib/brokerage/buildSealedSnapshot";
+import {
+  buildSealedSnapshot,
+  sealedPackageArtifactColumns,
+  SealSnapshotError,
+} from "@/lib/brokerage/buildSealedSnapshot";
 import { runHostileInterrogationForDeal } from "@/lib/brokerage/hostileInterrogation";
 
 export const runtime = "nodejs";
@@ -108,9 +112,7 @@ export async function POST(
       deal_id: dealId,
       bank_id: session.bank_id,
       sealed_snapshot: snapshot.full,
-      final_business_plan_path: snapshot.distributionBinding.artifacts.businessPlan,
-      final_projections_path: snapshot.distributionBinding.artifacts.projectionsPdf,
-      final_feasibility_path: snapshot.distributionBinding.artifacts.feasibility,
+      ...sealedPackageArtifactColumns(snapshot.distributionBinding),
     })
     .select("id")
     .single();
