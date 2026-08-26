@@ -21,12 +21,12 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import postgres from "postgres";
+import postgres from "postgres";\n\nimport { classifyDriftFindings } from "./drift-classify";
 
 export type ExpectedObject =
   | { kind: "table"; schema: string; name: string }
   | { kind: "column"; schema: string; table: string; name: string }
-  | { kind: "index"; schema: string; name: string }
+  | {\n      kind: "index";\n      schema: string;\n      name: string;\n      table_schema?: string;\n      table?: string;\n    }
   | { kind: "function"; schema: string; name: string };
 
 export type DriftFinding = {
@@ -89,11 +89,18 @@ export function extractExpectedObjects(statements: string[]): ExpectedObject[] {
       }
     }
 
-    // CREATE [UNIQUE] INDEX [IF NOT EXISTS] idxname ON ...
+    // CREATE [UNIQUE] INDEX [IF NOT EXISTS] [schema.]idxname
+    //   ON [ONLY] [schema.]table ...
     for (const m of stmt.matchAll(
-      /create\s+(?:unique\s+)?index\s+(?:if\s+not\s+exists\s+)?(\w+)\s+on\b/gi,
+      /create\s+(?:unique\s+)?index\s+(?:if\s+not\s+exists\s+)?(?:(\w+)\.)?(\w+)\s+on\s+(?:only\s+)?(?:(\w+)\.)?(\w+)\b/gi,
     )) {
-      out.push({ kind: "index", schema: "public", name: m[1] });
+      out.push({
+        kind: "index",
+        schema: m[1] ?? "public",
+        name: m[2],
+        table_schema: m[3] ?? "public",
+        table: m[4],
+      });
     }
 
     // CREATE [OR REPLACE] FUNCTION [schema.]name (
@@ -236,29 +243,27 @@ async function main(): Promise<void> {
     // 3. Compare each migration's expected objects against live state.
     const findings: DriftFinding[] = [];
     for (const m of migrations) {
-      const expected = extractExpectedObjects(m.statements ?? []);
-      for (const exp of expected) {
-        const present =
-          exp.kind === "table"
-            ? tables.has(`${exp.schema}.${exp.name}`)
-            : exp.kind === "column"
-              ? columns.has(`${exp.schema}.${exp.table}.${exp.name}`)
-              : exp.kind === "index"
-                ? indexes.has(`${exp.schema}.${exp.name}`)
-                : functions.has(`${exp.schema}.${exp.name}`);
-        if (present) continue;
+      for (const statement of m.statements ?? []) {
+        const expected = extractExpectedObjects([statement]);
+        for (const exp of expected) {
+          const present =
+            exp.kind === "table"
+              ? tables.has(`${exp.schema}.${exp.name}`)
+              : exp.kind === "column"
+                ? columns.has(`${exp.schema}.${exp.table}.${exp.name}`)
+                : exp.kind === "index"
+                  ? indexes.has(`${exp.schema}.${exp.name}`)
+                  : functions.has(`${exp.schema}.${exp.name}`);
+          if (present) continue;
 
-        const sourceStatement = (
-          (m.statements ?? []).find((s) => statementMentionsObject(s, exp)) ??
-          ""
-        ).slice(0, 240);
-        findings.push({
-          migration_version: m.version,
-          migration_name: m.name,
-          object: exp,
-          status: "missing",
-          source_statement: sourceStatement,
-        });
+          findings.push({
+            migration_version: m.version,
+            migration_name: m.name,
+            object: exp,
+            status: "missing",
+            source_statement: statement.slice(0, 240),
+          });
+        }
       }
     }
 
@@ -287,10 +292,25 @@ async function main(): Promise<void> {
       ".drift_report/summary.json",
       JSON.stringify(summary, null, 2),
     );
+    const classification = classifyDriftFindings(blocking);
+    writeFileSync(
+      ".drift_report/classification.json",
+      JSON.stringify(classification, null, 2),
+    );
+    const classificationSummary = Object.fromEntries(
+      Object.entries(classification).filter(([key]) => key !== "items"),
+    );
+    writeFileSync(
+      ".drift_report/classification-summary.json",
+      JSON.stringify(classificationSummary, null, 2),
+    );
 
     // 6. Console summary.
     console.log(
       `Drift findings: ${findings.length} total, ${blocking.length} blocking`,
+    );
+    console.log(
+      `Drift triage: ${classification.unique_objects} unique objects, ${classification.duplicate_expectations} repeated expectations, ${classification.independently_actionable_objects} independently actionable`,
     );
     if (blocking.length > 0) {
       console.log("\nBlocking findings (first 20):");
