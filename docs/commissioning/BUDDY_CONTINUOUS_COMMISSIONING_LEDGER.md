@@ -506,20 +506,23 @@ Repair:
   lease ownership. No schema, migration, dependency, credential, permission,
   provider configuration, or production-data change is included.
 
-Verification on PR 909 head `0d0d13473ec34fb9a383f1e5b7e4983808b7f5fe`:
+Verification on PR 909 head `badded1be9b87043243e5cbcffe6c001a32e80b8`:
 
-- CI: 13,187 tests; 13,178 passed, 0 failed, 9 skipped.
+- GitHub reports the branch mergeable, clean, and zero commits behind `main`.
+- CI: 13,214 tests; 13,205 passed, 0 failed, 9 skipped.
+- The effect-based F-24 guard passed, proving tests below dynamic Next.js
+  segment directories execute rather than merely being discovered.
 - React-server condition: 18 passed, 0 failed.
 - Research evaluation: 7 passed, 0 failed, 13 placeholder cases skipped.
 - Typecheck, lint, architecture, safety, legacy-write, polling, Never-500, schema
   select, and report-only schema-drift gates passed.
-- Drift artifact `9624126864` uploaded: 1,730 raw findings, 1,613 unique objects,
-  and 637 independently actionable objects.
 - Build Check, Secret Scan, Route Budget, and public Playwright passed.
+  Public Playwright ran 6 tests: 1 passed and 5 intentionally skipped.
   Authenticated smoke was unavailable and explicitly skipped.
-- Exact-head Vercel preview `dpl_9ba8ojyw7UgQPBrjfxtBxtcLsysx` reached READY
-  with matching GitHub SHA; public rendering and runtime-error verification are
-  the final preview checkpoints after this ledger-only push.
+- Exact-head Vercel preview `dpl_8s7KrEzvtaptcZEy1Bh6Q4WAzSuY` is READY,
+  returned HTTP 200 with `x-buddy-build` matching the GitHub head, and had no
+  error/fatal runtime logs in the post-deploy observation window.
+- PR 909 is safe for Matt to merge. The commissioning agent did not merge it.
 
 Open checkpoints:
 
