@@ -69,7 +69,8 @@ const TITLES: Record<string, [string, string]> = {
 function titleFor(pathname: string): [string, string] {
   if (TITLES[pathname]) return TITLES[pathname];
   // Dynamic routes (e.g. /admin/brokerage/crm/[orgId])
-  for (const [prefix, title] of Object.entries(TITLES)) {
+  const prefixes = Object.entries(TITLES).sort(([a], [b]) => b.length - a.length);
+  for (const [prefix, title] of prefixes) {
     if (prefix !== "/" && pathname.startsWith(prefix + "/")) return title;
   }
   return ["Buddy Brokerage", ""];
@@ -166,7 +167,9 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
                 {grp.label}
               </div>
               {grp.items.map((it) => {
-                const active = pathname === it.href || pathname.startsWith(it.href + "/");
+                const active = it.href === "/admin/brokerage"
+                  ? pathname === it.href
+                  : pathname === it.href || pathname.startsWith(it.href + "/");
                 return (
                   <Link
                     key={it.href}
