@@ -11,6 +11,9 @@ const spreadRoute = readFileSync("src/app/api/deals/[dealId]/classic-spread/rout
 const memoGenerateRoute = readFileSync("src/app/api/deals/[dealId]/credit-memo/generate/route.ts", "utf8");
 const bankerAnalysisRoute = readFileSync("src/app/api/deals/[dealId]/banker-analysis/run/route.ts", "utf8");
 const labClient = readFileSync("src/components/brokerage/GoldenTridentLabClient.tsx", "utf8");
+const memoPage = readFileSync("src/app/(app)/deals/[dealId]/credit-memo/page.tsx", "utf8");
+const narrativeAssembly = readFileSync("src/lib/creditMemo/canonical/narrativeAssembly.ts", "utf8");
+const frontierFactory = readFileSync("src/lib/ai/frontierArtifactFactory.ts", "utf8");
 
 test("QA fixture seeds evidence and underwriting inputs, never fake outputs", () => {
   assert.match(fixture, /SYNTHETIC QA EVIDENCE — NOT A BORROWER DOCUMENT/);
@@ -61,6 +64,8 @@ test("brokerage staff can run and inspect governed artifacts without changing th
   assert.doesNotMatch(tridentGenerateRoute, /bank_user_memberships/);
   assert.match(spreadRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
   assert.match(memoGenerateRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
+  assert.match(memoPage, /ensureDealBankAccessAllowingBrokerageStaff/);
+  assert.match(memoPage, /executionContext: "authorized_route"/);
   assert.match(bankerAnalysisRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
   assert.match(labClient, /Run AI assessment/);
 });
@@ -71,4 +76,15 @@ test("QA fixture commissions canonical spread inputs without seeding a rendered 
   assert.match(fixture, /deal_structural_pricing/);
   assert.match(fixture, /annual_debt_service_est/);
   assert.doesNotMatch(fixture, /\.from\("deal_spreads"\)\.(insert|upsert)/);
+});
+
+
+test("canonical-credit commissioning preserves actionable review evidence and DSCR bases", () => {
+  assert.match(frontierFactory, /reviewIssues: remaining/);
+  assert.match(memoGenerateRoute, /review_issues: verification\?\.reviewIssues/);
+  assert.match(labClient, /formatGenerationFailure/);
+  assert.match(labClient, /repairInstruction/);
+  assert.match(narrativeAssembly, /debt_service: row\.debt_service/);
+  assert.match(narrativeAssembly, /underwriting_reconciliation/);
+  assert.match(narrativeAssembly, /cash_flow_available \/ period_debt_service/);
 });
