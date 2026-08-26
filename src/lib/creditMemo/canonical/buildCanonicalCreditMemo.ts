@@ -1,7 +1,11 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import {
+  ensureDealBankAccess,
+  isDealBankAccessGrantFor,
+  type DealBankAccessGrant,
+} from "@/lib/tenant/ensureDealBankAccess";
 import { dealLabel } from "@/lib/deals/dealLabel";
 import type { CanonicalCreditMemoV1 } from "@/lib/creditMemo/canonical/types";
 import type { DebtCoverageRow, IncomeStatementRow, GuarantorBudget, ArBorrowingBaseSection, ArAgingBucketRow } from "@/lib/creditMemo/canonical/types";
@@ -211,7 +215,16 @@ export async function buildCanonicalCreditMemo(args: {
   /** Durable server workflows have no interactive user session. This mode
    * skips only the session lookup; the bank-scoped deal query below remains
    * mandatory and fails closed on a mismatched deal/bank pair. */
-  executionContext?: "interactive" | "authorized_route" | "system";
+  executionContext?: "interactive" | "system";
+  /**
+   * Proof from ensureDealBankAccess* that this caller already authenticated
+   * for this exact (deal, bank). Replaces the former
+   * `executionContext: "authorized_route"` string, which any caller could
+   * assert without having run a guard (audit F-15). A grant cannot be
+   * constructed outside the tenant module and is bound to its deal and bank,
+   * so it can neither be forged nor replayed.
+   */
+  accessGrant?: DealBankAccessGrant;
 }): Promise<{ ok: true; memo: CanonicalCreditMemoV1 } | { ok: false; error: string }> {
   try {
     const mode: MemoRenderMode = args.renderMode ?? "internal_diagnostic";
@@ -228,11 +241,14 @@ export async function buildCanonicalCreditMemo(args: {
       if (dealErr) return { ok: false, error: `deal_select_failed:${dealErr.message}` };
       if (!dealRow) return { ok: false, error: "deal_not_found" };
       bankId = String(dealRow.bank_id);
-    } else if (args.executionContext !== "system" && args.executionContext !== "authorized_route") {
-      // `authorized_route` is accepted only after the route has resolved the
-      // deal-owned bank through an authenticated access guard. Both trusted
-      // contexts still pass through the bank-scoped deal query below; neither
-      // permits an unscoped or caller-selected tenant read.
+    } else if (
+      args.executionContext !== "system" &&
+      !isDealBankAccessGrantFor(args.accessGrant, args.dealId, String(bankId))
+    ) {
+      // Two trusted paths skip only the interactive session lookup: a durable
+      // system worker, and a caller presenting a verified access grant. Both
+      // still pass through the bank-scoped deal query below, so neither can
+      // perform an unscoped or caller-selected tenant read.
       const access = await ensureDealBankAccess(args.dealId);
       if (!access.ok) return { ok: false, error: access.error };
       if (String(access.bankId) !== String(bankId)) return { ok: false, error: "tenant_mismatch" };

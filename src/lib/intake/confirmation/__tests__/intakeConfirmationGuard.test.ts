@@ -879,18 +879,36 @@ test("[guard-52] confirm route snapshot query filters by logical_key", () => {
   );
 });
 
-// ── Guard 53: Route and atomic finalizer both constrain active docs ──
+// ── Guard 53: every deal_documents read in confirm is active-scoped ──
 
-test("[guard-53] confirm route and finalize RPC filter is_active", () => {
-  const routeSrc = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+// This counted occurrences of "is_active" and required >=2, which made it a
+// proxy for "the filter is applied" that broke every time the route was
+// consolidated — first from >=3 to >=2, then to red when #903's single-pass
+// refactor legitimately reduced the route to ONE deal_documents query that
+// does carry the filter. Assert the invariant instead: a confirm route may
+// read deal_documents as many or as few times as it likes, but never without
+// scoping to active rows. (document_artifacts has no is_active column; it is
+// gated on `status` and is deliberately not covered here.)
+test("[guard-53] every deal_documents query in confirm is scoped to active rows", () => {
+  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  const queries = src.split('.from("deal_documents")').slice(1);
+  assert.ok(queries.length >= 1, "confirm route must read deal_documents");
+  queries.forEach((q, i) => {
+    // Each query's clause chain ends at the next statement boundary.
+    const chain = q.split(/;\s*\n/)[0];
+    assert.ok(
+      /\.eq\(\s*["']is_active["']\s*,\s*true\s*\)/.test(chain),
+      `deal_documents query #${i + 1} in the confirm route is not scoped to is_active=true`,
+    );
+  });
+});
+
+// #905 moved the locking itself into an atomic finalizer, so the route filter
+// above is only half the boundary — the RPC must constrain its lock and its
+// stamp to active rows too, or a deactivated document can still be finalized.
+test("[guard-53b] the atomic finalize RPC constrains both updates to active rows", () => {
   const migrationSrc = readSource(
     "supabase/migrations/20260827010000_atomic_intake_locking.sql",
-  );
-
-  assert.match(
-    routeSrc,
-    /\.eq\("is_active", true\)/,
-    "Confirm route must load only active documents",
   );
   assert.ok(
     (migrationSrc.match(/AND is_active = true/g) ?? []).length >= 2,

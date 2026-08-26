@@ -52,19 +52,17 @@ export const REACT_SERVER_ONLY = new Set([
   // Same class: imports geminiClient.ts, which has `import "server-only"`
   // (it reads GEMINI_API_KEY).
   "src/lib/ai/__tests__/streamGeminiText.test.ts",
+  // Imports a module chain that pulls in "server-only".
+  "src/core/nextStep/__tests__/computeNextStep.test.ts",
 ]);
 
 // SPEC-CI-2 quarantine — files that cannot run under node --test at all.
-const QUARANTINE = new Set([
-  // NOT a harness issue, despite the original note. Under
-  // `node --conditions=react-server` the file imports cleanly and then FAILS
-  // two assertions: computeNextStep returns `request_docs` where the suite
-  // expects `open_underwriting` / `set_pricing_assumptions`. Real behavioural
-  // drift between the next-step engine and its spec — needs an owner decision
-  // on which side is correct, so it stays excluded rather than being moved to
-  // REACT_SERVER_ONLY and turning CI red on unrelated code.
-  "src/core/nextStep/__tests__/computeNextStep.test.ts",
-]);
+// Empty: computeNextStep was the last entry. Its note claimed a harness
+// failure, but under the react-server condition it imported cleanly and failed
+// two assertions because both fixtures seeded an empty required checklist and
+// so never reached the verify branch they were testing. The fixtures are fixed
+// and the file now runs in CI via REACT_SERVER_ONLY above.
+const QUARANTINE = new Set([]);
 
 function isExcludedPath(rel) {
   if (rel.includes("node_modules")) return true;

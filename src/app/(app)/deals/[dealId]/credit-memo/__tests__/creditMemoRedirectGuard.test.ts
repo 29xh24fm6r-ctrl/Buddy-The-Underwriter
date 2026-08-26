@@ -77,6 +77,6 @@ test("[memo-access-4] brokerage review uses the same scoped authorization as gen
   const body = read();
   assert.match(body, /ensureDealBankAccessAllowingBrokerageStaff\(dealId\)/);
   assert.match(body, /const bankId = access\.bankId/);
-  assert.match(body, /executionContext: "authorized_route"/);
+  assert.match(body, /accessGrant: access\.grant/);
   assert.doesNotMatch(body, /tryGetCurrentBankId/);
 });

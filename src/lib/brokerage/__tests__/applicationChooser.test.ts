@@ -23,16 +23,26 @@ test("cookie payload carries both email and bankId, not email alone", () => {
   assert.match(source, /email.*bankId.*expiresAt|payload = `\$\{email\}:\$\{bankId\}:\$\{expiresAt\}`/);
 });
 
-test("cookie delegates to the centralized HMAC-SHA256 signer", () => {
+test("cookie signing is delegated to the shared, tested signer", () => {
+  // #900 moved HMAC-SHA256 signing and the constant-time compare out of this
+  // module into chooserToken.ts. This guard used to grep THIS file for
+  // "createHmac" and began failing on that refactor even though the security
+  // property was intact — so it asserts delegation now, and the property
+  // itself is proven behaviourally in chooserToken.test.ts (forged key,
+  // tampered payload, tampered signature, malformed input).
   const source = readSrc(SRC);
-  const tokenSource = readSrc(TOKEN_SRC);
-  const keySource = readSrc(SIGNING_KEY_SRC);
+  assert.match(source, /from "@\/lib\/brokerage\/chooserToken"/);
+  assert.match(source, /signChooserPayload\(/);
+  assert.match(source, /verifyChooserPayload\(/);
+  // Signing must not be reimplemented locally: one signer, one contract.
+  assert.doesNotMatch(source, /createHmac/);
 
-  assert.ok(source.includes("signChooserPayload"));
-  assert.ok(source.includes("verifyChooserPayload"));
-  assert.ok(tokenSource.includes("createHmac"));
-  assert.ok(tokenSource.includes("sha256"));
-  assert.ok(tokenSource.includes("timingSafeEqual"));
+  // Two properties the behavioural suite cannot observe from outside:
+  // constant-time comparison (a plain === would pass every behavioural test),
+  // and the signing key never coming from a client-visible env var.
+  const tokenSource = readSrc(TOKEN_SRC);
+  assert.ok(tokenSource.includes("timingSafeEqual"), "compare must be constant-time");
+  const keySource = readSrc(SIGNING_KEY_SRC);
   assert.doesNotMatch(keySource, /process\.env\.NEXT_PUBLIC_/);
 });
 

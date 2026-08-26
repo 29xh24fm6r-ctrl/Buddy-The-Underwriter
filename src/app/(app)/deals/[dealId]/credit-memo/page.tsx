@@ -151,7 +151,8 @@ export default async function DealCreditMemoPage(props: {
   const res = await buildCanonicalCreditMemo({
     dealId,
     bankId,
-    executionContext: "authorized_route",
+    // Proof of the ensureDealBankAccessAllowingBrokerageStaff check above.
+    accessGrant: access.grant,
   });
   if (res.ok) {
     const { data: cachedNarrative } = await sb

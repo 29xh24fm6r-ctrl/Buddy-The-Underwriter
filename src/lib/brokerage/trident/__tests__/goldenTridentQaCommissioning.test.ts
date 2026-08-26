@@ -67,7 +67,7 @@ test("brokerage staff can run and inspect governed artifacts without changing th
   assert.match(spreadRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
   assert.match(memoGenerateRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
   assert.match(memoPage, /ensureDealBankAccessAllowingBrokerageStaff/);
-  assert.match(memoPage, /executionContext: "authorized_route"/);
+  assert.match(memoPage, /accessGrant: access\.grant/);
   assert.match(bankerAnalysisRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
   assert.match(labClient, /Run AI assessment/);
 });

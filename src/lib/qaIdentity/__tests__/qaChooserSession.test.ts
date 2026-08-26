@@ -40,16 +40,30 @@ describe("QA chooser session cookie — creation and validation", () => {
     assert.ok(source.includes("export async function clearQAChooserCookie"), "Must export clearQAChooserCookie");
   });
 
-  it("Cookie delegates to the centralized HMAC-SHA256 signer", () => {
+  it("Cookie signing is delegated to the shared, tested signer", () => {
+    // #900 moved HMAC-SHA256 signing and the constant-time compare into
+    // chooserToken.ts. Grepping this module for "createHmac" then failed on a
+    // refactor that changed nothing about the security property. Assert the
+    // delegation here; the property is proven behaviourally in
+    // src/lib/brokerage/__tests__/chooserToken.test.ts.
     const source = readSource("src/lib/brokerage/qaChooser.ts");
-    const tokenSource = readSource("src/lib/brokerage/chooserToken.ts");
-    const keySource = readSource("src/lib/brokerage/chooserSigningKey.ts");
+    assert.ok(
+      source.includes("chooserToken"),
+      "Must delegate signing to the shared chooserToken helper",
+    );
+    assert.ok(source.includes("signChooserPayload"), "Must sign via the shared signer");
+    assert.ok(source.includes("verifyChooserPayload"), "Must verify via the shared signer");
+    assert.ok(
+      !source.includes("createHmac"),
+      "Must not reimplement signing locally",
+    );
 
-    assert.ok(source.includes("signChooserPayload"), "Must use the shared signer");
-    assert.ok(source.includes("verifyChooserPayload"), "Must use the shared verifier");
-    assert.ok(tokenSource.includes("createHmac"), "Must use HMAC");
-    assert.ok(tokenSource.includes("sha256"), "Must use SHA-256");
+    // Two properties no behavioural test can observe from outside the module:
+    // a plain === compare would satisfy every round-trip assertion, and a
+    // browser-visible signing key would still verify correctly.
+    const tokenSource = readSource("src/lib/brokerage/chooserToken.ts");
     assert.ok(tokenSource.includes("timingSafeEqual"), "Must use constant-time comparison");
+    const keySource = readSource("src/lib/brokerage/chooserSigningKey.ts");
     assert.doesNotMatch(keySource, /process\.env\.NEXT_PUBLIC_/, "Must not accept browser-visible keys");
   });
 

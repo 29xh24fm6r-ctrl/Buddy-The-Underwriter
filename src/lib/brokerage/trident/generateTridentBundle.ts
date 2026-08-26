@@ -29,6 +29,8 @@ import { renderProjectionsXlsx } from "./projectionsXlsx";
 import { renderProjectionsPreviewPdf } from "./projectionsPreviewPdf";
 import {
   REDACTOR_VERSION,
+  bucketPreviewRevenue,
+  bucketPreviewDscr,
   redactFeasibilityForPreview,
   redactFeasibilityDetailForPreview,
 } from "./redactor";
@@ -424,10 +426,15 @@ export async function generateTridentBundle(args: {
 
         const previewBuf = await renderProjectionsPreviewPdf({
           dealName: "Borrower",
-          year1Revenue:
+          // Bucketed to the same $25K/one-decimal scale the redactor applies
+          // everywhere else, so this summary cannot disclose a finer figure
+          // than the artifacts it summarises (audit F-16).
+          year1Revenue: bucketPreviewRevenue(
             typeof year1Revenue === "number" ? year1Revenue : null,
-          year1Dscr:
+          ),
+          year1Dscr: bucketPreviewDscr(
             typeof dscrYear1Base === "number" ? dscrYear1Base : null,
+          ),
           breakEvenMonth:
             breakEven && typeof breakEven.breakEvenMonth === "number"
               ? breakEven.breakEvenMonth

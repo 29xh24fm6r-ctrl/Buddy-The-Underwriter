@@ -1,3 +1,4 @@
+import type { DealBankAccessGrant } from "@/lib/tenant/ensureDealBankAccess";
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -38,13 +39,16 @@ export async function generateCanonicalMemoArtifact(args: {
   dealId: string;
   bankId: string;
   forceRegenerate?: boolean;
-  executionContext?: "interactive" | "authorized_route" | "system";
+  executionContext?: "interactive" | "system";
+  /** Verified proof of an authenticated access check; see buildCanonicalCreditMemo. */
+  accessGrant?: DealBankAccessGrant;
 }) {
   const sb = supabaseAdmin();
   const built = await buildCanonicalCreditMemo({
     dealId: args.dealId,
     bankId: args.bankId,
     executionContext: args.executionContext,
+    accessGrant: args.accessGrant,
   });
   if (!built.ok) return { ok: false as const, error: built.error, status: 400 };
 

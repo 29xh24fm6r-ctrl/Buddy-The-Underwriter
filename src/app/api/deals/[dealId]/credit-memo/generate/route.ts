@@ -53,7 +53,9 @@ export async function POST(
       dealId,
       bankId,
       forceRegenerate: body?.force === true,
-      executionContext: "authorized_route",
+      // Proof of the ensureDealBankAccessAllowingBrokerageStaff check above —
+      // unforgeable and bound to this deal and bank (audit F-15).
+      accessGrant: access.grant,
     });
 
     if (!result.ok) {
