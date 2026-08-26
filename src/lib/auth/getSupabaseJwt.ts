@@ -1,7 +1,7 @@
 /**
  * Fetch Buddy-signed Supabase JWT from token exchange endpoint.
  * 
- * This token makes auth.uid() work in Supabase RLS by setting sub = app_users.id
+ * This token makes auth.uid() match Buddy's current tenant RLS by setting sub = profiles.id; the legacy app_users identifier remains a separate JWT claim
  * 
  * Used by browser Supabase client to automatically inject Authorization header.
  */
