@@ -33,14 +33,13 @@
 // the coverage-floor guard counted them as discovered (audit F-24).
 //
 // Two changes fix it, and both are needed:
-//   1. `?` instead of `[[]`/`[]]`. A single-char wildcard matches the literal
-//      bracket and survives as a pattern node can resolve.
+//   1. Keep the node-glob escapes `[[]`/`[]]` that match literal brackets.
+//      Node 20 does not expand `?` in positional test arguments, so replacing
+//      brackets with question marks makes the path fail loudly instead.
 //   2. scripts/run-unit-tests.mjs spawns node with shell:false, so no shell
-//      ever gets a chance to expand the pattern first. The CLI output of this
-//      file must NOT be used through an unquoted `$(...)` again.
-// Each emitted pattern is checked to resolve to exactly one discovered file,
-// so an ambiguous or non-resolving wildcard fails the run instead of quietly
-// selecting the wrong file or nothing.
+//      gets a chance to collapse the glob escapes before node receives them.
+// The execution guard runs a real dynamic-segment test and requires a non-zero
+// test count, proving the path is not merely listed but actually executed.
 //
 // Paths containing `(` (Next.js route groups, e.g. `(app)`) were never a
 // problem — `(`/`)` aren't glob metacharacters here.
@@ -112,7 +111,7 @@ function patternRegex(pattern) {
  */
 function assertPatternsResolve(files, patterns) {
   patterns.forEach((pattern, i) => {
-    if (!pattern.includes("?")) return;
+    if (!pattern.includes("[[]") && !pattern.includes("[]]")) return;
     const re = patternRegex(pattern);
     const matches = files.filter((f) => re.test(f));
     if (matches.length !== 1 || matches[0] !== files[i]) {
@@ -183,9 +182,9 @@ export function discoverTestPatterns(opts) {
 }
 
 // CLI. `--react-server` prints the react-server-condition list instead of the
-// default one. NOTE: this output contains `?` wildcards — pass it through a
-// shell-free spawn (scripts/run-unit-tests.mjs), never an unquoted `$(...)`,
-// or the shell will expand the patterns before node can resolve them.
+// default one. NOTE: dynamic segments use node-glob bracket escapes. Pass this
+// output through the shell-free runner, never an unquoted `$(...)`, or the
+// shell will consume the escapes before node can resolve them.
 const isCli =
   process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
 if (isCli) {
