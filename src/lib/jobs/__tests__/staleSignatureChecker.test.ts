@@ -314,8 +314,13 @@ test("reconcileStaleSignatureGaps: resolves a legacy stale gap after a replaceme
     { found: 0, written: 0, resolved: 1 },
   );
   assert.equal(db.tables.deal_gap_queue[0].status, "resolved");
+  assert.equal(
+    db.tables.deal_gap_queue[0].fact_key,
+    "signed_documents.FORM_1919.resolved.gap-1",
+  );
   assert.deepEqual(db.tables.deal_gap_queue[0].resolution_meta, {
     action: "superseded_by_current_signature",
+    original_fact_key: "signed_documents.FORM_1919",
   });
 });
 
