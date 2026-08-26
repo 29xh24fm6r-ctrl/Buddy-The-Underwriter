@@ -204,7 +204,7 @@ test("research tenant isolation uses the canonical bank membership wall", () => 
   assert.match(completionMigration, /grant execute[\s\S]*to service_role/);
 });
 
-test("the admitted snapshot includes borrower narrative and every research evidence layer", () => {
+test("the admitted snapshot captures every evidence layer without hashing research lifecycle", () => {
   assert.match(snapshot, /buddy_borrower_stories/);
   for (const table of [
     "buddy_research_sources",
@@ -215,9 +215,24 @@ test("the admitted snapshot includes borrower narrative and every research evide
   ]) {
     assert.match(snapshot, new RegExp(table));
   }
-  assert.match(snapshot, /version: 5/);
+  assert.match(snapshot, /version: 6/);
+  const sourcesStart = snapshot.indexOf("sources: {");
+  const governedStart = snapshot.indexOf("governedEvidenceAtAdmission: {");
+  const derivedStart = snapshot.indexOf("derivedAtAdmission: {");
+  assert.ok(sourcesStart >= 0 && governedStart > sourcesStart && derivedStart > governedStart);
+  const frozenSources = snapshot.slice(sourcesStart, governedStart);
+  const governedEvidence = snapshot.slice(governedStart, derivedStart);
+  assert.match(frozenSources, /financialFacts/);
+  assert.match(frozenSources, /assumptions/);
+  assert.doesNotMatch(frozenSources, /researchMissions/);
+  assert.match(governedEvidence, /researchMissions/);
+  assert.match(governedEvidence, /researchQualityGates/);
   assert.match(snapshot, /semanticTridentSnapshot/);
   assert.match(snapshot, /TRIDENT_VOLATILE_SNAPSHOT_KEYS/);
+  assert.match(snapshot, /summarizeTridentSourceDrift/);
+  assert.match(snapshot, /changed_sources=/);
+  assert.match(stages, /snapshot_manifest_json/);
+  assert.match(stages, /expectedManifest:/);
 });
 
 
@@ -309,7 +324,7 @@ test("commissioning and release share one hardened, governed research contract",
 
 
 test("input admission excludes factory-produced derivatives and canonicalizes before memo binding", () => {
-  assert.match(snapshot, /version:\s*5/);
+  assert.match(snapshot, /version:\s*6/);
   assert.match(snapshot, /sources:\s*\{/);
   assert.match(snapshot, /derivedAtAdmission:\s*\{/);
   const sourcesStart = snapshot.indexOf("sources: {");

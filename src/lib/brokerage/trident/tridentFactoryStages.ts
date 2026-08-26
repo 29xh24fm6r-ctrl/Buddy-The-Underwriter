@@ -52,10 +52,20 @@ async function writeStage(
 }
 
 async function assertFrozen(args: TridentFactoryExecutionArgs) {
+  const sb = supabaseAdmin();
+  const { data: bundle, error } = await sb
+    .from("buddy_trident_bundles")
+    .select("snapshot_manifest_json")
+    .eq("id", args.bundleId)
+    .eq("lease_token", args.leaseToken)
+    .eq("input_hash", args.inputHash)
+    .maybeSingle();
+  if (error || !bundle) throw new FatalError(error?.message ?? "Golden Trident snapshot manifest is unavailable");
   await assertTridentInputSnapshot({
-    sb: supabaseAdmin(),
+    sb,
     dealId: args.dealId,
     expectedHash: args.inputHash,
+    expectedManifest: bundle.snapshot_manifest_json as Record<string, unknown> | null,
   });
 }
 
@@ -64,7 +74,7 @@ export async function prepareTridentFactory(args: TridentFactoryArgs) {
   await writeStage(args, "input_snapshot", "running");
   try {
     const { data: bundle, error } = await sb.from("buddy_trident_bundles")
-      .select("id,deal_id,bank_id,mode,input_hash,memo_input_hash,status")
+      .select("id,deal_id,bank_id,mode,input_hash,memo_input_hash,snapshot_manifest_json,status")
       .eq("id", args.bundleId).eq("deal_id", args.dealId).eq("mode", args.mode).single();
     if (error || !bundle || !bundle.input_hash || !bundle.memo_input_hash || !bundle.bank_id) {
       throw new FatalError("Golden Trident run identity is invalid");
@@ -73,6 +83,7 @@ export async function prepareTridentFactory(args: TridentFactoryArgs) {
       sb,
       dealId: args.dealId,
       expectedHash: String(bundle.input_hash),
+      expectedManifest: bundle.snapshot_manifest_json as Record<string, unknown> | null,
     });
     await writeStage(args, "input_snapshot", "succeeded", {
       inputHash: bundle.input_hash,
