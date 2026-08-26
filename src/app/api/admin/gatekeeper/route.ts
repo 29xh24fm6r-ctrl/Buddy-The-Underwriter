@@ -2,19 +2,14 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { computeGatekeeperMetrics } from "@/lib/gatekeeper/metrics";
+import { getWorkerAuthMatch } from "@/lib/auth/hasValidWorkerSecret";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function hasValidWorkerSecret(req: NextRequest): boolean {
-  const secret = process.env.WORKER_SECRET;
-  if (!secret) return false;
-  const auth = req.headers.get("authorization") ?? "";
-  if (auth.startsWith("Bearer ") && auth.slice(7) === secret) return true;
-  if (req.headers.get("x-worker-secret") === secret) return true;
-  const url = new URL(req.url);
-  if (url.searchParams.get("token") === secret) return true;
-  return false;
+  const match = getWorkerAuthMatch(req);
+  return match.matched && match.tokenType === "worker";
 }
 
 /**
@@ -25,7 +20,7 @@ function hasValidWorkerSecret(req: NextRequest): boolean {
  * - shadow routing divergence (ledger-derived)
  * - inline success/timeout/error counts
  *
- * Auth: requireSuperAdmin() OR WORKER_SECRET
+ * Auth: requireSuperAdmin() OR header-carried WORKER_SECRET
  */
 export async function GET(req: NextRequest) {
   if (!hasValidWorkerSecret(req)) {

@@ -5,9 +5,9 @@
 
 set -e
 
-PREVIEW_URL="${PREVIEW_URL:-https://buddy-the-underwriter-bise43nwt-mpalas-projects-a4dbbece.vercel.app}"
-DEAL_ID="${DEAL_ID:-373ccd15-619f-4af7-aaf1-6e5f6ed596df}"
-ADMIN_DEBUG_TOKEN="${ADMIN_DEBUG_TOKEN:-cb05f58a5b085c1c16ebcc50016e782c}"
+PREVIEW_URL="${PREVIEW_URL:?Set PREVIEW_URL to the deployment under test}"
+DEAL_ID="${DEAL_ID:?Set DEAL_ID to an authorized QA deal}"
+ADMIN_DEBUG_TOKEN="${ADMIN_DEBUG_TOKEN:?Set ADMIN_DEBUG_TOKEN in the shell environment}"
 
 echo "============================================================"
 echo "✅ CHECKLIST RECONCILIATION VERIFICATION"
@@ -17,7 +17,8 @@ echo "Deal ID: $DEAL_ID"
 echo ""
 
 echo "1️⃣ Checking current checklist state..."
-curl -sS "$PREVIEW_URL/api/admin/deals/$DEAL_ID/checklist/debug?token=$ADMIN_DEBUG_TOKEN" | jq '{
+curl -sS -H "Authorization: Bearer $ADMIN_DEBUG_TOKEN" \
+  "$PREVIEW_URL/api/admin/deals/$DEAL_ID/checklist/debug" | jq '{
   dealId: .dealId,
   total_items: .count,
   received_items: ([.items[] | select(.received_at != null)] | length),
@@ -43,7 +44,8 @@ echo "============================================================"
 echo ""
 echo "3️⃣ After reconciliation, verify items are marked received:"
 echo ""
-echo "   curl -sS '$PREVIEW_URL/api/admin/deals/$DEAL_ID/checklist/debug?token=$ADMIN_DEBUG_TOKEN' | jq"
+echo "   curl -sS -H 'Authorization: Bearer $ADMIN_DEBUG_TOKEN' \\
+     '$PREVIEW_URL/api/admin/deals/$DEAL_ID/checklist/debug' | jq"
 echo ""
 echo "============================================================"
 echo ""

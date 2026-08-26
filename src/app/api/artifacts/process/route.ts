@@ -3,9 +3,8 @@
  *
  * Process queued document artifacts.
  * This endpoint can be called by:
- *   - Internal server-to-server (x-buddy-internal header)
- *   - Vercel cron (WORKER_SECRET via header/query/bearer)
- *   - Super admins (via UI)
+ *   - Vercel cron (CRON_SECRET bearer)
+ *   - Authenticated internal callers (WORKER_SECRET bearer/header)
  *
  * Query params:
  * - max: Maximum number of artifacts to process (default: 10, max: 50)
@@ -23,12 +22,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes max for processing
 
-/** Check if the request is authorized via internal header or worker/cron secret. */
+/** Require a cryptographically authenticated worker or Vercel cron request. */
 function isAuthorized(req: NextRequest): boolean {
-  // Internal server-to-server call (same-origin, injected by upload route)
-  if (req.headers.get("x-buddy-internal") === "1") return true;
-
-  // Worker secret or Vercel CRON_SECRET
   return hasValidWorkerSecret(req);
 }
 
