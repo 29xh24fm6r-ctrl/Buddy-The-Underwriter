@@ -154,31 +154,40 @@ async function resolveSupersededStaleSignatureGaps(
       [finding.deal_id, staleGapFactKey(finding), finding.signer_id ?? ""].join("|"),
     ),
   );
-  const staleIds = ((data ?? []) as Array<{
+  const staleGaps = ((data ?? []) as Array<{
     id: string;
     deal_id: string;
     fact_key: string;
     owner_entity_id: string | null;
-  }>)
-    .filter(
-      (gap) =>
-        !active.has([gap.deal_id, gap.fact_key, gap.owner_entity_id ?? ""].join("|")),
-    )
-    .map((gap) => gap.id);
+  }>).filter(
+    (gap) =>
+      !active.has([gap.deal_id, gap.fact_key, gap.owner_entity_id ?? ""].join("|")),
+  );
 
-  if (staleIds.length === 0) return 0;
+  if (staleGaps.length === 0) return 0;
 
-  const { error: updateError } = await sb
-    .from("deal_gap_queue")
-    .update({
-      status: "resolved",
-      resolved_at: new Date().toISOString(),
-      resolution_meta: { action: "superseded_by_current_signature" },
-    })
-    .in("id", staleIds)
-    .eq("status", "open");
-  if (updateError) throw dbError("gap_resolve", updateError);
-  return staleIds.length;
+  // Production's constraint is full rather than the partial-open index in the
+  // migration. Archive each resolved record under an id-qualified fact key so
+  // a future stale → fresh → stale cycle cannot collide with prior history.
+  await Promise.all(
+    staleGaps.map(async (gap) => {
+      const { error: updateError } = await sb
+        .from("deal_gap_queue")
+        .update({
+          fact_key: `${gap.fact_key}.resolved.${gap.id}`,
+          status: "resolved",
+          resolved_at: new Date().toISOString(),
+          resolution_meta: {
+            action: "superseded_by_current_signature",
+            original_fact_key: gap.fact_key,
+          },
+        })
+        .eq("id", gap.id)
+        .eq("status", "open");
+      if (updateError) throw dbError("gap_resolve", updateError);
+    }),
+  );
+  return staleGaps.length;
 }
 
 /**
