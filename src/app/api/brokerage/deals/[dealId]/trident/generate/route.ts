@@ -120,17 +120,32 @@ export async function GET(
 
   const brokerageBankId = await getBrokerageBankId();
   const sb = supabaseAdmin();
-  const { data: bundle, error } = await sb
+  const requestedBundleId = _req.nextUrl.searchParams.get("bundleId")?.trim() || null;
+  if (
+    requestedBundleId &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedBundleId)
+  ) {
+    return NextResponse.json({ ok: false, error: "invalid_bundle_id" }, { status: 400 });
+  }
+
+  const bundleQuery = sb
     .from("buddy_trident_bundles")
     .select("id,status,current_stage,workflow_run_id,generation_error,stage_error_json,generation_started_at,generation_completed_at,last_heartbeat_at,release_gate_json,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path")
     .eq("deal_id", dealId)
     .eq("bank_id", brokerageBankId)
-    .eq("mode", "final")
-    .order("generation_started_at", { ascending: false, nullsFirst: false })
-    .order("generated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .eq("mode", "final");
+
+  const { data: bundle, error } = requestedBundleId
+    ? await bundleQuery.eq("id", requestedBundleId).maybeSingle()
+    : await bundleQuery
+        .order("generation_started_at", { ascending: false, nullsFirst: false })
+        .order("generated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (requestedBundleId && !bundle) {
+    return NextResponse.json({ ok: false, error: "bundle_not_found" }, { status: 404 });
+  }
   const { data: stages, error: stagesError } = bundle?.id
     ? await sb.from("buddy_trident_bundle_stages")
         .select("stage,status,attempt_count,output_json,error_json,started_at,completed_at,updated_at")
