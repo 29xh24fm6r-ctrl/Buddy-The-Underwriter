@@ -242,22 +242,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const now = new Date().toISOString();
     const runId = crypto.randomUUID();
 
-    // Lock all active docs
-    const { error: lockErr } = await (sb as any)
-      .from("deal_documents")
-      .update({
-        intake_status: "LOCKED_FOR_PROCESSING",
-        intake_locked_at: now,
-      })
-      .eq("deal_id", dealId)
-      .eq("is_active", true);
-
-    if (lockErr) {
-      return NextResponse.json(
-        { ok: false, error: "lock_failed", detail: lockErr.message },
-        { status: 500 },
-      );
-    }
+    // Document locking occurs inside finalize_intake_and_enqueue_processing so
+    // a failed finalization cannot strand documents in LOCKED_FOR_PROCESSING.
 
     // ── Checklist truth: safety net before deal enters cockpit ────────────
     // Belt-and-suspenders alongside the per-doc reconcile. Ensures deal_checklist_items

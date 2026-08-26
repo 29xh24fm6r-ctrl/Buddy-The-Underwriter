@@ -557,9 +557,9 @@ export async function processConfirmedIntake(
       );
       const appBaseUrl =
         process.env.NEXT_PUBLIC_APP_URL ??
-        process.env.VERCEL_URL
+        (process.env.VERCEL_URL
           ? `https://${process.env.VERCEL_URL}`
-          : "http://localhost:3000";
+          : "http://localhost:3000");
       // SPEC-WORKER-SECRET-FANOUT-AUTH-1: prefer WORKER_SECRET (application-
       // managed) over CRON_SECRET (Vercel auto-injects on cron headers but
       // does not expose it as process.env to non-cron-triggered routes).

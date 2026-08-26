@@ -195,7 +195,7 @@ describe("INVARIANT: Confirm route atomic guarantees via RPC", () => {
     "src/app/api/deals/[dealId]/intake/confirm/route.ts",
   );
   const rpcSrc = readSource(
-    "supabase/migrations/20260225000001_finalize_intake_and_enqueue_rpc.sql",
+    "supabase/migrations/20260827010000_atomic_intake_locking.sql",
   );
 
   test("[inv-1] confirm route calls finalize_intake_and_enqueue_processing RPC", () => {
@@ -296,14 +296,18 @@ describe("INVARIANT: Confirm route atomic guarantees via RPC", () => {
     );
   });
 
-  test("[inv-11] lock step happens BEFORE RPC call", () => {
-    const lockIdx = confirmSrc.indexOf("LOCKED_FOR_PROCESSING");
-    const rpcIdx = confirmSrc.indexOf("finalize_intake_and_enqueue_processing");
-    assert.ok(lockIdx > 0, "Lock step must exist");
-    assert.ok(rpcIdx > 0, "RPC call must exist");
+  test("[inv-11] locking is inside the atomic RPC, never inline in route", () => {
     assert.ok(
-      lockIdx < rpcIdx,
-      "Lock must happen BEFORE the atomic finalization RPC",
+      !confirmSrc.includes('.update({\n        intake_status: "LOCKED_FOR_PROCESSING"'),
+      "Confirm route must not lock documents outside the transaction",
+    );
+    assert.ok(
+      rpcSrc.includes("intake_status = 'LOCKED_FOR_PROCESSING'"),
+      "Atomic finalize RPC must lock active documents",
+    );
+    assert.ok(
+      rpcSrc.includes("v_locked_count <> p_docs_locked"),
+      "Atomic finalize RPC must fail closed when the active set changes",
     );
   });
 });

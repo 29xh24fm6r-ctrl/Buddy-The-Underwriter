@@ -36,12 +36,13 @@ export async function queueDocExtractionOutbox(opts: {
   });
 
   if (error) {
-    // Non-fatal: log but don't throw — intake processing must complete.
-    // The banker can trigger re-extraction via the Re-extract All button.
     console.error("[queueDocExtractionOutbox] failed to queue", {
       docId: opts.docId,
       dealId: opts.dealId,
       error: error.message,
     });
+    // Queue persistence is operational work, not telemetry. Surface failure so
+    // the intake run records it and the recovery worker can retry the document.
+    throw new Error(`Failed to queue extraction for document ${opts.docId}: ${error.message}`);
   }
 }
