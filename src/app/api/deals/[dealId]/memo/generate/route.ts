@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpenAI } from "@/lib/ai/openaiClient";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveDealApiContext } from "@/lib/server/dealApiContext";
 import { retrieveDealChunks } from "@/lib/retrieval/deal";
 import { retrieveBankPolicyChunks } from "@/lib/retrieval/policy";
 import { OPENAI_MINI, OPENAI_EMBEDDINGS } from "@/lib/ai/models";
@@ -17,15 +17,20 @@ const SECTIONS = [
   { key: "RECOMMENDATION", title: "Recommendation" },
 ];
 
-export async function POST(req: NextRequest, context: { params: Params }) {
+export async function POST(_req: NextRequest, context: { params: Params }) {
   const { dealId } = await context.params;
-  const { bankId } = (await req.json().catch(() => ({}))) as { bankId?: string };
-
-  if (!dealId) return NextResponse.json({ error: "dealId required" }, { status: 400 });
+  const access = await resolveDealApiContext(dealId);
+  if (!access.ok) {
+    return NextResponse.json(
+      { ok: false, error: access.error },
+      { status: access.status },
+    );
+  }
+  const bankId = access.bankId;
 
   try {
     const openai = getOpenAI();
-    const sb = getSupabaseServerClient();
+    const sb = access.sb;
     const model = OPENAI_MINI;
 
     const results: Array<{ key: string; title: string; text: string; citations: any[] }> = [];
@@ -134,6 +139,6 @@ export async function POST(req: NextRequest, context: { params: Params }) {
     return NextResponse.json({ ok: true, sections: results });
   } catch (e: any) {
     console.error("Auto-memo API error:", e);
-    return NextResponse.json({ error: e.message || "Internal error" }, { status: 500 });
+    return NextResponse.json({ error: "memo_generation_failed" }, { status: 500 });
   }
 }

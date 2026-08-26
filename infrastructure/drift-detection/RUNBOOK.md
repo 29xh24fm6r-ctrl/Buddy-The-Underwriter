@@ -3,6 +3,7 @@
 Operational guide for the SD-C CI schema drift detector.
 
 - Detector: [scripts/schema/drift-detect.ts](../../scripts/schema/drift-detect.ts)
+- Classifier: [scripts/schema/drift-classify.ts](../../scripts/schema/drift-classify.ts)
 - Role migration: [supabase/migrations/20260427_drift_reader_role.sql](../../supabase/migrations/20260427_drift_reader_role.sql)
 - Spec: [specs/schema-drift/SPEC-SD-C-ci-drift-detection.md](../../specs/schema-drift/SPEC-SD-C-ci-drift-detection.md)
 - CI integration: `.github/workflows/ci.yml` → step `Schema drift detection`
@@ -19,16 +20,41 @@ On every PR and on every push to `main`:
    DB as the `drift_reader` role. ~5 read-only queries against metadata
    catalogs (`information_schema`, `pg_indexes`, `pg_proc`,
    `supabase_migrations.schema_migrations`).
-3. The detector writes `.drift_report/all-findings.json` and
-   `.drift_report/blocking-findings.json`. Both are uploaded as the
-   `drift-report` GitHub Actions artifact regardless of step outcome.
-4. **Phase 1 (current):** the step is wrapped in `continue-on-error: true`,
-   so a non-zero exit reports drift but does not block merge.
-5. **Phase 2 (after SD-A reconciliation):** the `continue-on-error` flag is
-   removed; drift becomes a blocking failure.
+3. The detector writes `.drift_report/all-findings.json`,
+   `.drift_report/blocking-findings.json`, `.drift_report/summary.json`,
+   `.drift_report/classification.json`, and
+   `.drift_report/classification-summary.json`. The classifier collapses
+   repeated historical expectations and marks columns/indexes as dependent when
+   their owning table is also missing; it does not infer that drift is safe or
+   authorize schema changes. The hidden directory is explicitly included in the mandatory
+   `drift-report` artifact.
+4. **Phase 1 (current):** CI passes `--report-only`. Confirmed drift produces
+   a workflow warning and a green detector exit, while connection,
+   configuration, detector, and missing-artifact failures still fail CI.
+5. **Phase 2 (after SD-A reconciliation):** remove `--report-only`; remaining
+   drift becomes a blocking failure.
 
 ---
 
+## Reading the classification
+
+The detector's raw findings remain immutable evidence. Classification adds a
+review layer:
+
+- `missing_table`: a unique table identity absent from the live schema.
+- `dependent_on_missing_table`: a missing column or index whose owning table is
+  also missing. Resolve the table first; do not count each dependent as an
+  independent migration task.
+- `missing_column`, `missing_index`, and `missing_function`: unique objects
+  that need independent historical or product-ownership review.
+- `duplicate_expectations`: repeated migrations that expect the same object;
+  this is provenance, not an additional live-schema defect.
+
+Classification is deliberately report-only. A missing object may be intentional
+after a later drop or rename, or may represent true drift. Confirm migration
+history and current application ownership before writing or applying SQL.
+
+---
 ## Provisioning the `drift_reader` role
 
 The migration creates the role with a literal placeholder password

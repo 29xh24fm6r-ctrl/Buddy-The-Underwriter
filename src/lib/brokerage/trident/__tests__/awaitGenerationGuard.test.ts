@@ -4,96 +4,84 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
- * Static guard: `generateTridentBundle` MUST be awaited at every call
- * site outside of the generator itself. Fire-and-forget does not survive
- * serverless function shutdown on Vercel — the function instance can be
- * reclaimed before the bundle row transitions to succeeded|failed,
- * leaving rows stuck in `running` indefinitely.
+ * Static guard: no request-scoped surface may generate a Trident bundle
+ * inline.
  *
- * This test parses the call sites by source-text and fails the build if
- * a `.catch(` discard pattern reappears or the `await` is dropped.
+ * This guard used to assert the opposite — that `generateTridentBundle` was
+ * always AWAITED — because fire-and-forget does not survive serverless
+ * shutdown, and at the time awaiting was the only way to keep the function
+ * alive to completion. The durable workflow removed that trade-off, and the
+ * inline await became the larger risk: a preview run performs LLM generation,
+ * an AI verifier pass, the feasibility engine and several PDF renders, and
+ * exceeding the 300s ceiling left the bundle holding a 90-minute lease in
+ * `running` that refused every retry until the janitor reconciled it.
+ *
+ * Every trigger surface now goes through startTridentGeneration, which admits
+ * the run and hands it to the workflow. This file fails the build if any of
+ * them reverts to generating in-request.
  */
 
 const REPO_ROOT = resolve(process.cwd());
 
-const CALL_SITES = [
+const TRIGGER_SURFACES = [
   "src/app/api/brokerage/concierge/route.ts",
   "src/app/api/brokerage/voice/[sessionId]/dispatch/route.ts",
-  "src/app/api/brokerage/deals/[dealId]/marketplace/pick/route.ts",
+  "src/app/api/brokerage/deals/[dealId]/trident/generate/route.ts",
+  // marketplace/pick binds to the seal-time artifact set and generates
+  // nothing at all (audit F-04/F-06); its own guard lives below.
 ];
 
-for (const rel of CALL_SITES) {
-  test(`${rel}: generateTridentBundle is awaited (not fire-and-forget)`, () => {
+for (const rel of TRIGGER_SURFACES) {
+  test(`${rel}: hands generation to the durable workflow`, () => {
     const src = readFileSync(resolve(REPO_ROOT, rel), "utf8");
 
     assert.ok(
-      src.includes("generateTridentBundle("),
-      `${rel} no longer references generateTridentBundle — wiring removed?`,
+      src.includes("startTridentGeneration("),
+      `${rel} must start the durable workflow via startTridentGeneration`,
     );
-
-    // Ban the fire-and-forget chain: `generateTridentBundle({...}).catch(`.
-    // Match across whitespace + newlines.
-    const fireAndForget = /generateTridentBundle\s*\([^)]*\)\s*\.catch\b/s;
     assert.equal(
-      fireAndForget.test(src),
+      /await\s+generateTridentBundle\s*\(/.test(src),
       false,
-      `${rel} still has a .catch() chain on generateTridentBundle — must be awaited so bundle-row lifecycle (running → succeeded|failed) completes before the response returns.`,
+      `${rel} must not await inline generation — a reclaimed function strands the bundle lease`,
     );
-
-    // Require an explicit `await` immediately preceding a call site.
-    const awaited = /await\s+generateTridentBundle\s*\(/;
     assert.equal(
-      awaited.test(src),
-      true,
-      `${rel} must await generateTridentBundle so generation_completed_at + status are set before the response.`,
+      /generateTridentBundle\s*\([^)]*\)\s*\.catch\b/s.test(src),
+      false,
+      `${rel} must not fire-and-forget generation either`,
+    );
+    assert.equal(
+      src.includes('from "@/lib/brokerage/trident/generateTridentBundle"'),
+      false,
+      `${rel} must not import the inline generator`,
     );
   });
 }
 
-test("concierge maxDuration accommodates synchronous trident generation", () => {
-  const src = readFileSync(
-    resolve(REPO_ROOT, "src/app/api/brokerage/concierge/route.ts"),
-    "utf8",
-  );
-  const m = src.match(/export\s+const\s+maxDuration\s*=\s*(\d+)/);
-  assert.ok(m, "concierge route is missing maxDuration export");
-  const seconds = Number(m![1]);
-  assert.ok(
-    seconds >= 300,
-    `concierge maxDuration is ${seconds}s — must be ≥300 to allow awaited trident generation`,
-  );
-});
 
-test("voice dispatch maxDuration accommodates synchronous trident generation", () => {
+/**
+ * The inverse guard for the call site that was removed: the pick route must
+ * never reintroduce inline generation. Sealing already certifies the final
+ * bundle, and the seal route freezes its artifact paths onto the sealed
+ * package, so generating here is both redundant and destructive to the
+ * seal's provenance.
+ */
+test("marketplace/pick does not generate a trident bundle", () => {
   const src = readFileSync(
-    resolve(
-      REPO_ROOT,
-      "src/app/api/brokerage/voice/[sessionId]/dispatch/route.ts",
-    ),
+    resolve(REPO_ROOT, "src/app/api/brokerage/deals/[dealId]/marketplace/pick/route.ts"),
     "utf8",
   );
-  const m = src.match(/export\s+const\s+maxDuration\s*=\s*(\d+)/);
-  assert.ok(m, "voice dispatch is missing maxDuration export");
-  const seconds = Number(m![1]);
-  assert.ok(
-    seconds >= 300,
-    `voice dispatch maxDuration is ${seconds}s — must be ≥300 to allow awaited trident generation`,
+  assert.equal(
+    /\bgenerateTridentBundle\s*\(/.test(src),
+    false,
+    "pick route must bind to the seal-time artifact set, not run the factory inline",
   );
-});
-
-test("marketplace pick maxDuration accommodates synchronous final-mode trident generation", () => {
-  const src = readFileSync(
-    resolve(
-      REPO_ROOT,
-      "src/app/api/brokerage/deals/[dealId]/marketplace/pick/route.ts",
-    ),
-    "utf8",
+  assert.equal(
+    src.includes('from "@/lib/brokerage/trident/generateTridentBundle"'),
+    false,
+    "pick route must not import the generator",
   );
-  const m = src.match(/export\s+const\s+maxDuration\s*=\s*(\d+)/);
-  assert.ok(m, "marketplace pick route is missing maxDuration export");
-  const seconds = Number(m![1]);
   assert.ok(
-    seconds >= 300,
-    `marketplace pick maxDuration is ${seconds}s — must be ≥300 to allow awaited final-mode trident generation`,
+    src.includes("sealed_snapshot"),
+    "pick route must read the immutable seal-time binding",
   );
 });

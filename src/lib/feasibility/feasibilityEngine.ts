@@ -258,6 +258,7 @@ export async function generateFeasibilityStudy(params: {
     naicsCode,
     naicsDescription: app?.industry ?? null,
     projectedAnnualRevenue: pickNumber(projY1?.revenue),
+    industryGrowthRate: bieMarket?.industryGrowthRateMentioned ?? null,
     research: {
       marketIntelligence: research.marketIntelligence,
       competitiveLandscape: research.competitiveLandscape,
@@ -504,6 +505,7 @@ export async function generateFeasibilityStudy(params: {
     isFranchise,
     brandName: franchiseBrandName,
     managementTeam,
+    industry: (app?.industry as string | null) ?? null,
   });
 
   // ── 15. Render PDF + upload to storage ─────────────────────────

@@ -875,6 +875,18 @@ const RATIO_SPECS: RatioSpec[] = [
 // Builder
 // ---------------------------------------------------------------------------
 
+function isGovernedRatioInput(row: any): boolean {
+  const authority = [
+    row.fact_type,
+    row.fact_key,
+    row.source_canonical_type,
+    JSON.stringify(row.provenance ?? {}),
+  ].filter(Boolean).join(" ");
+  // Deterministic formulas may derive ratios from governed components, but an
+  // AI/ratio-derived component may not become a new committee fact.
+  return !/(?:inferred|estimated|derived[_ -]?(?:from)?[_ -]?(?:margin|ratio))/i.test(authority);
+}
+
 type BuildArgs = {
   dealId: string;
   bankId: string;
@@ -905,7 +917,7 @@ export async function buildRatioAnalysisSuite(
 
   const { data: factRows, error } = await (sb as any)
     .from("deal_financial_facts")
-    .select("fact_key, fact_value_num, fact_period_end")
+    .select("fact_key, fact_value_num, fact_period_end, fact_type, source_canonical_type, provenance")
     .eq("deal_id", args.dealId)
     .eq("bank_id", args.bankId)
     .eq("is_superseded", false)
@@ -919,6 +931,7 @@ export async function buildRatioAnalysisSuite(
   const facts: Record<string, number | null> = {};
   let latestPeriodEnd: string | null = null;
   for (const row of factRows as any[]) {
+    if (!isGovernedRatioInput(row)) continue;
     const key = String(row.fact_key);
     const v = row.fact_value_num;
     if (facts[key] !== undefined) continue;

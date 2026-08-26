@@ -616,7 +616,8 @@ function sortRequirements(
 // ---------------------------------------------------------------------------
 
 const RECEIVED_STATUSES: ReadonlySet<BorrowerDocumentStatus> = new Set([
-  "uploaded",
+  // "uploaded" means bytes arrived but canonical intake verification has not
+  // completed; counting it as received overstates package completeness.
   "received",
   "reviewing",
   "accepted",

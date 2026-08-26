@@ -32,6 +32,7 @@ export interface BIEMarketData {
   medianIncomeMentioned: number | null;
   unemploymentRateMentioned: number | null;
   competitorCountMentioned: number | null;
+  industryGrowthRateMentioned: number | null;
 
   // Qualitative signals from research prose
   hasCompetitorNames: boolean;
@@ -53,6 +54,7 @@ const DEFAULTS: BIEMarketData = {
   medianIncomeMentioned: null,
   unemploymentRateMentioned: null,
   competitorCountMentioned: null,
+  industryGrowthRateMentioned: null,
   hasCompetitorNames: false,
   competitorNameCount: 0,
   hasRealEstateData: false,
@@ -234,6 +236,13 @@ export async function extractBIEMarketData(
     "median_income",
     "median_household_income",
   ]);
+  let industryGrowthRateMentioned = pickFactNumber(facts, [
+    "market_growth_rate",
+    "industry_growth_rate",
+  ]);
+  if (industryGrowthRateMentioned != null && industryGrowthRateMentioned > 1) {
+    industryGrowthRateMentioned /= 100;
+  }
   let unemploymentRateMentioned = pickFactNumber(facts, [
     "unemployment",
     "unemployment_rate",
@@ -325,6 +334,7 @@ export async function extractBIEMarketData(
     medianIncomeMentioned,
     unemploymentRateMentioned,
     competitorCountMentioned: hasCompetitorNames ? competitorNameCount : null,
+    industryGrowthRateMentioned,
     hasCompetitorNames,
     competitorNameCount,
     hasRealEstateData,
@@ -388,6 +398,7 @@ function coerceNumber(raw: unknown): number | null {
     const obj = raw as Record<string, unknown>;
     if ("value" in obj) return coerceNumber(obj.value);
     if ("amount" in obj) return coerceNumber(obj.amount);
+    if ("percent" in obj) return coerceNumber(obj.percent);
     if ("number" in obj) return coerceNumber(obj.number);
   }
   return null;

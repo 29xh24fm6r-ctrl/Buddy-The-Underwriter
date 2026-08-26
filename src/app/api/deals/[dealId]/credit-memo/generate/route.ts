@@ -53,22 +53,35 @@ export async function POST(
       dealId,
       bankId,
       forceRegenerate: body?.force === true,
+      // Proof of the ensureDealBankAccessAllowingBrokerageStaff check above —
+      // unforgeable and bound to this deal and bank (audit F-15).
+      accessGrant: access.grant,
     });
 
     if (!result.ok) {
+      const verification = "verification" in result ? result.verification : null;
       await logPipelineLedger(sb, {
         bank_id: bankId,
         deal_id: dealId,
         event_key: "credit_memo_generation_failed",
         status: "error",
-        payload: { error: result.error, canonical: true },
+        payload: {
+          error: result.error,
+          canonical: true,
+          verification,
+        },
       });
       void writeEvent({
         dealId,
         kind: "memo.generation.failed",
         scope: "memo",
         action: "generate",
-        meta: { error: result.error, canonical: true },
+        meta: {
+          error: result.error,
+          canonical: true,
+          review_passes: verification?.reviewPasses ?? null,
+          review_issues: verification?.reviewIssues ?? [],
+        },
       });
       return NextResponse.json(result, { status: result.status });
     }

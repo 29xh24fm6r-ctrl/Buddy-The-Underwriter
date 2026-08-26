@@ -1,53 +1,67 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveUserApiContext } from "@/lib/server/userApiContext";
 import { isValidScreenId } from "@/lib/screens/idgen";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 /**
  * POST /api/screens/:id/claim
- * Claim screen artifact (auth required)
+ * Claim a public, unowned screen artifact (Clerk auth required).
  */
-export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(
+  _req: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
   try {
     const { id } = await ctx.params;
     if (!isValidScreenId(id)) {
       return NextResponse.json({ error: "Invalid screen ID" }, { status: 400 });
     }
 
-    const sb = await getSupabaseServerClient();
-
-    // Check auth
-    const {
-      data: { user },
-    } = await sb.auth.getUser();
-
-    if (!user) {
+    const actor = await resolveUserApiContext();
+    if (!actor.ok) {
       return NextResponse.json(
-        { error: "Authentication required", redirect: `/auth?next=/s/${id}` },
-        { status: 401 },
+        {
+          error: actor.error,
+          redirect: `/auth?next=/s/${id}`,
+        },
+        { status: actor.status },
       );
     }
 
-    // Claim the screen (set owner_id)
-    const { error } = await sb
+    const { data, error } = await actor.sb
       .from("screen_artifacts")
-      .update({ owner_id: user.id, updated_at: new Date().toISOString() })
+      .update({
+        owner_id: actor.actorProfileId,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", id)
       .eq("is_public", true)
-      .is("owner_id", null); // Only claim if unclaimed
+      .is("owner_id", null)
+      .select("id")
+      .maybeSingle();
 
     if (error) {
-      console.error("Claim error:", error);
+      console.error("[screen claim] update failed", {
+        screenId: id,
+        code: error.code,
+      });
       return NextResponse.json(
         { error: "Failed to claim screen" },
         { status: 500 },
       );
     }
 
+    if (!data) {
+      return NextResponse.json(
+        { error: "Screen is unavailable or already claimed" },
+        { status: 409 },
+      );
+    }
+
     return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("Claim error:", err);
+  } catch (error) {
+    console.error("[screen claim] unexpected failure", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },

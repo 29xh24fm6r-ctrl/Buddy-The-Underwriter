@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  collectMissingFindings,
+  exitCodeForFindings,
   extractExpectedObjects,
   isAllowed,
   statementMentionsObject,
@@ -90,7 +92,28 @@ test("extractExpectedObjects: CREATE UNIQUE INDEX IF NOT EXISTS", () => {
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_deals_slug ON public.deals (slug);",
   ]);
   assert.deepEqual(got, [
-    { kind: "index", schema: "public", name: "idx_deals_slug" },
+    {
+      kind: "index",
+      schema: "public",
+      name: "idx_deals_slug",
+      table_schema: "public",
+      table: "deals",
+    },
+  ]);
+});
+
+test("extractExpectedObjects: captures index and table schemas", () => {
+  const got = extractExpectedObjects([
+    "CREATE INDEX audit.idx_events_kind ON ONLY telemetry.events (kind);",
+  ]);
+  assert.deepEqual(got, [
+    {
+      kind: "index",
+      schema: "audit",
+      name: "idx_events_kind",
+      table_schema: "telemetry",
+      table: "events",
+    },
   ]);
 });
 
@@ -112,7 +135,13 @@ test("extractExpectedObjects: multiple statements in input array", () => {
   assert.deepEqual(got, [
     { kind: "table", schema: "public", name: "a" },
     { kind: "table", schema: "public", name: "b" },
-    { kind: "index", schema: "public", name: "idx_a_id" },
+    {
+      kind: "index",
+      schema: "public",
+      name: "idx_a_id",
+      table_schema: "public",
+      table: "a",
+    },
   ]);
 });
 
@@ -129,6 +158,29 @@ test("extractExpectedObjects: ignores DROP / SELECT / INSERT statements", () => 
     "INSERT INTO deals (id) VALUES (gen_random_uuid());",
   ]);
   assert.deepEqual(got, []);
+});
+
+test("collectMissingFindings binds provenance to the creating statement", () => {
+  const got = collectMissingFindings(
+    {
+      version: "20250101",
+      name: "rebuild_vector_index",
+      statements: [
+        "DROP INDEX IF EXISTS bank_policy_chunks_embedding_ivfflat;",
+        "CREATE INDEX bank_policy_chunks_embedding_ivfflat ON public.bank_policy_chunks (embedding);",
+      ],
+    },
+    {
+      tables: new Set(),
+      columns: new Set(),
+      indexes: new Set(),
+      functions: new Set(),
+    },
+  );
+
+  assert.equal(got.length, 1);
+  assert.equal(got[0].object.kind, "index");
+  assert.match(got[0].source_statement, /^CREATE INDEX/);
 });
 
 test("statementMentionsObject: column-kind requires both table and column names", () => {
@@ -249,4 +301,16 @@ test("isAllowed: empty allow-list never allows", () => {
     source_statement: "...",
   };
   assert.equal(isAllowed(finding, []), false);
+});
+
+
+test("exitCodeForFindings: blocking mode fails when drift remains", () => {
+  assert.equal(exitCodeForFindings(1, false), 1);
+  assert.equal(exitCodeForFindings(1_730, false), 1);
+  assert.equal(exitCodeForFindings(0, false), 0);
+});
+
+test("exitCodeForFindings: report-only mode reports drift without masking detector failures", () => {
+  assert.equal(exitCodeForFindings(1_730, true), 0);
+  assert.equal(exitCodeForFindings(0, true), 0);
 });

@@ -1,19 +1,36 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { writeAiEvent } from "@/lib/aiEvents";
 import { simulateExaminerReview } from "@/lib/examiner/examinerSimulator";
+import { resolveDealApiContext } from "@/lib/server/dealApiContext";
 
 export async function POST(
   _: Request,
-  { params }: { params: Promise<{ dealId: string }> }
+  { params }: { params: Promise<{ dealId: string }> },
 ) {
   const { dealId } = await params;
-  const supabase = getSupabaseServerClient();
+  const access = await resolveDealApiContext(dealId);
+  if (!access.ok) {
+    return NextResponse.json(
+      { ok: false, error: access.error },
+      { status: access.status },
+    );
+  }
 
-  const { data: events } = await supabase
+  const { data: events, error } = await access.sb
     .from("ai_events")
     .select("*")
     .eq("deal_id", dealId);
+
+  if (error) {
+    console.error("[examiner simulation] event lookup failed", {
+      dealId,
+      code: error.code,
+    });
+    return NextResponse.json(
+      { ok: false, error: "examiner_context_failed" },
+      { status: 500 },
+    );
+  }
 
   const result = simulateExaminerReview(events ?? []);
 
@@ -23,7 +40,7 @@ export async function POST(
     scope: "sba",
     action: "review",
     output_json: result,
-    confidence: 0.9
+    confidence: 0.9,
   });
 
   return NextResponse.json({ ok: true });

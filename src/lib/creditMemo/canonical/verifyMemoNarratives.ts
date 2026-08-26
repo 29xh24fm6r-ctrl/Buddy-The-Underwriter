@@ -18,7 +18,7 @@ import "server-only";
 import type { CanonicalCreditMemoV1 } from "./types";
 import { buildNarrativeInput, FALLBACK_NARRATIVES, type MemoNarratives } from "./narrativeAssembly";
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
-import { finishInstitutionalArtifact } from "@/lib/ai/frontierArtifactFactory";
+import { finishInstitutionalArtifact, type ReviewIssue } from "@/lib/ai/frontierArtifactFactory";
 
 type SB = { from: (t: string) => any };
 
@@ -59,6 +59,7 @@ export async function verifyMemoNarratives(args: {
   narratives: MemoNarratives;
   repaired: boolean;
   reviewPasses: number;
+  reviewIssues: ReviewIssue[];
 }) | null> {
   const { dealId, bankId, memo, narratives, sb } = args;
 
@@ -89,5 +90,6 @@ export async function verifyMemoNarratives(args: {
     ) as MemoNarratives,
     repaired: finished.repaired,
     reviewPasses: finished.reviewPasses,
+    reviewIssues: finished.reviewIssues,
   };
 }

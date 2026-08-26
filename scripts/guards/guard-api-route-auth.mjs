@@ -61,6 +61,8 @@ const AUTH_MECHANISMS = [
   "currentUser(",
   "getCurrentBankId(",
   "getBrokerageBankId(",
+  "assertDealAccess(",
+  "withDealAccess(",
   "ensureDealBankAccess(",
   "ensureDealBankAccessAllowingBrokerageStaff(",
   "requireDealAccess(",

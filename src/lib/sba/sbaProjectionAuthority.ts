@@ -15,7 +15,7 @@ import {
  * calculators. The lower-level builders remain pure implementation details;
  * artifact and UI code must consume this model.
  */
-export const SBA_PROJECTION_ENGINE_VERSION = "sba_projection_v2" as const;
+export const SBA_PROJECTION_ENGINE_VERSION = "sba_projection_v3" as const;
 
 export type SBAProjectionModel = {
   engineVersion: typeof SBA_PROJECTION_ENGINE_VERSION;

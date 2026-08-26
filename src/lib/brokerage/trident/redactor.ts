@@ -12,7 +12,14 @@ import "server-only";
  * REDACTOR_VERSION; the bundle row records the version used.
  */
 
-export const REDACTOR_VERSION = "1.0.0";
+import type {
+  BreakEvenResult,
+  MonthlyProjection,
+  RevenueStreamProjection,
+  SensitivityScenario,
+} from "@/lib/sba/sbaReadinessTypes";
+
+export const REDACTOR_VERSION = "1.2.0";
 
 const PREVIEW_PLACEHOLDER = "[Unlocks when you pick a lender]";
 
@@ -67,6 +74,116 @@ export type FeasibilityInputs = {
   locationSuitabilityScore: number;
   narratives: Record<string, string>;
 };
+
+/**
+ * Free-text fields inside the feasibility dimension trees. Both are rendered
+ * verbatim into the PDF (feasibilityRenderer's renderDimensionDetail and
+ * renderFlagList), and both interpolate exact borrower figures — e.g.
+ * "Projected revenue exceeds break-even by $487,250", "Year 1 DSCR: 1.42x",
+ * "Working capital reserve: 4.3 months". Scores, weights, dataSource and
+ * dataAvailable carry no precise borrower values and stay intact: per the
+ * S3-1 contract the scores ARE the preview signal.
+ */
+const FEASIBILITY_FREE_TEXT_KEYS = new Set(["detail", "message"]);
+
+/**
+ * Preview redaction for the projection detail the SBA package renderer draws
+ * outside `redactSBAPackageForPreview`'s scoped set.
+ *
+ * Audit F-13: the orchestrator gated `sourcesAndUses`, `balanceSheetProjections`
+ * and `globalCashFlow` out of preview but passed `monthlyProjections`,
+ * `breakEven`, `sensitivityScenarios` and `revenueStreamProjections` through
+ * raw, on the reasoning that "preview mode for those additional fields is
+ * handled by the watermark". The renderer prints them verbatim — all twelve
+ * months of cash flow, exact break-even dollars, and (worst) a "Projected
+ * Year 1 Revenue" line drawn from `breakEven`, so the same figure the
+ * projections table had bucketed to $25K appeared unrounded a few pages later
+ * in the same document.
+ *
+ * These helpers apply the same buckets the annual projections already use, so
+ * the preview keeps its shape, trend and DSCR signal while losing precision.
+ * Percentages and ratios are preserved: they carry no standalone borrower
+ * dollar value and are the point of the preview.
+ */
+export function redactMonthlyProjectionsForPreview(
+  months: MonthlyProjection[],
+): MonthlyProjection[] {
+  return months.map((month) => ({
+    ...month,
+    revenue: roundToBucket(month.revenue, 25_000),
+    operatingDisbursements: roundToBucket(month.operatingDisbursements, 10_000),
+    netOperatingCF: roundToBucket(month.netOperatingCF, 10_000),
+    debtService: roundToBucket(month.debtService, 10_000),
+    netCash: roundToBucket(month.netCash, 10_000),
+    cumulativeCash: roundToBucket(month.cumulativeCash, 10_000),
+    ...(month.financingInflows === undefined
+      ? {}
+      : { financingInflows: roundToBucket(month.financingInflows, 10_000) }),
+    ...(month.capitalExpenditures === undefined
+      ? {}
+      : { capitalExpenditures: roundToBucket(month.capitalExpenditures, 10_000) }),
+    ...(month.workingCapitalChange === undefined
+      ? {}
+      : { workingCapitalChange: roundToBucket(month.workingCapitalChange, 10_000) }),
+  }));
+}
+
+/** Bucket the dollar members of a break-even result; keep every ratio. */
+export function redactBreakEvenForPreview(breakEven: BreakEvenResult): BreakEvenResult {
+  return {
+    ...breakEven,
+    fixedCostsAnnual: roundToBucket(breakEven.fixedCostsAnnual, 10_000),
+    breakEvenRevenue: roundToBucket(breakEven.breakEvenRevenue, 25_000),
+    // The renderer prints this as "Projected Year 1 Revenue" — it must land on
+    // the same bucket the annual projections table shows, or the document
+    // contradicts its own redaction.
+    projectedRevenueYear1: roundToBucket(breakEven.projectedRevenueYear1, 25_000),
+  };
+}
+
+/** Bucket scenario revenue; keep DSCR, margins and the pass/fail verdict. */
+export function redactSensitivityScenariosForPreview(
+  scenarios: SensitivityScenario[],
+): SensitivityScenario[] {
+  return scenarios.map((scenario) => ({
+    ...scenario,
+    revenueYear1: roundToBucket(scenario.revenueYear1, 25_000),
+    dscrYear1: roundToDscr(scenario.dscrYear1),
+    dscrYear2: roundToDscr(scenario.dscrYear2),
+    dscrYear3: roundToDscr(scenario.dscrYear3),
+  }));
+}
+
+/** Bucket per-stream revenue; keep names, pricing model and growth rates. */
+export function redactRevenueStreamProjectionsForPreview(
+  streams: RevenueStreamProjection[],
+): RevenueStreamProjection[] {
+  return streams.map((stream) => ({
+    ...stream,
+    baseAnnualRevenue: roundToBucket(stream.baseAnnualRevenue, 25_000),
+    revenueYear1: roundToBucket(stream.revenueYear1, 25_000),
+    revenueYear2: roundToBucket(stream.revenueYear2, 25_000),
+    revenueYear3: roundToBucket(stream.revenueYear3, 25_000),
+  }));
+}
+
+/**
+ * Bucket a headline figure for a preview summary surface.
+ *
+ * Audit F-16: the Trident preview projections PDF rendered revenue as
+ * `$${Math.round(v / 1000)}K` — roughly $1K precision — while this module
+ * buckets the same quantity to $25K everywhere else. Two preview surfaces
+ * disclosing the same number at different precisions makes the coarser one
+ * pointless. Preview summaries route through here so there is one answer.
+ */
+export function bucketPreviewRevenue(value: number | null): number | null {
+  return value == null || !Number.isFinite(value) ? null : roundToBucket(value, 25_000);
+}
+
+/** DSCR for a preview summary — one decimal, matching annual projections. */
+export function bucketPreviewDscr(value: number | null): number | null {
+  return value == null || !Number.isFinite(value) ? null : roundToDscr(value);
+}
 
 /** Redact an SBA package inputs bundle to preview mode. */
 export function redactSBAPackageForPreview(
@@ -158,6 +275,34 @@ export function redactSBAPackageForPreview(
   };
 }
 
+/**
+ * Deep-redact the feasibility dimension detail trees for preview.
+ *
+ * Structure-preserving: every score, weight, flag severity, dimension label,
+ * and data-source string survives, so the rendered preview keeps its shape
+ * and its signal. Only the free-text fields that embed precise borrower
+ * figures are replaced. Applied at the DATA layer, before the renderer sees
+ * the object — stripping the watermark cannot recover the numbers.
+ */
+export function redactFeasibilityDetailForPreview<T>(value: T): T {
+  return redactDetailNode(value) as T;
+}
+
+function redactDetailNode(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactDetailNode);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+        key,
+        FEASIBILITY_FREE_TEXT_KEYS.has(key) && typeof child === "string"
+          ? PREVIEW_PLACEHOLDER
+          : redactDetailNode(child),
+      ]),
+    );
+  }
+  return value;
+}
+
 /** Redact feasibility inputs for preview. */
 export function redactFeasibilityForPreview(
   inputs: FeasibilityInputs,
@@ -175,6 +320,12 @@ export function redactFeasibilityForPreview(
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────
+
+/** DSCR to one decimal — the strength signal survives, the precision does not. */
+function roundToDscr(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 10) / 10;
+}
 
 /** Round to nearest bucket size. Returns 0 for non-finite inputs and exact 0. */
 function roundToBucket(value: number, bucket: number): number {

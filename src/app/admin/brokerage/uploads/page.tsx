@@ -16,27 +16,27 @@ export default async function BrokerageUploadsPage() {
   const sb = supabaseAdmin();
   const { data, error } = await sb
     .from("deal_documents")
-    .select("id, deal_id, original_filename, uploaded_at, finalized_at")
+    .select("id, deal_id, original_filename, created_at, finalized_at")
     .is("finalized_at", null)
-    .order("uploaded_at", { ascending: true })
+    .order("created_at", { ascending: true })
     .limit(50);
 
   const docs = (data ?? []) as Array<{
     id: string;
     deal_id: string;
     original_filename: string | null;
-    uploaded_at: string;
+    created_at: string;
   }>;
 
   const lastEvents = await loadLastEvents(docs.map((d) => d.deal_id));
   const now = new Date().valueOf();
 
   const rows: StuckRow[] = docs.map((d) => {
-    const uploaded = new Date(d.uploaded_at).getTime();
+    const uploaded = new Date(d.created_at).getTime();
     return {
       id: d.id,
       display_name: d.original_filename,
-      age_iso: d.uploaded_at,
+      age_iso: d.created_at,
       age_seconds: Math.max(0, Math.floor((now - uploaded) / 1000)),
       last_event_action: lastEvents.get(d.deal_id) ?? null,
     };
@@ -50,7 +50,7 @@ export default async function BrokerageUploadsPage() {
         </div>
       )}
 
-      <StuckTable rows={rows} emptyLabel="No uploads stuck in OCR." />
+      {!error && <StuckTable rows={rows} emptyLabel="No uploads stuck in OCR." />}
     </div>
   );
 }

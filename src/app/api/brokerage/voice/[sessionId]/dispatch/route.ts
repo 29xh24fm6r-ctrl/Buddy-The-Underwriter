@@ -31,7 +31,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { callGeminiJSON } from "@/lib/ai/geminiClient";
 import { MODEL_CONCIERGE_EXTRACTION } from "@/lib/ai/models";
 import { detectTridentIntent } from "@/lib/brokerage/trident/conciergeIntent";
-import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
+import { startTridentGeneration } from "@/lib/brokerage/trident/startTridentGeneration";
 import { ensureAssumptionsForPreview } from "@/lib/sba/sbaAssumptionsBootstrap";
 import { secretEquals } from "@/lib/brokerage/secretEquals";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
@@ -226,12 +226,10 @@ export async function POST(
               },
             });
           } else {
-            // Generation MUST be awaited — fire-and-forget does not survive
-            // serverless function shutdown on Vercel. The generator handles
-            // its own bundle-row lifecycle: pending → running (sets
-            // generation_started_at) → succeeded | failed (sets
-            // generation_completed_at + generation_error on failure).
-            const generationResult = await generateTridentBundle({
+            // Handed to the durable workflow rather than awaited here — see
+            // the concierge route for the full rationale. A voice turn must
+            // not block on LLM generation and PDF rendering.
+            const generationResult = await startTridentGeneration({
               dealId,
               mode: "preview",
             });
@@ -247,7 +245,7 @@ export async function POST(
                 intent: intent.intent,
                 matchedTerm: intent.matchedTerm,
                 generation: generationResult.ok
-                  ? { ok: true, bundleId: generationResult.bundleId }
+                  ? { ok: true, accepted: true, bundleId: generationResult.bundleId }
                   : {
                       ok: false,
                       bundleId: generationResult.bundleId,

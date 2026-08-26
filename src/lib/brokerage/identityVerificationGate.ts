@@ -15,8 +15,8 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { hasValidIal2 } from "@/lib/identity/kyc/service";
 import { requiresPersonalPackage } from "@/lib/ownership/rules";
+import { TERMINAL_SUCCESS_STATUSES } from "@/lib/identity/kyc/service";
 
 export async function ownersNeedingIal2(
   dealId: string,
@@ -31,10 +31,31 @@ export async function ownersNeedingIal2(
     requiresPersonalPackage(o.ownership_pct),
   );
 
-  const unverified: Array<{ id: string; display_name: string | null }> = [];
-  for (const owner of owing) {
-    const valid = await hasValidIal2(dealId, owner.id, sb as any);
-    if (!valid) unverified.push({ id: owner.id, display_name: owner.display_name });
-  }
-  return unverified;
+  if (owing.length === 0) return [];
+
+  // One set-based verification lookup replaces the former query-per-owner
+  // loop. seal-status is polled frequently, so the N+1 path multiplied both
+  // latency and database load for every borrower page with several owners.
+  const ownerIds = owing.map((owner) => String(owner.id));
+  const { data: verifications } = await sb
+    .from("borrower_identity_verifications")
+    .select("ownership_entity_id")
+    .eq("deal_id", dealId)
+    .in("ownership_entity_id", ownerIds)
+    // Single source of truth with hasValidIal2 and the rest of the KYC
+    // service. A hardcoded copy here silently diverges: add a terminal
+    // status and verified owners read as unverified (sealing blocks);
+    // remove an unsafe one and this gate keeps honouring it (audit F-14).
+    .in("status", TERMINAL_SUCCESS_STATUSES)
+    .not("completed_at", "is", null);
+
+  const verifiedOwnerIds = new Set(
+    ((verifications ?? []) as Array<{ ownership_entity_id?: string | null }>)
+      .map((row) => row.ownership_entity_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+
+  return owing
+    .filter((owner) => !verifiedOwnerIds.has(String(owner.id)))
+    .map((owner) => ({ id: String(owner.id), display_name: owner.display_name ?? null }));
 }

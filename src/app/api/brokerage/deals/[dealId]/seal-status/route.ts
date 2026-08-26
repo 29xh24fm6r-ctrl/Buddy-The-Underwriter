@@ -107,30 +107,55 @@ export async function GET(
   });
   const fieldProgress: FieldProgress = computeFieldProgress(facts, formCodes);
 
-  // Verification counts — positive evidence for the borrower review checklist.
-  // D-0: deriveVerifications must use counted records, not gate-string inversions.
-  const { count: identityVerificationCount } = await sb
-    .from("borrower_identity_verifications")
-    .select("id", { count: "exact", head: true })
-    .eq("deal_id", dealId);
+  // Independent checklist counts share one database wave. These reads used
+  // to run serially on every poll.
+  const [
+    { count: identityVerificationCount },
+    { count: ownershipEntityCount },
+    { count: documentsUploadedCount },
+  ] = await Promise.all([
+    sb
+      .from("borrower_identity_verifications")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId),
+    sb
+      .from("ownership_entities")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId),
+    sb
+      .from("deal_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId),
+  ]);
 
-  const { count: ownershipEntityCount } = await sb
-    .from("ownership_entities")
-    .select("id", { count: "exact", head: true })
-    .eq("deal_id", dealId);
+  // Listing, franchise, score, and sealability are mutually independent.
+  // Start them together so the gate's two bounded database waves determine
+  // latency instead of accumulating behind more serial polling reads.
+  const [
+    { data: franchiseLink },
+    { data: listing },
+    gate,
+    score,
+  ] = await Promise.all([
+    sb
+      .from("deal_franchises")
+      .select("brand_id")
+      .eq("deal_id", dealId)
+      .maybeSingle(),
+    sb
+      .from("marketplace_listings")
+      .select(
+        "id, status, score, band, published_rate_bps, preview_opens_at, claim_opens_at, claim_closes_at, matched_lender_bank_ids",
+      )
+      .eq("deal_id", dealId)
+      .not("status", "eq", "expired")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    canSeal(dealId, sb),
+    loadScoreForResponse(dealId, sb),
+  ]);
 
-  // Document count (stage 2 — "upload documents").
-  const { count: documentsUploadedCount } = await sb
-    .from("deal_documents")
-    .select("id", { count: "exact", head: true })
-    .eq("deal_id", dealId);
-
-  // Franchise match — deal_franchises linked to an SBA-eligible brand.
-  const { data: franchiseLink } = await sb
-    .from("deal_franchises")
-    .select("brand_id")
-    .eq("deal_id", dealId)
-    .maybeSingle();
   let franchiseMatched = false;
   if (franchiseLink?.brand_id) {
     const { data: brand } = await sb
@@ -141,28 +166,17 @@ export async function GET(
     franchiseMatched = Boolean((brand as any)?.sba_eligible);
   }
 
-  // Current active listing if one exists.
-  const { data: listing } = await sb
-    .from("marketplace_listings")
-    .select(
-      "id, status, score, band, published_rate_bps, preview_opens_at, claim_opens_at, claim_closes_at, matched_lender_bank_ids",
-    )
-    .eq("deal_id", dealId)
-    .not("status", "eq", "expired")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  // Status polling is deliberately read-only. Expensive score, assumptions, and
-  // Trident work belongs to explicit mutation/workflow commands; running it
-  // from this frequently-polled GET caused production 30-second timeouts and
-  // allowed a page refresh to launch durable factory work.
-
-  // Gate evaluation (even when already sealed — surfaces re-seal readiness).
-  const gate = await canSeal(dealId, sb);
+  // Status polling is deliberately read-only. Expensive score, assumptions,
+  // and Trident work belongs to explicit mutation/workflow commands.
 
   if (listing) {
     const row = listing as any;
+    // Begin the picked-package manifest immediately; claim presentation is
+    // independent and should not delay it.
+    const manifestPromise: Promise<PackageManifest | null> =
+      row.status === "picked"
+        ? buildPackageManifest(dealId, "full", sb as any)
+        : Promise.resolve(null);
 
     // Active claims — the lenders who have claimed this listing. The borrower
     // needs these to pick a lender (the pick step previously had no data source,
@@ -200,10 +214,7 @@ export async function GET(
     // download). Computed here rather than exposed via a new route.ts to
     // stay under this repo's Vercel serverless-function slot budget (see
     // routeConsolidationGuard.test.ts).
-    let manifest: PackageManifest | null = null;
-    if (row.status === "picked") {
-      manifest = await buildPackageManifest(dealId, "full", sb as any);
-    }
+    const manifest = await manifestPromise;
 
     return NextResponse.json({
       ok: true,
@@ -230,7 +241,7 @@ export async function GET(
       },
       claims,
       manifest,
-      score: await loadScoreForResponse(dealId, sb),
+      score,
       canSeal: gate.ok,
       gateReasons: gate.ok ? [] : gate.reasons,
     });
@@ -246,7 +257,7 @@ export async function GET(
     facts,
     fieldProgress,
     sealed: false,
-    score: await loadScoreForResponse(dealId, sb),
+    score,
     canSeal: gate.ok,
     gateReasons: gate.ok ? [] : gate.reasons,
   });

@@ -1,7 +1,11 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import {
+  ensureDealBankAccess,
+  isDealBankAccessGrantFor,
+  type DealBankAccessGrant,
+} from "@/lib/tenant/ensureDealBankAccess";
 import { dealLabel } from "@/lib/deals/dealLabel";
 import type { CanonicalCreditMemoV1 } from "@/lib/creditMemo/canonical/types";
 import type { DebtCoverageRow, IncomeStatementRow, GuarantorBudget, ArBorrowingBaseSection, ArAgingBucketRow } from "@/lib/creditMemo/canonical/types";
@@ -27,6 +31,7 @@ import { loadResearchForMemo } from "@/lib/creditMemo/canonical/loadResearchForM
 import { buildBalanceSheetTable } from "@/lib/creditMemo/canonical/buildBalanceSheetTable";
 import { buildRatioAnalysisSuite } from "@/lib/creditMemo/canonical/buildRatioAnalysisSuite";
 import { buildStressTestTable } from "@/lib/creditMemo/canonical/buildStressTestTable";
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 import { buildQualitativeAssessment } from "@/lib/creditMemo/canonical/buildQualitativeAssessment";
 import { buildCovenantPackage } from "@/lib/covenants/covenantPackageBuilder";
 import type { CovenantPackage, DealType } from "@/lib/covenants/covenantTypes";
@@ -104,6 +109,29 @@ function metricValueFromSnapshot(args: {
     source: chosen ? `Snapshot:${args.label}:${chosen.source_type}:${chosen.fact_type}.${chosen.fact_key}` : `Snapshot:${args.label}`,
     updated_at: chosen?.created_at ?? null,
   };
+}
+
+/**
+ * Quantitative committee claims may only use direct/manual, spread, or document
+ * evidence. Inferred/ratio-derived facts remain visible diagnostically but cannot
+ * drive stress tolerances or publication claims.
+ */
+function snapshotMetricIsGoverned(
+  snapshot: DealFinancialSnapshotV1,
+  metric: SnapshotMetricName,
+): boolean {
+  const chosen = snapshot.sources_summary.find((entry) => entry.metric === metric)?.chosen;
+  if (!chosen) return false;
+  if (!["MANUAL", "SPREAD", "DOC_EXTRACT"].includes(chosen.source_type)) return false;
+  const authorityText = `${chosen.fact_type} ${chosen.fact_key} ${chosen.source_ref ?? ""}`;
+  return !/(?:inferred|estimated|derived[_ -]?(?:from)?[_ -]?(?:margin|ratio))/i.test(authorityText);
+}
+
+function policyProductId(product: string | null | undefined, loanAmount: number | null): string | null {
+  if (product === "SBA_7A") {
+    return loanAmount !== null && loanAmount <= 500_000 ? "SBA_7A_SMALL" : "SBA_7A_STANDARD";
+  }
+  return product ?? null;
 }
 
 function bindingToMetric(
@@ -188,6 +216,15 @@ export async function buildCanonicalCreditMemo(args: {
    * skips only the session lookup; the bank-scoped deal query below remains
    * mandatory and fails closed on a mismatched deal/bank pair. */
   executionContext?: "interactive" | "system";
+  /**
+   * Proof from ensureDealBankAccess* that this caller already authenticated
+   * for this exact (deal, bank). Replaces the former
+   * `executionContext: "authorized_route"` string, which any caller could
+   * assert without having run a guard (audit F-15). A grant cannot be
+   * constructed outside the tenant module and is bound to its deal and bank,
+   * so it can neither be forged nor replayed.
+   */
+  accessGrant?: DealBankAccessGrant;
 }): Promise<{ ok: true; memo: CanonicalCreditMemoV1 } | { ok: false; error: string }> {
   try {
     const mode: MemoRenderMode = args.renderMode ?? "internal_diagnostic";
@@ -204,7 +241,14 @@ export async function buildCanonicalCreditMemo(args: {
       if (dealErr) return { ok: false, error: `deal_select_failed:${dealErr.message}` };
       if (!dealRow) return { ok: false, error: "deal_not_found" };
       bankId = String(dealRow.bank_id);
-    } else if (args.executionContext !== "system") {
+    } else if (
+      args.executionContext !== "system" &&
+      !isDealBankAccessGrantFor(args.accessGrant, args.dealId, String(bankId))
+    ) {
+      // Two trusted paths skip only the interactive session lookup: a durable
+      // system worker, and a caller presenting a verified access grant. Both
+      // still pass through the bank-scoped deal query below, so neither can
+      // perform an unscoped or caller-selected tenant read.
       const access = await ensureDealBankAccess(args.dealId);
       if (!access.ok) return { ok: false, error: access.error };
       if (String(access.bankId) !== String(bankId)) return { ok: false, error: "tenant_mismatch" };
@@ -1151,6 +1195,12 @@ export async function buildCanonicalCreditMemo(args: {
     let stressTable: ReturnType<typeof buildStressTestTable> | null = null;
     const ebitdaForStress = metricValueFromSnapshot({ snapshot, metric: "ebitda", label: "EBITDA" }).value;
     const revenueForStress = metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Revenue" }).value;
+    const dscrPolicy = resolvePolicy("dscr_floor", {
+      productId: policyProductId(loanReq?.product_type, loanAmount.value),
+    });
+    const governedStressInputs =
+      snapshotMetricIsGoverned(snapshot, "ebitda") &&
+      snapshot.canonical_engine?.annualDebtService.source === "certified_fact";
     try {
       const grossProfit = metricValueFromSnapshot({ snapshot, metric: "gross_profit", label: "Gross Profit" }).value;
       const grossMargin =
@@ -1162,6 +1212,9 @@ export async function buildCanonicalCreditMemo(args: {
         annualDebtService: financial.annualDebtService.value,
         revenue: revenueForStress,
         grossMargin,
+        dscrFloor: dscrPolicy.effective,
+        policyCitation: dscrPolicy.citation,
+        inputsCertified: governedStressInputs,
       });
     } catch (err) {
       console.warn("[buildCanonicalCreditMemo] buildStressTestTable failed:", err);
@@ -1262,10 +1315,14 @@ export async function buildCanonicalCreditMemo(args: {
       }
     }
 
-    if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 1.25) {
-      strengths.push({ point: `Adequate debt service coverage (${financial.dscrGlobal.value.toFixed(2)}x)`, detail: null });
-    } else if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < 1.25) {
-      weaknesses.push({ point: `DSCR below policy minimum (${financial.dscrGlobal.value.toFixed(2)}x < 1.25x)`, mitigant: "Enhanced monitoring required" });
+    const effectiveDscrFloor = dscrPolicy.effective;
+    if (financial.dscrGlobal.value !== null && effectiveDscrFloor !== null && financial.dscrGlobal.value >= effectiveDscrFloor) {
+      strengths.push({ point: `Adequate debt service coverage (${financial.dscrGlobal.value.toFixed(2)}x)`, detail: dscrPolicy.citation });
+    } else if (financial.dscrGlobal.value !== null && effectiveDscrFloor !== null && financial.dscrGlobal.value < effectiveDscrFloor) {
+      weaknesses.push({
+        point: `DSCR below policy minimum (${financial.dscrGlobal.value.toFixed(2)}x < ${effectiveDscrFloor.toFixed(2)}x)`,
+        mitigant: "Enhanced monitoring required",
+      });
     }
 
     // ===== Phase 90 Part C: Enrich strengths/weaknesses from qualitative composite =====

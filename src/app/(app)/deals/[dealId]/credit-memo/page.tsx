@@ -9,9 +9,8 @@ import "server-only";
  */
 
 import Link from "next/link";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 import { redirect } from "next/navigation";
-import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
 import { buildMemoInputPackage } from "@/lib/creditMemo/inputs/buildMemoInputPackage";
 import CanonicalMemoTemplate from "@/components/creditMemo/CanonicalMemoTemplate";
@@ -42,10 +41,9 @@ export default async function DealCreditMemoPage(props: {
   params: Promise<{ dealId: string }>;
 }) {
   const { dealId } = await props.params;
-  await requireDealAccess(dealId);
-  const bankPick = await tryGetCurrentBankId();
-  if (!bankPick.ok) redirect("/select-bank");
-  const bankId = bankPick.bankId;
+  const access = await ensureDealBankAccessAllowingBrokerageStaff(dealId);
+  if (!access.ok) redirect(access.error === "unauthorized" ? "/sign-in" : "/deals");
+  const bankId = access.bankId;
 
   const sb = supabaseAdmin();
 
@@ -150,7 +148,12 @@ export default async function DealCreditMemoPage(props: {
       })
     : null;
 
-  const res = await buildCanonicalCreditMemo({ dealId, bankId });
+  const res = await buildCanonicalCreditMemo({
+    dealId,
+    bankId,
+    // Proof of the ensureDealBankAccessAllowingBrokerageStaff check above.
+    accessGrant: access.grant,
+  });
   if (res.ok) {
     const { data: cachedNarrative } = await sb
       .from("canonical_memo_narratives")

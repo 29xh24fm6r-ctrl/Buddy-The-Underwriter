@@ -61,6 +61,7 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T
  */
 async function nudgeArtifactProcessor(
   base: string,
+  secret: string,
   dealId: string,
   documentId: string | null,
 ): Promise<void> {
@@ -71,7 +72,7 @@ async function nudgeArtifactProcessor(
     try {
       const res = await fetch(`${base}/api/artifacts/process?max=3`, {
         method: "POST",
-        headers: { "x-buddy-internal": "1" },
+        headers: { Authorization: `Bearer ${secret}` },
       });
       if (res.ok) return; // Success
       console.warn("[files/record] nudge non-ok response", {
@@ -1057,8 +1058,16 @@ export async function POST(req: NextRequest, ctx: Context) {
 
       // Nudge artifact processor to drain queue (with retries; cron is safety net)
       const base = getBaseUrl();
-      if (base) {
-        void nudgeArtifactProcessor(base, dealId, documentId);
+      const workerSecret = process.env.WORKER_SECRET ?? process.env.CRON_SECRET;
+      if (base && workerSecret) {
+        void nudgeArtifactProcessor(base, workerSecret, dealId, documentId);
+      } else if (base) {
+        // The durable cron remains the safety net. Never fall back to a
+        // caller-controlled marker header when a server secret is absent.
+        console.warn("[files/record] artifact nudge skipped: worker auth is not configured", {
+          dealId,
+          documentId,
+        });
       }
     }
 

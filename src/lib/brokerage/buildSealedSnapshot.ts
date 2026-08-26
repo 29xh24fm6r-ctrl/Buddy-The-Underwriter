@@ -31,11 +31,31 @@ export type TridentDistributionBinding = {
   releaseGate: Record<string, unknown>;
   artifacts: {
     businessPlan: string;
-    projectionsPdf: string;
     projectionsXlsx: string;
     feasibility: string;
   };
 };
+
+/**
+ * The sealed-package artifact columns, derived from one certified final
+ * bundle. Single source of truth for what the seal route persists, so the
+ * columns can never drift from what `packageDelivery` reads back out:
+ * `final_projections_path` holds the XLSX workbook, because final mode
+ * produces no projections PDF (the redacted summary PDF is preview-only).
+ */
+export function sealedPackageArtifactColumns(
+  binding: TridentDistributionBinding,
+): {
+  final_business_plan_path: string;
+  final_projections_path: string;
+  final_feasibility_path: string;
+} {
+  return {
+    final_business_plan_path: binding.artifacts.businessPlan,
+    final_projections_path: binding.artifacts.projectionsXlsx,
+    final_feasibility_path: binding.artifacts.feasibility,
+  };
+}
 
 export type SealedSnapshotResult = {
   full: Record<string, unknown>;
@@ -165,7 +185,6 @@ export async function buildSealedSnapshot(args: {
     !trident.source_credit_memo_id ||
     !trident.source_spread_id ||
     !trident.business_plan_pdf_path ||
-    !trident.projections_pdf_path ||
     !trident.projections_xlsx_path ||
     !trident.feasibility_pdf_path
   ) {
@@ -181,7 +200,6 @@ export async function buildSealedSnapshot(args: {
     releaseGate: trident.release_gate_json as Record<string, unknown>,
     artifacts: {
       businessPlan: String(trident.business_plan_pdf_path),
-      projectionsPdf: String(trident.projections_pdf_path),
       projectionsXlsx: String(trident.projections_xlsx_path),
       feasibility: String(trident.feasibility_pdf_path),
     },

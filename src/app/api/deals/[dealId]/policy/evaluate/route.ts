@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { resolveDealApiContext } from "@/lib/server/dealApiContext";
 import { evaluateRules } from "@/lib/policy/rulesEngine";
 import type { PolicyEvaluationResult, UWContext } from "@/lib/policy/types";
 
@@ -43,44 +42,41 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const sb = await supabaseServer();
-  const { data: auth } = await sb.auth.getUser();
-  if (!auth?.user)
-    return NextResponse.json(
-      { ok: false, error: "not_authenticated" },
-      { status: 401 },
-    );
-
   const { dealId } = await ctx.params;
-  if (!dealId)
+  if (!dealId) {
     return NextResponse.json(
       { ok: false, error: "missing_deal_id" },
       { status: 400 },
     );
+  }
 
-  const bankId = await getCurrentBankId();
+  const access = await resolveDealApiContext(dealId);
+  if (!access.ok) {
+    return NextResponse.json(
+      { ok: false, error: access.error },
+      { status: access.status },
+    );
+  }
+  const { sb, bankId } = access;
 
   const dealRes = await sb
     .from("deals")
-    .select("id, bank_id, deal_type, borrower_email, next_action_json")
+    .select("deal_type, borrower_email, next_action_json")
     .eq("id", dealId)
     .maybeSingle();
 
-  if (dealRes.error)
+  if (dealRes.error) {
     return NextResponse.json(
       { ok: false, error: "deal_fetch_failed", detail: dealRes.error.message },
       { status: 500 },
     );
-  if (!dealRes.data)
+  }
+  if (!dealRes.data) {
     return NextResponse.json(
       { ok: false, error: "deal_not_found" },
       { status: 404 },
     );
-  if (String(dealRes.data.bank_id) !== String(bankId))
-    return NextResponse.json(
-      { ok: false, error: "wrong_bank" },
-      { status: 403 },
-    );
+  }
 
   let body: any = null;
   try {

@@ -46,21 +46,20 @@ export async function buildPackageManifest(dealId: string, accessLevel: "full"|"
   if (accessLevel === "none") return { dealId, sealedAt: null, accessLevel, resources: [] };
   const { data: sp } = await sb.from("buddy_sealed_packages").select("id, sealed_at, final_business_plan_path, final_projections_path, final_feasibility_path, final_credit_memo_path, final_forms_path, final_source_docs_zip_path").eq("deal_id", dealId).is("unsealed_at", null).limit(1).maybeSingle();
   if (!sp) return { dealId, sealedAt: null, accessLevel, resources: [] };
-  const b = await latestSucceededBundle(dealId, sb);
-  const { data: f } = await sb.from("sba_form_159_records").select("generated_pdf_path, status").eq("deal_id", dealId).in("status", ["generated","borrower_acknowledged","fully_acknowledged","locked"]).limit(1).maybeSingle();
-  // credit_memo has no stored path (rendered on demand — see the trident
-  // download dispatcher's credit_memo branch) — report available whenever a
-  // certified snapshot exists for this deal, so the UI doesn't offer a
-  // doomed download button.
-  const { data: memoSnapshot } = await sb.from("credit_memo_snapshots").select("id").eq("deal_id", dealId).in("status", ["banker_submitted", "underwriter_review", "returned", "finalized"]).limit(1).maybeSingle();
-  // sba_forms: buddy_sealed_packages.final_forms_path is never populated
-  // (same gap as the other final_* columns pre-pick-time-generation — see
-  // the marketplace/pick route). Falls back to the most recently assembled
-  // sba_package_runs row for this deal, if the 10-tab assembly pipeline
-  // (assembleTenTabPackage.ts, triggered manually via the sba/route.ts
-  // action dispatch — there is no automatic trigger yet) has ever actually
-  // run for it.
-  const assembledRun = sp.final_forms_path ? null : await getLatestAssembledPackageRun(dealId, sb);
+  // These resources are independent after the sealed package is known.
+  // Resolve them concurrently because this manifest is part of the frequently
+  // polled seal-status response for picked listings.
+  const [b, { data: f }, { data: memoSnapshot }, assembledRun] = await Promise.all([
+    latestSucceededBundle(dealId, sb),
+    sb.from("sba_form_159_records").select("generated_pdf_path, status").eq("deal_id", dealId).in("status", ["generated","borrower_acknowledged","fully_acknowledged","locked"]).limit(1).maybeSingle(),
+    // credit_memo has no stored path (rendered on demand — see the trident
+    // download dispatcher's credit_memo branch) — report available whenever
+    // a certified snapshot exists for this deal.
+    sb.from("credit_memo_snapshots").select("id").eq("deal_id", dealId).in("status", ["banker_submitted", "underwriter_review", "returned", "finalized"]).limit(1).maybeSingle(),
+    // final_forms_path is not populated for every historical package. Fall
+    // back to the latest assembled 10-tab package when necessary.
+    sp.final_forms_path ? Promise.resolve(null) : getLatestAssembledPackageRun(dealId, sb),
+  ]);
   const r: PackageResource[] = [
     res("business_plan", "Business Plan", str(sp.final_business_plan_path) ?? str(b?.business_plan_pdf_path as string | null | undefined)),
     // Final mode produces only the XLSX workbook (no redacted summary PDF —

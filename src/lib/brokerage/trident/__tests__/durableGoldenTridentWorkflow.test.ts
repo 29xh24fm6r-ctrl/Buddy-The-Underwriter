@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const route = readFileSync("src/app/api/brokerage/deals/[dealId]/trident/generate/route.ts", "utf8");
+const startHelper = readFileSync("src/lib/brokerage/trident/startTridentGeneration.ts", "utf8");
+const conciergeRoute = readFileSync("src/app/api/brokerage/concierge/route.ts", "utf8");
+const voiceDispatchRoute = readFileSync(
+  "src/app/api/brokerage/voice/[sessionId]/dispatch/route.ts",
+  "utf8",
+);
 const workflow = readFileSync("src/workflows/goldenTrident.ts", "utf8");
 const stages = readFileSync("src/lib/brokerage/trident/tridentFactoryStages.ts", "utf8");
 const generator = readFileSync("src/lib/brokerage/trident/generateTridentBundle.ts", "utf8");
@@ -19,6 +25,8 @@ const validationPass = readFileSync("src/lib/validation/buddyValidationPass.ts",
 const validationFacts = readFileSync("src/lib/validation/validationFacts.ts", "utf8");
 const canonicalMemoBuilder = readFileSync("src/lib/creditMemo/canonical/buildCanonicalCreditMemo.ts", "utf8");
 const canonicalMemoArtifact = readFileSync("src/lib/creditMemo/canonical/generateCanonicalMemoArtifact.ts", "utf8");
+const canonicalMemoRoute = readFileSync("src/app/api/deals/[dealId]/credit-memo/generate/route.ts", "utf8");
+const narrativeAssembly = readFileSync("src/lib/creditMemo/canonical/narrativeAssembly.ts", "utf8");
 const snapshot = readFileSync("src/lib/brokerage/trident/tridentInputSnapshot.ts", "utf8");
 const releaseGate = readFileSync("src/lib/brokerage/trident/tridentReleaseGate.ts", "utf8");
 const completionMigration = readFileSync(
@@ -53,9 +61,39 @@ const marketplaceCronRoute = readFileSync(
 );
 
 test("final Trident generation is accepted into a multi-stage durable workflow", () => {
-  assert.match(route, /start\(goldenTridentWorkflow/);
+  // Admission and workflow start live in one shared helper so every trigger
+  // surface has the same lifecycle; the route delegates to it.
+  assert.match(route, /startTridentGeneration\(/);
   assert.match(route, /status:\s*202/);
   assert.doesNotMatch(route, /await generateTridentBundle/);
+  assert.match(startHelper, /start\(goldenTridentWorkflow/);
+  assert.match(startHelper, /createTridentBundleRun\(/);
+  assert.match(startHelper, /workflow_run_id: run\.runId/);
+  assert.match(startHelper, /fail_trident_bundle_run/);
+  const workflowStartCatchEnd = startHelper.indexOf(
+    "const { error: runPersistError }",
+  );
+  assert.ok(workflowStartCatchEnd > 0, "tracking persistence must follow the workflow-start catch");
+  const startFailureBoundary = startHelper.slice(0, workflowStartCatchEnd);
+  const postStartBoundary = startHelper.slice(workflowStartCatchEnd);
+  assert.match(startFailureBoundary, /fail_trident_bundle_run/);
+  assert.match(startFailureBoundary, /p_input_hash: created\.inputHash/);
+  assert.doesNotMatch(
+    startFailureBoundary,
+    /\.select\("input_hash"\)/,
+    "startup cleanup must use the admitted input identity without a second database read",
+  );
+  assert.match(startFailureBoundary, /const \{ error: releaseError \}/);
+  assert.match(startFailureBoundary, /workflow start failed and lease release failed/);
+  assert.match(startFailureBoundary, /lease cleanup failed; retry after reconciliation/);
+  assert.match(generator, /inputHash: snapshot\.inputHash/);
+  assert.doesNotMatch(
+    postStartBoundary,
+    /fail_trident_bundle_run/,
+    "a tracking-write failure must not release a lease owned by a live workflow",
+  );
+  assert.match(postStartBoundary, /workflow started but identity persistence failed/);
+  assert.match(postStartBoundary, /return \{ ok: true, accepted: true/);
   assert.match(workflow, /"use workflow"/);
   assert.equal((workflow.match(/"use step"/g) ?? []).length, 6);
   assert.match(workflow, /prepare\(args\)/);
@@ -170,8 +208,44 @@ test("deterministic validation recognizes production canonical fact names and in
 });
 
 
+test("brokerage memo recovery preserves its preauthorized tenant and governed reviewer facts", () => {
+  assert.match(canonicalMemoRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
+  assert.match(canonicalMemoRoute, /accessGrant: access\.grant/);
+  assert.ok(
+    canonicalMemoRoute.indexOf("ensureDealBankAccessAllowingBrokerageStaff") <
+      canonicalMemoRoute.indexOf("accessGrant: access.grant"),
+    "brokerage authorization must precede trusted route execution",
+  );
+  assert.match(canonicalMemoBuilder, /isDealBankAccessGrantFor\(/);
+  assert.match(narrativeAssembly, /balance_sheet: memo\.financial_analysis\.balance_sheet_table/);
+  assert.match(narrativeAssembly, /total_liabilities: row\.total_liabilities/);
+  // #898 worded this instruction "Reconcile financial_trend DSCR values";
+  // #902 rewrote it and this guard went red. Assert the identifiers the
+  // prompt has to carry — per-period DSCR tied to that period's own
+  // denominator pair — rather than one draft's phrasing.
+  assert.match(narrativeAssembly, /financial_trend/);
+  assert.match(narrativeAssembly, /cash_flow_available/);
+  assert.match(narrativeAssembly, /debt_service/);
+  assert.match(narrativeAssembly, /calculated_dscr/);
+  // #905: the prompt must also route the period through reconciliation.
+  assert.match(narrativeAssembly, /underwriting_reconciliation/);
+});
+
 test("durable canonical-credit workers use an explicit bank-scoped system boundary", () => {
-  assert.match(canonicalMemoBuilder, /executionContext\?: "interactive" \| "system"/);
+  // Asserted as a set, not as one spelling of the union. Pinning this to a
+  // single literal is what went red on main when #898 widened it.
+  for (const context of ["interactive", "system"]) {
+    assert.match(
+      canonicalMemoBuilder,
+      new RegExp(`executionContext\\?:[^;]*"${context}"`),
+      `executionContext must still admit "${context}"`,
+    );
+  }
+  // Trust is now a verified grant, not a caller-asserted string. The
+  // "authorized_route" member this guard previously required is gone by
+  // design: any caller could assert it without having authenticated.
+  assert.match(canonicalMemoBuilder, /isDealBankAccessGrantFor\(args\.accessGrant/);
+  assert.doesNotMatch(canonicalMemoBuilder, /executionContext\?:[^;]*"authorized_route"/);
   assert.match(canonicalMemoBuilder, /args\.executionContext !== "system"/);
   assert.match(canonicalMemoBuilder, /\.eq\("bank_id", bankId\)/);
   assert.match(canonicalMemoArtifact, /executionContext: args\.executionContext/);
@@ -204,7 +278,7 @@ test("research tenant isolation uses the canonical bank membership wall", () => 
   assert.match(completionMigration, /grant execute[\s\S]*to service_role/);
 });
 
-test("the admitted snapshot includes borrower narrative and every research evidence layer", () => {
+test("the admitted snapshot captures every evidence layer without hashing research lifecycle", () => {
   assert.match(snapshot, /buddy_borrower_stories/);
   for (const table of [
     "buddy_research_sources",
@@ -215,9 +289,24 @@ test("the admitted snapshot includes borrower narrative and every research evide
   ]) {
     assert.match(snapshot, new RegExp(table));
   }
-  assert.match(snapshot, /version: 5/);
+  assert.match(snapshot, /version: 6/);
+  const sourcesStart = snapshot.indexOf("sources: {");
+  const governedStart = snapshot.indexOf("governedEvidenceAtAdmission: {");
+  const derivedStart = snapshot.indexOf("derivedAtAdmission: {");
+  assert.ok(sourcesStart >= 0 && governedStart > sourcesStart && derivedStart > governedStart);
+  const frozenSources = snapshot.slice(sourcesStart, governedStart);
+  const governedEvidence = snapshot.slice(governedStart, derivedStart);
+  assert.match(frozenSources, /financialFacts/);
+  assert.match(frozenSources, /assumptions/);
+  assert.doesNotMatch(frozenSources, /researchMissions/);
+  assert.match(governedEvidence, /researchMissions/);
+  assert.match(governedEvidence, /researchQualityGates/);
   assert.match(snapshot, /semanticTridentSnapshot/);
   assert.match(snapshot, /TRIDENT_VOLATILE_SNAPSHOT_KEYS/);
+  assert.match(snapshot, /summarizeTridentSourceDrift/);
+  assert.match(snapshot, /changed_sources=/);
+  assert.match(stages, /snapshot_manifest_json/);
+  assert.match(stages, /expectedManifest:/);
 });
 
 
@@ -309,7 +398,7 @@ test("commissioning and release share one hardened, governed research contract",
 
 
 test("input admission excludes factory-produced derivatives and canonicalizes before memo binding", () => {
-  assert.match(snapshot, /version:\s*5/);
+  assert.match(snapshot, /version:\s*6/);
   assert.match(snapshot, /sources:\s*\{/);
   assert.match(snapshot, /derivedAtAdmission:\s*\{/);
   const sourcesStart = snapshot.indexOf("sources: {");
@@ -327,4 +416,34 @@ test("input admission excludes factory-produced derivatives and canonicalizes be
   assert.match(stages, /memo_input_hash:\s*memo\.inputHash/);
   assert.match(workflow, /canonicalBinding/);
   assert.match(workflow, /\.\.\.canonicalBinding/);
+});
+
+/**
+ * Every Golden Trident trigger surface hands off to the durable workflow.
+ *
+ * The two borrower-facing surfaces used to await generateTridentBundle inline
+ * inside a 300s request. A preview run does LLM generation, an AI verifier
+ * pass, the feasibility engine and several PDF renders; exceeding the ceiling
+ * left the bundle holding a 90-minute lease in `running`, which blocks every
+ * retry until the janitor reconciles it. The borrower's chat reply is a fixed
+ * string and never depended on the result.
+ */
+test("no trigger surface generates a Trident bundle inside the request", () => {
+  for (const [name, src] of [
+    ["concierge", conciergeRoute],
+    ["voice dispatch", voiceDispatchRoute],
+    ["staff generate", route],
+  ] as const) {
+    assert.match(src, /startTridentGeneration\(/, `${name} must start the durable workflow`);
+    assert.doesNotMatch(
+      src,
+      /await\s+generateTridentBundle\s*\(/,
+      `${name} must not await inline generation`,
+    );
+    assert.equal(
+      src.includes('from "@/lib/brokerage/trident/generateTridentBundle"'),
+      false,
+      `${name} must not import the inline generator`,
+    );
+  }
 });

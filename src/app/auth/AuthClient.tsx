@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/shell/AppShell";
-import { getSupabaseClient } from "@/lib/supabase/client";
+import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 function AuthForm() {
   const [email, setEmail] = useState("");
@@ -26,9 +26,9 @@ function AuthForm() {
     setError(null);
 
     try {
-      const sb = getSupabaseClient();
+      const sb = getSupabaseBrowserClient();
 
-      const { error: authError } = await sb!.auth.signInWithOtp({
+      const { error: authError } = await sb.auth.signInWithOtp({
         email: email.trim(),
         options: {
           emailRedirectTo: `${window.location.origin}${next}`,

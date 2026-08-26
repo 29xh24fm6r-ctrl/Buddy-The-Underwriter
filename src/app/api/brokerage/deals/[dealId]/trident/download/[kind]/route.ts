@@ -79,6 +79,18 @@ type ResolvedActor = {
   bankId: string;
   actor: string;
   actorScope: "borrower" | "lender";
+  /**
+   * Mirrors marketplace_package_access.access_level. Only a `full` grant may
+   * reach final-mode artifacts, the on-demand credit memo, or the assembled
+   * SBA forms; a `preview` grant is confined to the preview bundle, matching
+   * how packageDelivery tiers the manifest. The borrower owns the deal and is
+   * always `full`.
+   *
+   * Previously this route read the grant's existence, bank, and revocation but
+   * never its level, so any future preview-tier grant would have received the
+   * complete final package (audit F-03).
+   */
+  accessLevel: "full" | "preview";
 };
 
 async function resolveActor(
@@ -87,7 +99,12 @@ async function resolveActor(
 ): Promise<ResolvedActor | null> {
   const session = await getBorrowerSession();
   if (session && session.deal_id === dealId) {
-    return { bankId: session.bank_id, actor: session.deal_id, actorScope: "borrower" };
+    return {
+      bankId: session.bank_id,
+      actor: session.deal_id,
+      actorScope: "borrower",
+      accessLevel: "full",
+    };
   }
 
   const accessId = req.nextUrl.searchParams.get("accessId");
@@ -99,7 +116,7 @@ async function resolveActor(
   const sb = supabaseAdmin();
   const { data: access } = await sb
     .from("marketplace_package_access")
-    .select("id, lender_bank_id, deal_id, revoked_at")
+    .select("id, lender_bank_id, deal_id, revoked_at, access_level")
     .eq("id", accessId)
     .maybeSingle();
 
@@ -119,7 +136,12 @@ async function resolveActor(
     .maybeSingle();
   if (!deal?.bank_id) return null;
 
-  return { bankId: String(deal.bank_id), actor: lender.userId, actorScope: "lender" };
+  return {
+    bankId: String(deal.bank_id),
+    actor: lender.userId,
+    actorScope: "lender",
+    accessLevel: (access as any).access_level === "full" ? "full" : "preview",
+  };
 }
 
 async function handleCreditMemoDownload(
@@ -221,6 +243,11 @@ export async function GET(
     return NextResponse.json({ ok: false }, { status: 404 });
   }
 
+  // A preview-tier grant never reaches the certified committee artifacts.
+  if (actorInfo.accessLevel !== "full" && (kind === "credit_memo" || kind === "sba_forms")) {
+    return NextResponse.json({ ok: false }, { status: 404 });
+  }
+
   if (kind === "credit_memo") {
     return handleCreditMemoDownload(dealId, actorInfo);
   }
@@ -232,15 +259,19 @@ export async function GET(
   const sb = supabaseAdmin();
 
   // Prefer final, fall back to preview. Two small queries are clearer than a
-  // clever ORDER BY.
-  const { data: finalBundle } = await sb
-    .from("buddy_trident_bundles")
-    .select("*")
-    .eq("deal_id", dealId)
-    .eq("mode", "final")
-    .eq("status", "succeeded")
-    .is("superseded_at", null)
-    .maybeSingle();
+  // clever ORDER BY. A preview-tier grant skips the final lookup entirely so
+  // it can only ever be served the redacted preview bundle.
+  const { data: finalBundle } =
+    actorInfo.accessLevel === "full"
+      ? await sb
+          .from("buddy_trident_bundles")
+          .select("*")
+          .eq("deal_id", dealId)
+          .eq("mode", "final")
+          .eq("status", "succeeded")
+          .is("superseded_at", null)
+          .maybeSingle()
+      : { data: null };
 
   const bundle =
     finalBundle ??

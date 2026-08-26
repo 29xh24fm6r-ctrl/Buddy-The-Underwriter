@@ -34,6 +34,10 @@ import {
 } from "./sbaPackageRenderer";
 import {
   redactSBAPackageForPreview,
+  redactMonthlyProjectionsForPreview,
+  redactBreakEvenForPreview,
+  redactSensitivityScenariosForPreview,
+  redactRevenueStreamProjectionsForPreview,
   type SBAPackageInputs,
 } from "@/lib/brokerage/trident/redactor";
 import { buildSourcesAndUses } from "./sbaSourcesAndUses";
@@ -874,11 +878,24 @@ export async function generateSBAPackage(
         ? redactSBAPackageForPreview(redactionInput)
         : redactionInput;
 
+    // Projection detail the scoped redactor above does not cover. The
+    // renderer prints all of it verbatim, so preview redaction has to happen
+    // here at the data layer — a watermark is a cosmetic overlay and does not
+    // satisfy the redactor's contract (audit F-13). Buckets match the annual
+    // projections, so trend and DSCR survive and precision does not.
+    const previewMonthly =
+      mode === "preview" ? redactMonthlyProjectionsForPreview(monthlyProjections) : monthlyProjections;
+    const previewBreakEven = mode === "preview" ? redactBreakEvenForPreview(breakEven) : breakEven;
+    const previewSensitivity =
+      mode === "preview" ? redactSensitivityScenariosForPreview(sensitivityScenarios) : sensitivityScenarios;
+    const previewRevenueStreams =
+      mode === "preview" && revenueStreamProjections
+        ? redactRevenueStreamProjectionsForPreview(revenueStreamProjections)
+        : revenueStreamProjections;
+
     // Build renderer input: use redacted fields where the redactor produced
-    // them, keep orchestrator-only fields (monthlyProjections, breakEven,
-    // sensitivityScenarios, managementTeam, franchiseSection, balance sheet,
-    // globalCashFlow) as-is. Preview mode for those additional fields is
-    // handled by the watermark and by the redactor's scoped set.
+    // them, keep orchestrator-only fields (managementTeam, franchiseSection)
+    // as-is — those carry no precise borrower figures.
     finalRenderInput = {
       dealName: redacted.dealName,
       loanType: redacted.loanType,
@@ -893,10 +910,10 @@ export async function generateSBAPackage(
           redacted.annualProjections[i]?.totalDebtService ?? p.totalDebtService,
         dscr: redacted.annualProjections[i]?.dscr ?? p.dscr,
       })),
-      monthlyProjections,
-      revenueStreamProjections,
-      breakEven,
-      sensitivityScenarios,
+      monthlyProjections: previewMonthly,
+      revenueStreamProjections: previewRevenueStreams,
+      breakEven: previewBreakEven,
+      sensitivityScenarios: previewSensitivity,
       useOfProceeds: useOfProceeds.map((u, i) => ({
         ...u,
         amount: redacted.useOfProceeds[i]?.amount ?? u.amount,

@@ -34,8 +34,8 @@ export type MemoNarratives = {
 
 const NARRATIVES_SCHEMA = `{
   "executive_summary": "2-3 paragraphs: lead with verdict + DSCR, then deal structure, then key risks. Committee should reach a preliminary judgment from this section alone.",
-  "income_analysis": "One paragraph per applicable ratio category (Liquidity/Leverage/Coverage/Profitability/Activity). Each paragraph names borrower, cites specific ratio values with units, uses Strong/Adequate/Weak labels, references benchmarks. Coverage paragraph must state DSCR in dollars and the revenue cushion % from stress testing. Close with synthesis paragraph tying Five Cs composite to repayment thesis. Minimum 4 paragraphs for a deal with full data.",
-  "repayment_analysis": "1-2 paragraphs synthesizing the stress test results. State the specific revenue decline % the business can absorb before breaching 1.25x DSCR, cite the breakeven revenue figure, name the worst-case stress scenario and its DSCR outcome. Connect to the proposed covenant structure.",
+  "income_analysis": "One paragraph per applicable ratio category (Liquidity/Leverage/Coverage/Profitability/Activity). Cite only governed values present in the input. For every financial_trend period, use that row\'s cash_flow_available and debt_service as the denominator pair for calculated_dscr; never compare a period DSCR to the underwriting DSCR without naming both periods and bases. If periods differ, name the period and basis rather than implying a contradiction. If governed stress evidence is present, state DSCR in dollars and the EBITDA cushion to the governed floor. If it is absent, identify the evidence gap without estimating. Close with a synthesis tying Five Cs to repayment.",
+  "repayment_analysis": "Synthesize only governed stress results present in the input. State the policy floor and citation, EBITDA cushion (never call it revenue cushion), and worst modeled DSCR when available. Otherwise state that quantitative stress is withheld pending governed EBITDA and debt-service evidence. Connect to covenant structure without inventing a policy threshold.",
   "property_description": "1 paragraph: collateral type, condition, location, market context, advance rate applied.",
   "borrower_background": "1 paragraph: legal entity, ownership structure with percentages, operating history, geography.",
   "borrower_experience": "1 paragraph: management track record, relevant industry experience, how they manage seasonal/cyclical risk.",
@@ -149,6 +149,18 @@ export function buildNarrativeInput(
     ebitda: memo.financial_analysis.ebitda.value,
     net_income: memo.financial_analysis.net_income.value,
 
+    // ── Governed balance-sheet anchors ──────────────────────────────────
+    // Ratio interpretations are commentary, not fact authority. Expose the
+    // underlying canonical rows so every leverage/debt dollar cited by the
+    // generator and reviewer traces to a governed top-level input.
+    balance_sheet: memo.financial_analysis.balance_sheet_table.map((row) => ({
+      period_end: row.period_end,
+      total_assets: row.total_assets,
+      total_liabilities: row.total_liabilities,
+      long_term_debt: row.mortgages_notes_bonds,
+      total_equity: row.total_equity,
+    })),
+
     // ── Phase 92: risk grade + covenant rationale ───────────────────────
     risk_grade: memo.recommendation.risk_grade,
     covenant_rationale: memo.covenant_package?.rationale ?? null,
@@ -189,6 +201,10 @@ export function buildNarrativeInput(
       ? {
           narrative: stress.narrative,
           revenue_cushion_pct: stress.revenue_cushion_pct,
+          ebitda_cushion_pct: stress.ebitda_cushion_pct,
+          policy_dscr_floor: stress.policy_dscr_floor,
+          policy_citation: stress.policy_citation,
+          inputs_certified: stress.inputs_certified,
           breakeven_revenue_1x: stress.breakeven_revenue_1x,
           breakeven_ebitda_125x: stress.breakeven_ebitda_125x,
           worst_case_dscr: stress.worst_case_dscr,
@@ -222,8 +238,34 @@ export function buildNarrativeInput(
       label: row.label,
       revenue: row.revenue,
       cash_flow_available: row.cash_flow_available,
+      debt_service: row.debt_service,
       dscr: row.dscr,
+      calculated_dscr:
+        typeof row.cash_flow_available === "number" &&
+        typeof row.debt_service === "number" &&
+        row.debt_service > 0
+          ? row.cash_flow_available / row.debt_service
+          : null,
+      basis: "cash_flow_available / period_debt_service",
     })),
+
+    // Give generation and review the same explicit bridge between the current
+    // underwriting metric and each historical/trend period. This prevents a
+    // reviewer from treating two correctly calculated, differently based DSCRs
+    // as a contradiction or accepting a narrative that silently mixes them.
+    underwriting_reconciliation: {
+      cash_flow_available: memo.financial_analysis.cash_flow_available.value,
+      debt_service: memo.financial_analysis.debt_service.value,
+      dscr: memo.key_metrics.dscr_uw.value,
+      calculated_dscr:
+        typeof memo.financial_analysis.cash_flow_available.value === "number" &&
+        typeof memo.financial_analysis.debt_service.value === "number" &&
+        memo.financial_analysis.debt_service.value > 0
+          ? memo.financial_analysis.cash_flow_available.value /
+            memo.financial_analysis.debt_service.value
+          : null,
+      basis: "underwriting_cash_flow_available / underwriting_debt_service",
+    },
 
     // ── Phase 92 (d): business context from overrides ───────────────────
     business_context: {
@@ -348,7 +390,7 @@ export async function assembleNarratives(args: {
     "2. Every ratio mentioned MUST include its value: not \"strong DSCR\" but \"DSCR of 1.42x\".",
     "3. Every dollar amount must be specific: not \"substantial revenue\" but \"$1.36M in revenue\".",
     "4. Never contradict the ratio_suite assessments — if a ratio is labeled Weak, you must name it as a weakness with its value.",
-    "5. Never use the words \"Pending\", \"N/A\", or \"unavailable\". If data is absent, omit.",
+    "5. If a decision-critical input is absent or not governed, state the specific evidence gap. Do not estimate around it.",
     "6. Never invent numbers. Every claim must trace to a value in the input JSON.",
     "7. Connect every metric to repayment capacity. \"DSCR of 1.42x\" without \"generating $X above the $Y debt service requirement\" is incomplete.",
     "",
@@ -361,19 +403,20 @@ export async function assembleNarratives(args: {
     "- Open by naming the category and its overall assessment",
     "- Name each ratio in the category with its exact value and unit",
     "- Use the assessment label (Strong/Adequate/Weak) verbatim for each ratio",
-    "- Reference the benchmark_note where it materially frames committee judgment (especially DSCR at 1.25x institutional minimum, Debt/EBITDA ceiling, FCCR)",
+    "- Reference benchmark_note only where supplied; the stress.policy_dscr_floor and stress.policy_citation are the sole DSCR policy authority",
     "- Connect to repayment capacity explicitly",
     "",
     "Required: Coverage paragraph MUST include:",
     "- DSCR value AND what it means in dollars (CFA vs ADS, and the dollar cushion)",
     "- Stressed DSCR and the specific rate shock scenario",
-    "- Stress test result: revenue cushion % and breakeven revenue at 1.25x",
-    "  Example sentence: \"[Borrower] can sustain a [X]% revenue decline before DSCR falls below the 1.25x institutional floor, implying a breakeven revenue of $[X].\"",
+    "- When stress.inputs_certified is true: governed DSCR floor, EBITDA cushion %, and worst-case modeled DSCR",
+    "- When stress.inputs_certified is false: identify the governed-evidence gap; do not provide a decline tolerance",
+    "- Never translate EBITDA decline into revenue decline without an explicit cost model",
     "",
     "Close income_analysis with a synthesis paragraph that connects the Five Cs composite score (if available) to the overall repayment thesis.",
     "",
     "REPAYMENT_ANALYSIS (new section):",
-    "1-2 paragraphs synthesizing the stress test results. State the specific revenue decline % the business can absorb before breaching 1.25x DSCR, cite the breakeven revenue figure, name the worst-case stress scenario and its DSCR outcome. Connect to the proposed covenant structure if covenant_rationale is present.",
+    "1-2 paragraphs synthesizing governed stress evidence. Use stress.policy_dscr_floor and stress.policy_citation as the only threshold authority. State EBITDA cushion and the worst-case result only when stress.inputs_certified is true. Otherwise disclose the evidence gap. Connect to covenant rationale without presenting a different threshold as policy.",
     "",
     "EXECUTIVE_SUMMARY:",
     "Lead with the verdict and the most important number.",

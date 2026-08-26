@@ -423,5 +423,30 @@
     "name": "crm_lender_profiles.marketplace_last_active_at",
     "type": "column",
     "migration": "20260825190000_crm_marketplace_relationship_ux.sql"
+  },
+  {
+    "name": "deals.crm_tracking_only",
+    "type": "column",
+    "migration": "20260825210000_crm_external_deal_tracking.sql"
+  },
+  {
+    "name": "deals.external_deal_source",
+    "type": "column",
+    "migration": "20260825210000_crm_external_deal_tracking.sql"
+  },
+  {
+    "name": "deals.external_reference",
+    "type": "column",
+    "migration": "20260825210000_crm_external_deal_tracking.sql"
+  },
+  {
+    "name": "increment_continue_usage",
+    "type": "function",
+    "migration": "20260826163000_usage_function_privilege_boundary.sql"
+  },
+  {
+    "name": "finalize_intake_and_enqueue_processing",
+    "type": "function",
+    "migration": "20260827010000_atomic_intake_locking.sql"
   }
 ]

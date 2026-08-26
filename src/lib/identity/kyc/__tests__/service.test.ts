@@ -413,3 +413,42 @@ test("reconcileVerification: a Declined vendor session lands as declined, not si
   assert.equal(row.completed_at, null, "a declined verification must never be stamped complete");
   assert.equal(await hasValidIal2("d1", "o1", db as any), false);
 });
+
+
+test("reconcileVerification: performs one canonical vendor read and no redundant decision request", async () => {
+  const db = new FakeDb({
+    borrower_identity_verifications: [
+      {
+        id: "v1",
+        deal_id: "d1",
+        ownership_entity_id: "o1",
+        vendor: "didit",
+        vendor_inquiry_id: "sess_1",
+        status: "created",
+        completed_at: null,
+        created_at: "2026-08-25",
+      },
+    ],
+  });
+
+  let canonicalReads = 0;
+  let redundantDecisionReads = 0;
+  const didit = fakeDidit({
+    fetchDiditSession: async (id: string) => {
+      canonicalReads += 1;
+      return { session_id: id, status: "Approved" };
+    },
+    getDiditSessionDecision: async (id: string) => {
+      redundantDecisionReads += 1;
+      return { session_id: id, status: "Approved" };
+    },
+  });
+
+  const result = await reconcileVerification("v1", { sb: db as any, didit });
+
+  assert.equal(result.ok, true);
+  assert.equal(canonicalReads, 1, "reconciliation should read canonical vendor state exactly once");
+  assert.equal(redundantDecisionReads, 0, "successful reconciliation must not repeat the same decision GET");
+  assert.equal(db.tables.borrower_identity_verifications[0].status, "approved");
+  assert.ok(db.tables.borrower_identity_verifications[0].completed_at);
+});

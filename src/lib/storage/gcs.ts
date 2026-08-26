@@ -154,3 +154,10 @@ export async function gcsObjectExists(args: { bucket: string; key: string }): Pr
   const [exists] = await storage.bucket(args.bucket).file(args.key).exists();
   return exists;
 }
+
+
+/** Delete an unreferenced object after content de-duplication. */
+export async function deleteGcsObject(args: { bucket: string; key: string }): Promise<void> {
+  const storage = await getGcsStorage();
+  await storage.bucket(args.bucket).file(args.key).delete({ ignoreNotFound: true });
+}

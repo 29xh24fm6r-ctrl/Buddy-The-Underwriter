@@ -64,11 +64,13 @@ function canonicalize(value: unknown): unknown {
 }
 
 export function hashTridentManifest(manifest: Record<string, unknown>): string {
-  // Version 5 separates governed source inputs from factory-produced
-  // derivatives. A run may materialize snapshots, validation evidence, memos,
-  // and spreads without invalidating its own admission.
+  // V6 separates borrower/underwriting inputs from asynchronously governed
+  // evidence and factory-produced derivatives. Research remains in the audit
+  // manifest and is enforced by readiness/release, but its lifecycle workers
+  // may not invalidate the factory's own frozen borrower snapshot.
   const hashDomain =
-    manifest.version === 5 && manifest.sources && typeof manifest.sources === "object"
+    (manifest.version === 5 || manifest.version === 6) &&
+      manifest.sources && typeof manifest.sources === "object"
       ? manifest.sources
       : manifest;
   return createHash("sha256")
@@ -153,10 +155,11 @@ export async function computeTridentInputSnapshot(
   ]);
 
   const manifest = canonicalize({
-    version: 5,
-    // Only borrower, underwriting, and governed research sources participate
-    // in inputHash. Financial snapshots and validation reports are derived
-    // materializations produced by the canonical factory itself.
+    version: 6,
+    // Freeze only borrower and underwriting source-of-truth rows. Governed
+    // research is retained below for provenance and independently required by
+    // readiness/release, while asynchronous lifecycle convergence cannot make
+    // an admitted factory invalidate itself.
     sources: {
       deal: dealResult.data,
       pricingDecisions,
@@ -167,6 +170,8 @@ export async function computeTridentInputSnapshot(
       documents,
       proceeds,
       applications,
+    },
+    governedEvidenceAtAdmission: {
       researchMissions,
       researchSources,
       researchFacts,
@@ -191,15 +196,38 @@ export async function computeTridentInputHash(
   return (await computeTridentInputSnapshot(sb, dealId)).inputHash;
 }
 
+export function summarizeTridentSourceDrift(
+  admittedManifest: Record<string, unknown> | null | undefined,
+  currentManifest: Record<string, unknown>,
+): string[] {
+  const admittedSources =
+    admittedManifest?.sources && typeof admittedManifest.sources === "object"
+      ? admittedManifest.sources as JsonRecord
+      : {};
+  const currentSources =
+    currentManifest.sources && typeof currentManifest.sources === "object"
+      ? currentManifest.sources as JsonRecord
+      : {};
+  return [...new Set([...Object.keys(admittedSources), ...Object.keys(currentSources)])]
+    .sort()
+    .filter((key) =>
+      JSON.stringify(canonicalize(semanticTridentSnapshot(admittedSources[key]))) !==
+      JSON.stringify(canonicalize(semanticTridentSnapshot(currentSources[key]))),
+    );
+}
+
 export async function assertTridentInputSnapshot(args: {
   sb: SupabaseClient;
   dealId: string;
   expectedHash: string;
+  expectedManifest?: Record<string, unknown> | null;
 }): Promise<void> {
-  const currentHash = await computeTridentInputHash(args.sb, args.dealId);
-  if (currentHash !== args.expectedHash) {
+  const current = await computeTridentInputSnapshot(args.sb, args.dealId);
+  if (current.inputHash !== args.expectedHash) {
+    const changedSources = summarizeTridentSourceDrift(args.expectedManifest, current.manifest);
     throw new Error(
-      `input_snapshot_changed: admitted=${args.expectedHash} current=${currentHash}`,
+      `input_snapshot_changed: admitted=${args.expectedHash} current=${current.inputHash}` +
+        (changedSources.length > 0 ? ` changed_sources=${changedSources.join(",")}` : ""),
     );
   }
 }

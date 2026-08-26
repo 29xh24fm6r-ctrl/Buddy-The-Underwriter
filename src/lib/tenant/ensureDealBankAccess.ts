@@ -4,8 +4,50 @@ import { getBrokerageBankId } from "./brokerage";
 import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+/**
+ * Proof that an authenticated access check actually ran for a (deal, bank).
+ *
+ * Audit F-15: the canonical memo builder used to accept the plain string
+ * `executionContext: "authorized_route"` to skip its own tenant check, on the
+ * documented promise that the caller had authenticated first. That promise
+ * was enforced only by source-regex guards naming two specific files, so a
+ * third caller could claim authorization it never performed.
+ *
+ * The brand symbol is module-private: a grant cannot be constructed outside
+ * this file, and it carries the (dealId, bankId) it was issued for so it
+ * cannot be replayed against a different deal.
+ */
+const ACCESS_GRANT_BRAND = Symbol("dealBankAccessGrant");
+
+export type DealBankAccessGrant = {
+  readonly [ACCESS_GRANT_BRAND]: true;
+  readonly dealId: string;
+  readonly bankId: string;
+};
+
+function issueGrant(dealId: string, bankId: string): DealBankAccessGrant {
+  return { [ACCESS_GRANT_BRAND]: true, dealId, bankId };
+}
+
+/**
+ * Verify a grant was issued by this module for exactly this (deal, bank).
+ * Anything else — a hand-built object, a grant for another deal — is refused.
+ */
+export function isDealBankAccessGrantFor(
+  grant: DealBankAccessGrant | undefined,
+  dealId: string,
+  bankId: string,
+): boolean {
+  return (
+    !!grant &&
+    grant[ACCESS_GRANT_BRAND] === true &&
+    grant.dealId === dealId &&
+    grant.bankId === bankId
+  );
+}
+
 type EnsureResult =
-  | { ok: true; dealId: string; bankId: string; userId: string }
+  | { ok: true; dealId: string; bankId: string; userId: string; grant: DealBankAccessGrant }
   | { ok: false; error: "deal_not_found" | "tenant_mismatch" | "unauthorized"; detail?: string };
 
 /**
@@ -51,7 +93,7 @@ export async function ensureDealBankAccess(dealId: string): Promise<EnsureResult
       return { ok: false, error: "tenant_mismatch", detail: `user bank ${userBankId} != deal bank ${deal.bank_id}` };
     }
 
-    return { ok: true, dealId: deal.id, bankId: deal.bank_id, userId };
+    return { ok: true, dealId: deal.id, bankId: deal.bank_id, userId, grant: issueGrant(deal.id, deal.bank_id) };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown";
     console.warn("[ensureDealBankAccess] error", { dealId, userId, userBankId, error: msg });
@@ -93,7 +135,7 @@ export async function ensureDealBankAccessAllowingBrokerageStaff(dealId: string)
       const brokerageBankId = await getBrokerageBankId();
       if (deal.bank_id === brokerageBankId) {
         const { userId } = await requireBrokerageStaff();
-        return { ok: true, dealId: deal.id, bankId: deal.bank_id, userId };
+        return { ok: true, dealId: deal.id, bankId: deal.bank_id, userId, grant: issueGrant(deal.id, deal.bank_id) };
       }
     }
   } catch {

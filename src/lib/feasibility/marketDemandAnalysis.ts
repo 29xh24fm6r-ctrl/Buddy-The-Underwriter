@@ -24,7 +24,27 @@ export function analyzeMarketDemand(
   dataPoints++;
   let populationScore: DimensionScore;
 
-  if (input.tradeArea?.populationRadius5mi != null) {
+  const naicsSector = input.naicsCode?.replace(/\\D/g, "").slice(0, 2) ?? "";
+  const consumerPopulationMetricApplicable = !["31", "32", "33"].includes(naicsSector);
+
+  if (!consumerPopulationMetricApplicable) {
+    // Not applicable is neither evidence nor a missing-data gap.
+    dataPoints--;
+    populationScore = {
+      score: 50,
+      weight: 0.3,
+      dataSource: "Not applicable — manufacturing demand is B2B",
+      dataAvailable: false,
+      detail:
+        `NAICS ${input.naicsCode} is manufacturing. Consumer trade-area population and revenue-per-capita are not decision-useful demand measures for this B2B borrower.`,
+    };
+    flags.push({
+      severity: "info",
+      dimension: "populationAdequacy",
+      message:
+        "Consumer population adequacy excluded from decision evidence for this manufacturing borrower.",
+    });
+  } else if (input.tradeArea?.populationRadius5mi != null) {
     dataAvailable++;
     const pop = input.tradeArea.populationRadius5mi;
 
@@ -207,7 +227,22 @@ export function analyzeMarketDemand(
   dataPoints++;
   let trendScore: DimensionScore;
 
-  if (input.tradeArea?.populationGrowthRate5yr != null) {
+  if (!consumerPopulationMetricApplicable && input.industryGrowthRate != null) {
+    dataAvailable++;
+    const growthRate = input.industryGrowthRate;
+    let score = 60;
+    if (growthRate > 0.02) score = 85;
+    if (growthRate > 0.01) score = 75;
+    if (growthRate < 0) score = 40;
+    if (growthRate < -0.01) score = 25;
+    trendScore = {
+      score,
+      weight: 0.2,
+      dataSource: "Governed industry market-growth research",
+      dataAvailable: true,
+      detail: `Industry market growth: ${(growthRate * 100).toFixed(1)}%.`,
+    };
+  } else if (input.tradeArea?.populationGrowthRate5yr != null) {
     dataAvailable++;
     const growthRate = input.tradeArea.populationGrowthRate5yr;
     const annualized = Math.pow(1 + growthRate, 1 / 5) - 1;

@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
+import { hasValidAdminDebugToken } from "@/lib/auth/hasValidAdminDebugToken";
 
 export const dynamic = "force-dynamic";
 
@@ -12,15 +13,15 @@ export const dynamic = "force-dynamic";
  * without needing browser cookies. Protected by ADMIN_DEBUG_TOKEN env var.
  * 
  * Usage:
- *   curl -sS "$APP_URL/api/admin/deals/$DEAL_ID/checklist/debug?token=$ADMIN_DEBUG_TOKEN" | jq
+ *   curl -sS -H "Authorization: Bearer $ADMIN_DEBUG_TOKEN" \
+ *     "$APP_URL/api/admin/deals/$DEAL_ID/checklist/debug" | jq
  */
 export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> }
 ) {
-  const url = new URL(req.url);
 
-  // Allow either Clerk super-admin OR an explicit debug token (for terminal debugging).
+  // Allow either Clerk super-admin OR an explicit bearer token (for terminal debugging).
   let isSuperAdmin = false;
   try {
     await requireSuperAdmin();
@@ -29,9 +30,7 @@ export async function GET(
     isSuperAdmin = false;
   }
   if (!isSuperAdmin) {
-    const token = url.searchParams.get("token") || "";
-    const expected = process.env.ADMIN_DEBUG_TOKEN || "";
-    if (!expected || token !== expected) {
+    if (!hasValidAdminDebugToken(req)) {
       return NextResponse.json(
         { ok: false, error: "unauthorized" },
         { status: 401 },

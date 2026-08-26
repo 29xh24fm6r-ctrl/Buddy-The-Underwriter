@@ -69,8 +69,19 @@ function makeQB(table: string) {
     // Array-returning queries with no terminal .maybeSingle() call —
     // ownersNeedingIal2's ownership_entities lookup.
     then(resolve: (r: { data: any; error: null }) => void) {
-      const data = table === "ownership_entities" ? state.owners : [];
-      resolve({ data, error: null });
+      if (table === "ownership_entities") {
+        resolve({ data: state.owners, error: null });
+        return;
+      }
+      if (table === "borrower_identity_verifications") {
+        const requested = new Set(this._filters["ownership_entity_id"]?.in ?? []);
+        const data = Array.from(state.verifiedOwnerIds)
+          .filter((ownerId) => requested.has(ownerId))
+          .map((ownerId) => ({ ownership_entity_id: ownerId }));
+        resolve({ data, error: null });
+        return;
+      }
+      resolve({ data: [], error: null });
     },
   };
   return q;
@@ -95,7 +106,10 @@ function resetHappy() {
     source_credit_memo_id: "memo-1",
     source_spread_id: "spread-1",
     business_plan_pdf_path: "final/business-plan.pdf",
-    projections_pdf_path: "final/projections.pdf",
+    // Final mode publishes no projections PDF — the redacted summary PDF is
+    // preview-only. This fixture previously carried a fabricated path, which
+    // hid the fact that canSeal demanded an artifact the factory never writes.
+    projections_pdf_path: null,
     projections_xlsx_path: "final/projections.xlsx",
     feasibility_pdf_path: "final/feasibility.pdf",
   };

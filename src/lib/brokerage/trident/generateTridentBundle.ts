@@ -29,7 +29,10 @@ import { renderProjectionsXlsx } from "./projectionsXlsx";
 import { renderProjectionsPreviewPdf } from "./projectionsPreviewPdf";
 import {
   REDACTOR_VERSION,
+  bucketPreviewRevenue,
+  bucketPreviewDscr,
   redactFeasibilityForPreview,
+  redactFeasibilityDetailForPreview,
 } from "./redactor";
 import {
   assessBusinessPlanNarratives,
@@ -50,7 +53,13 @@ export async function createTridentBundleRun(args: {
   dealId: string;
   mode: TridentBundleMode;
 }): Promise<
-  | { ok: true; bundleId: string; reused: boolean; leaseToken: string }
+  | {
+      ok: true;
+      bundleId: string;
+      reused: boolean;
+      leaseToken: string;
+      inputHash: string;
+    }
   | { ok: false; error: string }
 > {
   const sb = supabaseAdmin();
@@ -72,6 +81,9 @@ export async function createTridentBundleRun(args: {
       bundleId: String(admitted.bundle_id),
       reused: admitted.reused === true,
       leaseToken: String(admitted.lease_token),
+      // Keep the admission identity with the lease. Startup cleanup must not
+      // depend on a second database read that can fail independently.
+      inputHash: snapshot.inputHash,
     };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -423,10 +435,15 @@ export async function generateTridentBundle(args: {
 
         const previewBuf = await renderProjectionsPreviewPdf({
           dealName: "Borrower",
-          year1Revenue:
+          // Bucketed to the same $25K/one-decimal scale the redactor applies
+          // everywhere else, so this summary cannot disclose a finer figure
+          // than the artifacts it summarises (audit F-16).
+          year1Revenue: bucketPreviewRevenue(
             typeof year1Revenue === "number" ? year1Revenue : null,
-          year1Dscr:
+          ),
+          year1Dscr: bucketPreviewDscr(
             typeof dscrYear1Base === "number" ? dscrYear1Base : null,
+          ),
           breakEvenMonth:
             breakEven && typeof breakEven.breakEvenMonth === "number"
               ? breakEven.breakEvenMonth
@@ -454,6 +471,14 @@ export async function generateTridentBundle(args: {
       projections_xlsx_path: projectionsXlsxPath,
       current_stage: "projections",
       last_heartbeat_at: new Date().toISOString(),
+      // Redaction provenance. redactor.ts's contract is "every change bumps
+      // REDACTOR_VERSION; the bundle row records the version used", and both
+      // latest-preview endpoints surface it — but nothing ever wrote it, so
+      // every bundle reported null. Without it there is no way to tell which
+      // stored preview artifacts came from which redactor, which is exactly
+      // what the column is for after a redaction fix. Final mode applies no
+      // redaction, so it stays null.
+      redactor_version: mode === "preview" ? REDACTOR_VERSION : null,
     }).eq("id", bundleId).eq("lease_token", args.leaseToken);
     if (projectionsPersistError) throw new Error(`Projection manifest write failed: ${projectionsPersistError.message}`);
 
@@ -779,18 +804,31 @@ async function renderFeasibilityPreview(
     narratives: rawNarratives,
   });
 
+  // The dimension detail trees are rendered verbatim by the feasibility
+  // renderer and interpolate exact borrower figures (break-even dollars,
+  // DSCR, equity-injection percentages, working-capital months). Redact
+  // them at the data layer alongside the narratives — otherwise the preview
+  // PDF carries precise numbers the redactor's contract says it cannot.
   const input = {
     dealName: (study.deal_name as string) ?? "Borrower",
     city: (study.city as string | null) ?? null,
     state: (study.state as string | null) ?? null,
-    composite: (study.composite_detail as any) ?? {
-      compositeScore: redacted.compositeScore,
-      recommendation: "PROCEED",
-    },
-    marketDemand: (study.market_demand_detail as any) ?? {},
-    financialViability: (study.financial_viability_detail as any) ?? {},
-    operationalReadiness: (study.operational_readiness_detail as any) ?? {},
-    locationSuitability: (study.location_suitability_detail as any) ?? {},
+    composite: redactFeasibilityDetailForPreview(
+      (study.composite_detail as any) ?? {
+        compositeScore: redacted.compositeScore,
+        recommendation: "PROCEED",
+      },
+    ),
+    marketDemand: redactFeasibilityDetailForPreview((study.market_demand_detail as any) ?? {}),
+    financialViability: redactFeasibilityDetailForPreview(
+      (study.financial_viability_detail as any) ?? {},
+    ),
+    operationalReadiness: redactFeasibilityDetailForPreview(
+      (study.operational_readiness_detail as any) ?? {},
+    ),
+    locationSuitability: redactFeasibilityDetailForPreview(
+      (study.location_suitability_detail as any) ?? {},
+    ),
     narratives: redacted.narratives as any,
     franchiseComparison: (study.franchise_comparison as any) ?? null,
     isFranchise: Boolean(study.is_franchise),

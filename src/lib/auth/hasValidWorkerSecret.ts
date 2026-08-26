@@ -43,15 +43,17 @@ export function getWorkerAuthMatch(req: NextRequest): WorkerAuthMatch {
  *   2. Authorization: Bearer <WORKER_SECRET>  — external schedulers / manual callers
  *   3. x-worker-secret: <WORKER_SECRET>       — header-based auth
  *
+ * Secrets are never accepted in URLs. Query strings are retained by browsers,
+ * reverse proxies, hosting logs, and observability systems.
+ *
  * At least one of WORKER_SECRET or CRON_SECRET must be set in env.
  *
- * SPEC-SEC-WORKER-AUTH-1:
- *   - Comparison is constant-time (secretEquals) — a plain `===` on a shared
+ * SPEC-SEC-WORKER-AUTH-1 / #885 — arrived at independently and identically:
+ *   - Comparison is constant-time (secretEquals). A plain `===` on a shared
  *     secret leaks its prefix through response timing.
- *   - `?token=` query-param auth was REMOVED. Query strings are recorded in
- *     Vercel/CDN access logs, proxy logs, and Referer headers, so a secret
- *     passed that way is a secret written to disk in several places. Callers
- *     that used it must move to the Authorization or x-worker-secret header.
+ *   - `?token=` query-param auth was REMOVED, along with the "query" arm of
+ *     WorkerAuthMatch.method. Callers that used it must move to the
+ *     Authorization or x-worker-secret header.
  */
 export function hasValidWorkerSecret(req: NextRequest): boolean {
   return getWorkerAuthMatch(req).matched;

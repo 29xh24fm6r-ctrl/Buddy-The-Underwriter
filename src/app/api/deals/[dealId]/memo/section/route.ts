@@ -2,13 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { retrieveTopChunks } from "@/lib/retrieval/retrieve";
 import { committeeAnswer } from "@/lib/retrieval/committee";
 import { insertAiEvent, insertAiCitations } from "@/lib/ai/trace";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveDealApiContext } from "@/lib/server/dealApiContext";
 import { OPENAI_CHAT } from "@/lib/ai/models";
 
 type Params = Promise<{ dealId: string }>;
 
 export async function POST(req: NextRequest, context: { params: Params }) {
   const { dealId } = await context.params;
+  const access = await resolveDealApiContext(dealId);
+  if (!access.ok) {
+    return NextResponse.json(
+      { ok: false, error: access.error },
+      { status: access.status },
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
 
   const sectionKey = String(body?.section_key || "risks").trim();
@@ -62,7 +70,7 @@ export async function POST(req: NextRequest, context: { params: Params }) {
     );
 
     // Persist a draft
-    const sb = getSupabaseServerClient();
+    const sb = access.sb;
     const { data: draft, error: draftErr } = await sb
       .from("deal_memo_section_drafts")
       .insert({
@@ -86,6 +94,6 @@ export async function POST(req: NextRequest, context: { params: Params }) {
     });
   } catch (e: any) {
     console.error("Memo section API error:", e);
-    return NextResponse.json({ error: e.message || "Internal error" }, { status: 500 });
+    return NextResponse.json({ error: "memo_section_failed" }, { status: 500 });
   }
 }

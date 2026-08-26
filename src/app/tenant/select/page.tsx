@@ -1,15 +1,15 @@
 // src/app/tenant/select/page.tsx
 import Link from "next/link";
-import { supabaseServer } from "@/lib/supabase/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSandboxAccessDetails } from "@/lib/tenant/sandbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export default async function TenantSelectPage() {
-  const sb = await supabaseServer();
-  const { data: auth } = await sb.auth.getUser();
-  if (!auth?.user) {
+  const { userId } = await clerkAuth();
+  if (!userId) {
     return (
       <div className="container mx-auto p-6">
         <h1 className="text-2xl font-bold">Select Bank</h1>
@@ -21,12 +21,11 @@ export default async function TenantSelectPage() {
     );
   }
 
-  const userId = auth.user.id;
-
+  const sb = supabaseAdmin();
   const mem = await sb
     .from("bank_memberships")
     .select("bank_id, role, banks:bank_id(id,name,code,is_sandbox)")
-    .eq("user_id", userId)
+    .eq("clerk_user_id", userId)
     .order("created_at", { ascending: true });
 
   const rows = (mem.data ?? []) as any[];

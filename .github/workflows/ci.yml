@@ -55,6 +55,15 @@ jobs:
       - name: Unit tests (CI-blocking)
         timeout-minutes: 18
         run: pnpm -s test:unit
+      # Files whose module chain imports "server-only", which only resolves
+      # under the react-server export condition. They were previously listed
+      # as SPEC-CI-2 quarantine and so ran nowhere at all — including
+      # financialViabilityAnalysis (builds the dimension-detail strings the
+      # Trident preview redactor must strip) and projectionsXlsx (renders a
+      # shipped Trident artifact). Same discoverer, second condition.
+      - name: Unit tests — react-server condition (CI-blocking)
+        timeout-minutes: 6
+        run: pnpm -s test:unit:react-server
       # specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1: this harness existed
       # but was invisible to CI entirely — including the one case explicitly
       # marked "Mandatory regression — yacht-charter memo failure must never
@@ -70,17 +79,19 @@ jobs:
       - name: Schema select gate
         timeout-minutes: 5
         run: pnpm -s gate:schema-select
-      - name: Schema drift detection
+      # Phase 1 keeps confirmed drift report-only while historical reconciliation
+      # is pending. Detector/configuration failures still fail CI.
+      - name: Schema drift detection (report-only)
         if: env.DRIFT_DETECT_DB_URL != ''
-        continue-on-error: true     # PHASE 1: report-only, do not block PRs
-        run: pnpm -s gate:schema-drift
+        run: pnpm -s gate:schema-drift -- --report-only
       - name: Upload drift report
         if: always() && env.DRIFT_DETECT_DB_URL != ''
         uses: actions/upload-artifact@v4
         with:
           name: drift-report
           path: .drift_report/
-          if-no-files-found: warn
+          include-hidden-files: true
+          if-no-files-found: error
       # Production compilation is enforced by the dedicated Build Check workflow.
       # Do not repeat it here: this job's 30-minute budget is reserved for the
       # full guard/test suite and Playwright smoke coverage.

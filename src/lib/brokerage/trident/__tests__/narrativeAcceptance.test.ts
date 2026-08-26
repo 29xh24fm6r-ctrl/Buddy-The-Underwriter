@@ -73,3 +73,77 @@ test("feasibility acceptance requires five substantive narratives", () => {
   });
   assert.equal(result.ok, true);
 });
+
+// ── Feasibility narratives are keyed, not counted (audit F-10) ──────────────
+
+const SUBSTANTIVE = Array.from({ length: 50 }, (_, i) => `word${i}`).join(" ");
+
+function feasibilityNarratives(overrides: Record<string, unknown> = {}) {
+  return {
+    executiveSummary: SUBSTANTIVE,
+    marketDemandNarrative: SUBSTANTIVE,
+    financialViabilityNarrative: SUBSTANTIVE,
+    operationalReadinessNarrative: SUBSTANTIVE,
+    locationSuitabilityNarrative: SUBSTANTIVE,
+    riskAssessment: SUBSTANTIVE,
+    recommendation: SUBSTANTIVE,
+    franchiseComparisonNarrative: null,
+    ...overrides,
+  };
+}
+
+test("feasibility acceptance passes when all five required sections are substantive", () => {
+  const r = assessFeasibilityNarratives(feasibilityNarratives());
+  assert.equal(r.ok, true);
+  assert.equal(r.substantive, 5);
+  assert.equal(r.required, 5);
+});
+
+test("feasibility acceptance passes without the optional franchise narrative", () => {
+  const r = assessFeasibilityNarratives(
+    feasibilityNarratives({ franchiseComparisonNarrative: null, riskAssessment: "" }),
+  );
+  assert.equal(r.ok, true, "only the five required sections gate acceptance");
+});
+
+test("riskAssessment and recommendation cannot substitute for a missing dimension", () => {
+  // The pre-fix check counted any five substantive values, so this shape —
+  // three scored dimensions blank — passed and shipped a PDF with visible gaps.
+  const r = assessFeasibilityNarratives(
+    feasibilityNarratives({
+      financialViabilityNarrative: "",
+      operationalReadinessNarrative: "",
+      locationSuitabilityNarrative: "",
+      franchiseComparisonNarrative: SUBSTANTIVE,
+    }),
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.substantive, 2);
+});
+
+test("each required feasibility section is individually load-bearing", () => {
+  for (const field of [
+    "executiveSummary",
+    "marketDemandNarrative",
+    "financialViabilityNarrative",
+    "operationalReadinessNarrative",
+    "locationSuitabilityNarrative",
+  ]) {
+    const r = assessFeasibilityNarratives(feasibilityNarratives({ [field]: "" }));
+    assert.equal(r.ok, false, `${field} must be required`);
+    assert.equal(r.substantive, 4);
+  }
+});
+
+test("a thin required section does not count as substantive", () => {
+  const r = assessFeasibilityNarratives(
+    feasibilityNarratives({ marketDemandNarrative: "Too short." }),
+  );
+  assert.equal(r.ok, false);
+});
+
+test("missing narratives object fails closed", () => {
+  const r = assessFeasibilityNarratives(null);
+  assert.equal(r.ok, false);
+  assert.equal(r.substantive, 0);
+});

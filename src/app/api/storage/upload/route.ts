@@ -3,10 +3,11 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseStorageClient } from "@/lib/supabase/client";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import crypto from "node:crypto";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,18 +45,12 @@ export async function POST(req: NextRequest) {
       return json(400, { ok: false, error: "Missing dealId" });
     }
 
-    // SPEC-SEC-API-AUTH-1: this writes a file into a deal's storage prefix
-    // using the service role. Unauthenticated, anyone holding a deal UUID
-    // could push files into that deal. No in-app caller uses this route
-    // (verified 2026-08-26), so requiring banker access on the deal is the
-    // conservative gate; a borrower upload path already exists at
-    // /api/portal/[token]/files/{sign,record}.
-    const access = await ensureDealBankAccess(String(dealId));
-    if (!access.ok) {
-      return json(
-        access.error === "unauthorized" ? 401 : access.error === "deal_not_found" ? 404 : 403,
-        { ok: false, error: access.error },
-      );
+    try {
+      await assertDealAccess(dealId);
+    } catch (error) {
+      const accessResponse = accessErrorToResponse(error);
+      if (accessResponse) return accessResponse;
+      return json(500, { ok: false, error: "access_check_failed" });
     }
 
     if (!filename) {
@@ -66,7 +61,9 @@ export async function POST(req: NextRequest) {
     const docStore = String(process.env.DOC_STORE || "").toLowerCase();
 
     if (!storage) {
-      // Fallback: Save to local file system (development)
+      if (process.env.NODE_ENV === "production") {
+        return json(503, { ok: false, error: "storage_unavailable" });
+      }
       return await handleLocalUpload(file, dealId, applicationId, filename);
     }
 
@@ -151,8 +148,8 @@ export async function POST(req: NextRequest) {
       });
 
     if (error) {
-      console.error("[storage/upload] Supabase error:", error);
-      return json(500, { ok: false, error: error.message });
+      console.error("[storage/upload] Supabase upload failed");
+      return json(500, { ok: false, error: "upload_failed" });
     }
 
     return json(200, {
@@ -162,9 +159,9 @@ export async function POST(req: NextRequest) {
       size: file.size,
       bucket: "deal_uploads",
     });
-  } catch (e: any) {
-    console.error("[storage/upload] error:", e);
-    return json(500, { ok: false, error: e.message });
+  } catch (error: unknown) {
+    console.error("[storage/upload] unexpected failure", error);
+    return json(500, { ok: false, error: "upload_failed" });
   }
 }
 

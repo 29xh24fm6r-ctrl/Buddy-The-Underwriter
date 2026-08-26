@@ -50,10 +50,13 @@ export function HeroBar() {
   // Persist lastDealId whenever inside a deal route
   const activeDealId = extractDealIdFromPath(safePathname);
   React.useEffect(() => {
-    if (activeDealId) setLastDealId(activeDealId);
-  }, [activeDealId]);
+    if (activeDealId && currentBank?.id) {
+      setLastDealId(activeDealId, currentBank.id);
+    }
+  }, [activeDealId, currentBank?.id]);
 
-  const lastDealId = getLastDealId();
+  // Never reuse a deal remembered under another bank tenant.
+  const lastDealId = getLastDealId(currentBank?.id);
 
   // Resolve deal-scoped nav items
   const resolvedDealNav = DEAL_SCOPED_ITEMS.map((item) => {
