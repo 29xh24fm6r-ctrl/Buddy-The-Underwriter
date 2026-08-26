@@ -170,7 +170,7 @@ export default function BrokerageCrmPage() {
   }, []);
 
   async function createOrg() {
-    if (!name.trim()) return;
+    if (!name.trim() || !type) return;
     setSaving(true);
     try {
       const res = await fetch("/api/admin/brokerage/crm/organizations", {
