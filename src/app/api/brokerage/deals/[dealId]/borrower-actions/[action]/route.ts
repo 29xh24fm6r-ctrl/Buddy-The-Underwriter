@@ -418,6 +418,20 @@ async function getMockCompleteEsign(req: NextRequest, dealId: string): Promise<N
   }
 
   const sb = supabaseAdmin();
+  const { data: signingRequest } = await sb
+    .from("signing_requests")
+    .select("deal_id, form_code, signer_ownership_entity_id, recipient_email")
+    .eq("signwell_document_id", submissionId)
+    .eq("deal_id", dealId)
+    .maybeSingle();
+  const recipientEmail =
+    typeof signingRequest?.recipient_email === "string" ? signingRequest.recipient_email.trim() : "";
+  if (!signingRequest || !recipientEmail) {
+    return htmlResponse("No matching mock signing request found for this deal.", 404);
+  }
+  const canonicalExternalId =
+    `deal:${signingRequest.deal_id}:form:${signingRequest.form_code}:signer:${signingRequest.signer_ownership_entity_id}`;
+
   const result = await handleSignwellWebhook(
     {
       event: { type: "document_completed" },
@@ -427,7 +441,11 @@ async function getMockCompleteEsign(req: NextRequest, dealId: string): Promise<N
       sb,
       signwell: {
         createSignwellDocumentFromFile: mockCreateSignwellDocumentFromFile,
-        fetchSignwellDocument: mockFetchSignwellDocument,
+        fetchSignwellDocument: (documentId) =>
+          mockFetchSignwellDocument(documentId, {
+            externalId: canonicalExternalId,
+            recipientEmail,
+          }),
         downloadSignwellCompletedPdf: mockDownloadSignwellCompletedPdf,
       },
     },

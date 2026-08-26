@@ -533,4 +533,79 @@ Open checkpoints:
   differently named project remains unqueried.
 - Replace the 13 research golden-set placeholders with production-backed cases.
 
+### PR 909 production closure and PR 910 SignWell canonical-completion integrity factory
+
+Production and lineage evidence:
+
+- PR 909 merged externally as `034453f92ea4ad71ab943014a0765a47f95af100`;
+  the commissioning agent did not merge it.
+- Vercel production deployment `dpl_2cr6fZWmaecoPv9z9ucYoinY7rpp` is READY
+  on that exact commit. `www.buddysba.com` returned HTTP 200 with
+  `x-buddy-build: 034453f92ea4ad71ab943014a0765a47f95af100`.
+- No Vercel runtime-error cluster was present in the two-hour production
+  observation window.
+- PR 878's seal-to-marketplace-to-lender contract remains in production source
+  lineage through subsequent merges. Transactional closure still requires an
+  authorized fixture; no production deal or provider transaction was created
+  during this cycle.
+
+PR 910 evidence and root cause:
+
+- SignWell's documented event digest authenticates `event.type` and
+  `event.time`, not `data.object`. Buddy refetched the provider document but
+  did not require its canonical ID, terminal completion status, Buddy
+  `external_id`, and recipient email to match the durable signing request
+  before downloading and persisting signed bytes.
+- Completion-time IAL2 evaluation ran before durable signing-request provenance
+  was established, so unbound object fields could reach a deal-scoped anomaly
+  write.
+- The test-mode provider path returned an old permissive document shape and
+  therefore did not exercise the production canonical-completion invariant.
+
+Repair:
+
+- Preserve SignWell metadata when parsing the canonical provider response.
+- Treat webhook object data only as a lookup hint; fail closed unless provider
+  ID, terminal status, external ID, and a non-empty recipient email match the
+  durable signing request before PDF download, storage, or compliance-row
+  persistence.
+- Establish durable signing-request provenance before deal-scoped IAL2 anomaly
+  handling.
+- Make the test-mode completion route reconstruct canonical provider identity
+  from its durable request and add integration and negative regression coverage
+  for document-ID, status, metadata, missing-email, unknown-document, and
+  recipient mismatches.
+- No schema, migration, credential, provider configuration, or production-data
+  mutation is included.
+
+Verification:
+
+- The first full run exposed two stale happy-path fixtures; both were repaired,
+  and the complete suite was rerun.
+- On pre-reconciliation head `09d21511121d26ebaa5eda2b11391890d1fd5df6`:
+  13,193 tests ran; 13,184 passed, 0 failed, 9 skipped. React-server tests were
+  18/18. Research evaluation was 7 passed, 0 failed, with 13 known placeholder
+  cases skipped. Public Playwright passed (1 passed, 5 intentionally skipped);
+  authenticated smoke was unavailable and explicitly skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only schema drift, Build Check, Secret Scan, and Route
+  Budget passed.
+- Exact-head preview `dpl_4cSZXDnQPvPxmrnsk47NumFCx8wh` was READY, returned
+  HTTP 200 with the matching head SHA, and had no error/fatal runtime logs.
+- After PR 909 merged, current `main` was reconciled into PR 910 with no
+  overlapping files. The final exact-head CI/preview rerun is required before
+  the PR can be marked merge-ready.
+
+Open checkpoints:
+
+- Do not merge PR 910 until its post-reconciliation exact-head checks are green.
+- After PR 910 merges, execute one authorized SignWell completion/replay fixture
+  and verify the signed-document row, storage artifact, audit event, and durable
+  request transition.
+- Direct production-row verification remains blocked until the verified
+  Buddy-owned Supabase project connection is available; the differently named
+  project exposed by the generic connector remains unqueried.
+- Golden Trident generation/failure-retry/delivery closure still requires an
+  authorized transactional fixture.
+- Replace the 13 research golden-set placeholders with production-backed cases.
 

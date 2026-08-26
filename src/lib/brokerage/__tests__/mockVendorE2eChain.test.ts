@@ -211,7 +211,11 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
       sb: db as any,
       signwell: {
         createSignwellDocumentFromFile: mockCreateSignwellDocumentFromFile,
-        fetchSignwellDocument: mockFetchSignwellDocument,
+        fetchSignwellDocument: (documentId) =>
+          mockFetchSignwellDocument(documentId, {
+            externalId,
+            recipientEmail: "jane@example.com",
+          }),
         downloadSignwellCompletedPdf: mockDownloadSignwellCompletedPdf,
       },
     },

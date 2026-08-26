@@ -121,9 +121,10 @@ function fakeSignwell(overrides?: Partial<SignwellClient>): SignwellClient {
       status: "pending",
       recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_abc" }],
     }),
-    fetchSignwellDocument: async () => ({
-      id: 12345,
+    fetchSignwellDocument: async (documentId) => ({
+      id: documentId,
       status: "completed",
+      metadata: { external_id: "deal:d1:form:FORM_1919:signer:o1" },
       recipients: [{ id: "1", email: "j@d.com", embedded_signing_url: "https://www.signwell.com/embed/sub_abc" }],
     }),
     downloadSignwellCompletedPdf: async () => Buffer.from("pdf-bytes"),
@@ -208,8 +209,8 @@ test("handleSignwellWebhook: event.type=document_viewed -> ignored", async () =>
   if (r.ok) assert.equal((r as any).ignored, true);
 });
 
-test("handleSignwellWebhook: document_completed without IAL2 -> anomaly event + no signed_documents row", async () => {
-  const db = new FakeDb();
+test("handleSignwellWebhook: durable request without IAL2 -> anomaly event + no signed_documents row", async () => {
+  const db = new FakeDb({ signing_requests: withSigningRequest() });
   const r = await handleSignwellWebhook(
     { event: { type: "document_completed" }, data: { object: { id: 1, metadata: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}` } } } },
     { sb: db as any, signwell: fakeSignwell() },
@@ -265,7 +266,17 @@ test("signed_documents.expires_at: 90d for FORM_1919, 120d for FORM_4506C", asyn
   const db2 = new FakeDb({ borrower_identity_verifications: withIal2(), deals: [{ id: DEAL_ID, bank_id: "b1" }], signing_requests: withSigningRequest("FORM_4506C") });
   await handleSignwellWebhook(
     { event: { type: "document_completed" }, data: { object: { id: 1, metadata: { external_id: `deal:${DEAL_ID}:form:FORM_4506C:signer:${OWNER_ID}` } } } },
-    { sb: db2 as any, signwell: fakeSignwell() },
+    {
+      sb: db2 as any,
+      signwell: fakeSignwell({
+        fetchSignwellDocument: async (documentId) => ({
+          id: documentId,
+          status: "Completed",
+          metadata: { external_id: `deal:${DEAL_ID}:form:FORM_4506C:signer:${OWNER_ID}` },
+          recipients: [{ id: "1", email: "j@d.com" }],
+        }),
+      }),
+    },
   );
   const doc2 = db2.tables.signed_documents[0];
   const days2 = (new Date(doc2.expires_at).getTime() - new Date(doc2.signature_completed_at).getTime()) / 86_400_000;
@@ -329,6 +340,22 @@ test("handleSignwellWebhook: missing durable signing request fails closed", asyn
   assert.equal(db.storage.uploads.length, 0);
 });
 
+test("handleSignwellWebhook: unknown provider document cannot trigger a deal-scoped IAL2 anomaly", async () => {
+  const db = new FakeDb();
+  const r = await handleSignwellWebhook(
+    {
+      event: { type: "document_completed" },
+      data: { object: { id: 1, metadata: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}` } } },
+    },
+    { sb: db as any, signwell: fakeSignwell() },
+  );
+
+  assert.deepEqual(r, { ok: false, reason: "SIGNING_REQUEST_NOT_FOUND" });
+  assert.equal(db.tables.deal_events.length, 0);
+  assert.equal(db.tables.signed_documents.length, 0);
+  assert.equal(db.storage.uploads.length, 0);
+});
+
 test("handleSignwellWebhook: provider recipient mismatch fails closed", async () => {
   const db = new FakeDb({
     borrower_identity_verifications: withIal2(),
@@ -343,12 +370,89 @@ test("handleSignwellWebhook: provider recipient mismatch fails closed", async ()
         fetchSignwellDocument: async () => ({
           id: 1,
           status: "completed",
+          metadata: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}` },
           recipients: [{ id: "1", email: "different@example.com" }],
         }),
       }),
     },
   );
-  assert.deepEqual(r, { ok: false, reason: "SIGNER_MISMATCH" });
+  assert.deepEqual(r, { ok: false, reason: "SIGNER_MISMATCH", detail: "recipient_email_mismatch" });
   assert.equal(db.tables.signed_documents.length, 0);
   assert.equal(db.storage.uploads.length, 0);
 });
+
+const canonicalExternalId = `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}`;
+
+for (const scenario of [
+  {
+    name: "provider document id differs from the webhook lookup id",
+    document: {
+      id: 2,
+      status: "Completed",
+      metadata: { external_id: canonicalExternalId },
+      recipients: [{ id: "1", email: "j@d.com" }],
+    },
+    expected: { ok: false as const, reason: "PROVIDER_DOCUMENT_MISMATCH" as const, detail: "document_id_mismatch" },
+  },
+  {
+    name: "provider document is not terminally completed",
+    document: {
+      id: 1,
+      status: "Pending",
+      metadata: { external_id: canonicalExternalId },
+      recipients: [{ id: "1", email: "j@d.com" }],
+    },
+    expected: { ok: false as const, reason: "PROVIDER_DOCUMENT_MISMATCH" as const, detail: "status_not_completed:pending" },
+  },
+  {
+    name: "provider canonical external id differs from the webhook object",
+    document: {
+      id: 1,
+      status: "Completed",
+      metadata: { external_id: "deal:other:form:FORM_1919:signer:o1" },
+      recipients: [{ id: "1", email: "j@d.com" }],
+    },
+    expected: { ok: false as const, reason: "PROVIDER_DOCUMENT_MISMATCH" as const, detail: "external_id_mismatch" },
+  },
+  {
+    name: "provider canonical recipient email is missing",
+    document: {
+      id: 1,
+      status: "Completed",
+      metadata: { external_id: canonicalExternalId },
+      recipients: [{ id: "1" }],
+    },
+    expected: { ok: false as const, reason: "SIGNER_MISMATCH" as const, detail: "provider_email_missing" },
+  },
+]) {
+  test(`handleSignwellWebhook: ${scenario.name} fails closed before PDF or storage work`, async () => {
+    let downloads = 0;
+    const db = new FakeDb({
+      borrower_identity_verifications: withIal2(),
+      deals: [{ id: DEAL_ID, bank_id: "b1" }],
+      signing_requests: withSigningRequest(),
+    });
+    const r = await handleSignwellWebhook(
+      {
+        event: { type: "document_completed" },
+        data: { object: { id: 1, metadata: { external_id: canonicalExternalId } } },
+      },
+      {
+        sb: db as any,
+        signwell: fakeSignwell({
+          fetchSignwellDocument: async () => scenario.document,
+          downloadSignwellCompletedPdf: async () => {
+            downloads += 1;
+            return Buffer.from("should-not-download");
+          },
+        }),
+      },
+    );
+
+    assert.deepEqual(r, scenario.expected);
+    assert.equal(downloads, 0);
+    assert.equal(db.storage.uploads.length, 0);
+    assert.equal(db.tables.signed_documents.length, 0);
+  });
+}
+
