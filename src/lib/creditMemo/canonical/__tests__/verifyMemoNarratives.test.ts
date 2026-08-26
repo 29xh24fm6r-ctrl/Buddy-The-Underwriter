@@ -14,7 +14,7 @@ const require = createRequire(import.meta.url);
 
 const { verifyMemoNarratives } =
   require("../verifyMemoNarratives") as typeof import("../verifyMemoNarratives");
-const { FALLBACK_NARRATIVES } =
+const { FALLBACK_NARRATIVES, buildNarrativeInput } =
   require("../narrativeAssembly") as typeof import("../narrativeAssembly");
 const { __setProviderImplForTests, __resetGatewayTestOverrides, __resetGatewayBudgetForTests } =
   require("../../../ai/gateway") as typeof import("../../../ai/gateway");
@@ -111,7 +111,12 @@ function fixtureMemo(): any {
       ebitda: { value: 200000 },
       net_income: { value: 130000 },
       ratio_analysis: [],
-      debt_coverage_table: [],
+      debt_coverage_table: [
+        { label: "FY2025", revenue: 2400000, cash_flow_available: 360000, debt_service: 137616, dscr: 2.62 },
+      ],
+      balance_sheet_table: [
+        { period_end: "2025-12-31", total_assets: 1680000, total_liabilities: 830000, mortgages_notes_bonds: 620000, total_equity: 850000 },
+      ],
     },
     recommendation: { risk_grade: "B", verdict: "approve", headline: "Strong deal" },
     covenant_package: undefined,
@@ -144,6 +149,25 @@ function setVerifierResponse(flaggedClaims: unknown[]) {
     tokensOut: 30,
   }));
 }
+
+test("exposes governed leverage anchors and period DSCR bases to generation and review", () => {
+  const input = buildNarrativeInput(fixtureMemo());
+  assert.deepEqual(input.balance_sheet, [{
+    period_end: "2025-12-31",
+    total_assets: 1680000,
+    total_liabilities: 830000,
+    long_term_debt: 620000,
+    total_equity: 850000,
+  }]);
+  assert.deepEqual(input.financial_trend, [{
+    label: "FY2025",
+    revenue: 2400000,
+    cash_flow_available: 360000,
+    dscr: 2.62,
+  }]);
+  assert.equal(input.debt_service, 110000);
+  assert.equal(input.dscr_uw, 1.35);
+});
 
 test("returns null (skips verification) when generation fell back to FALLBACK_NARRATIVES", async () => {
   const db = makeDb({});
