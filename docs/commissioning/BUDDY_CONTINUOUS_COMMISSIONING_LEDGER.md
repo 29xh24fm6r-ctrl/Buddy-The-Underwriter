@@ -370,3 +370,57 @@ Verification target:
   Vercel preview must pass before merge.
 - Post-merge database verification remains dependent on restoration of the Buddy
   Supabase connector, currently returning `-32603`.
+
+
+### PR 905 production closure and PR 906 workflow-identity boundary
+
+Production evidence:
+
+- PR 905 merged externally as `121e1f1e6519998545c0730f136c683920f46fc8`;
+  the commissioning agent did not merge it.
+- Vercel production deployment `dpl_6QHNka5i1puw2XYqcujAxeBPCvxG` is READY
+  and reports that exact GitHub SHA.
+- The public `www.buddysba.com` surface rendered successfully. No Buddy
+  application console errors were observed; the only browser errors came from
+  the browser automation extension.
+- An unauthenticated POST to the deployed intake-confirmation route returned
+  HTTP 401 with `{"ok":false,"error":"unauthorized"}` before deal processing.
+- The exact production deployment recorded 166 HTTP 200 responses and no
+  runtime error clusters in the one-hour post-deploy observation window.
+
+Database verification boundary:
+
+- Current Supabase documentation confirms that functions bypass RLS and must
+  restrict EXECUTE to the intended roles, matching PR 905's migration contract.
+- The generic Supabase connection available to commissioning exposes a different
+  project, not an identified Buddy The Underwriter project. It was not queried.
+  Direct production ACL verification remains blocked until the owned Buddy
+  Supabase connection is restored or explicitly identified.
+
+PR 906 review finding and repair:
+
+- The new shared Trident starter originally wrapped both durable workflow start
+  and `workflow_run_id` persistence in one catch block.
+- If `start(goldenTridentWorkflow)` succeeded but the tracking write failed,
+  that catch called `fail_trident_bundle_run`, releasing the bundle lease even
+  though a workflow was already executing. A retry could then admit a duplicate
+  generation against the same deal and mode.
+- The starter now confines lease release to failures thrown by `start()`.
+  Tracking-write failure after a successful start is surfaced to runtime logs
+  while the live workflow retains ownership, and the caller receives the durable
+  run identity.
+- Regression coverage enforces that `fail_trident_bundle_run` cannot appear in
+  the post-start persistence boundary.
+- PR 906 head after this repair is `d7ec5047924ddd6b3c8019881f369b10c559dd00`.
+  Required GitHub Actions workflows have not yet been created; no merge
+  recommendation is recorded until they run green. Exact-head Vercel preview
+  verification must also complete after the new push.
+
+Remaining checkpoints:
+
+- Run and pass all required PR 906 workflows, then inspect the complete final
+  diff and exact-head preview before merge recommendation.
+- After PR 906 merges, verify deployed preview redaction and durable generation
+  behavior with an authorized QA fixture.
+- Golden Trident delivery, SignWell replay, and reconciliation workers still
+  require authorized transactional fixtures.
