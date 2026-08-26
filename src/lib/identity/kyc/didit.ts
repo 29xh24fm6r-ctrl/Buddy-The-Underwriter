@@ -73,16 +73,23 @@ export async function createDiditSession(args: {
   return DiditSessionSchema.parse(raw);
 }
 
-export async function fetchDiditSession(sessionId: string): Promise<DiditSession> {
-  const raw = await diditFetch(`/session/${encodeURIComponent(sessionId)}/`, { method: "GET" });
-  return DiditSessionSchema.parse(raw);
-}
-
 const DiditDecisionSchema = z.object({
   session_id: z.string(),
   status: z.string(),
 }).passthrough();
 export type DiditDecision = z.infer<typeof DiditDecisionSchema>;
+
+/**
+ * Retrieve the canonical session status and decision.
+ *
+ * Didit's v3 read contract exposes GET /session/{sessionId}/decision/.
+ * There is no GET /session/{sessionId}/ endpoint. Keep the historical
+ * fetchDiditSession name as a compatibility boundary for route injection,
+ * but make every status read converge on the supported decision resource.
+ */
+export async function fetchDiditSession(sessionId: string): Promise<DiditDecision> {
+  return getDiditSessionDecision(sessionId);
+}
 
 export async function getDiditSessionDecision(sessionId: string): Promise<DiditDecision> {
   const raw = await diditFetch(`/session/${encodeURIComponent(sessionId)}/decision/`, { method: "GET" });
