@@ -19,7 +19,11 @@ const REPO_ROOT = resolve(process.cwd());
 const CALL_SITES = [
   "src/app/api/brokerage/concierge/route.ts",
   "src/app/api/brokerage/voice/[sessionId]/dispatch/route.ts",
-  "src/app/api/brokerage/deals/[dealId]/marketplace/pick/route.ts",
+  // marketplace/pick deliberately no longer appears here. It used to run the
+  // full final-mode factory inline inside a 300s request, and a successful run
+  // superseded the very bundle the sealed snapshot was bound to (audit
+  // F-04/F-06). It now binds to the artifact set frozen at seal time and
+  // generates nothing — asserted below.
 ];
 
 for (const rel of CALL_SITES) {
@@ -95,5 +99,33 @@ test("marketplace pick maxDuration accommodates synchronous final-mode trident g
   assert.ok(
     seconds >= 300,
     `marketplace pick maxDuration is ${seconds}s — must be ≥300 to allow awaited final-mode trident generation`,
+  );
+});
+
+/**
+ * The inverse guard for the call site that was removed: the pick route must
+ * never reintroduce inline generation. Sealing already certifies the final
+ * bundle, and the seal route freezes its artifact paths onto the sealed
+ * package, so generating here is both redundant and destructive to the
+ * seal's provenance.
+ */
+test("marketplace/pick does not generate a trident bundle", () => {
+  const src = readFileSync(
+    resolve(REPO_ROOT, "src/app/api/brokerage/deals/[dealId]/marketplace/pick/route.ts"),
+    "utf8",
+  );
+  assert.equal(
+    /\bgenerateTridentBundle\s*\(/.test(src),
+    false,
+    "pick route must bind to the seal-time artifact set, not run the factory inline",
+  );
+  assert.equal(
+    src.includes('from "@/lib/brokerage/trident/generateTridentBundle"'),
+    false,
+    "pick route must not import the generator",
+  );
+  assert.ok(
+    src.includes("sealed_snapshot"),
+    "pick route must read the immutable seal-time binding",
   );
 });

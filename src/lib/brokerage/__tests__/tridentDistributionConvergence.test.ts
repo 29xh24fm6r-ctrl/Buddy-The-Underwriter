@@ -25,8 +25,15 @@ test("sealed snapshot carries immutable final provenance and artifacts", () => {
   assert.doesNotMatch(snapshot, /tridentPreview/);
 });
 
-test("sealed-package columns point at the same certified artifact set", () => {
-  assert.match(sealRoute, /final_business_plan_path: snapshot\.distributionBinding\.artifacts\.businessPlan/);
-  assert.match(sealRoute, /final_projections_path: snapshot\.distributionBinding\.artifacts\.projectionsPdf/);
-  assert.match(sealRoute, /final_feasibility_path: snapshot\.distributionBinding\.artifacts\.feasibility/);
+test("sealed-package columns come from the one shared artifact mapper", () => {
+  // The seal route no longer spells the columns out inline: it spreads
+  // sealedPackageArtifactColumns(), so the mapping cannot drift from what
+  // packageDelivery reads back. The behavioural round-trip lives in
+  // tridentSealContract.test.ts; this only guards the wiring.
+  assert.match(sealRoute, /sealedPackageArtifactColumns\(snapshot\.distributionBinding\)/);
+  assert.match(snapshot, /export function sealedPackageArtifactColumns/);
+  assert.match(snapshot, /final_projections_path: binding\.artifacts\.projectionsXlsx/);
+  // Final mode produces no projections PDF, so nothing may bind to one.
+  assert.doesNotMatch(sealRoute, /artifacts\.projectionsPdf/);
+  assert.doesNotMatch(snapshot, /projectionsPdf/);
 });

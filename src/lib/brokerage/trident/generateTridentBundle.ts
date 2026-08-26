@@ -30,6 +30,7 @@ import { renderProjectionsPreviewPdf } from "./projectionsPreviewPdf";
 import {
   REDACTOR_VERSION,
   redactFeasibilityForPreview,
+  redactFeasibilityDetailForPreview,
 } from "./redactor";
 import {
   assessBusinessPlanNarratives,
@@ -779,18 +780,31 @@ async function renderFeasibilityPreview(
     narratives: rawNarratives,
   });
 
+  // The dimension detail trees are rendered verbatim by the feasibility
+  // renderer and interpolate exact borrower figures (break-even dollars,
+  // DSCR, equity-injection percentages, working-capital months). Redact
+  // them at the data layer alongside the narratives — otherwise the preview
+  // PDF carries precise numbers the redactor's contract says it cannot.
   const input = {
     dealName: (study.deal_name as string) ?? "Borrower",
     city: (study.city as string | null) ?? null,
     state: (study.state as string | null) ?? null,
-    composite: (study.composite_detail as any) ?? {
-      compositeScore: redacted.compositeScore,
-      recommendation: "PROCEED",
-    },
-    marketDemand: (study.market_demand_detail as any) ?? {},
-    financialViability: (study.financial_viability_detail as any) ?? {},
-    operationalReadiness: (study.operational_readiness_detail as any) ?? {},
-    locationSuitability: (study.location_suitability_detail as any) ?? {},
+    composite: redactFeasibilityDetailForPreview(
+      (study.composite_detail as any) ?? {
+        compositeScore: redacted.compositeScore,
+        recommendation: "PROCEED",
+      },
+    ),
+    marketDemand: redactFeasibilityDetailForPreview((study.market_demand_detail as any) ?? {}),
+    financialViability: redactFeasibilityDetailForPreview(
+      (study.financial_viability_detail as any) ?? {},
+    ),
+    operationalReadiness: redactFeasibilityDetailForPreview(
+      (study.operational_readiness_detail as any) ?? {},
+    ),
+    locationSuitability: redactFeasibilityDetailForPreview(
+      (study.location_suitability_detail as any) ?? {},
+    ),
     narratives: redacted.narratives as any,
     franchiseComparison: (study.franchise_comparison as any) ?? null,
     isFranchise: Boolean(study.is_franchise),

@@ -95,7 +95,10 @@ function resetHappy() {
     source_credit_memo_id: "memo-1",
     source_spread_id: "spread-1",
     business_plan_pdf_path: "final/business-plan.pdf",
-    projections_pdf_path: "final/projections.pdf",
+    // Final mode publishes no projections PDF — the redacted summary PDF is
+    // preview-only. This fixture previously carried a fabricated path, which
+    // hid the fact that canSeal demanded an artifact the factory never writes.
+    projections_pdf_path: null,
     projections_xlsx_path: "final/projections.xlsx",
     feasibility_pdf_path: "final/feasibility.pdf",
   };

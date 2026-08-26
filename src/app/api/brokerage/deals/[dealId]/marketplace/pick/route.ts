@@ -18,17 +18,17 @@ import "server-only";
  * possibly still-preview) trident bundle happens to be, never a frozen
  * snapshot of what the winning lender was actually shown at pick time.
  *
- * generateTridentBundle MUST be awaited, never fire-and-forget — see
- * src/lib/brokerage/trident/__tests__/awaitGenerationGuard.test.ts. A bundle
- * row left in `running` because the serverless function was reclaimed before
- * completion is a stuck-forever row, not a retryable one. maxDuration is set
- * to 300s to match every other synchronous trident-generation call site.
+ * Those columns are now frozen at SEAL time, not pick time: the seal route
+ * writes them from the same certified bundle the sealed snapshot binds to
+ * (sealedPackageArtifactColumns). This route therefore no longer generates
+ * anything — it binds the picked lender to the already-certified set and
+ * backfills only legacy sealed packages that predate that write. See the
+ * artifact-binding block below for why generating here was wrong.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
-import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 
 export const runtime = "nodejs";
@@ -139,51 +139,92 @@ export async function POST(
     .select("id")
     .single();
 
-  // Generate the FINAL trident bundle and freeze its paths onto the sealed
-  // package. Best-effort: a generation failure must not fail the pick itself
-  // (the pick + access grant above already succeeded and must stand) — the
-  // package manifest's existing fallback to the live trident bundle covers
-  // the gap until generation is retried (e.g. via the admin-only
-  // /trident/generate route with mode=final).
-  try {
-    const finalBundle = await generateTridentBundle({ dealId, mode: "final" });
-    if (finalBundle.ok && (listing as any).sealed_package_id) {
-      await sb
+  // Bind the picked lender to the artifacts this deal was SEALED with.
+  //
+  // This used to invoke the final-mode trident generator inline and await
+  // it inside the request (audit F-04/F-06). Two problems: the final
+  // factory is minutes of LLM, review, and PDF work — the Classic Spread
+  // materializer, the canonical memo with its verification and repair passes,
+  // the SBA package, the business-plan verifier, and the feasibility engine
+  // with up to three review retries — against this route's 300s ceiling; and
+  // on success finalize_trident_bundle_run stamps superseded_at on the prior
+  // succeeded bundle, which is precisely the bundle the sealed snapshot's
+  // provenance is bound to.
+  //
+  // Neither is necessary. Sealing already requires a certified final bundle
+  // (canSeal + buildSealedSnapshot), and the seal route freezes that exact
+  // artifact set onto buddy_sealed_packages via sealedPackageArtifactColumns.
+  // By pick time the certified paths are already there. Legacy sealed packages
+  // written before the seal route populated those columns are backfilled from
+  // the immutable binding in sealed_snapshot.tridentFinal — never by producing
+  // a new bundle, which would break the seal's provenance.
+  const sealedPackageId = (listing as any).sealed_package_id;
+  if (sealedPackageId) {
+    try {
+      const { data: sealed } = await sb
         .from("buddy_sealed_packages")
-        .update({
-          final_business_plan_path: finalBundle.paths.businessPlanPdf,
-          // Final mode produces only the XLSX workbook, not a redacted
-          // summary PDF (that's preview-only) — this column holds whichever
-          // artifact final mode actually produces.
-          final_projections_path: finalBundle.paths.projectionsXlsx,
-          final_feasibility_path: finalBundle.paths.feasibilityPdf,
-        })
-        .eq("id", (listing as any).sealed_package_id);
-    } else if (!finalBundle.ok) {
-      console.warn("[marketplace/pick] final trident bundle generation failed (non-fatal)", {
+        .select(
+          "id, sealed_snapshot, final_business_plan_path, final_projections_path, final_feasibility_path",
+        )
+        .eq("id", sealedPackageId)
+        .maybeSingle();
+
+      const artifacts = ((sealed as any)?.sealed_snapshot?.tridentFinal?.artifacts ?? null) as {
+        businessPlan?: string | null;
+        projectionsXlsx?: string | null;
+        feasibility?: string | null;
+      } | null;
+
+      const backfilled = {
+        final_business_plan_path:
+          (sealed as any)?.final_business_plan_path ?? artifacts?.businessPlan ?? null,
+        final_projections_path:
+          (sealed as any)?.final_projections_path ?? artifacts?.projectionsXlsx ?? null,
+        final_feasibility_path:
+          (sealed as any)?.final_feasibility_path ?? artifacts?.feasibility ?? null,
+      };
+
+      const wasIncomplete =
+        sealed &&
+        (!(sealed as any).final_business_plan_path ||
+          !(sealed as any).final_projections_path ||
+          !(sealed as any).final_feasibility_path);
+
+      if (wasIncomplete && Object.values(backfilled).some((path) => path)) {
+        const { error: backfillError } = await sb
+          .from("buddy_sealed_packages")
+          .update(backfilled)
+          .eq("id", sealedPackageId);
+        if (backfillError) throw new Error(backfillError.message);
+      }
+
+      if (Object.values(backfilled).some((path) => !path)) {
+        // Never fatal: the pick and the access grant above already succeeded
+        // and must stand. The package manifest falls back to the live trident
+        // bundle, and this row tells operators which deal needs attention.
+        await sb.from("marketplace_audit_log").insert({
+          deal_id: dealId,
+          listing_id: listingId,
+          actor_bank_id: null,
+          actor_scope: "system",
+          action: "sealed_package_artifacts_incomplete",
+          metadata: {
+            pickId: (pick as any).id,
+            sealedPackageId,
+            missing: Object.entries(backfilled)
+              .filter(([, path]) => !path)
+              .map(([column]) => column),
+          },
+          created_at: nowIso,
+        });
+      }
+    } catch (err) {
+      console.warn("[marketplace/pick] sealed-package artifact binding failed (non-fatal)", {
         dealId,
         listingId,
-        error: finalBundle.error,
-      });
-      await sb.from("marketplace_audit_log").insert({
-        deal_id: dealId,
-        listing_id: listingId,
-        actor_bank_id: null,
-        actor_scope: "system",
-        action: "final_bundle_generation_failed",
-        metadata: {
-          pickId: (pick as any).id,
-          error: finalBundle.error,
-        },
-        created_at: nowIso,
+        error: err instanceof Error ? err.message : String(err),
       });
     }
-  } catch (err) {
-    console.warn("[marketplace/pick] final trident bundle generation threw (non-fatal)", {
-      dealId,
-      listingId,
-      error: err instanceof Error ? err.message : String(err),
-    });
   }
 
   // Notify the picked lender (best-effort, non-fatal).
