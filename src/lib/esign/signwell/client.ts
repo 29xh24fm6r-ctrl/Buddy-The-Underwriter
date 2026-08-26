@@ -74,9 +74,10 @@ export type SignwellDocument = z.infer<typeof DocumentSchema>;
  * (`https://developers.signwell.com/reference/document-fields`). No SBA
  * form's real page coordinates have been confirmed against SignWell's API
  * yet (same "unverified against a live account" caveat as
- * verifySignwellWebhook.ts) — callers may omit it and let SignWell fall
- * back to its default per-recipient placement rather than ship guessed
- * coordinates onto a legal document.
+ * verifySignwellWebhook.ts). When fields are omitted, SignWell's documented
+ * non-draft contract requires `with_signature_page: true`; this adds the
+ * vendor-managed signature/certificate page without guessing legal-form
+ * coordinates.
  */
 export async function createSignwellDocumentFromFile(args: {
   fileBase64: string;
@@ -88,6 +89,9 @@ export async function createSignwellDocumentFromFile(args: {
   redirectUrl?: string;
   fields?: unknown[][];
 }): Promise<SignwellDocument> {
+  const fields = args.fields ?? [[]];
+  const hasPlacedFields = fields.some((fileFields) => Array.isArray(fileFields) && fileFields.length > 0);
+
   const raw = await signwellFetch("/documents", {
     method: "POST",
     body: JSON.stringify({
@@ -96,6 +100,10 @@ export async function createSignwellDocumentFromFile(args: {
       name: args.documentName,
       files: [{ name: args.fileName, file_base64: args.fileBase64 }],
       embedded_signing: args.embeddedSigning ?? true,
+      // IAL2 is bound to this recipient. SignWell defaults reassignment to
+      // true, which would let a verified signer delegate to an unverified
+      // person while Buddy retained the original identity provenance.
+      allow_reassign: false,
       redirect_url: args.redirectUrl,
       metadata: { external_id: args.externalId },
       recipients: args.recipients.map((r) => ({
@@ -103,7 +111,10 @@ export async function createSignwellDocumentFromFile(args: {
         name: r.name,
         email: r.email,
       })),
-      fields: args.fields ?? [[]],
+      fields: hasPlacedFields ? fields : undefined,
+      // SignWell rejects draft=false documents with no fields unless this
+      // provider-managed signature page is explicitly requested.
+      with_signature_page: !hasPlacedFields,
     }),
   });
   return DocumentSchema.parse(raw);
