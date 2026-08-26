@@ -287,3 +287,51 @@ Unresolved:
   connector's internal `-32603` connection error.
 - Authorized transactional fixtures remain required for Golden Trident delivery,
   SignWell replay, and reconciliation workers.
+
+
+### PR 901 post-merge release closure and CI repair
+
+- PR 901 merged externally as `2622f3eb4420c09feefe7c3c64e3c14761d87213`;
+  the commissioning agent did not merge it.
+- PR 902 followed from PR 901 as its direct parent and deployed to production at
+  `806535e543ac24cd854947786cc5ccb28c8e9726`.
+- Production rendered with the matching boot SHA and the exact deployment
+  reported no error/fatal logs in the post-deploy window.
+- Recovered main-branch Actions caught one release-closure omission: the new
+  `increment_continue_usage` function lacked a schema-manifest provenance entry,
+  so the architecture gate failed before unit/E2E execution. The follow-up branch
+  `fix/usage-function-schema-manifest` registers the object against migration
+  `20260826163000_usage_function_privilege_boundary.sql`.
+- A parallel Firebase App Hosting backend
+  (`buddy-the-underwriter/us-east4/buddytheunderwriter-main`) is attached to main
+  and failed its rollout while canonical Vercel production remained READY. No
+  repository App Hosting configuration was found. Whether to retain and commission
+  or disable this non-canonical deployment is a product/infrastructure decision.
+- Legacy identity namespaces remain an evidence-classification target:
+  `platform_admins.user_id` references `app_users.id`, while
+  `user_usage.user_id` retains an older `auth.users(id)` foreign key. No
+  destructive FK or production-row rewrite is authorized without restored
+  Supabase connector evidence.
+
+
+### PR 904 recovered CI evidence
+
+- GitHub Actions recovered and created required workflows for PR 904 head
+  `77ff0b3d8c993588a49fa4071e5f1744b47bdf63`.
+- Typecheck and lint passed, then the architectural guard correctly failed because
+  merged PR 903 introduced `finalize_intake_and_enqueue_processing` without a
+  schema-manifest provenance entry. Later CI steps were therefore skipped; PR 904
+  was not treated as merge-ready.
+- PR 904 now also registers that function against
+  `20260827010000_atomic_intake_locking.sql`. This is a release-ledger correction
+  only and does not modify database state.
+- The PR 903 function is SECURITY DEFINER and was granted to `authenticated`
+  despite accepting caller-controlled deal and bank identifiers. Its application
+  route performs tenant authorization, but direct RPC calls bypass that route.
+  The independent stacked PR 905 revokes direct anon/authenticated execution,
+  grants service-role-only execution, hardens search_path, and adds a regression
+  contract while preserving the authorized server route.
+- PR 905 exact-head Vercel preview `84a6dbd1d48a7536d12cae12e3dfa3dbc22f2ab8`
+  is READY, returns HTTP 200 with the matching build SHA, and has no error/fatal
+  runtime logs. Full Actions must run after PR 904 merges and PR 905 is retargeted
+  to main.
