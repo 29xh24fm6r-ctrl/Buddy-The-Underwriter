@@ -424,3 +424,70 @@ Remaining checkpoints:
   behavior with an authorized QA fixture.
 - Golden Trident delivery, SignWell replay, and reconciliation workers still
   require authorized transactional fixtures.
+
+### PR 907 production closure and PR 909 Golden Trident request-boundary / CI-honesty factory
+
+Production evidence:
+
+- PR 907 merged externally as `199df7ceb14db01af6cfd6bca97a470acbd51281`;
+  the commissioning agent did not merge it.
+- Vercel production deployment `dpl_9wLdAQSXDcQmH9PxRh1AZ2Br8t5S` is READY
+  on that exact merge. `www.buddysba.com` returned HTTP 200 with the exact
+  `x-buddy-build` SHA, and no error/fatal runtime cluster was observed in the
+  post-deploy window.
+- Source and merge-ref inspection confirms PR 909 retains PR 907's startup-failure
+  lease convergence and post-admission workflow ownership boundaries.
+
+PR 909 evidence and root causes:
+
+- Three Golden Trident initiation surfaces still performed request-scoped inline
+  generation. A platform timeout could terminate the request while the durable
+  bundle lease remained active, producing a 90-minute apparent lockout and an
+  unsafe retry experience.
+- Seventeen tests below Next.js dynamic-route directories were discovered and
+  counted but did not execute. The package script handed bracketed paths through
+  unquoted shell command substitution, allowing the shell to expand or discard
+  them before Node received its positional arguments.
+- Input snapshot ordering used locale-sensitive comparison, feasibility
+  acceptance admitted placeholder narratives, artifact downloads lacked audit
+  events, preview redaction provenance was not wired to the response, and
+  degraded previews did not explain their reason.
+
+Repair:
+
+- Route all three generation entry points through the durable workflow starter and
+  return accepted run identity instead of generating inline.
+- Replace shell command substitution with a `shell:false` argv runner that passes
+  exact literal test paths. Add a guard that executes a real `[token]` route test
+  and requires a non-zero test count.
+- Make snapshot hashing locale-independent, reject placeholder feasibility text,
+  record artifact-download audit events, surface persisted redaction provenance,
+  and give degraded previews an explicit reason.
+- Preserve existing URLs, authorization, workflow admission semantics, and PR 907
+  lease ownership. No schema, migration, dependency, credential, permission,
+  provider configuration, or production-data change is included.
+
+Verification on PR 909 head `0d0d13473ec34fb9a383f1e5b7e4983808b7f5fe`:
+
+- CI: 13,187 tests; 13,178 passed, 0 failed, 9 skipped.
+- React-server condition: 18 passed, 0 failed.
+- Research evaluation: 7 passed, 0 failed, 13 placeholder cases skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500, schema
+  select, and report-only schema-drift gates passed.
+- Drift artifact `9624126864` uploaded: 1,730 raw findings, 1,613 unique objects,
+  and 637 independently actionable objects.
+- Build Check, Secret Scan, Route Budget, and public Playwright passed.
+  Authenticated smoke was unavailable and explicitly skipped.
+- Exact-head Vercel preview `dpl_9ba8ojyw7UgQPBrjfxtBxtcLsysx` reached READY
+  with matching GitHub SHA; public rendering and runtime-error verification are
+  the final preview checkpoints after this ledger-only push.
+
+Open checkpoints:
+
+- After merge and deployment, execute one authorized Golden Trident generation
+  and failure/retry fixture to close the transactional lease and delivery path.
+- Direct production-row verification remains blocked until a verified
+  Buddy-owned Supabase project connection is available; the currently exposed
+  differently named project remains unqueried.
+- Replace the 13 research golden-set placeholders with production-backed cases.
+
