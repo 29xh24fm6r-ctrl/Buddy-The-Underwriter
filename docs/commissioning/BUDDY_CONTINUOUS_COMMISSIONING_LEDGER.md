@@ -6,6 +6,55 @@ out of scope.
 
 ## 2026-08-26
 
+### Schema-drift evidence classification factory
+
+Evidence:
+
+- PR 892 restored the mandatory `drift-report` artifact. Workflow run
+  `32971820404`, artifact `9608406682`, digest
+  `sha256:e6fae6e97def5ec644dc92dac623febef9383b00b147f08a1e579ec55e27e893`.
+- The production metadata report contains 1,730 raw expectations but only 1,613
+  unique object identities: 117 repeated expectations across 113 identities.
+- Of 697 unique missing columns, 512 belong to one of 387 tables that the same
+  report already marks missing. They are dependent symptoms, not 512 separate
+  table-repair decisions. The baseline leaves 1,101 independently actionable
+  identities before index-parent classification.
+- No drift item has been classified as safe to recreate or applied to production.
+  Current Supabase guidance documents `db diff` blind spots, so raw findings are
+  evidence for review rather than automatic migration instructions.
+
+Repair branch: `fix/schema-drift-classification`.
+
+Repair:
+
+- Add deterministic identity grouping, duplicate provenance, dependency
+  classification, per-kind/per-class counts, and full + summary artifacts.
+- Capture an index's owning table so indexes can join the same dependency graph.
+- Bind every finding's source statement to the statement that produced the
+  expectation instead of the first later statement that merely mentions it.
+- Add regression coverage for duplicate collapse, table dependencies, independent
+  objects, deterministic ordering, and schema-qualified index ownership.
+- Keep Phase 1 report-only and make no schema, permission, credential, or
+  production-data change.
+
+Production checkpoint:
+
+- PR 894 merged on 2026-08-26. Its Vercel status and a newer main deployment were
+  still pending at this checkpoint, so deployed-route closure remains open.
+- The public Buddy landing journey rendered successfully with the expected title
+  and content; no Buddy application console error was observed.
+- Authorized transactional Golden Trident, SignWell, cron, and delivery fixtures
+  remain required for state-changing closure.
+- Direct production-row verification remains blocked by the Buddy Supabase
+  connector's internal `-32603` connection error.
+
+Next targets:
+
+1. Run the classifier against production metadata in CI and classify the reduced
+   independent set by historical drop/rename versus true current ownership.
+2. Reverify PR 894 route contracts after the exact main deployment becomes READY.
+3. Continue non-conflicting privacy, provider, and critical-path regression rotation.
+
 ### Production baseline and merged repair verification
 
 - PR 878 merged to `main` at `df740f97ebe007a553b2fcfa6811e9a7c6fa0df6`.
