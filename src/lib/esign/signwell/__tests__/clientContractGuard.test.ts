@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const clientSource = readFileSync(join(ROOT, "src/lib/esign/signwell/client.ts"), "utf-8");
 
 describe("SignWell initiation contract", () => {
