@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 test("parseDealScopedStorageKey accepts canonical deal-scoped keys", async () => {
   const { parseDealScopedStorageKey } = await import("../legacyRouteAccess");
@@ -29,4 +31,30 @@ test("clampSignedUrlTtl bounds private URL lifetime", async () => {
   assert.equal(clampSignedUrlTtl("1"), 60);
   assert.equal(clampSignedUrlTtl("120"), 120);
   assert.equal(clampSignedUrlTtl("3600"), 600);
+});
+
+
+test("signed URL route authorizes before privileged signing", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "src/app/api/storage/signed-url/route.ts"),
+    "utf8",
+  );
+  const authorizeAt = source.indexOf("await assertDealAccess(parsedKey.dealId)");
+  const signAt = source.indexOf(".createSignedUrl(");
+  assert.ok(authorizeAt >= 0);
+  assert.ok(signAt > authorizeAt);
+});
+
+test("upload route authorizes before privileged storage writes", async () => {
+  const source = await readFile(
+    path.join(process.cwd(), "src/app/api/storage/upload/route.ts"),
+    "utf8",
+  );
+  const authorizeAt = source.indexOf("await assertDealAccess(dealId)");
+  const supabaseUploadAt = source.indexOf(".upload(fileKey");
+  const gcsUploadAt = source.indexOf("await fetch(signedUploadUrl");
+
+  assert.ok(authorizeAt >= 0);
+  assert.ok(supabaseUploadAt > authorizeAt);
+  assert.ok(gcsUploadAt > authorizeAt);
 });
