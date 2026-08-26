@@ -5,13 +5,13 @@ import { usePathname } from "next/navigation";
 import { crmColors as c } from "@/components/brokerage/tokens";
 
 const TABS = [
-  { label: "Leads", href: "/admin/brokerage/crm/leads" },
-  { label: "Organizations", href: "/admin/brokerage/crm" },
-  { label: "Bank buyers", href: "/admin/brokerage/crm/buyers" },
-  { label: "People", href: "/admin/brokerage/crm/people" },
-  { label: "Relationships", href: "/admin/brokerage/crm/relationships" },
-  { label: "Duplicates", href: "/admin/brokerage/crm/dedup" },
-  { label: "Templates", href: "/admin/brokerage/crm/templates" },
+  { label: "Leads", href: "/admin/brokerage/crm/leads", description: "New borrower and referral opportunities" },
+  { label: "Organizations", href: "/admin/brokerage/crm", description: "Banks, businesses, and professional partners" },
+  { label: "Bank buyers", href: "/admin/brokerage/crm/buyers", description: "Bankers, marketplace access, appetite, and deal distribution" },
+  { label: "Contacts", href: "/admin/brokerage/crm/people", description: "Individual people and their organizations" },
+  { label: "Deal partners", href: "/admin/brokerage/crm/relationships", description: "External parties attached to a deal" },
+  { label: "Duplicates", href: "/admin/brokerage/crm/dedup", description: "Review possible duplicate records" },
+  { label: "Templates", href: "/admin/brokerage/crm/templates", description: "Reusable communication templates" },
 ];
 
 /**
@@ -24,13 +24,15 @@ export function CrmTabs() {
   const pathname = usePathname();
 
   return (
-    <div style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: `1px solid ${c.border}` }}>
+    <nav aria-label="CRM sections" style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: `1px solid ${c.border}`, overflowX: "auto" }}>
       {TABS.map((t) => {
         const active = t.href === "/admin/brokerage/crm" ? pathname === t.href : pathname.startsWith(t.href);
         return (
           <Link
             key={t.href}
             href={t.href}
+            title={t.description}
+            aria-current={active ? "page" : undefined}
             style={{
               padding: "8px 14px",
               fontSize: 12.5,
@@ -45,6 +47,6 @@ export function CrmTabs() {
           </Link>
         );
       })}
-    </div>
+    </nav>
   );
 }

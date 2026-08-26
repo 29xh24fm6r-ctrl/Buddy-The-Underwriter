@@ -126,10 +126,20 @@ export default function BrokerageCrmPage() {
   const [typeFilter, setTypeFilter] = useState("all");
 
   const [name, setName] = useState("");
-  const [type, setType] = useState("referral_source");
+  const [type, setType] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const displayActivity = useMemo(() => {
+    const seen = new Set<string>();
+    return recentActivity.filter((activity) => {
+      const key = [activity.kind, activity.title, activity.organizationId].join("|");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [recentActivity]);
 
   const filteredOrgs = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -160,7 +170,7 @@ export default function BrokerageCrmPage() {
   }, []);
 
   async function createOrg() {
-    if (!name.trim()) return;
+    if (!name.trim() || !type) return;
     setSaving(true);
     try {
       const res = await fetch("/api/admin/brokerage/crm/organizations", {
@@ -171,6 +181,7 @@ export default function BrokerageCrmPage() {
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "create failed");
       setName("");
+      setType("");
       setCity("");
       setState("");
       setShowForm(false);
@@ -249,12 +260,20 @@ export default function BrokerageCrmPage() {
             {recentActivity.length === 0 ? (
               <div style={{ padding: 16, fontSize: 12, color: c.textMuted, textAlign: "center" }}>No activity yet.</div>
             ) : (
-              recentActivity.slice(0, 6).map((a) => (
-                <div key={a.id} style={{ padding: "8px 16px", borderBottom: `1px solid ${c.divider}`, fontSize: 11.5 }}>
-                  <span style={{ color: c.paper }}>{a.title ?? a.kind}</span>
-                  {a.organizationName && <span style={{ color: c.textMuted }}> · {a.organizationName}</span>}
-                </div>
-              ))
+              displayActivity.slice(0, 6).map((a) => {
+                const content = (
+                  <>
+                    <span style={{ color: c.paper }}>{a.title ?? a.kind}</span>
+                    {a.organizationName && <span style={{ color: c.textMuted }}> · {a.organizationName}</span>}
+                    <span style={{ color: c.textFaint }}> · {daysAgo(a.happens_at)}</span>
+                  </>
+                );
+                return a.organizationId ? (
+                  <Link key={a.id} href={`/admin/brokerage/crm/${a.organizationId}`} style={{ display: "block", padding: "8px 16px", borderBottom: `1px solid ${c.divider}`, fontSize: 11.5, textDecoration: "none" }}>{content}</Link>
+                ) : (
+                  <div key={a.id} style={{ padding: "8px 16px", borderBottom: `1px solid ${c.divider}`, fontSize: 11.5 }}>{content}</div>
+                );
+              })
             )}
           </div>
         </div>
@@ -291,7 +310,8 @@ export default function BrokerageCrmPage() {
         <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16, marginBottom: 16 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
             <input style={inputStyle()} placeholder="Organization name" value={name} onChange={(e) => setName(e.target.value)} />
-            <select style={inputStyle()} value={type} onChange={(e) => setType(e.target.value)}>
+            <select aria-label="Relationship type" style={inputStyle()} value={type} onChange={(e) => setType(e.target.value)}>
+              <option value="" disabled>Choose relationship type…</option>
               {Object.entries(TYPE_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
               ))}
@@ -301,7 +321,7 @@ export default function BrokerageCrmPage() {
           </div>
           <button
             onClick={createOrg}
-            disabled={saving || !name.trim()}
+            disabled={saving || !name.trim() || !type}
             style={{
               marginTop: 12,
               background: c.borderStrong,
@@ -312,7 +332,7 @@ export default function BrokerageCrmPage() {
               fontSize: 12,
               fontWeight: 600,
               cursor: "pointer",
-              opacity: saving || !name.trim() ? 0.4 : 1,
+              opacity: saving || !name.trim() || !type ? 0.4 : 1,
             }}
           >
             {saving ? "Saving…" : "Save organization"}
