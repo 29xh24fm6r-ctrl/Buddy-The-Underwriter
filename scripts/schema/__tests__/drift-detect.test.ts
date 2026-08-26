@@ -91,7 +91,22 @@ test("extractExpectedObjects: CREATE UNIQUE INDEX IF NOT EXISTS", () => {
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_deals_slug ON public.deals (slug);",
   ]);
   assert.deepEqual(got, [
-    { kind: "index", schema: "public", name: "idx_deals_slug" },
+    {\n      kind: "index",\n      schema: "public",\n      name: "idx_deals_slug",\n      table_schema: "public",\n      table: "deals",\n    },
+  ]);
+});
+
+test("extractExpectedObjects: captures index and table schemas", () => {
+  const got = extractExpectedObjects([
+    "CREATE INDEX audit.idx_events_kind ON ONLY telemetry.events (kind);",
+  ]);
+  assert.deepEqual(got, [
+    {
+      kind: "index",
+      schema: "audit",
+      name: "idx_events_kind",
+      table_schema: "telemetry",
+      table: "events",
+    },
   ]);
 });
 
@@ -113,7 +128,7 @@ test("extractExpectedObjects: multiple statements in input array", () => {
   assert.deepEqual(got, [
     { kind: "table", schema: "public", name: "a" },
     { kind: "table", schema: "public", name: "b" },
-    { kind: "index", schema: "public", name: "idx_a_id" },
+    {\n      kind: "index",\n      schema: "public",\n      name: "idx_a_id",\n      table_schema: "public",\n      table: "a",\n    },
   ]);
 });
 
