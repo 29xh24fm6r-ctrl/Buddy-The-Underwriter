@@ -19,6 +19,8 @@ const validationPass = readFileSync("src/lib/validation/buddyValidationPass.ts",
 const validationFacts = readFileSync("src/lib/validation/validationFacts.ts", "utf8");
 const canonicalMemoBuilder = readFileSync("src/lib/creditMemo/canonical/buildCanonicalCreditMemo.ts", "utf8");
 const canonicalMemoArtifact = readFileSync("src/lib/creditMemo/canonical/generateCanonicalMemoArtifact.ts", "utf8");
+const canonicalMemoRoute = readFileSync("src/app/api/deals/[dealId]/credit-memo/generate/route.ts", "utf8");
+const narrativeAssembly = readFileSync("src/lib/creditMemo/canonical/narrativeAssembly.ts", "utf8");
 const snapshot = readFileSync("src/lib/brokerage/trident/tridentInputSnapshot.ts", "utf8");
 const releaseGate = readFileSync("src/lib/brokerage/trident/tridentReleaseGate.ts", "utf8");
 const completionMigration = readFileSync(
@@ -169,6 +171,21 @@ test("deterministic validation recognizes production canonical fact names and in
   assert.match(client, /blockingChecks/);
 });
 
+
+test("brokerage memo recovery preserves its preauthorized tenant and governed reviewer facts", () => {
+  assert.match(canonicalMemoRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
+  assert.match(canonicalMemoRoute, /executionContext: "authorized_route"/);
+  assert.ok(
+    canonicalMemoRoute.indexOf("ensureDealBankAccessAllowingBrokerageStaff") <
+      canonicalMemoRoute.indexOf('executionContext: "authorized_route"'),
+    "brokerage authorization must precede trusted route execution",
+  );
+  assert.match(canonicalMemoBuilder, /"authorized_route"/);
+  assert.match(canonicalMemoBuilder, /args\.executionContext !== "authorized_route"/);
+  assert.match(narrativeAssembly, /balance_sheet: memo\.financial_analysis\.balance_sheet_table/);
+  assert.match(narrativeAssembly, /total_liabilities: row\.total_liabilities/);
+  assert.match(narrativeAssembly, /Reconcile financial_trend DSCR values/);
+});
 
 test("durable canonical-credit workers use an explicit bank-scoped system boundary", () => {
   assert.match(canonicalMemoBuilder, /executionContext\?: "interactive" \| "system"/);

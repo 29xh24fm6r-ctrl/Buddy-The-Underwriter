@@ -38,7 +38,7 @@ export async function generateCanonicalMemoArtifact(args: {
   dealId: string;
   bankId: string;
   forceRegenerate?: boolean;
-  executionContext?: "interactive" | "system";
+  executionContext?: "interactive" | "authorized_route" | "system";
 }) {
   const sb = supabaseAdmin();
   const built = await buildCanonicalCreditMemo({

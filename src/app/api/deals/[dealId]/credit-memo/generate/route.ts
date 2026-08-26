@@ -53,6 +53,7 @@ export async function POST(
       dealId,
       bankId,
       forceRegenerate: body?.force === true,
+      executionContext: "authorized_route",
     });
 
     if (!result.ok) {
