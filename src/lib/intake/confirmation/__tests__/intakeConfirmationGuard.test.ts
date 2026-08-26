@@ -879,23 +879,22 @@ test("[guard-52] confirm route snapshot query filters by logical_key", () => {
   );
 });
 
-// ── Guard 53: Confirm route queries filter is_active (≥4) ───────────
+// ── Guard 53: Route and atomic finalizer both constrain active docs ──
 
-// E1.2: Single-pass refactor reduced query count. Still need is_active on:
-// 1. lock TTL check, 2. single docs load, 3. lock update = 3 references
-test("[guard-53] confirm route filters is_active on ≥ 2 queries", () => {
-  const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
-  let count = 0;
-  let idx = 0;
-  while ((idx = src.indexOf("is_active", idx)) !== -1) {
-    count++;
-    idx += 9;
-  }
-  // Was ≥ 3 before observability refactor; stale-lock recovery query replaced
-  // by detectStuckProcessing (reads deals table, not deal_documents).
+test("[guard-53] confirm route and finalize RPC filter is_active", () => {
+  const routeSrc = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
+  const migrationSrc = readSource(
+    "supabase/migrations/20260827010000_atomic_intake_locking.sql",
+  );
+
+  assert.match(
+    routeSrc,
+    /\.eq\("is_active", true\)/,
+    "Confirm route must load only active documents",
+  );
   assert.ok(
-    count >= 2,
-    `Confirm route must reference is_active ≥ 2 times (got ${count})`,
+    (migrationSrc.match(/AND is_active = true/g) ?? []).length >= 2,
+    "Atomic finalizer must constrain both lock and stamp updates to active documents",
   );
 });
 
