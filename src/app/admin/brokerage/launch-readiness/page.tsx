@@ -106,19 +106,38 @@ async function checkBrokerageAnonymousNoCookieAnchor(): Promise<Check> {
     };
   }
   const sb = supabaseAdmin();
-  const { data: deals } = await sb
+  const { data: deals, error } = await sb
     .from("deals")
-    .select("id")
+    .select("id, created_at")
     .eq("bank_id", brokerageBankId)
     .eq("origin", "brokerage_anonymous")
     .is("brokerage_session_token_hash", null)
-    .limit(20);
-  const n = deals?.length ?? 0;
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) {
+    return {
+      id: "orphan_drafts",
+      label: "Orphan brokerage drafts after session hardening",
+      status: "fail",
+      value: `query failed: ${error.message}`,
+    };
+  }
+  // The June 21 hardening migration was additive and could not manufacture a
+  // token for pre-existing anonymous rows. Those legacy rows are retained for
+  // audit history; only null-token drafts created after the contract shipped
+  // indicate that the live funnel has regressed.
+  const contractStartedAt = Date.parse("2026-06-21T00:00:00.000Z");
+  const rows = (deals ?? []) as Array<{ id: string; created_at: string | null }>;
+  const regressions = rows.filter((deal) => {
+    const createdAt = deal.created_at ? Date.parse(deal.created_at) : Number.NaN;
+    return Number.isFinite(createdAt) && createdAt >= contractStartedAt;
+  });
+  const legacyCount = rows.length - regressions.length;
   return {
     id: "orphan_drafts",
-    label: "Orphan brokerage_anonymous drafts (NULL token_hash)",
-    status: n === 0 ? "ok" : n < 5 ? "warn" : "fail",
-    value: `${n} row(s) — should be 0 once migration 20260621000001 has been applied`,
+    label: "Orphan brokerage drafts after session hardening",
+    status: regressions.length === 0 ? "ok" : regressions.length < 5 ? "warn" : "fail",
+    value: `${regressions.length} post-contract regression(s); ${legacyCount} legacy row(s) retained for audit`,
   };
 }
 
