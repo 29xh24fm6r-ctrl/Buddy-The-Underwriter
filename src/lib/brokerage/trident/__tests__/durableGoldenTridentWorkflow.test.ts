@@ -175,6 +175,11 @@ test("deterministic validation recognizes production canonical fact names and in
 test("brokerage memo recovery preserves its preauthorized tenant and governed reviewer facts", () => {
   assert.match(canonicalMemoRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
   assert.match(canonicalMemoRoute, /executionContext: "authorized_route"/);
+  assert.ok(
+    canonicalMemoRoute.indexOf("ensureDealBankAccessAllowingBrokerageStaff") <
+      canonicalMemoRoute.indexOf('executionContext: "authorized_route"'),
+    "brokerage authorization must precede trusted route execution",
+  );
   assert.match(canonicalMemoBuilder, /"authorized_route"/);
   assert.match(canonicalMemoBuilder, /args\.executionContext !== "authorized_route"/);
   assert.match(narrativeAssembly, /balance_sheet: memo\.financial_analysis\.balance_sheet_table/);
