@@ -111,7 +111,7 @@ export async function createSignwellDocumentFromFile(args: {
         name: r.name,
         email: r.email,
       })),
-      fields,
+      fields: hasPlacedFields ? fields : undefined,
       // SignWell rejects draft=false documents with no fields unless this
       // provider-managed signature page is explicitly requested.
       with_signature_page: !hasPlacedFields,
