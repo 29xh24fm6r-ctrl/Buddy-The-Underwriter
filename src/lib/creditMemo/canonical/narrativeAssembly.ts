@@ -34,7 +34,7 @@ export type MemoNarratives = {
 
 const NARRATIVES_SCHEMA = `{
   "executive_summary": "2-3 paragraphs: lead with verdict + DSCR, then deal structure, then key risks. Committee should reach a preliminary judgment from this section alone.",
-  "income_analysis": "One paragraph per applicable ratio category (Liquidity/Leverage/Coverage/Profitability/Activity). Cite only values present in the input. If governed stress evidence is present, state DSCR in dollars and the EBITDA cushion to the governed floor. If it is absent, identify the evidence gap without estimating. Close with a synthesis tying Five Cs to repayment.",
+  "income_analysis": "One paragraph per applicable ratio category (Liquidity/Leverage/Coverage/Profitability/Activity). Cite only governed values present in the input. Reconcile every financial_trend DSCR discussed to the underwriting DSCR and its debt-service basis; if periods differ, name the period and basis rather than implying a contradiction. If governed stress evidence is present, state DSCR in dollars and the EBITDA cushion to the governed floor. If it is absent, identify the evidence gap without estimating. Close with a synthesis tying Five Cs to repayment.",
   "repayment_analysis": "Synthesize only governed stress results present in the input. State the policy floor and citation, EBITDA cushion (never call it revenue cushion), and worst modeled DSCR when available. Otherwise state that quantitative stress is withheld pending governed EBITDA and debt-service evidence. Connect to covenant structure without inventing a policy threshold.",
   "property_description": "1 paragraph: collateral type, condition, location, market context, advance rate applied.",
   "borrower_background": "1 paragraph: legal entity, ownership structure with percentages, operating history, geography.",
@@ -148,6 +148,18 @@ export function buildNarrativeInput(
     revenue: memo.financial_analysis.revenue.value,
     ebitda: memo.financial_analysis.ebitda.value,
     net_income: memo.financial_analysis.net_income.value,
+
+    // ── Governed balance-sheet anchors ──────────────────────────────────
+    // Ratio interpretations are commentary, not fact authority. Expose the
+    // underlying canonical rows so every leverage/debt dollar cited by the
+    // generator and reviewer traces to a governed top-level input.
+    balance_sheet: memo.financial_analysis.balance_sheet_table.map((row) => ({
+      period_end: row.period_end,
+      total_assets: row.total_assets,
+      total_liabilities: row.total_liabilities,
+      long_term_debt: row.mortgages_notes_bonds,
+      total_equity: row.total_equity,
+    })),
 
     // ── Phase 92: risk grade + covenant rationale ───────────────────────
     risk_grade: memo.recommendation.risk_grade,
