@@ -33,3 +33,55 @@ test("no rate limit", () => { assert.ok(m.auditRateLimits({specs:[{route:"/api/b
 test("all rates", () => { assert.equal(m.auditRateLimits({specs:[{route:"/api/brokerage/concierge",hasRateLimit:true,limitType:"ip"},{route:"/api/brokerage/discovery",hasRateLimit:true,limitType:"ip"},{route:"/api/brokerage/uploads",hasRateLimit:true,limitType:"ip"},{route:"/api/lender/marketplace/claim",hasRateLimit:true,limitType:"authenticated"},{route:"/api/brokerage/marketplace/pick",hasRateLimit:true,limitType:"session"}]}).filter(f=>f.severity==="critical").length,0); });
 test("full clean", () => { const r=m.runSecurityAudit({borrowerIsolation:{sessionA:{tokenHash:"a",dealId:"da"},sessionB:{tokenHash:"b",dealId:"db"},resolveSession:h=>h==="a"?{deal_id:"da"}:h==="b"?{deal_id:"db"}:null,resolveExpired:()=>null},lenderIsolation:{listings:[{id:"l1",matched_lender_bank_ids:["b1"]}],claims:[{id:"c1",listing_id:"l1",lender_bank_id:"b1",status:"active"}],agreements:[{lender_bank_id:"b1",status:"active"}],banks:[{id:"b1",bank_kind:"commercial_bank"}]},packageAccess:{accesses:[{id:"a1",claim_id:"c1",listing_id:"l1"}],claims:[{id:"c1",status:"picked"}],picks:[{id:"p1",claim_id:"c1",status:"picked"}],listings:[{id:"l1",status:"picked"}]},redaction:{listings:[{id:"l1",deal_id:"d1",status:"picked",kfs:{state:"TX"}}],deals:[{id:"d1",borrower_name:"H",borrower_email:"h@h.com"}]},adminPayloads:{payloads:[{source:"x",data:{total:1}}]},apiMethodSafety:{routes:[{path:"/api/brokerage/marketplace/pick",methods:["POST"],resolvesIdentityServerSide:true,acceptsClientBankId:false,acceptsClientDealId:false},{path:"/api/lender/marketplace/claim",methods:["POST"],resolvesIdentityServerSide:true,acceptsClientBankId:false,acceptsClientDealId:false}]},rateLimits:{specs:[{route:"/api/brokerage/concierge",hasRateLimit:true,limitType:"ip"},{route:"/api/brokerage/discovery",hasRateLimit:true,limitType:"ip"},{route:"/api/brokerage/uploads",hasRateLimit:true,limitType:"ip"},{route:"/api/lender/marketplace/claim",hasRateLimit:true,limitType:"authenticated"},{route:"/api/brokerage/marketplace/pick",hasRateLimit:true,limitType:"session"}]}}); assert.equal(r.ok,true); assert.equal(r.critical,0); });
 test("category filter", () => { const r=m.runSecurityAudit({borrowerIsolation:{sessionA:{tokenHash:"a",dealId:"d1"},sessionB:{tokenHash:"b",dealId:"d2"},resolveSession:()=>null,resolveExpired:()=>null},lenderIsolation:{listings:[],claims:[],agreements:[],banks:[]},packageAccess:{accesses:[],claims:[],picks:[],listings:[]},redaction:{listings:[],deals:[]},adminPayloads:{payloads:[]},apiMethodSafety:{routes:[]},rateLimits:{specs:[]},categories:["borrower"]}); assert.ok(r.findings.every(f=>f.category==="borrower_isolation")); });
+
+// ── Preview redaction provenance (audit round 3, step 5) ───────────────────
+// The system's own redaction audit inspected only marketplace_listings.kfs and
+// could not see either preview artifact leak. This check reads the redaction
+// provenance stamped on the bundle, so artifacts rendered by a leaky redactor
+// are named even after the code that produced them is fixed.
+
+const { auditPreviewRedactionProvenance, MIN_TRUSTED_REDACTOR_VERSION } =
+  require("../securityAudit") as typeof import("../securityAudit");
+
+function previewBundle(extra: Record<string, unknown> = {}) {
+  return {
+    id: "bundle-1", mode: "preview", status: "succeeded",
+    superseded_at: null, redactor_version: MIN_TRUSTED_REDACTOR_VERSION, ...extra,
+  };
+}
+
+test("a current preview bundle passes", () => {
+  const f = auditPreviewRedactionProvenance({ bundles: [previewBundle()] });
+  assert.equal(f.filter((x) => x.severity === "critical").length, 0);
+});
+
+test("a preview bundle from a leaky redactor is flagged critical", () => {
+  for (const stale of ["1.0.0", "1.1.0"]) {
+    const f = auditPreviewRedactionProvenance({ bundles: [previewBundle({ redactor_version: stale })] });
+    const crit = f.filter((x) => x.severity === "critical");
+    assert.equal(crit.length, 1, `redactor ${stale} must be flagged`);
+    assert.equal(crit[0].check, "preview_stale_redactor_version");
+  }
+});
+
+test("an unstamped preview bundle is flagged critical", () => {
+  const f = auditPreviewRedactionProvenance({ bundles: [previewBundle({ redactor_version: null })] });
+  assert.equal(f[0].check, "preview_missing_redactor_version");
+  assert.equal(f[0].severity, "critical");
+});
+
+test("final and superseded bundles are out of scope", () => {
+  const f = auditPreviewRedactionProvenance({
+    bundles: [
+      { id: "b1", mode: "final", status: "succeeded", superseded_at: null, redactor_version: null },
+      previewBundle({ id: "b2", superseded_at: "2026-08-01", redactor_version: "1.0.0" }),
+      previewBundle({ id: "b3", status: "failed", redactor_version: "1.0.0" }),
+    ],
+  });
+  assert.equal(f.filter((x) => x.severity === "critical").length, 0);
+});
+
+test("a future redactor version is accepted", () => {
+  const f = auditPreviewRedactionProvenance({ bundles: [previewBundle({ redactor_version: "2.0.0" })] });
+  assert.equal(f.filter((x) => x.severity === "critical").length, 0);
+});

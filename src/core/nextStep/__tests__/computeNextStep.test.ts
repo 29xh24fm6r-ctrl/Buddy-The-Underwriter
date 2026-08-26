@@ -51,7 +51,15 @@ test("computeNextStep returns open_underwriting when verify ok", async () => {
     deps: {
       sb: createFakeSupabase({
         deals: [{ id: "deal-1", display_name: "Named", nickname: null, borrower_id: "b-1" }],
-        deal_checklist_items: [],
+        // A required checklist item that has been RECEIVED. Without this the
+        // engine short-circuits to request_docs at the checklist gate and
+        // never calls verify — which is why these two tests failed while
+        // quarantined: an empty checklist means documents have not been
+        // requested yet, so request_docs is the correct next step and the
+        // fixture, not the engine, was wrong.
+        deal_checklist_items: [
+          { deal_id: "deal-1", checklist_key: "TAX_RETURN_2024", required: true, received_at: "2026-08-01T00:00:00.000Z" },
+        ],
       }) as any,
       verifyUnderwrite: async () => ({
         ok: true,
@@ -74,7 +82,15 @@ test("computeNextStep returns set_pricing_assumptions when pricing assumptions r
     deps: {
       sb: createFakeSupabase({
         deals: [{ id: "deal-2", display_name: "Named", nickname: null, borrower_id: "b-2" }],
-        deal_checklist_items: [],
+        // A required checklist item that has been RECEIVED. Without this the
+        // engine short-circuits to request_docs at the checklist gate and
+        // never calls verify — which is why these two tests failed while
+        // quarantined: an empty checklist means documents have not been
+        // requested yet, so request_docs is the correct next step and the
+        // fixture, not the engine, was wrong.
+        deal_checklist_items: [
+          { deal_id: "deal-2", checklist_key: "TAX_RETURN_2024", required: true, received_at: "2026-08-01T00:00:00.000Z" },
+        ],
       }) as any,
       verifyUnderwrite: async () => ({
         ok: false,

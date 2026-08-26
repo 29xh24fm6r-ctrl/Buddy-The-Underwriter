@@ -21,11 +21,19 @@ test("cookie payload carries both email and bankId, not email alone", () => {
   assert.match(source, /email.*bankId.*expiresAt|payload = `\$\{email\}:\$\{bankId\}:\$\{expiresAt\}`/);
 });
 
-test("cookie uses HMAC-SHA256 signing with constant-time comparison", () => {
+test("cookie signing is delegated to the shared, tested signer", () => {
+  // #900 moved HMAC-SHA256 signing and the constant-time compare out of this
+  // module into chooserToken.ts. This guard used to grep THIS file for
+  // "createHmac" and began failing on that refactor even though the security
+  // property was intact — so it asserts delegation now, and the property
+  // itself is proven behaviourally in chooserToken.test.ts (forged key,
+  // tampered payload, tampered signature, malformed input).
   const source = readSrc(SRC);
-  assert.ok(source.includes("createHmac"));
-  assert.ok(source.includes("sha256"));
-  assert.ok(source.includes("timingSafeEqual"));
+  assert.match(source, /from "@\/lib\/brokerage\/chooserToken"/);
+  assert.match(source, /signChooserPayload\(/);
+  assert.match(source, /verifyChooserPayload\(/);
+  // Signing must not be reimplemented locally: one signer, one contract.
+  assert.doesNotMatch(source, /createHmac/);
 });
 
 test("cookie is httpOnly, secure, sameSite=lax, 10-minute TTL", () => {

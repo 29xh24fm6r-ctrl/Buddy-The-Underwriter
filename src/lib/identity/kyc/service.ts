@@ -53,7 +53,15 @@ export type InitiateKycResult =
   | { ok: false; reason: "OWNER_NOT_FOUND" | "DB_INSERT_FAILED"; detail?: string };
 
 const PENDING_STATUSES = ["created", "pending"];
-const TERMINAL_SUCCESS_STATUSES = ["completed", "approved"];
+/**
+ * The verification statuses that count as a completed identity check.
+ *
+ * Exported because the sealing gate needs the same definition: #881 replaced
+ * its per-owner hasValidIal2() calls with one batched query and hardcoded
+ * ["completed","approved"] inline, leaving two copies of this contract to
+ * drift apart (audit F-14). Adding a status here must reach every consumer.
+ */
+export const TERMINAL_SUCCESS_STATUSES = ["completed", "approved"];
 
 /**
  * Base URL for borrower-facing return links, normalized to https.

@@ -36,7 +36,7 @@ import {
   ASSUMPTIONS_CONFIRMED_RESPONSE,
   ASSUMPTIONS_CONFIRM_BLOCKED_PREFIX,
 } from "@/lib/brokerage/trident/conciergeIntent";
-import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
+import { startTridentGeneration } from "@/lib/brokerage/trident/startTridentGeneration";
 import {
   propagateBorrowerFacts,
   type BorrowerFacts,
@@ -315,12 +315,13 @@ export async function POST(req: NextRequest): Promise<Response> {
         });
       }
 
-      // Generation MUST be awaited — fire-and-forget does not survive
-      // serverless function shutdown on Vercel. The generator handles its
-      // own bundle-row lifecycle: pending → running (sets
-      // generation_started_at) → succeeded | failed (sets
-      // generation_completed_at + generation_error on failure).
-      const generationResult = await generateTridentBundle({
+      // Handed to the durable workflow rather than awaited here. Fire-and-
+      // forget does not survive serverless shutdown, but the workflow does —
+      // and awaiting a full preview generation inside this request risked the
+      // function being reclaimed mid-run, stranding the bundle's 90-minute
+      // lease in `running` and blocking the borrower's own retries. The reply
+      // below is a fixed string; artifacts are fetched from latestPreviewUrl.
+      const generationResult = await startTridentGeneration({
         dealId: session.deal_id,
         mode: "preview",
       });
@@ -356,7 +357,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           matchedTerm: tridentIntent.matchedTerm,
           buddyResponse: TRIDENT_PREVIEW_RESPONSE,
           generation: generationResult.ok
-            ? { ok: true, bundleId: generationResult.bundleId }
+            ? { ok: true, accepted: true, bundleId: generationResult.bundleId }
             : {
                 ok: false,
                 bundleId: generationResult.bundleId,
@@ -382,8 +383,9 @@ export async function POST(req: NextRequest): Promise<Response> {
           generation: generationResult.ok
             ? {
                 ok: true,
+                accepted: true,
                 bundleId: generationResult.bundleId,
-                paths: generationResult.paths,
+                alreadyRunning: generationResult.alreadyRunning === true,
               }
             : {
                 ok: false,

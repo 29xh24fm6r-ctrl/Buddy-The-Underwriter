@@ -10,10 +10,8 @@ import "server-only";
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { start } from "workflow/api";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { createTridentBundleRun } from "@/lib/brokerage/trident/generateTridentBundle";
-import { goldenTridentWorkflow } from "@/workflows/goldenTrident";
+import { startTridentGeneration } from "@/lib/brokerage/trident/startTridentGeneration";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { getTridentReadiness } from "@/lib/brokerage/trident/tridentReadiness";
 import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
@@ -63,45 +61,17 @@ export async function POST(
     }
   }
 
-  const created = await createTridentBundleRun({ dealId, mode });
-  if (!created.ok) return NextResponse.json(created, { status: 500 });
-
-  if (!created.reused) {
-    try {
-      const run = await start(goldenTridentWorkflow, [{
-        dealId,
-        mode,
-        bundleId: created.bundleId,
-        leaseToken: created.leaseToken,
-      }]);
-      const { error: runPersistError } = await sb.from("buddy_trident_bundles").update({
-        workflow_run_id: run.runId,
-        last_heartbeat_at: new Date().toISOString(),
-      }).eq("id", created.bundleId).eq("lease_token", created.leaseToken);
-      if (runPersistError) throw new Error(`Workflow identity persistence failed: ${runPersistError.message}`);
-      return NextResponse.json(
-        { ok: true, accepted: true, bundleId: created.bundleId, runId: run.runId },
-        { status: 202 },
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const { data: admitted } = await sb.from("buddy_trident_bundles")
-        .select("input_hash").eq("id", created.bundleId)
-        .eq("lease_token", created.leaseToken).maybeSingle();
-      if (admitted?.input_hash) {
-        await sb.rpc("fail_trident_bundle_run", {
-          p_bundle_id: created.bundleId,
-          p_lease_token: created.leaseToken,
-          p_input_hash: admitted.input_hash,
-          p_error: `Workflow start failed: ${message}`,
-        });
-      }
-      return NextResponse.json({ ok: false, bundleId: created.bundleId, error: message }, { status: 500 });
-    }
+  const started = await startTridentGeneration({ dealId, mode });
+  if (!started.ok) {
+    return NextResponse.json(
+      { ok: false, bundleId: started.bundleId, error: started.error },
+      { status: 500 },
+    );
   }
-
   return NextResponse.json(
-    { ok: true, accepted: true, bundleId: created.bundleId, alreadyRunning: true },
+    started.alreadyRunning
+      ? { ok: true, accepted: true, bundleId: started.bundleId, alreadyRunning: true }
+      : { ok: true, accepted: true, bundleId: started.bundleId, runId: started.runId },
     { status: 202 },
   );
 }

@@ -76,7 +76,62 @@ export function auditRateLimits(args: { specs: RateLimitSpec[] }): AuditFinding[
   if (r.length === 0) r.push(finding(cat, "rate_limits_ok", "info", "api", "Rate limits verified", "None"));
   return r;
 }
-export function runSecurityAudit(args: { borrowerIsolation: Parameters<typeof auditBorrowerIsolation>[0]; lenderIsolation: Parameters<typeof auditLenderIsolation>[0]; packageAccess: Parameters<typeof auditPackageAccess>[0]; redaction: Parameters<typeof auditRedaction>[0]; adminPayloads: Parameters<typeof auditAdminPayloads>[0]; apiMethodSafety: Parameters<typeof auditApiMethodSafety>[0]; rateLimits: Parameters<typeof auditRateLimits>[0]; categories?: string[] }): SecurityAuditResult {
+/**
+ * Minimum redactor version whose preview artifacts are trusted to carry no
+ * precise borrower figures.
+ *
+ * 1.0.0 shipped the feasibility dimension-detail leak; 1.1.0 shipped the SBA
+ * projection-detail leak (exact monthly cash flow and an unrounded "Projected
+ * Year 1 Revenue"). Artifacts rendered by either are still readable from
+ * storage after the code is fixed, so the audit has to name them.
+ */
+export const MIN_TRUSTED_REDACTOR_VERSION = "1.2.0";
+
+function versionBelow(actual: string, minimum: string): boolean {
+  const a = actual.split(".").map((n) => Number.parseInt(n, 10));
+  const m = minimum.split(".").map((n) => Number.parseInt(n, 10));
+  for (let i = 0; i < 3; i++) {
+    const x = Number.isFinite(a[i]) ? a[i] : 0;
+    const y = Number.isFinite(m[i]) ? m[i] : 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+
+/**
+ * Preview artifacts must be traceable to a redactor known not to leak.
+ *
+ * The existing auditRedaction check inspects marketplace_listings.kfs — the
+ * JSON blob — and has no visibility into rendered artifacts, so it could not
+ * see either preview leak this system has had. This check uses the provenance
+ * stamped on the bundle instead: an unstamped or outdated preview bundle is
+ * a live artifact whose redaction cannot be vouched for.
+ */
+export function auditPreviewRedactionProvenance(args: { bundles: Row[] }): AuditFinding[] {
+  const r: AuditFinding[] = [];
+  const cat = "preview_redaction";
+  for (const b of args.bundles) {
+    if (str(b.mode) !== "preview") continue;
+    if (str(b.status) !== "succeeded") continue;
+    if (b.superseded_at) continue;
+    const version = str(b.redactor_version);
+    if (!version) {
+      r.push(finding(cat, "preview_missing_redactor_version", "critical", "buddy_trident_bundles",
+        `Bundle ${b.id}: current preview artifacts carry no redactor_version`,
+        "Regenerate the preview bundle so its redaction provenance is recorded"));
+      continue;
+    }
+    if (versionBelow(version, MIN_TRUSTED_REDACTOR_VERSION)) {
+      r.push(finding(cat, "preview_stale_redactor_version", "critical", "buddy_trident_bundles",
+        `Bundle ${b.id}: preview rendered by redactor ${version} (< ${MIN_TRUSTED_REDACTOR_VERSION}), which leaked precise borrower figures`,
+        "Regenerate the preview bundle and expire the stored artifacts"));
+    }
+  }
+  if (r.length === 0) r.push(finding(cat, "preview_redaction_ok", "info", "buddy_trident_bundles", "Preview redaction provenance verified", "None"));
+  return r;
+}
+
+export function runSecurityAudit(args: { borrowerIsolation: Parameters<typeof auditBorrowerIsolation>[0]; lenderIsolation: Parameters<typeof auditLenderIsolation>[0]; packageAccess: Parameters<typeof auditPackageAccess>[0]; redaction: Parameters<typeof auditRedaction>[0]; adminPayloads: Parameters<typeof auditAdminPayloads>[0]; apiMethodSafety: Parameters<typeof auditApiMethodSafety>[0]; rateLimits: Parameters<typeof auditRateLimits>[0]; previewRedaction?: Parameters<typeof auditPreviewRedactionProvenance>[0]; categories?: string[] }): SecurityAuditResult {
   const start = Date.now(); const all: AuditFinding[] = []; const cats = args.categories ? new Set(args.categories) : null;
   if (!cats || cats.has("borrower")) all.push(...auditBorrowerIsolation(args.borrowerIsolation));
   if (!cats || cats.has("lender")) all.push(...auditLenderIsolation(args.lenderIsolation));
@@ -85,6 +140,9 @@ export function runSecurityAudit(args: { borrowerIsolation: Parameters<typeof au
   if (!cats || cats.has("admin")) all.push(...auditAdminPayloads(args.adminPayloads));
   if (!cats || cats.has("api")) all.push(...auditApiMethodSafety(args.apiMethodSafety));
   if (!cats || cats.has("rate-limit")) all.push(...auditRateLimits(args.rateLimits));
+  // Optional so existing callers keep working; when bundles are supplied the
+  // audit reports on preview artifacts still in circulation.
+  if ((!cats || cats.has("preview-redaction")) && args.previewRedaction) all.push(...auditPreviewRedactionProvenance(args.previewRedaction));
   all.sort((a, b) => ({critical:0,warning:1,info:2}[a.severity] ?? 2) - ({critical:0,warning:1,info:2}[b.severity] ?? 2));
   const critical = all.filter(f => f.severity === "critical").length;
   return { ok: critical === 0, total: all.length, critical, warning: all.filter(f => f.severity === "warning").length, info: all.filter(f => f.severity === "info").length, findings: all, elapsed: Date.now() - start };

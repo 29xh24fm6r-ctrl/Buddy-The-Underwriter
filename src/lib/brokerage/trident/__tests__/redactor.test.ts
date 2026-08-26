@@ -10,6 +10,10 @@ const {
   redactSBAPackageForPreview,
   redactFeasibilityForPreview,
   redactFeasibilityDetailForPreview,
+  redactMonthlyProjectionsForPreview,
+  redactBreakEvenForPreview,
+  redactSensitivityScenariosForPreview,
+  redactRevenueStreamProjectionsForPreview,
   REDACTOR_VERSION,
 } = require("../redactor") as typeof import("../redactor");
 
@@ -254,4 +258,148 @@ test("feasibility detail redaction is structure-preserving and total", () => {
 
 test("REDACTOR_VERSION was bumped for the detail-layer change", () => {
   assert.notEqual(REDACTOR_VERSION, "1.0.0");
+});
+
+// ── SBA projection detail (audit F-13) ─────────────────────────────────────
+// The SBA package renderer prints these structures verbatim. Before this fix
+// the orchestrator passed them through raw in preview mode, so the preview
+// business plan carried every month of exact cash flow and an exact
+// "Projected Year 1 Revenue" line that contradicted the bucketed value the
+// projections table showed a few pages earlier.
+
+const EXACT_Y1_REVENUE = 487_250;
+
+function sampleMonths() {
+  return [
+    {
+      month: 1,
+      revenue: 41_270,
+      operatingDisbursements: 33_910,
+      netOperatingCF: 7_360,
+      debtService: 4_812,
+      netCash: 2_548,
+      cumulativeCash: 2_548,
+    },
+    {
+      month: 2,
+      revenue: 39_845,
+      operatingDisbursements: 34_105,
+      netOperatingCF: 5_740,
+      debtService: 4_812,
+      netCash: 928,
+      cumulativeCash: 3_476,
+      workingCapitalChange: 1_237,
+    },
+  ];
+}
+
+function sampleBreakEven() {
+  return {
+    fixedCostsAnnual: 268_430,
+    contributionMarginPct: 0.42,
+    breakEvenRevenue: 639_119,
+    breakEvenUnits: null,
+    projectedRevenueYear1: EXACT_Y1_REVENUE,
+    marginOfSafetyPct: 0.234,
+    flagLowMargin: false,
+  };
+}
+
+test("monthly projections lose precision but keep their shape", () => {
+  const r = redactMonthlyProjectionsForPreview(sampleMonths());
+  const serialized = JSON.stringify(r);
+  for (const leak of ["41270", "33910", "4812", "2548", "3476", "1237"]) {
+    assert.equal(serialized.includes(leak), false, `preview leaked ${leak}`);
+  }
+  assert.equal(r.length, 2);
+  assert.equal(r[0].month, 1, "month index is structure, not a borrower figure");
+  assert.equal(r[1].month, 2);
+  // Optional members are preserved when present and not invented when absent.
+  assert.equal("workingCapitalChange" in r[0], false);
+  assert.equal("workingCapitalChange" in r[1], true);
+});
+
+test("break-even loses dollar precision and keeps every ratio", () => {
+  const r = redactBreakEvenForPreview(sampleBreakEven());
+  assert.equal(JSON.stringify(r).includes("487250"), false, "exact Y1 revenue leaked");
+  assert.equal(JSON.stringify(r).includes("639119"), false, "exact break-even revenue leaked");
+  assert.equal(JSON.stringify(r).includes("268430"), false, "exact fixed costs leaked");
+  // Ratios and verdicts are the preview signal.
+  assert.equal(r.contributionMarginPct, 0.42);
+  assert.equal(r.marginOfSafetyPct, 0.234);
+  assert.equal(r.flagLowMargin, false);
+  assert.equal(r.breakEvenUnits, null);
+});
+
+test("the document cannot contradict itself about Year 1 revenue", () => {
+  // The regression in one line: the projections table bucketed Year 1 revenue
+  // to $25K while the break-even section printed it exactly. Both paths must
+  // now land on the same number.
+  const fromProjectionsTable = redactSBAPackageForPreview({
+    ...sampleSBAInputs(),
+    annualProjections: [
+      { year: 1, revenue: EXACT_Y1_REVENUE, dscr: 1.42, totalDebtService: 57_744, ebitda: 121_800 },
+    ],
+  }).annualProjections[0].revenue;
+
+  const fromBreakEvenSection = redactBreakEvenForPreview(sampleBreakEven()).projectedRevenueYear1;
+
+  assert.equal(
+    fromBreakEvenSection,
+    fromProjectionsTable,
+    "the same figure must render identically in both sections of one preview",
+  );
+  assert.notEqual(fromBreakEvenSection, EXACT_Y1_REVENUE);
+});
+
+test("sensitivity scenarios keep their verdict and lose exact revenue", () => {
+  const r = redactSensitivityScenariosForPreview([
+    {
+      name: "downside",
+      label: "Downside",
+      revenueGrowthAdjustment: -0.15,
+      cogsAdjustment: 0.05,
+      dscrYear1: 1.1834,
+      dscrYear2: 1.2671,
+      dscrYear3: 1.3492,
+      revenueYear1: 414_162,
+      ebitdaMarginYear1: 0.187,
+      passesSBAThreshold: false,
+    },
+  ]);
+  assert.equal(JSON.stringify(r).includes("414162"), false);
+  assert.equal(r[0].name, "downside");
+  assert.equal(r[0].passesSBAThreshold, false);
+  assert.equal(r[0].ebitdaMarginYear1, 0.187);
+  // DSCR keeps one decimal — the same treatment annual projections get.
+  assert.equal(r[0].dscrYear1, 1.2);
+  assert.equal(r[0].dscrYear3, 1.3);
+});
+
+test("revenue streams keep identity and growth, lose dollar precision", () => {
+  const r = redactRevenueStreamProjectionsForPreview([
+    {
+      id: "rs-1",
+      name: "Precision machining contracts",
+      pricingModel: "per_unit",
+      baseAnnualRevenue: 312_480,
+      growthRateYear1: 0.12,
+      growthRateYear2: 0.09,
+      growthRateYear3: 0.07,
+      revenueYear1: 349_978,
+      revenueYear2: 381_476,
+      revenueYear3: 408_179,
+    },
+  ]);
+  const serialized = JSON.stringify(r);
+  for (const leak of ["312480", "349978", "381476", "408179"]) {
+    assert.equal(serialized.includes(leak), false, `preview leaked ${leak}`);
+  }
+  assert.equal(r[0].name, "Precision machining contracts");
+  assert.equal(r[0].growthRateYear1, 0.12);
+});
+
+test("REDACTOR_VERSION was bumped for the SBA projection-detail change", () => {
+  assert.notEqual(REDACTOR_VERSION, "1.1.0");
+  assert.match(REDACTOR_VERSION, /^\d+\.\d+\.\d+$/);
 });

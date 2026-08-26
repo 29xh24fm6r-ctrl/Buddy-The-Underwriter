@@ -16,6 +16,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requiresPersonalPackage } from "@/lib/ownership/rules";
+import { TERMINAL_SUCCESS_STATUSES } from "@/lib/identity/kyc/service";
 
 export async function ownersNeedingIal2(
   dealId: string,
@@ -41,7 +42,11 @@ export async function ownersNeedingIal2(
     .select("ownership_entity_id")
     .eq("deal_id", dealId)
     .in("ownership_entity_id", ownerIds)
-    .in("status", ["completed", "approved"])
+    // Single source of truth with hasValidIal2 and the rest of the KYC
+    // service. A hardcoded copy here silently diverges: add a terminal
+    // status and verified owners read as unverified (sealing blocks);
+    // remove an unsafe one and this gate keeps honouring it (audit F-14).
+    .in("status", TERMINAL_SUCCESS_STATUSES)
     .not("completed_at", "is", null);
 
   const verifiedOwnerIds = new Set(

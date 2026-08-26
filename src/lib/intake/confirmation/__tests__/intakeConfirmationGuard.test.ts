@@ -879,24 +879,28 @@ test("[guard-52] confirm route snapshot query filters by logical_key", () => {
   );
 });
 
-// ── Guard 53: Confirm route queries filter is_active (≥4) ───────────
+// ── Guard 53: every deal_documents read in confirm is active-scoped ──
 
-// E1.2: Single-pass refactor reduced query count. Still need is_active on:
-// 1. lock TTL check, 2. single docs load, 3. lock update = 3 references
-test("[guard-53] confirm route filters is_active on ≥ 2 queries", () => {
+// This counted occurrences of "is_active" and required ≥2, which made it a
+// proxy for "the filter is applied" that broke every time the route was
+// consolidated — first from ≥3 to ≥2, then to red when #903's single-pass
+// refactor legitimately reduced the route to ONE deal_documents query that
+// does carry the filter. Assert the invariant instead: a confirm route may
+// read deal_documents as many or as few times as it likes, but never without
+// scoping to active rows. (document_artifacts has no is_active column; it is
+// gated on `status` and is deliberately not covered here.)
+test("[guard-53] every deal_documents query in confirm is scoped to active rows", () => {
   const src = readSource("src/app/api/deals/[dealId]/intake/confirm/route.ts");
-  let count = 0;
-  let idx = 0;
-  while ((idx = src.indexOf("is_active", idx)) !== -1) {
-    count++;
-    idx += 9;
-  }
-  // Was ≥ 3 before observability refactor; stale-lock recovery query replaced
-  // by detectStuckProcessing (reads deals table, not deal_documents).
-  assert.ok(
-    count >= 2,
-    `Confirm route must reference is_active ≥ 2 times (got ${count})`,
-  );
+  const queries = src.split('.from("deal_documents")').slice(1);
+  assert.ok(queries.length >= 1, "confirm route must read deal_documents");
+  queries.forEach((q, i) => {
+    // Each query's clause chain ends at the next statement boundary.
+    const chain = q.split(/;\s*\n/)[0];
+    assert.ok(
+      /\.eq\(\s*["']is_active["']\s*,\s*true\s*\)/.test(chain),
+      `deal_documents query #${i + 1} in the confirm route is not scoped to is_active=true`,
+    );
+  });
 });
 
 // ── Guard 54: processConfirmedIntake queries filter is_active ────────
