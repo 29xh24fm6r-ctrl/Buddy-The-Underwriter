@@ -211,7 +211,7 @@ export async function buildCanonicalCreditMemo(args: {
   /** Durable server workflows have no interactive user session. This mode
    * skips only the session lookup; the bank-scoped deal query below remains
    * mandatory and fails closed on a mismatched deal/bank pair. */
-  executionContext?: "interactive" | "system";
+  executionContext?: "interactive" | "authorized_route" | "system";
 }): Promise<{ ok: true; memo: CanonicalCreditMemoV1 } | { ok: false; error: string }> {
   try {
     const mode: MemoRenderMode = args.renderMode ?? "internal_diagnostic";
@@ -228,7 +228,7 @@ export async function buildCanonicalCreditMemo(args: {
       if (dealErr) return { ok: false, error: `deal_select_failed:${dealErr.message}` };
       if (!dealRow) return { ok: false, error: "deal_not_found" };
       bankId = String(dealRow.bank_id);
-    } else if (args.executionContext !== "system") {
+    } else if (args.executionContext !== "system" && args.executionContext !== "authorized_route") {
       const access = await ensureDealBankAccess(args.dealId);
       if (!access.ok) return { ok: false, error: access.error };
       if (String(access.bankId) !== String(bankId)) return { ok: false, error: "tenant_mismatch" };
