@@ -443,5 +443,10 @@
     "name": "increment_continue_usage",
     "type": "function",
     "migration": "20260826163000_usage_function_privilege_boundary.sql"
+  },
+  {
+    "name": "finalize_intake_and_enqueue_processing",
+    "type": "function",
+    "migration": "20260827010000_atomic_intake_locking.sql"
   }
 ]

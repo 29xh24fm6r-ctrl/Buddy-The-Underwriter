@@ -314,6 +314,29 @@ Unresolved:
   Supabase connector evidence.
 
 
+### PR 904 recovered CI evidence
+
+- GitHub Actions recovered and created required workflows for PR 904 head
+  `77ff0b3d8c993588a49fa4071e5f1744b47bdf63`.
+- Typecheck and lint passed, then the architectural guard correctly failed because
+  merged PR 903 introduced `finalize_intake_and_enqueue_processing` without a
+  schema-manifest provenance entry. Later CI steps were therefore skipped; PR 904
+  was not treated as merge-ready.
+- PR 904 now also registers that function against
+  `20260827010000_atomic_intake_locking.sql`. This is a release-ledger correction
+  only and does not modify database state.
+- The PR 903 function is SECURITY DEFINER and was granted to `authenticated`
+  despite accepting caller-controlled deal and bank identifiers. Its application
+  route performs tenant authorization, but direct RPC calls bypass that route.
+  The independent stacked PR 905 revokes direct anon/authenticated execution,
+  grants service-role-only execution, hardens search_path, and adds a regression
+  contract while preserving the authorized server route.
+- PR 905 exact-head Vercel preview `84a6dbd1d48a7536d12cae12e3dfa3dbc22f2ab8`
+  is READY, returns HTTP 200 with the matching build SHA, and has no error/fatal
+  runtime logs. Full Actions must run after PR 904 merges and PR 905 is retargeted
+  to main.
+
+
 ### Atomic intake RPC privilege boundary
 
 Evidence and root cause:
