@@ -70,17 +70,19 @@ jobs:
       - name: Schema select gate
         timeout-minutes: 5
         run: pnpm -s gate:schema-select
-      - name: Schema drift detection
+      # Phase 1 keeps confirmed drift report-only while historical reconciliation
+      # is pending. Detector/configuration failures still fail CI.
+      - name: Schema drift detection (report-only)
         if: env.DRIFT_DETECT_DB_URL != ''
-        continue-on-error: true     # PHASE 1: report-only, do not block PRs
-        run: pnpm -s gate:schema-drift
+        run: pnpm -s gate:schema-drift -- --report-only
       - name: Upload drift report
         if: always() && env.DRIFT_DETECT_DB_URL != ''
         uses: actions/upload-artifact@v4
         with:
           name: drift-report
           path: .drift_report/
-          if-no-files-found: warn
+          include-hidden-files: true
+          if-no-files-found: error
       # Production compilation is enforced by the dedicated Build Check workflow.
       # Do not repeat it here: this job's 30-minute budget is reserved for the
       # full guard/test suite and Playwright smoke coverage.
