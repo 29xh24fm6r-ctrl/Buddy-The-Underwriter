@@ -20,6 +20,7 @@ export function BankBuyersWorkspace() {
   const [mode, setMode] = useState<"bank" | "submission" | null>(null);
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState("active");
+  const [dealSearch, setDealSearch] = useState("");
   const [bank, setBank] = useState<any>({ name: "", marketplaceRole: "", marketplaceAccessStatus: "not_invited", marketplaceOnboardingNotes: "", relationshipStatus: "prospect", lenderType: "bank", sba7a: true, sba504: false, conventional: false, minLoanAmount: "", maxLoanAmount: "", minDscr: "1.25", maxLtv: "0.90", minimumFico: "", industries: "", excludedIndustries: "", geographies: "Nationwide", collateralPreferences: "", dealPreferences: "", responseSlaDays: "3", referralFeeBps: "", websiteUrl: "", phone: "", city: "", state: "", notes: "", contactFirstName: "", contactLastName: "", contactEmail: "", contactPhone: "", contactJobTitle: "SBA Business Development Officer" });
   const [submission, setSubmission] = useState<any>({ entryMode: "existing", dealId: "", externalDealName: "", borrowerName: "", productType: "SBA_7A", dealState: "", externalDealSource: "", externalReference: "", lenderProfileId: "", bankerPersonId: "", status: "sent", amountSent: "", sentAt: dateInput(0), nextFollowUpAt: dateInput(), fitRationale: "", notes: "" });
 
@@ -58,7 +59,9 @@ export function BankBuyersWorkspace() {
         if (!response.ok || !result.ok) throw new Error(result.error ?? "Unable to prepare bank relationship");
         const refreshed = await load();
         if (!refreshed) return;
-        setSubmission((current: any) => ({ ...current, lenderProfileId: result.profile.id, bankerPersonId: "" }));
+        const preparedProfile = refreshed.profiles.find((profile: any) => profile.id === result.profile.id);
+        const soleBankerId = preparedProfile?.contacts?.length === 1 ? preparedProfile.contacts[0].id : "";
+        setSubmission((current: any) => ({ ...current, lenderProfileId: result.profile.id, bankerPersonId: soleBankerId }));
         setMode("submission");
         window.history.replaceState({}, "", "/admin/brokerage/crm/buyers");
       } catch (e: any) {
@@ -71,6 +74,16 @@ export function BankBuyersWorkspace() {
   }, []);
   const visible = useMemo(() => data.submissions.filter((s: any) => filter === "all" || (filter === "active" ? ACTIVE.has(s.status) : s.status === filter)), [data.submissions, filter]);
   const selectedProfile = data.profiles.find((p: any) => p.id === submission.lenderProfileId);
+  const visibleDeals = useMemo(() => {
+    const query = dealSearch.trim().toLowerCase();
+    return data.deals.filter((deal: any) => {
+      const name = String(deal.display_name || deal.borrower_name || deal.name || "");
+      if (deal.is_test || name.startsWith("[QA]")) return false;
+      return !query || [name, deal.borrower_name, deal.product_type, deal.state, deal.external_reference]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [data.deals, dealSearch]);
 
   async function post(payload: any) {
     setSaving(true); setError(null);
@@ -116,7 +129,8 @@ export function BankBuyersWorkspace() {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 10 }}>
         {submission.entryMode==="existing" ? <>
-          {label("Deal *", <select style={field()} value={submission.dealId} onChange={e => { const d=data.deals.find((x:any)=>x.id===e.target.value); setSubmission({...submission,dealId:e.target.value,amountSent:d?.loan_amount ?? ""}); }}><option value="">Select a deal</option>{data.deals.map((d:any)=><option key={d.id} value={d.id}>{d.display_name||d.borrower_name||d.name||"Untitled"} · {fmtMoney(Number(d.loan_amount||0))}</option>)}</select>)}
+          {label("Find a Buddy deal", <input aria-label="Search Buddy deals" style={field()} placeholder="Search by borrower, business, program, state, or reference…" value={dealSearch} onChange={e=>setDealSearch(e.target.value)}/>)}
+          {label("Deal *", <select style={field()} value={submission.dealId} onChange={e => { const d=data.deals.find((x:any)=>x.id===e.target.value); setSubmission({...submission,dealId:e.target.value,amountSent:d?.loan_amount ?? ""}); }}><option value="">{visibleDeals.length ? "Select a deal" : "No matching deals"}</option>{visibleDeals.map((d:any)=><option key={d.id} value={d.id}>{d.display_name||d.borrower_name||d.name||"Untitled"} · {fmtMoney(Number(d.loan_amount||0))}</option>)}</select>)}
           {label("Amount sent", <input style={field()} type="number" min="0" value={submission.amountSent} onChange={e=>setSubmission({...submission,amountSent:e.target.value})}/>)}
         </> : <>
           {label("Deal / business name *", <input style={field()} placeholder="Example: Main Street Dental acquisition" value={submission.externalDealName} onChange={e=>setSubmission({...submission,externalDealName:e.target.value})}/>)}
@@ -127,7 +141,7 @@ export function BankBuyersWorkspace() {
           {label("How you received it", <input style={field()} placeholder="Banker handoff, referral partner…" value={submission.externalDealSource} onChange={e=>setSubmission({...submission,externalDealSource:e.target.value})}/>)}
           {label("External reference", <input style={field()} placeholder="Optional file or source ID" value={submission.externalReference} onChange={e=>setSubmission({...submission,externalReference:e.target.value})}/>)}
         </>}
-        {label("Bank buyer *", <select style={field()} value={submission.lenderProfileId} onChange={e => setSubmission({...submission,lenderProfileId:e.target.value,bankerPersonId:""})}><option value="">Select a bank</option>{data.profiles.map((p:any)=><option key={p.id} value={p.id}>{p.organization?.name ?? "Unnamed bank"}</option>)}</select>)}
+        {label("Bank buyer *", <select style={field()} value={submission.lenderProfileId} onChange={e => { const profile=data.profiles.find((item:any)=>item.id===e.target.value); const bankerPersonId=profile?.contacts?.length===1?profile.contacts[0].id:""; setSubmission({...submission,lenderProfileId:e.target.value,bankerPersonId}); }}><option value="">Select a bank</option>{data.profiles.map((p:any)=><option key={p.id} value={p.id}>{p.organization?.name ?? "Unnamed bank"}</option>)}</select>)}
         {label("Banker", <select style={field()} value={submission.bankerPersonId} onChange={e=>setSubmission({...submission,bankerPersonId:e.target.value})}><option value="">Unassigned</option>{(selectedProfile?.contacts??[]).map((p:any)=><option key={p.id} value={p.id}>{[p.first_name,p.last_name].filter(Boolean).join(" ")||p.email}</option>)}</select>)}
         {label("Date sent", <input style={field()} type="datetime-local" value={submission.sentAt} onChange={e=>setSubmission({...submission,sentAt:e.target.value})}/>)}
         {label("Follow up", <input style={field()} type="datetime-local" value={submission.nextFollowUpAt} onChange={e=>setSubmission({...submission,nextFollowUpAt:e.target.value})}/>)}
