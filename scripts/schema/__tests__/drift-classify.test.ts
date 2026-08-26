@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { classifyDriftFindings } from "../drift-classify";
-import type { DriftFinding } from "./drift-detect";
+import type { DriftFinding } from "../drift-detect";
 
 function finding(
   migrationVersion: string,
