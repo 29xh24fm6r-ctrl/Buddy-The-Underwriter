@@ -35,5 +35,50 @@ export async function mockRequestSignature(
     `/api/brokerage/deals/${args.dealId}/borrower-actions/mock-complete-esign` +
     `?submissionId=${encodeURIComponent(documentId)}&externalId=${encodeURIComponent(externalId)}`;
 
+  const { data: verification } = await deps.sb
+    .from("borrower_identity_verifications")
+    .select("id")
+    .eq("deal_id", args.dealId)
+    .eq("ownership_entity_id", args.signerOwnershipEntityId)
+    .in("status", ["completed", "approved"])
+    .order("completed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { error: trackingError } = await deps.sb.from("signing_requests").insert({
+    deal_id: args.dealId,
+    bank_id: args.bankId,
+    form_code: args.formCode,
+    signer_ownership_entity_id: args.signerOwnershipEntityId,
+    signer_role: args.signerRole,
+    recipient_email: args.signerEmail,
+    recipient_name: args.signerName,
+    signwell_document_id: documentId,
+    status: "pending",
+    embedded_signing: true,
+    signing_url: embedUrl,
+    test_mode: true,
+    metadata: {
+      template_version: args.templateVersion,
+      identity_verification_id: verification?.id ?? null,
+      test_mode: true,
+    },
+  });
+  if (trackingError) {
+    return { ok: false, reason: "SUBMISSION_FAILED", detail: `signing_request_tracking_failed:${trackingError.message}` };
+  }
+
+  await deps.sb.from("deal_events").insert({
+    deal_id: args.dealId,
+    kind: "esign.requested",
+    payload: {
+      form_code: args.formCode,
+      signer_ownership_entity_id: args.signerOwnershipEntityId,
+      identity_verification_id: verification?.id ?? null,
+      document_id: documentId,
+      test_mode: true,
+    },
+  });
+
   return { ok: true, documentId, embedUrl };
 }

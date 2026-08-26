@@ -29,12 +29,12 @@ export type SignwellClient = {
   }) => Promise<{
     id: string | number;
     status: string;
-    recipients: Array<{ id: string | number; signing_url?: string | null; embedded_signing_url?: string | null }>;
+    recipients: Array<{ id: string | number; email?: string | null; signing_url?: string | null; embedded_signing_url?: string | null }>;
   }>;
   fetchSignwellDocument: (documentId: string) => Promise<{
     id: string | number;
     status: string;
-    recipients: Array<{ id: string | number; signing_url?: string | null; embedded_signing_url?: string | null }>;
+    recipients: Array<{ id: string | number; email?: string | null; signing_url?: string | null; embedded_signing_url?: string | null }>;
   }>;
   downloadSignwellCompletedPdf: (documentId: string) => Promise<Buffer>;
 };
@@ -139,28 +139,15 @@ export async function requestSignature(
     .limit(1)
     .maybeSingle();
 
-  await sb.from("deal_events").insert({
-    deal_id: args.dealId,
-    kind: "esign.requested",
-    payload: {
-      form_code: args.formCode,
-      signer_ownership_entity_id: args.signerOwnershipEntityId,
-      identity_verification_id: verification?.id ?? null,
-      document_id: String(document.id),
-    },
-  });
-
   const recipient = document.recipients.find((r) => String(r.id) === "1");
   const embedUrl = recipient?.embedded_signing_url ?? recipient?.signing_url;
   if (!embedUrl) {
     return { ok: false, reason: "SUBMISSION_FAILED", detail: "signwell_response_missing_signing_url" };
   }
 
-  // Best-effort in-flight tracking row (signing_requests) — a failure here
-  // doesn't invalidate the signature request SignWell already accepted, so
-  // it's non-fatal, same discipline as the Didit decision-detail fetch in
-  // kyc/service.ts. Supabase-js resolves rather than throws on a DB error,
-  // so check `.error` explicitly instead of relying on try/catch.
+  // A successful handoff must have a durable request row. Completion uses
+  // this record as the trusted signer/template provenance rather than
+  // accepting those compliance facts from webhook metadata.
   try {
     const { error: signingRequestError } = await sb.from("signing_requests").insert({
       deal_id: args.dealId,
@@ -174,25 +161,75 @@ export async function requestSignature(
       status: document.status,
       embedded_signing: true,
       signing_url: embedUrl,
+      metadata: {
+        template_version: args.templateVersion,
+        identity_verification_id: verification?.id ?? null,
+      },
     });
     if (signingRequestError) {
-      console.error("[requestSignature] signing_requests insert failed (non-fatal):", signingRequestError.message);
+      return { ok: false, reason: "SUBMISSION_FAILED", detail: `signing_request_tracking_failed:${signingRequestError.message}` };
     }
-  } catch (err) {
-    console.error("[requestSignature] signing_requests insert threw (non-fatal):", err);
+  } catch (err: any) {
+    return { ok: false, reason: "SUBMISSION_FAILED", detail: `signing_request_tracking_failed:${err?.message ?? String(err)}` };
   }
+
+  await sb.from("deal_events").insert({
+    deal_id: args.dealId,
+    kind: "esign.requested",
+    payload: {
+      form_code: args.formCode,
+      signer_ownership_entity_id: args.signerOwnershipEntityId,
+      identity_verification_id: verification?.id ?? null,
+      document_id: String(document.id),
+    },
+  });
 
   return { ok: true, documentId: String(document.id), embedUrl };
 }
 
 export type HandleSignwellWebhookResult =
   | { ok: true; ignored: true }
-  | { ok: true; signedDocumentId: string }
-  | { ok: false; reason: "MALFORMED_EXTERNAL_ID" | "IAL2_GATE_FAILED_AT_COMPLETION" | "PDF_UPLOAD_FAILED" | "DEAL_NOT_FOUND"; detail?: string };
+  | { ok: true; signedDocumentId: string; reused?: true }
+  | {
+      ok: false;
+      reason:
+        | "MALFORMED_EXTERNAL_ID"
+        | "MISSING_DOCUMENT_ID"
+        | "SIGNING_REQUEST_NOT_FOUND"
+        | "SIGNING_REQUEST_MISMATCH"
+        | "SIGNER_MISMATCH"
+        | "IAL2_GATE_FAILED_AT_COMPLETION"
+        | "PDF_UPLOAD_FAILED"
+        | "DEAL_NOT_FOUND";
+      detail?: string;
+    };
+
+function parseSignwellEventTime(value: string | number | undefined): Date {
+  if (typeof value === "number") {
+    const milliseconds = value < 10_000_000_000 ? value * 1000 : value;
+    const parsed = new Date(milliseconds);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      const milliseconds = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+      const parsed = new Date(milliseconds);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return new Date();
+}
+
+function normalizeEmail(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
 
 export async function handleSignwellWebhook(
   payload: {
-    event: { type: string };
+    event: { type: string; time?: string | number };
     data: { object: { id?: string | number; metadata?: { external_id?: string }; recipients?: Array<{ id: string | number }> } };
   },
   deps: { sb: EsignSupabaseClient; signwell: SignwellClient },
@@ -209,6 +246,22 @@ export async function handleSignwellWebhook(
     return { ok: false, reason: "MALFORMED_EXTERNAL_ID" };
   }
   const [, dealId, formCode, signerOwnershipEntityId] = match;
+  const documentId = String(payload.data.object.id ?? "");
+  if (!documentId) {
+    return { ok: false, reason: "MISSING_DOCUMENT_ID" };
+  }
+
+  // SignWell redelivers webhooks. Treat an already-persisted provider
+  // document as success before any download, storage, or event side effect.
+  const { data: existingSignedDocument } = await sb
+    .from("signed_documents")
+    .select("id")
+    .eq("esign_document_id", documentId)
+    .limit(1)
+    .maybeSingle();
+  if (existingSignedDocument?.id) {
+    return { ok: true, signedDocumentId: String(existingSignedDocument.id), reused: true };
+  }
 
   // Defense in depth — re-confirm IAL2 still holds at completion time.
   const ial2Valid = await hasValidIal2(dealId, signerOwnershipEntityId, sb);
@@ -221,12 +274,36 @@ export async function handleSignwellWebhook(
     return { ok: false, reason: "IAL2_GATE_FAILED_AT_COMPLETION" };
   }
 
-  const documentId = String(payload.data.object.id ?? "");
+  const { data: signingRequest } = await sb
+    .from("signing_requests")
+    .select("deal_id, bank_id, form_code, signer_ownership_entity_id, signer_role, recipient_email, metadata, created_at")
+    .eq("signwell_document_id", documentId)
+    .maybeSingle();
+  if (!signingRequest) {
+    return { ok: false, reason: "SIGNING_REQUEST_NOT_FOUND" };
+  }
+  if (
+    String(signingRequest.deal_id) !== dealId ||
+    String(signingRequest.form_code) !== formCode ||
+    String(signingRequest.signer_ownership_entity_id) !== signerOwnershipEntityId
+  ) {
+    return { ok: false, reason: "SIGNING_REQUEST_MISMATCH" };
+  }
+
   const document = await signwell.fetchSignwellDocument(documentId);
+  const signer = document.recipients.find((recipient) => String(recipient.id) === "1") ?? document.recipients[0];
+  const requestedEmail = normalizeEmail(signingRequest.recipient_email);
+  const completedEmail = normalizeEmail(signer?.email);
+  if (requestedEmail && completedEmail && requestedEmail !== completedEmail) {
+    return { ok: false, reason: "SIGNER_MISMATCH" };
+  }
 
   const { data: deal } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
   if (!deal) {
     return { ok: false, reason: "DEAL_NOT_FOUND" };
+  }
+  if (String(signingRequest.bank_id) !== String(deal.bank_id)) {
+    return { ok: false, reason: "SIGNING_REQUEST_MISMATCH", detail: "bank_id_mismatch" };
   }
 
   const { data: verification } = await sb
@@ -254,14 +331,25 @@ export async function handleSignwellWebhook(
     return { ok: false, reason: "PDF_UPLOAD_FAILED", detail: "no_storage_capable_client" };
   }
 
-  const pdfUpload = await sb.storage.from("signed-documents").upload(pdfPath, pdfBytes, { contentType: "application/pdf" });
+  // The provider document ID makes this path immutable and deterministic.
+  // Upsert lets a webhook retry recover after upload succeeded but the row
+  // insert or acknowledgement failed.
+  const pdfUpload = await sb.storage
+    .from("signed-documents")
+    .upload(pdfPath, pdfBytes, { contentType: "application/pdf", upsert: true });
   if (pdfUpload.error) {
     return { ok: false, reason: "PDF_UPLOAD_FAILED", detail: pdfUpload.error.message };
   }
 
-  const completedAt = new Date();
+  const completedAt = parseSignwellEventTime(payload.event.time);
   const stalenessDays = formStalenessDays(formCode);
   const expiresAt = new Date(completedAt.getTime() + stalenessDays * 86_400_000);
+  const requestMetadata =
+    signingRequest.metadata && typeof signingRequest.metadata === "object" ? signingRequest.metadata : {};
+  const templateVersion =
+    typeof requestMetadata.template_version === "string" && requestMetadata.template_version.trim()
+      ? requestMetadata.template_version
+      : "legacy-unrecorded";
 
   const { data: signedDoc, error } = await sb
     .from("signed_documents")
@@ -270,15 +358,15 @@ export async function handleSignwellWebhook(
       bank_id: deal.bank_id,
       esign_provider: "signwell",
       form_code: formCode,
-      template_version: "v1",
+      template_version: templateVersion,
       signer_ownership_entity_id: signerOwnershipEntityId,
-      signer_role: "applicant",
+      signer_role: signingRequest.signer_role,
       identity_verification_id: verification?.id ?? null,
       esign_document_id: documentId,
-      esign_signer_id: String(document.recipients[0]?.id ?? ""),
+      esign_signer_id: String(signer?.id ?? ""),
       signed_pdf_storage_path: pdfPath,
       audit_trail_storage_path: null,
-      signature_request_sent_at: completedAt.toISOString(),
+      signature_request_sent_at: signingRequest.created_at ?? completedAt.toISOString(),
       signature_completed_at: completedAt.toISOString(),
       staleness_window_days: stalenessDays,
       expires_at: expiresAt.toISOString(),
@@ -287,6 +375,16 @@ export async function handleSignwellWebhook(
     .single();
 
   if (error || !signedDoc) {
+    // A concurrent delivery may have won the unique provider-document race.
+    const { data: racedSignedDocument } = await sb
+      .from("signed_documents")
+      .select("id")
+      .eq("esign_document_id", documentId)
+      .limit(1)
+      .maybeSingle();
+    if (racedSignedDocument?.id) {
+      return { ok: true, signedDocumentId: String(racedSignedDocument.id), reused: true };
+    }
     return { ok: false, reason: "PDF_UPLOAD_FAILED", detail: error?.message ?? "insert_failed" };
   }
 
@@ -296,10 +394,8 @@ export async function handleSignwellWebhook(
     payload: { form_code: formCode, signer_ownership_entity_id: signerOwnershipEntityId, signed_document_id: signedDoc.id },
   });
 
-  // Mirror completion onto the in-flight tracking row — best-effort, same
-  // discipline as the insert in requestSignature: signed_documents is
-  // already the durable compliance record at this point, so a failure here
-  // only affects the "in-flight" view, not the signature itself.
+  // signed_documents is the durable compliance record. The in-flight row is
+  // a view aid, so a failure here does not invalidate the completed record.
   try {
     const { error: signingRequestError } = await sb
       .from("signing_requests")
