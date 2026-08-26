@@ -163,8 +163,18 @@ test("exposes governed leverage anchors and period DSCR bases to generation and 
     label: "FY2025",
     revenue: 2400000,
     cash_flow_available: 360000,
+    debt_service: 137616,
     dscr: 2.62,
+    calculated_dscr: 360000 / 137616,
+    basis: "cash_flow_available / period_debt_service",
   }]);
+  assert.deepEqual(input.underwriting_reconciliation, {
+    cash_flow_available: 150000,
+    debt_service: 110000,
+    dscr: 1.35,
+    calculated_dscr: 150000 / 110000,
+    basis: "underwriting_cash_flow_available / underwriting_debt_service",
+  });
   assert.equal(input.debt_service, 110000);
   assert.equal(input.dscr_uw, 1.35);
 });
