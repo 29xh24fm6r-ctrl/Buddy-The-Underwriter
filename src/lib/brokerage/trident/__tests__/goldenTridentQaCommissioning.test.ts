@@ -14,6 +14,8 @@ const labClient = readFileSync("src/components/brokerage/GoldenTridentLabClient.
 const memoPage = readFileSync("src/app/(app)/deals/[dealId]/credit-memo/page.tsx", "utf8");
 const narrativeAssembly = readFileSync("src/lib/creditMemo/canonical/narrativeAssembly.ts", "utf8");
 const frontierFactory = readFileSync("src/lib/ai/frontierArtifactFactory.ts", "utf8");
+const goldenRun = readFileSync("src/lib/brokerage/goldenRun.ts", "utf8");
+const launchReadiness = readFileSync("src/app/admin/brokerage/launch-readiness/page.tsx", "utf8");
 
 test("QA fixture seeds evidence and underwriting inputs, never fake outputs", () => {
   assert.match(fixture, /SYNTHETIC QA EVIDENCE — NOT A BORROWER DOCUMENT/);
@@ -87,4 +89,12 @@ test("canonical-credit commissioning preserves actionable review evidence and DS
   assert.match(narrativeAssembly, /debt_service: row\.debt_service/);
   assert.match(narrativeAssembly, /underwriting_reconciliation/);
   assert.match(narrativeAssembly, /cash_flow_available \/ period_debt_service/);
+});
+
+
+test("shadow simulations and legacy rows cannot masquerade as commissioning failures or proof", () => {
+  assert.match(goldenRun, /evidenceClass: "synthetic_direct_insert"/);
+  assert.match(goldenRun, /commissionsGoldenTrident: false/);
+  assert.match(launchReadiness, /post-contract regression\(s\)/);
+  assert.match(launchReadiness, /legacy row\(s\) retained for audit/);
 });
