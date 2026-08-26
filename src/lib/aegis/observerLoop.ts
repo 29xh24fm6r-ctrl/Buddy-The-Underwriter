@@ -258,6 +258,37 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
     result.ok = false;
   }
 
+  // ── 3b. Unclaimed outbox kinds (SPEC-OUTBOX-UNCLAIMED-KIND-1) ──
+  // An outbox kind that is neither on the Pulse allowlist nor claimed by a
+  // dedicated worker accumulates in silence. That is how document_uploaded
+  // sat undelivered from 2026-08-14 until an audit found it. Surface it as a
+  // warning so the next one is caught in minutes.
+  try {
+    const { findUnclaimedOutboxKinds } = await import(
+      "@/lib/workers/processPulseOutbox"
+    );
+    const unclaimed = await findUnclaimedOutboxKinds(sb as any);
+    for (const u of unclaimed) {
+      await writeSystemEvent({
+        event_type: "warning",
+        severity: "warning",
+        source_system: "observer",
+        error_code: "OUTBOX_KIND_UNCLAIMED",
+        error_message: `Outbox kind "${u.kind}" has ${u.pending} pending event(s) and no consumer`,
+        resolution_status: "open",
+        payload: {
+          observer_decision: "unclaimed_outbox_kind",
+          kind: u.kind,
+          pending: u.pending,
+          oldest_created_at: u.oldest_created_at,
+        },
+      });
+      result.actions.events_emitted++;
+    }
+  } catch (err: any) {
+    result.errors.push(`unclaimed_outbox_kinds: ${err.message}`);
+  }
+
   // ── 4. Emit observer's own heartbeat (ALWAYS attempted) ──
   try {
     await writeSystemEvent({
@@ -329,6 +360,31 @@ async function handleFailedJob(
 
   // ── Decision: Is this error class never-retry? ──
   if (isNeverRetry(classified.errorClass)) {
+    // SPEC-OBS-DEAD-JOB-DEDUP-1.
+    // find_stuck_or_failed_jobs returns EVERY row with status='FAILED', with no
+    // upper bound on age, and this branch does not (and cannot) change that
+    // status — 'DEAD' is not in the document_jobs / deal_spread_jobs status
+    // CHECK constraint, and the retry branch below is the only one that writes
+    // the job row back. So without a dedup check the observer re-emitted an
+    // identical "job_marked_dead" event for the same permanently-failed job on
+    // every tick, forever. In production that was 18 permanently-FAILED
+    // document_jobs re-reported every 10 minutes — 7,776 rows in three days,
+    // and the single largest live contributor to buddy_system_events.
+    //
+    // A job already recorded dead is recorded. Emit once, then stay quiet.
+    const { data: alreadyDead } = await sb
+      .from("buddy_system_events" as any)
+      .select("id")
+      .eq("source_job_id", job.job_id)
+      .eq("resolution_status", "dead")
+      .limit(1)
+      .maybeSingle();
+
+    if (alreadyDead) {
+      result.actions.suppressed++;
+      return;
+    }
+
     writeSystemEvent({
       event_type: "error",
       severity: classified.errorClass === "auth" ? "critical" : "error",

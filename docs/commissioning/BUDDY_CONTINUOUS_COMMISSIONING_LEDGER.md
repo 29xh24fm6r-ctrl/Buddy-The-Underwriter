@@ -425,6 +425,45 @@ Remaining checkpoints:
 - Golden Trident delivery, SignWell replay, and reconciliation workers still
   require authorized transactional fixtures.
 
+
+### PR 906 production closure and Trident startup-failure convergence
+
+Production evidence:
+
+- PR 906 merged externally as `d5a1df302a746ffa5d9545aa7a99267a2225f080`;
+  the commissioning agent did not merge it.
+- Vercel production deployment `dpl_Hbi9jUqPfoxgGNkYz9Tk2mxUJSka` is READY
+  on that exact SHA. The public Buddy surface rendered cleanly, no Buddy
+  application console errors were observed, and no runtime error clusters were
+  present in the two-hour post-deploy observation.
+- The unauthenticated intake-confirmation probe remains fail-closed with HTTP 401.
+
+New evidence and repair branch `fix/trident-start-failure-convergence`:
+
+- When durable workflow startup throws, the shared starter performs a second
+  `buddy_trident_bundles` read to rediscover the input hash and ignores both
+  read and `fail_trident_bundle_run` errors. A failed cleanup therefore leaves a
+  90-minute live lease even though no workflow owns it, and subsequent requests
+  appear reused until reconciliation.
+- Admission now returns the exact input hash already computed and written with
+  the lease. Startup cleanup uses that identity directly, removing the extra
+  read and its failure mode.
+- Cleanup response errors and thrown provider errors are both observed. A failed
+  lease release is logged with the bundle identity and returned as a distinct
+  retry-after-reconciliation condition rather than false-normal start failure.
+- Regression coverage enforces the read-free cleanup boundary, exact admitted
+  identity, release-error handling, and preservation of the post-start ownership
+  rule from PR 906.
+
+Verification target:
+
+- Focused durable Golden Trident regression, full required CI, exact-head Vercel
+  preview, and complete PR diff inspection must pass before merge recommendation.
+- Transactional production closure still requires an authorized Golden Trident QA
+  fixture. Direct database verification remains blocked until the owned Buddy
+  Supabase project is explicitly available; the differently named project exposed
+  by the generic connector was not queried.
+
 ### PR 907 production closure and PR 909 Golden Trident request-boundary / CI-honesty factory
 
 Production evidence:
@@ -490,4 +529,5 @@ Open checkpoints:
   Buddy-owned Supabase project connection is available; the currently exposed
   differently named project remains unqueried.
 - Replace the 13 research golden-set placeholders with production-backed cases.
+
 

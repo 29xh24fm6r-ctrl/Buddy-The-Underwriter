@@ -47,6 +47,13 @@ export function getWorkerAuthMatch(req: NextRequest): WorkerAuthMatch {
  * reverse proxies, hosting logs, and observability systems.
  *
  * At least one of WORKER_SECRET or CRON_SECRET must be set in env.
+ *
+ * SPEC-SEC-WORKER-AUTH-1 / #885 — arrived at independently and identically:
+ *   - Comparison is constant-time (secretEquals). A plain `===` on a shared
+ *     secret leaks its prefix through response timing.
+ *   - `?token=` query-param auth was REMOVED, along with the "query" arm of
+ *     WorkerAuthMatch.method. Callers that used it must move to the
+ *     Authorization or x-worker-secret header.
  */
 export function hasValidWorkerSecret(req: NextRequest): boolean {
   return getWorkerAuthMatch(req).matched;

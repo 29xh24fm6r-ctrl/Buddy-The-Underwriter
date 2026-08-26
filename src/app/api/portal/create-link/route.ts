@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import crypto from "crypto";
 
 export const runtime = "nodejs";
@@ -11,9 +12,19 @@ function randomToken() {
 
 /**
  * POST /api/portal/create-link
- * 
- * Banker creates a portal link for borrower
- * Body: { deal_id, label?, expires_hours?, single_use?, channel?, bank_id? }
+ *
+ * Banker creates a portal link for borrower.
+ * Body: { deal_id, label?, expires_hours?, single_use? }
+ *
+ * AUTH (SPEC-SEC-PORTAL-LINK-1): Clerk banker on the deal's own bank.
+ * This route mints a bearer token that grants document-portal access to
+ * `deal_id`, so it MUST verify the caller belongs to that deal's tenant
+ * before issuing one. Middleware does not gate /api/** (see src/proxy.ts),
+ * so the check lives here.
+ *
+ * `bank_id` is NOT read from the body — it is derived from the deal via
+ * ensureDealBankAccess, so a caller cannot stamp a link with a foreign
+ * tenant's bank_id.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -24,12 +35,20 @@ export async function POST(req: NextRequest) {
       expires_hours = 72,
       single_use = true,
       channel = null,
-      bank_id = null,
     } = body;
 
     if (!deal_id) {
       return NextResponse.json({ error: "deal_id required" }, { status: 400 });
     }
+
+    const access = await ensureDealBankAccess(String(deal_id));
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.error },
+        { status: access.error === "unauthorized" ? 401 : access.error === "deal_not_found" ? 404 : 403 },
+      );
+    }
+    const bank_id = access.bankId;
 
     const token = randomToken();
     const expiresAt = new Date(Date.now() + expires_hours * 3600 * 1000).toISOString();

@@ -218,6 +218,80 @@ function buildNotEligibleScore(args: {
   };
 }
 
+/**
+ * SPEC-SCORE-IDEMPOTENCY-1 — no-op when nothing changed.
+ *
+ * `supersede_and_insert_buddy_sba_score` appends a row on every call, and
+ * nothing upstream deduplicates. In production that produced 12,605 rows for
+ * 38 deals (9,038 on a single deal in ten days, roughly one every 96 seconds)
+ * and 46 MB of table — every one of them identical to its predecessor.
+ *
+ * A score is a pure function of its inputs, so recomputing with unchanged
+ * inputs must not write history. We compare the freshly computed score and its
+ * input snapshot against the current active row; if they match, we reuse that
+ * row instead of superseding it.
+ *
+ * Deliberately compares `input_snapshot` and not just `score`: two different
+ * input sets can round to the same composite, and history should record that
+ * the inputs changed. A `locked` row is never reused — locking is a state
+ * transition the caller is entitled to move off.
+ */
+async function findUnchangedActiveScore(
+  sb: SupabaseClient,
+  score: BuddySBAScore,
+  payload: Record<string, unknown>,
+): Promise<string | null> {
+  const { data: active, error } = await sb
+    .from("buddy_sba_scores")
+    .select("id, score, score_status, score_version, input_snapshot, eligibility_passed")
+    .eq("deal_id", score.dealId)
+    .is("superseded_at", null)
+    .order("computed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // On a read error, fall through to the insert — never drop a score because
+  // the dedup lookup failed.
+  if (error || !active) return null;
+
+  const row = active as Record<string, any>;
+  if (row.score_status === "locked") return null;
+  if (row.score_version !== payload.score_version) return null;
+  if (row.score !== payload.score) return null;
+  if (row.eligibility_passed !== payload.eligibility_passed) return null;
+
+  return canonicalJson(row.input_snapshot) === canonicalJson(payload.input_snapshot)
+    ? String(row.id)
+    : null;
+}
+
+/**
+ * Order-independent JSON serialization for comparing a jsonb round-trip
+ * against a freshly built object.
+ *
+ * Postgres `jsonb` does not preserve key insertion order — it normalizes keys
+ * (by length, then bytewise) — so the object that comes back from
+ * input_snapshot can have a different key order than the identical object we
+ * just computed. A plain JSON.stringify comparison would therefore report
+ * "changed" on almost every call and silently defeat the dedupe. Sort keys
+ * recursively so the comparison is on content.
+ */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortDeep(value ?? null));
+}
+
+function sortDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortDeep);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value as Record<string, unknown>)
+        .sort()
+        .map((k) => [k, sortDeep((value as Record<string, unknown>)[k])]),
+    );
+  }
+  return value;
+}
+
 async function persistScore(sb: SupabaseClient, score: BuddySBAScore): Promise<void> {
   const payload = {
     score_version: score.scoreVersion,
@@ -239,6 +313,12 @@ async function persistScore(sb: SupabaseClient, score: BuddySBAScore): Promise<v
     weights_snapshot: score.weightsSnapshot,
     computation_context: score.computationContext,
   };
+
+  const unchangedId = await findUnchangedActiveScore(sb, score, payload);
+  if (unchangedId) {
+    score.id = unchangedId;
+    return;
+  }
 
   const { data, error } = await sb.rpc("supersede_and_insert_buddy_sba_score", {
     p_deal_id: score.dealId,

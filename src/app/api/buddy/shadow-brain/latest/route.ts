@@ -1,3 +1,7 @@
+// route-class: PUBLIC — polled by the client that started the shadow-brain
+// run, keyed by an unguessable request_key it already holds (capability URL).
+// Returns only model/latency/result for that one request; a wrong or guessed
+// key returns status:"missing", never another caller's row.
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
