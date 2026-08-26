@@ -1,10 +1,14 @@
 import "server-only";
 
-import { Storage } from "@google-cloud/storage";
+import { getGcsClient } from "@/lib/storage/gcs";
 
 /**
- * Create a V4 signed PUT URL using the official GCS library.
- * Auth resolves implicitly via environment / runtime (ADC, GOOGLE_APPLICATION_CREDENTIALS, etc.).
+ * Create a V4 signed PUT URL using Buddy's canonical GCS client.
+ *
+ * Vercel production authenticates to GCS through Workload Identity Federation,
+ * so every signing path must use getGcsClient(). Constructing a bare Storage
+ * client here only supports ambient ADC and strands Vercel uploads with
+ * "Unable to find credentials in current environment".
  */
 export async function createGcsV4SignedPutUrl(opts: {
   bucket: string;
@@ -22,8 +26,7 @@ export async function createGcsV4SignedPutUrl(opts: {
 }): Promise<{ url: string; headers: Record<string, string> }> {
   const { bucket, objectKey, contentType, expiresSeconds, maxSizeBytes } = opts;
 
-  const storage = new Storage();
-
+  const storage = await getGcsClient();
   const file = storage.bucket(bucket).file(objectKey);
 
   const expires = Date.now() + Math.max(1, expiresSeconds) * 1000;
