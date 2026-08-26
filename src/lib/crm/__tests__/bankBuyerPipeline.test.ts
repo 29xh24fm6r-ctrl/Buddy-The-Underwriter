@@ -70,6 +70,7 @@ test("CRM uses a scoped high-contrast light theme", () => {
   assert.match(organizationPage, /crmColors as c/);
 });
 
+// Live commissioning regression: handed-to-broker deals must not require Buddy intake.
 test("off-platform deals can be recorded directly in the bank submission ledger", () => {
   assert.match(externalDealMigration, /crm_tracking_only/);
   assert.match(externalDealMigration, /external_deal_source/);
