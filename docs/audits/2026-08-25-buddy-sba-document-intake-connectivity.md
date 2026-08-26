@@ -4,6 +4,15 @@
 **Scope:** Does the Buddy SBA document intake system connect end-to-end to Buddy the Underwriter's
 document intake engine (classification / slots / matching) and processing engine
 (OCR → extraction → `deal_financial_facts`)?
+
+**Surface audited:** `www.buddysba.com` — the SBA brokerage product. Both products ship from this
+one repo and deployment, split by host: `resolveProductFromHost()`
+(`src/lib/brokerage/domainRouting.ts:12-19`) maps `buddysba` → `brokerage` and
+`buddytheunderwriter` → `underwriter`, and `src/proxy.ts:96-116` rewrites `/` accordingly
+(`buddybrokerage.com` 301s to `buddysba.com`). The borrower funnel audited below is
+`buddysba.com/apply` → `/start` ("Buddy SBA concierge", `src/app/(borrower)/start/page.tsx:87`)
+→ `/api/brokerage/concierge` → deal. "Buddy the Underwriter" is the lender-side surface on
+`buddytheunderwriter.com` that owns the intake and processing engines.
 **Method:** Static trace of every SBA/borrower-facing document entry point through to the
 underwriting engine's canonical tables and workers. No production data was queried.
 
@@ -70,9 +79,14 @@ selected by `resolveSlotPolicy(scenario.product_type)` (`policies/index.ts:39`),
   and `DealIntakeCard.tsx:352`
 - `src/app/api/deals/[dealId]/intake/scenario/route.ts:109` — **no client caller in the codebase**
 
-The production Buddy SBA deal is created at `src/lib/brokerage/conversionFunnel.ts:37` with
-`deal_type: "SBA", origin: "brokerage_anonymous"` and nothing else. No scenario row is ever
-written for it.
+The production Buddy SBA deal is created by the `claim_brokerage_session` Postgres RPC
+(`supabase/migrations/20260621000001_brokerage_session_dedup.sql:80-93`), called from
+`getOrCreateBorrowerSession()` (`src/lib/brokerage/session.ts:63-66`) on the borrower's first
+`/api/brokerage/concierge` request. It inserts exactly five columns — `bank_id`,
+`deal_type: 'SBA'`, `origin: 'brokerage_anonymous'`, `display_name`,
+`brokerage_session_token_hash`. No `product_type`, no `loan_type`, and no scenario row.
+(`startBrokerageSession` in `src/lib/brokerage/conversionFunnel.ts:32-45` writes the same shape
+but is `@deprecated` and has no callers — the RPC is the live path.)
 
 **Effect:** every borrower-originated SBA deal gets the 11 conventional slots. The SBA forms
 slots are never created, so `runMatch` has nothing to attach an SBA 1919/413/debt schedule to,
@@ -102,8 +116,8 @@ in `seedPortalChecklist.ts:47-51` — they are simply never selected.
 
 | Field | Written by | Value on a Buddy SBA deal | Read by |
 |---|---|---|---|
-| `deals.deal_type` | `conversionFunnel.ts:37` | `"SBA"` | `/api/deals/[dealId]/sba/route.ts:80,420` gate |
-| `deals.product_type` | *(no production writer found)* | `NULL` | `dealProductType.isSBA()`, `borrowerFormsOrchestration.ts:65` |
+| `deals.deal_type` | `claim_brokerage_session` RPC | `"SBA"` | `/api/deals/[dealId]/sba/route.ts:80,420` gate |
+| `deals.product_type` | *(no production writer found; nullable, no DB default — `20260607000000_p0a_deal_type_product_type.sql:22`)* | `NULL` | `dealProductType.isSBA()`, `borrowerFormsOrchestration.ts:65` |
 | `deals.loan_type` | `borrower/intake/progress:389` | `"7a"` | nothing in the intake path |
 | `deal_intake.loan_type` | `initializeIntake:76` | `"CRE"` (default) | both checklist seeders |
 | `deal_intake_scenario.product_type` | banker routes only | *absent* | slot policy |
@@ -221,7 +235,8 @@ Worth stating plainly, since most of the backbone is sound:
 
 1. **Set the SBA scenario at deal creation.** Write `deal_intake_scenario`
    (`product_type: "SBA_7A"`, business stage from the concierge answers) when a Buddy SBA deal is
-   created in `conversionFunnel.ts`, or derive it inside `loadIntakeScenario` from
+   created (in `getOrCreateBorrowerSession` right after the `claim_brokerage_session` RPC
+   returns), or derive it inside `loadIntakeScenario` from
    `deals.product_type` / `deals.deal_type` when the row is absent. Fixes P0-1.
 2. **Collapse the loan-type vocabulary.** Make `deals.product_type` the single source, populate it
    at creation, backfill existing rows, and have `initializeIntake` derive `loan_type` from it.
