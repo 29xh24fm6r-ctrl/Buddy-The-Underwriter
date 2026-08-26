@@ -21,7 +21,7 @@ describe("SignWell initiation contract", () => {
   });
 
   it("keeps explicit placed fields and does not force an extra signature page", () => {
-    assert.match(clientSource, /fields,\s*\n\s*\/\/ SignWell rejects/);
+    assert.match(clientSource, /fields:\s*hasPlacedFields \? fields : undefined/);
     assert.doesNotMatch(clientSource, /fields:\s*args\.fields \?\? \[\[\]\]/);
   });
 
