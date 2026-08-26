@@ -7,10 +7,8 @@
 // the 2048 deploy-route cap; see
 // specs/platform/SPEC-2026-05-vercel-route-count-reduction.md).
 //
-// Auth: every verb here goes through supabaseServer.auth.getUser() +
-// getCurrentBankId() + a deal-bank ownership check, preserving the exact
-// flow each prior sibling used. Response shapes are byte-identical with
-// the prior routes.
+// Auth: every verb resolves a Clerk session, canonical profile actor, and
+// explicit deal-bank ownership through resolveDealApiContext().
 //
 // Wire shape:
 //   GET  /policy/mitigants                          → list mitigants
@@ -18,8 +16,8 @@
 //   POST /policy/mitigants  body: { action: "set-status", mitigant_key,
 //                                   status, note? }
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveDealApiContext } from "@/lib/server/dealApiContext";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes need headroom beyond the default
@@ -28,29 +26,21 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// Internal helper: authenticate and verify deal-bank ownership. Returns
-// either an early NextResponse (the same shape the per-verb routes used)
-// or a resolved context. Centralises the auth flow so all branches stay
-// behaviour-identical with the pre-consolidation siblings.
+// Resolve one canonical Clerk + tenant context for every verb.
 async function loadAuthContext(
   ctx: { params: Promise<{ dealId: string }> },
 ): Promise<
-  | { ok: true; sb: Awaited<ReturnType<typeof supabaseServer>>; userId: string; dealId: string; bankId: string }
+  | {
+      ok: true;
+      sb: SupabaseClient;
+      userId: string;
+      dealId: string;
+      bankId: string;
+    }
   | { ok: false; response: NextResponse }
 > {
-  const sb = await supabaseServer();
-  const { data: auth } = await sb.auth.getUser();
-  if (!auth?.user)
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { ok: false, error: "not_authenticated" },
-        { status: 401 },
-      ),
-    };
-
   const { dealId } = await ctx.params;
-  if (!dealId)
+  if (!dealId) {
     return {
       ok: false,
       response: NextResponse.json(
@@ -58,40 +48,26 @@ async function loadAuthContext(
         { status: 400 },
       ),
     };
+  }
 
-  const bankId = await getCurrentBankId();
-
-  const dealRes = await sb
-    .from("deals")
-    .select("id, bank_id")
-    .eq("id", dealId)
-    .maybeSingle();
-  if (dealRes.error)
+  const access = await resolveDealApiContext(dealId);
+  if (!access.ok) {
     return {
       ok: false,
       response: NextResponse.json(
-        { ok: false, error: "deal_fetch_failed", detail: dealRes.error.message },
-        { status: 500 },
+        { ok: false, error: access.error },
+        { status: access.status },
       ),
     };
-  if (!dealRes.data)
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { ok: false, error: "deal_not_found" },
-        { status: 404 },
-      ),
-    };
-  if (String(dealRes.data.bank_id) !== String(bankId))
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { ok: false, error: "wrong_bank" },
-        { status: 403 },
-      ),
-    };
+  }
 
-  return { ok: true, sb, userId: auth.user.id, dealId, bankId: String(bankId) };
+  return {
+    ok: true,
+    sb: access.sb,
+    userId: access.actorProfileId,
+    dealId: access.dealId,
+    bankId: access.bankId,
+  };
 }
 
 // ── GET: list mitigants (was /policy/mitigants/list) ────────────────────
@@ -157,7 +133,7 @@ export async function POST(
 // ── set-status branch (was POST /policy/mitigants/set-status) ───────────
 
 async function handleSetStatus(
-  sb: Awaited<ReturnType<typeof supabaseServer>>,
+  sb: SupabaseClient,
   body: any,
   dealId: string,
   bankId: string,
@@ -212,7 +188,7 @@ async function handleSetStatus(
 // - Never auto-closes; user must mark satisfied/waived.
 
 async function handleSync(
-  sb: Awaited<ReturnType<typeof supabaseServer>>,
+  sb: SupabaseClient,
   body: any,
   dealId: string,
   bankId: string,

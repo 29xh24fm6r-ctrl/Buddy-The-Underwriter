@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveDealApiContext } from "@/lib/server/dealApiContext";
 import { SpreadsPageClient } from "@/components/deals/spreads/SpreadsPageClient";
 
 export const runtime = "nodejs";
@@ -10,7 +10,9 @@ type Props = { params: Promise<{ dealId: string }> };
 
 export default async function SpreadsPage({ params }: Props) {
   const { dealId } = await params;
-  const sb = getSupabaseServerClient();
+  const access = await resolveDealApiContext(dealId);
+  if (!access.ok) notFound();
+  const sb = access.sb;
 
   const { data: deal } = await sb
     .from("deals")

@@ -1,39 +1,36 @@
+import "server-only";
+
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 function requireEnv(name: string, value: string | undefined) {
   if (!value || !String(value).trim()) {
-    throw new Error(
-      `Missing ${name}. Add it to your Codespaces env / .env.local and restart dev server.`
-    );
+    throw new Error(`Missing ${name}. Add it to the server environment and restart.`);
   }
-  return value;
+  return value.trim();
 }
 
 /**
- * Server-side Supabase client.
- * Uses service role if available (preferred for server routes).
- * Falls back to anon key ONLY if service role is missing (dev convenience).
+ * Privileged server-side Supabase client.
  *
- * IMPORTANT: In production you should ALWAYS set SUPABASE_SERVICE_ROLE_KEY.
+ * This helper is service-role only and never falls back to the public anon
+ * key. Callers must authenticate and authorize the request before using it
+ * for user-driven work. Prefer supabaseAdmin() for new privileged code.
  */
 export function getSupabaseServerClient(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = requireEnv(
+    "NEXT_PUBLIC_SUPABASE_URL",
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+  );
+  const serviceRoleKey = requireEnv(
+    "SUPABASE_SERVICE_ROLE_KEY",
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+  );
 
-  const supabaseUrl = requireEnv("NEXT_PUBLIC_SUPABASE_URL", url);
-
-  const keyToUse = service?.trim() ? service : anon;
-
-  if (!keyToUse || !keyToUse.trim()) {
-    throw new Error(
-      "Missing SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_ANON_KEY. " +
-        "Set at least one (service role recommended) and restart dev server."
-    );
-  }
-
-  return createClient(supabaseUrl, keyToUse, {
-    auth: { persistSession: false },
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
     global: {
       headers: {
         "x-buddy-runtime": "server",
@@ -43,50 +40,59 @@ export function getSupabaseServerClient(): SupabaseClient {
 }
 
 /**
- * Async wrapper for server components (matches new Next.js patterns).
- * Returns a promise that resolves to the Supabase client.
+ * Legacy async alias for the privileged server client.
+ *
+ * It does not represent a user session. User-facing routes must use Clerk
+ * authentication plus explicit authorization before querying through it.
  */
 export async function supabaseServer(): Promise<SupabaseClient> {
   return getSupabaseServerClient();
 }
 
 /**
- * Create Supabase server client with user-specific Buddy JWT.
- * 
- * This variant calls /api/auth/supabase-jwt internally to get a user-specific JWT,
- * making auth.uid() work in RLS for server-side Route Handlers.
- * 
- * Usage in Route Handlers that need RLS:
- *   import { createSupabaseServerClient } from "@/lib/supabase/server";
- *   const supabase = await createSupabaseServerClient();
- *   const { data } = await supabase.from("deals").select("*");
- * 
- * Note: For most server-side queries, use supabaseAdmin() instead (bypasses RLS).
- * Only use this when you specifically need RLS to apply.
+ * Create an RLS-scoped client using Buddy's Clerk-to-Supabase JWT exchange.
+ * Fails closed if the authenticated token cannot be minted.
  */
 export async function createSupabaseServerClient(): Promise<SupabaseClient> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const url = requireEnv(
+    "NEXT_PUBLIC_SUPABASE_URL",
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+  );
+  const anon = requireEnv(
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  );
+  const appUrl = requireEnv(
+    "NEXT_PUBLIC_APP_URL",
+    process.env.NEXT_PUBLIC_APP_URL,
+  );
 
-  // Import cookies dynamically to avoid errors in non-Next.js contexts
   const { cookies } = await import("next/headers");
-  
-  // Call internal route to mint JWT using the user's Clerk session cookie
   const cookieStore = await cookies();
-  const cookieHeader = cookieStore.toString();
-  
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-  const res = await fetch(`${appUrl}/api/auth/supabase-jwt`, {
-    headers: { cookie: cookieHeader },
+
+  const response = await fetch(`${appUrl}/api/auth/supabase-jwt`, {
+    headers: { cookie: cookieStore.toString() },
     cache: "no-store",
   });
 
-  const { token } = (await res.json().catch(() => ({}))) as { token?: string };
+  const payload = (await response.json().catch(() => ({}))) as {
+    token?: string;
+    error?: string;
+  };
+
+  if (!response.ok || !payload.token) {
+    throw new Error(
+      `Supabase user token exchange failed: ${payload.error ?? response.status}`,
+    );
+  }
 
   return createClient(url, anon, {
-    auth: { persistSession: false },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
     global: {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { Authorization: `Bearer ${payload.token}` },
     },
   });
 }

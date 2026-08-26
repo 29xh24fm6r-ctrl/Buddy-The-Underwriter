@@ -1,27 +1,24 @@
 // src/app/api/tenant/select/route.ts
 //
-// Legacy bank-selection route (Supabase auth path).
+// Clerk-authenticated bank-selection route.
 // Validates membership before updating profile.bank_id.
 // Does NOT create profiles — only updates existing ones.
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { clerkAuth } from "@/lib/auth/clerkServer";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const sb = await supabaseServer();
-  const { data: auth, error: authErr } = await sb.auth.getUser();
-  if (authErr)
+  const { userId } = await clerkAuth();
+  if (!userId) {
     return NextResponse.json(
       { ok: false, error: "not_authenticated" },
       { status: 401 },
     );
-  if (!auth?.user)
-    return NextResponse.json(
-      { ok: false, error: "not_authenticated" },
-      { status: 401 },
-    );
+  }
+  const sb = supabaseAdmin();
 
   const form = await req.formData();
   const bankId = String(form.get("bank_id") || "").trim();
@@ -35,7 +32,7 @@ export async function POST(req: Request) {
   const mem = await sb
     .from("bank_memberships")
     .select("id")
-    .eq("user_id", auth.user.id)
+    .eq("clerk_user_id", userId)
     .eq("bank_id", bankId)
     .maybeSingle();
 
@@ -52,7 +49,7 @@ export async function POST(req: Request) {
       { status: 403 },
     );
 
-  // Update profile bank context (uses Supabase auth user.id as profiles.id)
+  // Update the Clerk user's canonical profile bank context
   const up = await sb
     .from("profiles")
     .update({
@@ -60,7 +57,7 @@ export async function POST(req: Request) {
       last_bank_id: bankId,
       bank_selected_at: new Date().toISOString(),
     })
-    .eq("id", auth.user.id);
+    .eq("clerk_user_id", userId);
 
   if (up.error) {
     console.error("[POST /api/tenant/select] profile update failed:", up.error.message);

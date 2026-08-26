@@ -6,6 +6,68 @@ out of scope.
 
 ## 2026-08-26
 
+### Clerk / Supabase identity and privilege boundary
+
+Production checkpoint:
+
+- PR 900 merged as `5c0b0211cfadb12306bf5c6163ee07301804b307`.
+- Vercel production deployment `dpl_DPdz2Cr94DipYbznuE4VsLqoMhNt` is READY
+  on that exact commit. The public Buddy journey renders successfully.
+- No error/fatal runtime entries were recorded for the PR 900 deployment in
+  the two-hour verification window.
+- Aggregated observability still contains one earlier Golden Trident workflow
+  run that correctly blocked publication after institutional review warnings.
+  It belongs to an older deployment and is not evidence of a PR 900 regression.
+
+Evidence and root causes:
+
+- The shared server helper created a service-role client but several user routes
+  attempted to authenticate with `client.auth.getUser()`. A service-role client
+  has no caller session, making usage, screen, tenant-selection, conditions, and
+  policy paths return unauthenticated for legitimate Clerk users.
+- Two compatibility clients silently fell back from service-role credentials to
+  the public anon key. One of them was imported by both a browser component and
+  privileged storage code, erasing the client/server trust boundary.
+- Buddy's Clerk-to-Supabase JWT used `app_users.id` as `sub`, while current
+  bank membership and route authorization use `profiles.id`. RLS therefore
+  evaluated a different identity from the canonical banker profile.
+- `increment_continue_usage(uuid)` was a public-schema `SECURITY DEFINER`
+  function with no fixed search path or EXECUTE revocation. Untrusted API roles
+  inherited permission to invoke it for arbitrary UUIDs.
+- Its application fallback used a non-existent Supabase `raw()` API and a
+  race-prone non-atomic update.
+
+Repair branch: `commissioning/supabase-identity-boundary`.
+
+Repair:
+
+- Add canonical Clerk-to-profile and Clerk-to-deal API contexts. Privileged
+  queries are exposed only after authentication, UUID actor resolution, bank
+  resolution, and explicit deal-bank comparison.
+- Rewire all twelve proven sessionless-auth paths to those contexts, including
+  tenant selection, usage, screen ownership/continuation, conditions, and policy.
+- Preserve UUID audit provenance with `profiles.id`; never write Clerk text IDs
+  into UUID columns.
+- Make privileged compatibility clients server-only and service-role-only.
+  Browser magic-link auth now imports only the public browser client.
+- Make the user-scoped token exchange fail closed and set its RLS subject to
+  `profiles.id`, retaining `app_users.id` as a distinct claim.
+- Restrict the usage counter function to `service_role`, set a safe search path,
+  and remove the broken non-atomic fallback.
+- Add static regression guards for every repaired route and boundary.
+
+Verification pending on the branch:
+
+- Focused identity-boundary guard.
+- Full unit/evaluation suite, typecheck, build, schema/migration guards, Secret
+  Scan, route budget, public browser smoke, and exact-head Vercel preview.
+- Post-merge production verification of authenticated usage, tenant chooser,
+  conditions/policy, and screen routes requires an authorized Clerk fixture.
+- The migration must not be treated as applied until deployment/database evidence
+  confirms it. Direct production-row verification remains blocked by the Buddy
+  Supabase connector's `-32603` error.
+
+
 ### Post-OTP chooser-cookie signing boundary
 
 Evidence:
@@ -162,3 +224,66 @@ Verification status: awaiting PR CI and preview deployment.
    deployed production.
 5. With explicit authorization for a live QA mutation, execute and evidence the
    production seal -> marketplace -> lender-delivery chain.
+
+
+### Privileged Supabase identity and route-authorization boundary — PR 901
+
+Production checkpoint:
+
+- PR 900 merged as `5c0b0211cfadb12306bf5c6163ee07301804b307` and the
+  exact Vercel production deployment reached READY on 2026-08-26.
+- The public Buddy surface rendered correctly and the exact deployment had no
+  error/fatal runtime logs during the post-deploy observation.
+- A historical Golden Trident workflow FatalError on an older deployment was an
+  intentional institutional-review publication block, not a PR 900 regression.
+
+Evidence and root causes:
+
+- `getSupabaseServerClient()` is a service-role client without a user session,
+  yet multiple user routes called `auth.getUser()` on it. Legitimate Clerk users
+  therefore received deterministic 401 responses.
+- Several deal replay, examiner, memo, Ask Buddy, readiness, and spreads surfaces
+  used the service role without first proving Clerk identity and deal-to-bank
+  membership. Two borrower mutation routes also accepted an unbound
+  token/deal-id pair.
+- The Clerk-to-Supabase token exchange used `app_users.id` as `sub`, while
+  current membership and tenant RLS use `profiles.id`.
+- `increment_continue_usage(uuid)` was SECURITY DEFINER without a hardened
+  search path or explicit EXECUTE revocation; its application fallback was
+  non-atomic and used an unsupported client API.
+
+Repair:
+
+- Added canonical Clerk user and deal API contexts. Privileged database access
+  now begins only after Clerk authentication, profile resolution, selected-bank
+  resolution, and an explicit deal-to-bank comparison.
+- Bound all identified deal AI, replay, condition, policy, memo, readiness, and
+  spreads surfaces to that context. Bound borrower submit/upload-event mutations
+  to a valid portal token whose resolved deal matches the request.
+- Aligned Supabase JWT `sub` with `profiles.id`, preserved `app_users.id` as
+  a separate claim, separated browser auth from server-only clients, and removed
+  anonymous fallbacks from privileged clients.
+- Made usage increments atomic-only and added a migration that fixes
+  SECURITY DEFINER search-path and service-role-only EXECUTE privileges.
+- Added a static regression guard spanning all repaired clients, contexts, routes,
+  borrower bindings, JWT identity, and function grants.
+
+Verification:
+
+- Exact branch-head source was re-read after all GitHub writes; every enumerated
+  privileged deal surface imports `resolveDealApiContext`, every borrower
+  mutation resolves and binds its token, and none imports the ambiguous legacy
+  server client.
+- PR diff is limited to this identity/authorization arc, its migration, regression
+  guard, and this ledger.
+- Full required Actions, build, and exact-head Vercel verification remain open;
+  no merge recommendation is recorded until they complete green.
+
+Unresolved:
+
+- The migration is not considered applied until post-merge database evidence is
+  available.
+- Direct production-row verification remains blocked by the Buddy Supabase
+  connector's internal `-32603` connection error.
+- Authorized transactional fixtures remain required for Golden Trident delivery,
+  SignWell replay, and reconciliation workers.

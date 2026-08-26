@@ -8,8 +8,7 @@
  *   { title: string; description?: string; category?: string; due_date?: string }
  */
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { resolveDealApiContext } from "@/lib/server/dealApiContext";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,41 +17,15 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const sb = await supabaseServer();
-  const { data: auth } = await sb.auth.getUser();
-  if (!auth?.user) {
-    return NextResponse.json(
-      { ok: false, error: "not_authenticated" },
-      { status: 401 },
-    );
-  }
-
   const { dealId } = await ctx.params;
-  const bankId = await getCurrentBankId();
-
-  const { data: deal, error: dealErr } = await sb
-    .from("deals")
-    .select("id, bank_id")
-    .eq("id", dealId)
-    .maybeSingle();
-  if (dealErr) {
+  const access = await resolveDealApiContext(dealId);
+  if (!access.ok) {
     return NextResponse.json(
-      { ok: false, error: "deal_fetch_failed", detail: dealErr.message },
-      { status: 500 },
+      { ok: false, error: access.error },
+      { status: access.status },
     );
   }
-  if (!deal) {
-    return NextResponse.json(
-      { ok: false, error: "deal_not_found" },
-      { status: 404 },
-    );
-  }
-  if (String(deal.bank_id) !== String(bankId)) {
-    return NextResponse.json(
-      { ok: false, error: "wrong_bank" },
-      { status: 403 },
-    );
-  }
+  const { sb, bankId, actorProfileId } = access;
 
   let body: any = null;
   try {
@@ -105,7 +78,7 @@ export async function POST(
       bank_id: bankId,
       action: "added",
       payload: { source: "stage_cockpit" },
-      created_by: auth.user.id,
+      created_by: actorProfileId,
     });
   } catch {
     // best-effort audit log

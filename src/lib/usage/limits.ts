@@ -87,16 +87,9 @@ export async function incrementContinueUsage(userId: string): Promise<void> {
   });
 
   if (error) {
-    // Fallback to manual increment if function doesn't exist
-    const { error: updateError } = await sb
-      .from("user_usage")
-      .update({
-        free_continues_used: (sb as any).raw("free_continues_used + 1"),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", userId);
-
-    if (updateError) throw updateError;
+    // Never fall back to a read-then-write increment: it is race-prone and
+    // previously relied on a non-existent Supabase `raw()` API.
+    throw error;
   }
 }
 

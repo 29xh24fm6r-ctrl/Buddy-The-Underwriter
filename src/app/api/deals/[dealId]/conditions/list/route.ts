@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { resolveDealApiContext } from "@/lib/server/dealApiContext";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -12,37 +11,15 @@ export async function GET(
   _: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const sb = await supabaseServer();
-  const { data: auth } = await sb.auth.getUser();
-  if (!auth?.user)
-    return NextResponse.json(
-      { ok: false, error: "not_authenticated" },
-      { status: 401 },
-    );
-
   const { dealId } = await ctx.params;
-  const bankId = await getCurrentBankId();
-
-  const dealRes = await sb
-    .from("deals")
-    .select("id, bank_id")
-    .eq("id", dealId)
-    .maybeSingle();
-  if (dealRes.error)
+  const access = await resolveDealApiContext(dealId);
+  if (!access.ok) {
     return NextResponse.json(
-      { ok: false, error: "deal_fetch_failed", detail: dealRes.error.message },
-      { status: 500 },
+      { ok: false, error: access.error },
+      { status: access.status },
     );
-  if (!dealRes.data)
-    return NextResponse.json(
-      { ok: false, error: "deal_not_found" },
-      { status: 404 },
-    );
-  if (String(dealRes.data.bank_id) !== String(bankId))
-    return NextResponse.json(
-      { ok: false, error: "wrong_bank" },
-      { status: 403 },
-    );
+  }
+  const { sb } = access;
 
   // Fetch conditions + linked evidence in parallel
   const [q, linksRes] = await Promise.all([

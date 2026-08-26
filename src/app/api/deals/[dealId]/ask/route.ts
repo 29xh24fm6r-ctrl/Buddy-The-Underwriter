@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpenAI } from "@/lib/ai/openaiClient";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveDealApiContext } from "@/lib/server/dealApiContext";
 import { retrieveDealChunks } from "@/lib/retrieval/deal";
 import { retrieveBankPolicyChunks } from "@/lib/retrieval/policy";
 import { OPENAI_MINI, OPENAI_EMBEDDINGS } from "@/lib/ai/models";
@@ -9,10 +9,18 @@ type Params = Promise<{ dealId: string }>;
 
 export async function POST(req: NextRequest, context: { params: Params }) {
   const { dealId } = await context.params;
+  const access = await resolveDealApiContext(dealId);
+  if (!access.ok) {
+    return NextResponse.json(
+      { ok: false, error: access.error },
+      { status: access.status },
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
   
   const question = String(body?.question || "").trim();
-  const bankId = body?.bankId ? String(body.bankId) : undefined;
+  const bankId = access.bankId;
   const k = Number(body?.k ?? 8);
 
   if (!dealId) return NextResponse.json({ error: "dealId required" }, { status: 400 });
@@ -20,7 +28,7 @@ export async function POST(req: NextRequest, context: { params: Params }) {
 
   try {
     const openai = getOpenAI();
-    const sb = getSupabaseServerClient();
+    const sb = access.sb;
 
     // 1) Embed question (1536)
     const embResp = await openai.embeddings.create({
@@ -138,6 +146,6 @@ export async function POST(req: NextRequest, context: { params: Params }) {
     return NextResponse.json({ ok: true, event_id: eventRow?.id, ...out });
   } catch (e: any) {
     console.error("Ask Buddy API error:", e);
-    return NextResponse.json({ error: e.message || "Internal error" }, { status: 500 });
+    return NextResponse.json({ error: "ask_buddy_failed" }, { status: 500 });
   }
 }
