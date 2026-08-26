@@ -40,6 +40,14 @@ const PULSE_KINDS = new Set([
   "readiness_recomputed",
   "artifact_processed",
   "manual_override",
+  // SPEC-OUTBOX-UNCLAIMED-KIND-1: emitted by ingestDocument on every upload.
+  // It had no dedicated consumer and was not on this allowlist, so it was the
+  // exact failure this file's doc comment anticipates — an unclaimed kind
+  // accumulating silently (16 rows pending, 0 delivered, 0 attempts, from
+  // 2026-08-14 onward). It carries deal_id / bank_id / source only, which is
+  // telemetry, so Pulse is the right consumer. See assertNoUnclaimedOutboxKinds
+  // below for the check that surfaces the next one automatically.
+  "document_uploaded",
 ]);
 const PULSE_KINDS_LIST = Array.from(PULSE_KINDS);
 
@@ -286,4 +294,54 @@ async function markFailed(
     .eq("id", rowId);
 
   return isDeadLetter;
+}
+
+/**
+ * SPEC-OUTBOX-UNCLAIMED-KIND-1 — surface outbox kinds nobody consumes.
+ *
+ * This file's allowlist made silent *consumption* impossible, but it did not
+ * make silent *non*-consumption visible: a kind that is neither on this list
+ * nor claimed by a dedicated worker just piles up. That is what happened to
+ * `document_uploaded`.
+ *
+ * Returns the kinds present in the outbox that no consumer claims, with their
+ * pending counts and the age of the oldest. Called from the observer tick so
+ * the next unclaimed kind shows up as a warning within minutes rather than
+ * being found by an audit months later.
+ */
+export const DEDICATED_CONSUMER_KINDS = new Set([
+  "intake.process", // → intake-outbox worker
+  "doc.extract", // → doc-extraction worker
+]);
+
+export type UnclaimedOutboxKind = {
+  kind: string;
+  pending: number;
+  oldest_created_at: string | null;
+};
+
+export async function findUnclaimedOutboxKinds(
+  sb: { from: (t: string) => any },
+): Promise<UnclaimedOutboxKind[]> {
+  const { data, error } = await sb
+    .from("buddy_outbox_events")
+    .select("kind, created_at")
+    .is("delivered_at", null)
+    .is("dead_lettered_at", null)
+    .limit(5000);
+
+  if (error || !data) return [];
+
+  const byKind = new Map<string, { pending: number; oldest: string | null }>();
+  for (const row of data as Array<{ kind: string; created_at: string }>) {
+    if (PULSE_KINDS.has(row.kind) || DEDICATED_CONSUMER_KINDS.has(row.kind)) continue;
+    const entry = byKind.get(row.kind) ?? { pending: 0, oldest: null };
+    entry.pending += 1;
+    if (!entry.oldest || row.created_at < entry.oldest) entry.oldest = row.created_at;
+    byKind.set(row.kind, entry);
+  }
+
+  return [...byKind.entries()]
+    .map(([kind, v]) => ({ kind, pending: v.pending, oldest_created_at: v.oldest }))
+    .sort((a, b) => b.pending - a.pending);
 }

@@ -258,6 +258,37 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
     result.ok = false;
   }
 
+  // ── 3b. Unclaimed outbox kinds (SPEC-OUTBOX-UNCLAIMED-KIND-1) ──
+  // An outbox kind that is neither on the Pulse allowlist nor claimed by a
+  // dedicated worker accumulates in silence. That is how document_uploaded
+  // sat undelivered from 2026-08-14 until an audit found it. Surface it as a
+  // warning so the next one is caught in minutes.
+  try {
+    const { findUnclaimedOutboxKinds } = await import(
+      "@/lib/workers/processPulseOutbox"
+    );
+    const unclaimed = await findUnclaimedOutboxKinds(sb as any);
+    for (const u of unclaimed) {
+      await writeSystemEvent({
+        event_type: "warning",
+        severity: "warning",
+        source_system: "observer",
+        error_code: "OUTBOX_KIND_UNCLAIMED",
+        error_message: `Outbox kind "${u.kind}" has ${u.pending} pending event(s) and no consumer`,
+        resolution_status: "open",
+        payload: {
+          observer_decision: "unclaimed_outbox_kind",
+          kind: u.kind,
+          pending: u.pending,
+          oldest_created_at: u.oldest_created_at,
+        },
+      });
+      result.actions.events_emitted++;
+    }
+  } catch (err: any) {
+    result.errors.push(`unclaimed_outbox_kinds: ${err.message}`);
+  }
+
   // ── 4. Emit observer's own heartbeat (ALWAYS attempted) ──
   try {
     await writeSystemEvent({

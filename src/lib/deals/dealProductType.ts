@@ -39,21 +39,92 @@ const LOC_PRODUCTS: ReadonlySet<ProductType> = new Set([
 ]);
 
 function readProductType(deal: DealLike): ProductType | null {
-  const raw = String(deal.product_type ?? "").trim().toUpperCase();
-  if (!raw) return null;
-  switch (raw) {
+  return normalizeProductType(deal.product_type);
+}
+
+/**
+ * Normalise any of the loan/product spellings this codebase has accumulated
+ * into a canonical ProductType.
+ *
+ * SPEC-PRODUCT-TYPE-CANON-1. The 2026-08-26 audit found five fields carrying
+ * four different vocabularies for "this is an SBA 7(a) deal":
+ *
+ *   deals.deal_type                   'SBA'          (claim_brokerage_session RPC)
+ *   deals.product_type                NULL           (no production writer)
+ *   deals.loan_type                   '7a'           (borrower intake progress)
+ *   deal_intake.loan_type             'CRE'          (initializeIntake default)
+ *   deal_intake_scenario.product_type absent         (banker routes only)
+ *
+ * Every consumer read a different one, so a borrower-originated SBA deal was
+ * simultaneously "SBA" to the SBA API gate, NULL to isSBA(), '7a' to nothing
+ * at all, and 'CRE' to both document checklists. This function is the single
+ * place that reconciles the spellings; new writers should emit canonical
+ * values and new readers should come through here.
+ */
+export function normalizeProductType(raw: unknown): ProductType | null {
+  // Collapse punctuation and whitespace to single underscores, then trim them
+  // from the ends, so "SBA 7(a)", "sba-7a" and "SBA_7A" all land on one key.
+  const v = String(raw ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!v) return null;
+  switch (v) {
     case "LINE_OF_CREDIT":
+    case "LOC":
+      return "LINE_OF_CREDIT";
     case "TERM_LOAN":
+    case "TERM":
+      return "TERM_LOAN";
     case "CRE":
     case "CRE_OWNER_OCCUPIED":
     case "CRE_INVESTOR":
+      return v as ProductType;
+    case "CRE_OWNER_OCCUPIED_WITH_RENT":
+      return "CRE_OWNER_OCCUPIED";
+    // SBA 7(a) — every spelling seen in the wild, including the bare "7a"
+    // the borrower concierge writes to deals.loan_type and the "SBA" the
+    // brokerage session RPC writes to deals.deal_type.
     case "SBA_7A":
-    case "SBA_504":
+    case "SBA7A":
+    case "SBA_7_A":
+    case "7A":
+    case "7_A":
+    case "SBA":
+    case "SBA_7A_STANDARD":
+    case "SBA_7A_SMALL":
+      return "SBA_7A";
     case "SBA_EXPRESS":
-      return raw;
+    case "SBAEXPRESS":
+      return "SBA_EXPRESS";
+    case "SBA_504":
+    case "SBA504":
+    case "504":
+      return "SBA_504";
     default:
       return null;
   }
+}
+
+/**
+ * Resolve a deal's product from every field that has historically carried it,
+ * most authoritative first.
+ *
+ * Priority: deals.product_type (canonical) → deals.loan_type → deal_intake
+ * .loan_type → deals.deal_type (the legacy 'SBA' flag, weakest because it
+ * says only "SBA-ish", not which program).
+ */
+export function resolveProductType(deal: DealLike & {
+  loan_type?: string | null;
+  intake_loan_type?: string | null;
+}): ProductType | null {
+  return (
+    normalizeProductType(deal.product_type) ??
+    normalizeProductType(deal.loan_type) ??
+    normalizeProductType(deal.intake_loan_type) ??
+    normalizeProductType(deal.deal_type)
+  );
 }
 
 export function getProductType(deal: DealLike): ProductType | null {
