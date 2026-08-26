@@ -178,7 +178,7 @@ async function dispatch(method: Method, req: NextRequest, ctx: Ctx) {
       if (method === "GET") return (await import("./_handlers/people-personId")).GET(req, handlerCtx);
       if (method === "PATCH") return (await import("./_handlers/people-personId")).PATCH(req, handlerCtx);
       if (method === "POST") return (await import("./_handlers/people-personId")).POST(req, handlerCtx);
-      if (method === "DELETE") return (await import("./_handlers/people-personId")).DELETE(req, handlerCtx);
+      if (method === "DELETE") return (await import("./_handlers/people-personId")).DELETE(req);
       return METHOD_NOT_ALLOWED(["GET", "PATCH", "POST", "DELETE"]);
     }
     case "deals/:dealId/parties": {
