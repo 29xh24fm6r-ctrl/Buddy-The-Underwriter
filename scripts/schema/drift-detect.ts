@@ -37,6 +37,21 @@ export type DriftFinding = {
   source_statement: string;
 };
 
+export type DriftSummary = {
+  schema_version: 1;
+  mode: "blocking" | "report-only";
+  status: "clean" | "drift";
+  total_findings: number;
+  blocking_findings: number;
+};
+
+export function exitCodeForFindings(
+  blockingFindings: number,
+  reportOnly: boolean,
+): 0 | 1 {
+  return blockingFindings > 0 && !reportOnly ? 1 : 0;
+}
+
 type AllowlistEntry = {
   migration_version: string;
   object:
@@ -152,6 +167,7 @@ function describeObject(obj: ExpectedObject): string {
 
 async function main(): Promise<void> {
   const conn = process.env.DRIFT_DETECT_DB_URL;
+  const reportOnly = process.argv.includes("--report-only");
   if (!conn) {
     console.error(
       "DRIFT_DETECT_DB_URL not set. See infrastructure/drift-detection/RUNBOOK.md.",
@@ -260,6 +276,17 @@ async function main(): Promise<void> {
       ".drift_report/blocking-findings.json",
       JSON.stringify(blocking, null, 2),
     );
+    const summary: DriftSummary = {
+      schema_version: 1,
+      mode: reportOnly ? "report-only" : "blocking",
+      status: blocking.length > 0 ? "drift" : "clean",
+      total_findings: findings.length,
+      blocking_findings: blocking.length,
+    };
+    writeFileSync(
+      ".drift_report/summary.json",
+      JSON.stringify(summary, null, 2),
+    );
 
     // 6. Console summary.
     console.log(
@@ -277,7 +304,12 @@ async function main(): Promise<void> {
           `  ... and ${blocking.length - 20} more (see .drift_report/blocking-findings.json)`,
         );
       }
-      process.exitCode = 1;
+      if (reportOnly) {
+        console.log(
+          `::warning title=Schema drift detected::${blocking.length} unacknowledged findings. Phase 1 is report-only; download the drift-report artifact for reconciliation.`,
+        );
+      }
+      process.exitCode = exitCodeForFindings(blocking.length, reportOnly);
       return;
     }
 

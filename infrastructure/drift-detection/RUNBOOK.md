@@ -19,13 +19,15 @@ On every PR and on every push to `main`:
    DB as the `drift_reader` role. ~5 read-only queries against metadata
    catalogs (`information_schema`, `pg_indexes`, `pg_proc`,
    `supabase_migrations.schema_migrations`).
-3. The detector writes `.drift_report/all-findings.json` and
-   `.drift_report/blocking-findings.json`. Both are uploaded as the
-   `drift-report` GitHub Actions artifact regardless of step outcome.
-4. **Phase 1 (current):** the step is wrapped in `continue-on-error: true`,
-   so a non-zero exit reports drift but does not block merge.
-5. **Phase 2 (after SD-A reconciliation):** the `continue-on-error` flag is
-   removed; drift becomes a blocking failure.
+3. The detector writes `.drift_report/all-findings.json`,
+   `.drift_report/blocking-findings.json`, and `.drift_report/summary.json`.
+   The hidden directory is explicitly included in the mandatory
+   `drift-report` artifact.
+4. **Phase 1 (current):** CI passes `--report-only`. Confirmed drift produces
+   a workflow warning and a green detector exit, while connection,
+   configuration, detector, and missing-artifact failures still fail CI.
+5. **Phase 2 (after SD-A reconciliation):** remove `--report-only`; remaining
+   drift becomes a blocking failure.
 
 ---
 

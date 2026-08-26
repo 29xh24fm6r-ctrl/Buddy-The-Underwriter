@@ -45,13 +45,17 @@ conservative on purpose.
 
 ### Output
 
-After every run:
+After every completed run:
 
 - `.drift_report/all-findings.json` — every drift finding (including allow-listed)
 - `.drift_report/blocking-findings.json` — findings not covered by `.drift-allowlist.json`
+- `.drift_report/summary.json` — machine-readable mode, status, and counts
 
-Exit code is `1` when blocking findings exist, `0` otherwise. (`2` indicates a
-detector failure, e.g. `DRIFT_DETECT_DB_URL` not set.)
+The default local mode exits `1` when blocking findings exist and `0`
+otherwise. CI Phase 1 passes `--report-only`: confirmed drift emits an explicit
+workflow warning and exits `0`, while detector/configuration failures still
+exit `2` and fail CI. The artifact upload is mandatory and includes the hidden
+`.drift_report` directory.
 
 ### Reading `blocking-findings.json`
 
@@ -98,14 +102,15 @@ the same or a subsequent migration).
 
 ### Phase 1 vs. Phase 2
 
-This is **Phase 1**: the CI step is `continue-on-error: true`. The detector
-runs and uploads its report on every PR but does not block merge. Phase 1's
-purpose is to produce the first authoritative drift report, which is the
-input to SD-A (one-shot historical reconciliation).
+This is **Phase 1**: CI invokes the detector with `--report-only`. Confirmed
+drift is an explicit warning and does not block merge, but connection,
+configuration, detector, and missing-report failures do block CI. The
+downloadable artifact is the authoritative input to SD-A (one-shot historical
+reconciliation).
 
-**Phase 2** flips to `continue-on-error: false` and ships in SD-A's PR after
-the reconciliation migration lands and the report drops to zero blocking
-findings. From that point on, drift is a blocking CI failure.
+**Phase 2** removes `--report-only` after the reconciliation migration lands
+and the report drops to zero blocking findings. From that point on, drift is a
+blocking CI failure.
 
 See [specs/schema-drift/SPEC-SD-C-ci-drift-detection.md](../../specs/schema-drift/SPEC-SD-C-ci-drift-detection.md)
 and [specs/schema-drift/SPEC-SD-A-reconciliation.md](../../specs/schema-drift/SPEC-SD-A-reconciliation.md).

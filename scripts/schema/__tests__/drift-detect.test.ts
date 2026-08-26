@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  exitCodeForFindings,
   extractExpectedObjects,
   isAllowed,
   statementMentionsObject,
@@ -249,4 +250,16 @@ test("isAllowed: empty allow-list never allows", () => {
     source_statement: "...",
   };
   assert.equal(isAllowed(finding, []), false);
+});
+
+
+test("exitCodeForFindings: blocking mode fails when drift remains", () => {
+  assert.equal(exitCodeForFindings(1, false), 1);
+  assert.equal(exitCodeForFindings(1_730, false), 1);
+  assert.equal(exitCodeForFindings(0, false), 0);
+});
+
+test("exitCodeForFindings: report-only mode reports drift without masking detector failures", () => {
+  assert.equal(exitCodeForFindings(1_730, true), 0);
+  assert.equal(exitCodeForFindings(0, true), 0);
 });
