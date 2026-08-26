@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { resolveUserApiContext } from "@/lib/server/userApiContext";
 import { isValidScreenId, generateScreenId } from "@/lib/screens/idgen";
 import { generateScreenFromPrompt } from "@/lib/screens/templates";
 import { checkContinueLimit, incrementContinueUsage } from "@/lib/usage/limits";
@@ -21,20 +20,14 @@ export async function POST(
       return NextResponse.json({ error: "Invalid screen ID" }, { status: 400 });
     }
 
-    const sb = await getSupabaseServerClient();
-
-    // Check auth
-    const {
-      data: { user },
-    } = await sb.auth.getUser();
-
-    if (!user) {
+    const actor = await resolveUserApiContext();
+    if (!actor.ok) {
       return NextResponse.json(
         {
-          error: "Authentication required",
+          error: actor.error,
           redirect: `/auth?next=/s/${id}`,
         },
-        { status: 401 },
+        { status: actor.status },
       );
     }
 
@@ -50,7 +43,7 @@ export async function POST(
     }
 
     // Check usage limits
-    const limitCheck = await checkContinueLimit(user.id);
+    const limitCheck = await checkContinueLimit(actor.actorProfileId);
 
     if (!limitCheck.allowed) {
       return NextResponse.json(
@@ -70,7 +63,7 @@ export async function POST(
     });
 
     const newId = generateScreenId();
-    const sbAdmin = supabaseAdmin();
+    const sbAdmin = actor.sb;
 
     const { error: insertError } = await sbAdmin
       .from("screen_artifacts")
@@ -82,7 +75,7 @@ export async function POST(
         layout_type: layoutType,
         content,
         status: "generated",
-        owner_id: user.id, // Auto-owned by authenticated user
+        owner_id: actor.actorProfileId, // Auto-owned by authenticated user
         is_public: true,
       });
 
@@ -96,7 +89,7 @@ export async function POST(
 
     // Increment usage for free users (fire and forget for pro)
     if (limitCheck.usage.plan === "free") {
-      incrementContinueUsage(user.id).catch((err) =>
+      incrementContinueUsage(actor.actorProfileId).catch((err) =>
         console.error("Failed to increment usage:", err),
       );
     }
