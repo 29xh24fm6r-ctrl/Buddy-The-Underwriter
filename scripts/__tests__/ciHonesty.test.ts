@@ -73,19 +73,8 @@ describe("SPEC-CI-1 §5.2 — test:unit glob coverage floor", () => {
     );
   });
 
-  // Dynamic-segment paths (`[dealId]`, `[token]`) use node-glob literal
-  // bracket escapes and run through scripts/run-unit-tests.mjs so no shell
-  // consumes those escapes before node receives them.
-  //
-  // The previous version of this guard checked that the printed paths were
-  // glob-escaped and round-trippable. Both were true, and both were beside
-  // the point: package.json fed the output through an unquoted `$(...)`, the
-  // shell expanded the escaping back to a literal `[dealId]`, and node
-  // globbed that to nothing. Seventeen files reported "0 tests" while this
-  // guard counted them as discovered (audit F-24).
-  //
-  // So the assertion below is EXECUTION, not spelling: a known
-  // dynamic-segment test file must actually run tests.
+  // Dynamic-segment paths must remain literal and bypass shell expansion.
+  // The assertion below verifies both exact path identity and real execution.
   it("discovery still excludes __invariants__ and emits resolvable paths", () => {
     const out = execFileSync("node", ["scripts/discover-tests.mjs"], {
       cwd: REPO,
@@ -96,39 +85,29 @@ describe("SPEC-CI-1 §5.2 — test:unit glob coverage floor", () => {
     const stillExcluded = lines.filter((l) => l.includes("__invariants__"));
     assert.deepEqual(stillExcluded, [], `discovery must still exclude __invariants__: ${stillExcluded.join(", ")}`);
 
-    // Every emitted pattern must map back to exactly one real file.
     const realPaths = execFileSync("node", ["scripts/discover-tests.mjs", "--paths"], {
       cwd: REPO,
       encoding: "utf8",
     })
       .split("\n")
       .filter(Boolean);
-    assert.equal(lines.length, realPaths.length, "pattern list and path list must correspond 1:1");
-
-    const ambiguous: string[] = [];
-    lines.forEach((pattern, i) => {
-      const literal = pattern.replace(/\[\[\]/g, "[").replace(/\[\]\]/g, "]");
-      if (literal !== realPaths[i]) {
-        ambiguous.push(`${pattern} -> ${literal}; expected ${realPaths[i]}`);
-      }
-      if (!fs.existsSync(path.join(REPO, realPaths[i]))) {
-        ambiguous.push(`${realPaths[i]} (missing on disk)`);
-      }
-    });
-    assert.deepEqual(ambiguous, [], `every pattern must resolve to exactly one file: ${ambiguous.join(", ")}`);
+    assert.deepEqual(lines, realPaths, "execution arguments must be the exact discovered paths");
+    for (const rel of realPaths) {
+      assert.ok(fs.existsSync(path.join(REPO, rel)), `discovered path missing on disk: ${rel}`);
+    }
 
     const knownDynamicFile = lines.find((l) => l.includes("sourceArtifactViewer.test.ts"));
     assert.ok(knownDynamicFile, "sourceArtifactViewer.test.ts must be discovered, not excluded");
     assert.ok(
-      knownDynamicFile!.includes("[[]dealId[]]") && knownDynamicFile!.includes("[[]action[]]"),
-      `dynamic segments must use literal-bracket glob escapes, got: ${knownDynamicFile}`,
+      knownDynamicFile!.includes("[dealId]") && knownDynamicFile!.includes("[action]"),
+      `dynamic segments must remain literal paths, got: ${knownDynamicFile}`,
     );
   });
 
   it("[F-24] a dynamic-segment test file actually RUNS, not just discovers", () => {
     // The property the old guard could not see. If this file reports 0 tests
     // it is dead in CI no matter how correct its path looks in the listing.
-    const target = "src/app/api/borrower/portal/[[]token[]]/__tests__/assumptionConfirmDeadendFix.test.ts";
+    const target = "src/app/api/borrower/portal/[token]/__tests__/assumptionConfirmDeadendFix.test.ts";
     // NODE_TEST_CONTEXT is set in this process because THIS file is running
     // under node --test. Inheriting it makes the child emit worker-protocol
     // output instead of TAP, so the "# tests" line never appears and the
@@ -152,8 +131,8 @@ describe("SPEC-CI-1 §5.2 — test:unit glob coverage floor", () => {
   });
 
   it("[F-24] the unit runner never hands test paths to a shell", () => {
-    // shell:true would consume the bracket escapes and silently resurrect the
-    // bug. The runner exists only to prevent that.
+    // shell:true could expand or discard bracketed paths before Node sees them.
+    // The runner exists to preserve exact argv boundaries.
     const runner = fs.readFileSync(path.join(REPO, "scripts/run-unit-tests.mjs"), "utf8");
     assert.match(runner, /shell:\s*false/, "run-unit-tests must spawn with shell:false");
 
