@@ -53,7 +53,13 @@ export async function createTridentBundleRun(args: {
   dealId: string;
   mode: TridentBundleMode;
 }): Promise<
-  | { ok: true; bundleId: string; reused: boolean; leaseToken: string }
+  | {
+      ok: true;
+      bundleId: string;
+      reused: boolean;
+      leaseToken: string;
+      inputHash: string;
+    }
   | { ok: false; error: string }
 > {
   const sb = supabaseAdmin();
@@ -75,6 +81,9 @@ export async function createTridentBundleRun(args: {
       bundleId: String(admitted.bundle_id),
       reused: admitted.reused === true,
       leaseToken: String(admitted.lease_token),
+      // Keep the admission identity with the lease. Startup cleanup must not
+      // depend on a second database read that can fail independently.
+      inputHash: snapshot.inputHash,
     };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
