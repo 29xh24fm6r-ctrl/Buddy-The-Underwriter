@@ -1,10 +1,20 @@
 [
   {
     "origin": [
+      "https://app.buddytheunderwriter.com",
+      "https://buddybrokerage.com",
       "https://buddysba.com",
-      "https://www.buddysba.com"
+      "https://buddytheunderwriter.com",
+      "https://www.buddybrokerage.com",
+      "https://www.buddysba.com",
+      "https://www.buddytheunderwriter.com",
+      "http://localhost:3000"
     ],
-    "method": ["PUT", "GET", "HEAD"],
+    "method": [
+      "PUT",
+      "GET",
+      "HEAD"
+    ],
     "responseHeader": [
       "Content-Type",
       "x-goog-content-length-range",

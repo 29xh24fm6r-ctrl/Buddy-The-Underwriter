@@ -699,10 +699,18 @@ export default function NewDealClient({
       const { isAbort, isNetwork, msg } = classifyNetworkError(error);
       const rawMessage = error instanceof Error ? error.message : String(error);
       const errorCode = (error as any)?.code ?? null;
+      /**
+       * The bytes never left the browser (blocked CORS preflight, dead
+       * network, client timeout). The deal and its upload session are intact,
+       * so "restart deal creation" is the wrong instruction — it re-runs the
+       * same preflight and fails identically.
+       */
+      const isTransportBlocked = rawMessage.includes("upload_transport_blocked");
       const isSessionError =
-        rawMessage.includes("upload_session") ||
-        rawMessage.includes("invariant_violation") ||
-        rawMessage.includes("upload_session_expired_restart");
+        !isTransportBlocked &&
+        (rawMessage.includes("upload_session") ||
+          rawMessage.includes("invariant_violation") ||
+          rawMessage.includes("upload_session_expired_restart"));
       const isWifConfigError =
         errorCode === "WIF_AUDIENCE_INVALID" ||
         rawMessage.includes("Invalid WIF provider") ||
@@ -727,6 +735,16 @@ export default function NewDealClient({
       if (isNetwork) {
         setProcessError(
           "Network error while starting upload. Please check your connection and retry.",
+        );
+        return;
+      }
+      if (isTransportBlocked) {
+        const origin = typeof window !== "undefined" ? window.location.origin : "this domain";
+        setProcessError(
+          `Uploads are being blocked before they reach storage. Your deal was created and nothing needs restarting — the storage bucket is refusing browser uploads from ${origin}.`,
+        );
+        setProcessErrorDetails(
+          `Code: ${errorCode || "TRANSPORT_BLOCKED"} | Ops: verify the bucket CORS allowlist covers ${origin} (pnpm check:gcs-cors).`,
         );
         return;
       }

@@ -93,10 +93,14 @@ export async function uploadViaSignedUrl(
       });
     });
 
+    // XHR reports a blocked CORS preflight and a dead network identically:
+    // an error event with status 0. Name both possibilities so the console
+    // and telemetry point at the bucket allowlist instead of the connection.
     xhr.addEventListener("error", () => {
       resolve({
         ok: false,
-        error: "Network error during upload",
+        error:
+          "Upload blocked before reaching storage (network error or storage CORS rejection)",
         code: "NETWORK_ERROR",
       });
     });
@@ -146,7 +150,36 @@ export async function uploadFileWithSignedUrl(args: {
   }
 
   if (context === "new-deal") {
-    throw new Error("upload_session_expired_restart");
+    const failure = lastResult as UploadErr;
+    const code = failure.code ?? "UPLOAD_FAILED";
+
+    /**
+     * Distinguish "storage refused the write" from "the bytes never got out
+     * of the browser".
+     *
+     * A blocked CORS preflight, a dropped connection, or a client timeout all
+     * surface on XHR as status 0 with no response — the signed URL was never
+     * exercised, so the upload session is not expired and restarting deal
+     * creation cannot help. Reporting those as
+     * `upload_session_expired_restart` is what sent bankers in circles
+     * re-creating deals during the bucket-CORS outage: the banner said
+     * "restart", the restart re-ran an identical preflight, and it failed
+     * identically.
+     *
+     * Only a real HTTP status from storage (403 on an expired/mismatched
+     * signature, 400 on a header mismatch) means the session itself is spent.
+     */
+    if (!code.startsWith("HTTP_")) {
+      const err = new Error("upload_transport_blocked");
+      (err as any).code = code;
+      (err as any).detail = failure.error;
+      throw err;
+    }
+
+    const err = new Error("upload_session_expired_restart");
+    (err as any).code = code;
+    (err as any).detail = failure.error;
+    throw err;
   }
 
   return lastResult;
