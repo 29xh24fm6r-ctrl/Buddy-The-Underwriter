@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { clerkAuth } from "@/lib/auth/clerkServer";
-import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccessAllowingBrokerageStaff";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 import ClassicSpreadsClient from "./ClassicSpreadsClient";
 
 type Props = { params: Promise<{ dealId: string }> };

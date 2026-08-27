@@ -2,7 +2,7 @@ import DealShell from "./DealShell";
 import { cache } from "react";
 import type { Metadata } from "next";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccessAllowingBrokerageStaff";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 import { dealLabel } from "@/lib/deals/dealLabel";
 import { loadDealNameProjection } from "@/lib/deals/loadDealNameProjection";
 import { getCanonicalMemoStatusForDeals } from "@/lib/creditMemo/canonical/getCanonicalMemoStatusForDeals";

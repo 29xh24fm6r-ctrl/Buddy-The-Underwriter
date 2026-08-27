@@ -15,7 +15,7 @@
 import "server-only";
 
 import { NextRequest } from "next/server";
-import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccessAllowingBrokerageStaff";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
 import { sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
 import { normalizeYearArray } from "@/buddy/lifecycle/normalizeYears";
