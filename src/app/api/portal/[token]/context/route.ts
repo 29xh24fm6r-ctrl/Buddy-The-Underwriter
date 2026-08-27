@@ -63,7 +63,7 @@ export async function GET(_: Request, ctx: { params: Promise<{ token: string }> 
   const sb = supabaseAdmin();
   const { token } = await ctx.params;
 
-  let resolved;
+  let resolved: Awaited<ReturnType<typeof resolveBorrowerToken>>;
   try {
     resolved = await resolveBorrowerToken(token);
   } catch {
