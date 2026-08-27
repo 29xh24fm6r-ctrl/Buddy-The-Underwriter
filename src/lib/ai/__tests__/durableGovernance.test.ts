@@ -11,6 +11,8 @@ test("AI gateway budget admission is durable, atomic, and service-role only", ()
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.ai_gateway_daily_budgets/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.ai_gateway_budget_reservations/);
   assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /actual_tokens = reserved_tokens/);
+  assert.match(migration, /tokens_consumed = tokens_consumed \+ v_expired/);
   assert.match(migration, /'underwriter', 'embedder'/);
   assert.match(migration, /SECURITY DEFINER[\s\S]*SET search_path = ''/);
   assert.match(
@@ -31,7 +33,7 @@ test("gateway fails closed on missing audit evidence and tracks streamed usage",
   assert.match(gateway, /reserveDurableBudget/);
   assert.match(gateway, /settleDurableBudget/);
   assert.match(gateway, /GatewayAuditPersistenceError/);
-  assert.match(gateway, /outputTokens = Math\.max\(1, Math\.ceil\(outputChars \/ 2\)\)/);
+  assert.match(gateway, /outputTokenUpperBound \+= estimateTextTokenUpperBound\(chunk\)/);
   assert.match(ledger, /Promise<boolean>/);
   assert.match(ledger, /return false/);
   assert.match(embed, /reserveGatewayBudget\("embedder"/);
