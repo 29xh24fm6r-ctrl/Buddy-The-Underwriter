@@ -63,3 +63,22 @@ test("status webhook gates lookup and delivery-event writes on persistence", () 
     /requireTwilioWebhookPersistence\(error, "persist delivery status"\)/,
   );
 });
+
+test("phone resolution distinguishes database failure from no match", () => {
+  const legacyResolver = fs.readFileSync(
+    path.join(process.cwd(), "src/lib/sms/resolve.ts"),
+    "utf8",
+  );
+  const linkResolver = fs.readFileSync(
+    path.join(process.cwd(), "src/lib/sms/phoneLinks.ts"),
+    "utf8",
+  );
+
+  assert.match(legacyResolver, /if \(portalErr\)[\s\S]*throw new Error/);
+  assert.match(legacyResolver, /if \(dealErr\)[\s\S]*throw new Error/);
+  assert.match(legacyResolver, /if \(dealsErr\)[\s\S]*throw new Error/);
+  assert.match(
+    linkResolver,
+    /resolveByPhone error:[\s\S]*throw new Error\(\`resolveByPhone failed:/,
+  );
+});
