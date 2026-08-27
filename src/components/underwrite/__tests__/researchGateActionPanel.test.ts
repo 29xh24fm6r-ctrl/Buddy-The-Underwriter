@@ -133,7 +133,39 @@ describe("CommitteeReadinessPanel — source guards (still cheap to assert)", ()
 });
 
 describe("no duplicate research source of truth", () => {
-  it("no /deals/[dealId]/research page route exists", () => {
+  it("no source file links to the non-existent /deals/[dealId]/research route", () => {
+    // The route intentionally does not exist, so any fixPath/href pointing at
+    // it is a guaranteed 404 in the user's face. getBlockerFixAction was fixed
+    // for this once (SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1) but four readiness
+    // and committee-rule call sites still built the dead path and were caught
+    // 404ing in production. Guard the whole tree, not just the lifecycle layer.
+    const srcRoot = path.resolve(__dirname, "..", "..", "..");
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === "node_modules" || entry.name === "__tests__") continue;
+          walk(full);
+        } else if (/\.tsx?$/.test(entry.name)) {
+          const text = fs.readFileSync(full, "utf8");
+          // Template-literal deal routes ending in /research, e.g.
+          // `/deals/${dealId}/research`. API routes (/api/...) are unaffected.
+          if (/deals\/\$\{[^}]+\}\/research`/.test(text)) {
+            offenders.push(path.relative(srcRoot, full));
+          }
+        }
+      }
+    };
+    walk(srcRoot);
+    assert.deepEqual(
+      offenders,
+      [],
+      `these files link to the non-existent /deals/[dealId]/research route: ${offenders.join(", ")}`,
+    );
+  });
+
+  it("no /deals[dealId]/research page route exists".replace("[", "/["), () => {
     const appRoot = path.resolve(__dirname, "..", "..", "..", "app");
     const candidates = [
       path.join(appRoot, "(app)", "deals", "[dealId]", "research", "page.tsx"),

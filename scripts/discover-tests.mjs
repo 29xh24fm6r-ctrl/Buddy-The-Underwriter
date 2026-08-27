@@ -67,6 +67,9 @@ export const REACT_SERVER_ONLY = new Set([
   "src/lib/ai/__tests__/streamGeminiText.test.ts",
   // Imports a module chain that pulls in "server-only".
   "src/core/nextStep/__tests__/computeNextStep.test.ts",
+  // vertexLocation.ts has `import "server-only"`; this suite calls the real
+  // getVertexLocation() rather than source-grepping it.
+  "src/lib/ai/__tests__/vertexLocationNormalization.test.ts",
 ]);
 
 // SPEC-CI-2 quarantine — files that cannot run under node --test at all.

@@ -74,7 +74,9 @@ export const industryRules = (inputs: import("../types").CommitteeEngineInputs) 
         label: rule.label,
         rationale: rule.rationale,
         mitigant: rule.mitigant,
-        fixPath: `/deals/${inputs.dealId}/research`,
+        // SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1: /deals/[dealId]/research does
+        // not exist (404) — research is resolved on the underwrite workbench.
+        fixPath: `/deals/${inputs.dealId}/underwrite`,
         source: { metric: "research.industry", value: industry },
       });
     }
