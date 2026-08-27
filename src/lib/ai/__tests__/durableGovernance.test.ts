@@ -40,3 +40,43 @@ test("gateway fails closed on missing audit evidence and tracks streamed usage",
   assert.match(embed, /EmbeddingAuditPersistenceError/);
   assert.doesNotMatch(gateway, /streaming endpoint doesn't return usageMetadata[\s\S]*tokensIn: 0/);
 });
+
+test("reserve_ai_gateway_tokens disambiguates its RETURNS TABLE columns from the budget table", () => {
+  // Regression: the original definition declared output columns named
+  // tokens_consumed / tokens_reserved, which become PL/pgSQL variables and
+  // collide with the identically named ai_gateway_daily_budgets columns.
+  // Postgres raised 42702 ("column reference ... is ambiguous") on every call,
+  // and because the gateway reserves budget before dispatching, that took down
+  // OCR, document extraction and every other AI path in the app.
+  const fix = read(
+    "supabase/migrations/20260827200000_fix_ai_gateway_reserve_ambiguity.sql",
+  );
+
+  // Every UPDATE against the budget table must alias it and qualify the
+  // column references it reads.
+  const updates = fix.match(/UPDATE public\.ai_gateway_daily_budgets[\s\S]*?;/g) ?? [];
+  assert.ok(updates.length >= 2, "expected the budget table to be updated at least twice");
+  for (const stmt of updates) {
+    assert.match(stmt, /UPDATE public\.ai_gateway_daily_budgets AS b\b/);
+    // A bare tokens_* is only legal as an UPDATE ... SET target. Anywhere it
+    // is *read* it must be qualified, or it resolves to the RETURNS TABLE
+    // variable of the same name instead of the column.
+    for (const m of stmt.matchAll(/(b\.)?tokens_(?:consumed|reserved)(\s*=)?/g)) {
+      const qualified = Boolean(m[1]);
+      const isSetTarget = Boolean(m[2]);
+      assert.ok(
+        qualified || isSetTarget,
+        `unqualified budget column read "${m[0].trim()}" in: ${stmt}`,
+      );
+    }
+  }
+
+  // The RPC contract src/lib/ai/budget.ts reads must be preserved.
+  assert.match(fix, /RETURNS TABLE \(\s*allowed boolean,\s*reservation_id uuid,\s*tokens_consumed bigint,\s*tokens_reserved bigint\s*\)/);
+  assert.match(fix, /SECURITY DEFINER[\s\S]*SET search_path = ''/);
+  assert.match(
+    fix,
+    /REVOKE EXECUTE ON FUNCTION public\.reserve_ai_gateway_tokens\(text, bigint, bigint\)[\s\S]*FROM PUBLIC, anon, authenticated/,
+  );
+  assert.doesNotMatch(fix, /GRANT[\s\S]+TO (anon|authenticated)/);
+});
