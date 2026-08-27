@@ -36,7 +36,7 @@ test("gateway fails closed on missing audit evidence and tracks streamed usage",
   assert.match(gateway, /outputTokenUpperBound \+= estimateTextTokenUpperBound\(chunk\)/);
   assert.match(ledger, /Promise<boolean>/);
   assert.match(ledger, /return false/);
-  assert.match(embed, /reserveGatewayBudget\("embedder"/);
+  assert.match(embed, /reserveGatewayBudget\(\s*"embedder"/);
   assert.match(embed, /EmbeddingAuditPersistenceError/);
   assert.doesNotMatch(gateway, /streaming endpoint doesn't return usageMetadata[\s\S]*tokensIn: 0/);
 });
