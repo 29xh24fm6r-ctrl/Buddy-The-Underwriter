@@ -102,6 +102,30 @@ describe("embedText: daily token budget hard stop", () => {
   });
 });
 
+describe("embedText: audit persistence", () => {
+  it("does not release a successful vector when its audit row is not durable", async () => {
+    __setEmbedImplForTests(async () => ({ vector: [0.1], tokensIn: 3 }));
+    __setLogGatewayCallForEmbedTests(async () => false);
+
+    await assert.rejects(
+      () => embedText({ text: "hello", purpose: "test" }),
+      /AI embedding audit persistence failed/,
+    );
+  });
+
+  it("preserves the audit failure signal when a provider failure cannot be ledgered", async () => {
+    __setEmbedImplForTests(async () => {
+      throw new Error("embeddings API down");
+    });
+    __setLogGatewayCallForEmbedTests(async () => false);
+
+    await assert.rejects(
+      () => embedText({ text: "hello", purpose: "test" }),
+      /AI embedding audit persistence failed/,
+    );
+  });
+});
+
 describe("embedText: failure path", () => {
   it("ledgers a failure row and rethrows when the provider call fails", async () => {
     __setEmbedImplForTests(async () => {
