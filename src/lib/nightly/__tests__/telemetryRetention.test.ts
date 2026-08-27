@@ -59,7 +59,7 @@ test("drained tables invoke all three RPCs and write completion evidence", async
   assert.equal(inserts[0].severity, "info");
 });
 
-test("large tables are drained through independently committed batches", async () => {
+test("large tables are drained through independently committed round-robin batches", async () => {
   const { sb, rpcCalls } = fakeSb((_name, call) => ({
     data: call < 3 ? "1000" : "12",
     error: null,
@@ -67,7 +67,17 @@ test("large tables are drained through independently committed batches", async (
 
   const results = await m.runTelemetryRetentionPurge(sb);
 
-  assert.equal(rpcCalls.length, 9);
+  assert.deepEqual(rpcCalls, [
+    "purge_buddy_system_events",
+    "purge_franchise_sync_runs",
+    "purge_buddy_workers",
+    "purge_buddy_system_events",
+    "purge_franchise_sync_runs",
+    "purge_buddy_workers",
+    "purge_buddy_system_events",
+    "purge_franchise_sync_runs",
+    "purge_buddy_workers",
+  ]);
   for (const result of results) {
     assert.equal(result.rowsPurged, 2012);
     assert.equal(result.batches, 3);
@@ -98,14 +108,22 @@ test("one RPC failure remains loud in evidence but does not starve later tables"
   assert.equal(inserts[0].severity, "warning");
 });
 
-test("batch limits return resumable partial progress instead of one long transaction", async () => {
-  const { sb } = fakeSb(() => ({ data: 1000, error: null }));
+test("batch limits give every table equal resumable progress", async () => {
+  const { sb, rpcCalls } = fakeSb(() => ({ data: 1000, error: null }));
 
   const results = await m.runTelemetryRetentionPurge(sb, {
     maxBatchesPerTable: 2,
     timeBudgetMs: 60_000,
   });
 
+  assert.deepEqual(rpcCalls, [
+    "purge_buddy_system_events",
+    "purge_franchise_sync_runs",
+    "purge_buddy_workers",
+    "purge_buddy_system_events",
+    "purge_franchise_sync_runs",
+    "purge_buddy_workers",
+  ]);
   for (const result of results) {
     assert.equal(result.rowsPurged, 2000);
     assert.equal(result.batches, 2);
@@ -114,9 +132,9 @@ test("batch limits return resumable partial progress instead of one long transac
   }
 });
 
-test("the global time budget prevents an unbounded worker invocation", async () => {
+test("the global time budget cannot be monopolized by the first table", async () => {
   let time = 0;
-  const { sb } = fakeSb(() => {
+  const { sb, rpcCalls } = fakeSb(() => {
     time += 10;
     return { data: 1000, error: null };
   });
@@ -126,10 +144,14 @@ test("the global time budget prevents an unbounded worker invocation", async () 
     now: () => time,
   });
 
-  assert.equal(results[0]!.batches, 2);
-  assert.equal(results[0]!.stoppedReason, "time_budget");
-  assert.equal(results[1]!.batches, 0);
+  assert.deepEqual(rpcCalls, [
+    "purge_buddy_system_events",
+    "purge_franchise_sync_runs",
+  ]);
+  assert.equal(results[0]!.batches, 1);
+  assert.equal(results[1]!.batches, 1);
   assert.equal(results[2]!.batches, 0);
+  assert.ok(results.every((result) => result.stoppedReason === "time_budget"));
 });
 
 test("audit persistence failure is surfaced after preserving purge results", async () => {
