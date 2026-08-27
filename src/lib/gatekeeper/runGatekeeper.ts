@@ -15,6 +15,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { downloadDocumentBytes } from "@/lib/storage/documentBytes";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { readGatekeeperCache, writeGatekeeperCache } from "./gatekeeperCache";
@@ -317,13 +318,11 @@ function buildFailResult(
 }
 
 async function downloadFile(
-  sb: ReturnType<typeof supabaseAdmin>,
+  _sb: ReturnType<typeof supabaseAdmin>,
   bucket: string,
   path: string,
 ): Promise<Buffer> {
-  const dl = await sb.storage.from(bucket).download(path);
-  if (dl.error) throw new Error(`storage_download_failed: ${dl.error.message}`);
-  return Buffer.from(await dl.data.arrayBuffer());
+  return downloadDocumentBytes({ bucket, path });
 }
 
 async function stampDocument(

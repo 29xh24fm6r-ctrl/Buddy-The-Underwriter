@@ -1,6 +1,7 @@
 // src/lib/ocr/runOcrJob.ts
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { downloadDocumentBytes } from "@/lib/storage/documentBytes";
 import { runGeminiOcrJob } from "./runGeminiOcrJob";
 import { runMistralOcrJob } from "./runMistralOcrJob";
 
@@ -159,9 +160,7 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
       sourceFileName = String(docRes.data.original_filename || storagePath || "");
       mimeType = String(docRes.data.mime_type || inferMimeTypeFromName(sourceFileName));
 
-      const dl = await sb.storage.from(storageBucket).download(storagePath);
-      if (dl.error) throw new Error(`storage_download_failed:${dl.error.message}`);
-      fileBytes = Buffer.from(await dl.data.arrayBuffer());
+      fileBytes = await downloadDocumentBytes({ bucket: storageBucket, path: storagePath });
     } else {
       // 2) Borrower uploads
       const attRes = await (sb as any)
@@ -183,9 +182,7 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
       sourceFileName = String(attRes.data.stored_name || fileKey);
       mimeType = String(attRes.data.mime_type || inferMimeTypeFromName(sourceFileName));
 
-      const dl = await sb.storage.from(storageBucket).download(storagePath);
-      if (dl.error) throw new Error(`storage_download_failed:${dl.error.message}`);
-      fileBytes = Buffer.from(await dl.data.arrayBuffer());
+      fileBytes = await downloadDocumentBytes({ bucket: storageBucket, path: storagePath });
     }
   } else {
     // Try to resolve legacy stored_name into canonical deal_documents id
@@ -204,9 +201,7 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
         sourceFileName = String(docRes.data.original_filename || storagePath || storedName);
         mimeType = String(docRes.data.mime_type || inferMimeTypeFromName(sourceFileName));
 
-        const dl = await sb.storage.from(storageBucket).download(storagePath);
-        if (dl.error) throw new Error(`storage_download_failed:${dl.error.message}`);
-        fileBytes = Buffer.from(await dl.data.arrayBuffer());
+        fileBytes = await downloadDocumentBytes({ bucket: storageBucket, path: storagePath });
       }
 
       // If not in deal_documents, try borrower_attachments.file_key match
@@ -225,9 +220,7 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
           sourceFileName = String(attRes.data.stored_name || storagePath || storedName);
           mimeType = String(attRes.data.mime_type || inferMimeTypeFromName(sourceFileName));
 
-          const dl = await sb.storage.from(storageBucket).download(storagePath);
-          if (dl.error) throw new Error(`storage_download_failed:${dl.error.message}`);
-          fileBytes = Buffer.from(await dl.data.arrayBuffer());
+          fileBytes = await downloadDocumentBytes({ bucket: storageBucket, path: storagePath });
         }
       }
     }

@@ -129,9 +129,11 @@ export async function signGcsUploadUrl(args: {
 export async function signGcsReadUrl(args: {
   key: string;
   expiresSeconds?: number;
+  /** Defaults to GCS_BUCKET; pass explicitly when the document row names its own bucket. */
+  bucket?: string;
 }): Promise<string> {
   const storage = await getGcsStorage();
-  const bucket = getGcsBucketName();
+  const bucket = args.bucket || getGcsBucketName();
   const expires = Date.now() + (args.expiresSeconds ?? DEFAULT_SIGN_TTL_SECONDS) * 1000;
 
   const [url] = await storage.bucket(bucket).file(args.key).getSignedUrl({
@@ -141,6 +143,44 @@ export async function signGcsReadUrl(args: {
   });
 
   return url;
+}
+
+/**
+ * Read an object's bytes back out of GCS.
+ *
+ * The upload path went direct-to-GCS long before the processing path learned
+ * about it: OCR, the gatekeeper, extraction and segmentation all called
+ * `supabase.storage.from(bucket).download(path)` with whatever bucket the
+ * document row named. For a GCS-stored document that is a Supabase bucket
+ * that does not exist, so every download failed and intake fell back to
+ * "filename only" — see docs/UPLOAD_STORAGE_CORS.md and the
+ * `ocr.skipped / reason: download_failed` ledger events of 2026-08-20..27.
+ */
+export async function downloadGcsObject(args: {
+  bucket: string;
+  key: string;
+}): Promise<Buffer> {
+  const storage = await getGcsStorage();
+  const [contents] = await storage.bucket(args.bucket).file(args.key).download();
+  return Buffer.from(contents);
+}
+
+/** Write bytes to GCS (segment PDFs, generated artifacts). */
+export async function uploadGcsObject(args: {
+  bucket: string;
+  key: string;
+  bytes: Uint8Array;
+  contentType: string;
+  /** false → fail if the object already exists (mirrors Supabase upsert:false). */
+  overwrite?: boolean;
+}): Promise<void> {
+  const storage = await getGcsStorage();
+  const file = storage.bucket(args.bucket).file(args.key);
+  await file.save(Buffer.from(args.bytes), {
+    contentType: args.contentType,
+    resumable: false,
+    ...(args.overwrite === false ? { preconditionOpts: { ifGenerationMatch: 0 } } : {}),
+  });
 }
 
 /**

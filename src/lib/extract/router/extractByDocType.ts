@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { downloadDocumentBytes } from "@/lib/storage/documentBytes";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import {
   resolveDocTypeRouting,
@@ -105,14 +106,7 @@ async function downloadFileBytes(
   storageBucket: string,
   storagePath: string,
 ): Promise<Buffer> {
-  const sb = supabaseAdmin();
-  const dl = await sb.storage.from(storageBucket).download(storagePath);
-
-  if (dl.error) {
-    throw new Error(`storage_download_failed: ${dl.error.message}`);
-  }
-
-  return Buffer.from(await dl.data.arrayBuffer());
+  return downloadDocumentBytes({ bucket: storageBucket, path: storagePath });
 }
 
 // ─── Routing Decision ────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { downloadPrivateObject, uploadPrivateObject, sha256 } from "@/lib/storage/adminStorage";
+import { deleteDocumentObject } from "@/lib/storage/documentBytes";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { SEGMENTATION_VERSION } from "./types";
 import type { PdfSegment } from "./types";
@@ -375,7 +376,7 @@ export async function splitPdfIntoSegments(
     // Delete uploaded GCS objects
     for (const { bucket, path } of uploadedPaths) {
       try {
-        await supabaseAdmin().storage.from(bucket).remove([path]);
+        await deleteDocumentObject({ bucket, path });
       } catch {
         // Best-effort — orphan detection will clean up later
       }

@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { downloadDocumentBytes } from "@/lib/storage/documentBytes";
 import { extractBankFeesProducts } from "./extractors/bankStatements";
 import { extractFinancialStatements } from "./extractors/financialStatements";
 
@@ -25,18 +26,15 @@ async function getBorrowerUpload(uploadId: string): Promise<BorrowerUpload> {
   return data as BorrowerUpload;
 }
 
-// Placeholder: Implement your actual file downloader
 async function downloadUploadBytes(upload: BorrowerUpload): Promise<{ bytes: Buffer }> {
-  const sb = supabaseAdmin();
   const bucket = upload.storage_bucket || "borrower-uploads";
   const path = upload.storage_path;
 
   if (!path) throw new Error("Upload missing storage_path");
 
-  const { data, error } = await sb.storage.from(bucket).download(path);
-  if (error) throw new Error(`Download failed: ${error.message}`);
-
-  const bytes = Buffer.from(await data.arrayBuffer());
+  // Borrower uploads land in Supabase or GCS depending on the route that
+  // signed them, so the bucket on the row decides where to read from.
+  const bytes = await downloadDocumentBytes({ bucket, path });
   return { bytes };
 }
 

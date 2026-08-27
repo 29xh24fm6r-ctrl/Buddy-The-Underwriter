@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { requireUser } from "@/lib/server/authz";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { downloadDocumentBytes } from "@/lib/storage/documentBytes";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { analyzeDocument } from "@/lib/docIntel/engine";
 import { autoMatchChecklistFromFilename } from "@/lib/deals/autoMatchChecklistFromFilename";
@@ -803,14 +804,14 @@ async function runIntelForDeal(args: {
       let classifyReasons: unknown = null;
 
       // Download bytes and use smart extraction (PDF text when available), falling back to Gemini OCR.
-      const dl = await sb.storage.from(storageBucket).download(storagePath);
-      if (dl.error || !dl.data) {
+      let bytes: Buffer;
+      try {
+        bytes = await downloadDocumentBytes({ bucket: storageBucket, path: storagePath });
+      } catch (e: any) {
         throw new Error(
-          `Storage download failed (${storageBucket}): ${dl.error?.message || "unknown"}`,
+          `Storage download failed (${storageBucket}): ${e?.message || "unknown"}`,
         );
       }
-
-      const bytes = Buffer.from(await dl.data.arrayBuffer());
       const ext = await extractTextSmart({
         bytes,
         mimeType: (doc as any)?.mime_type ?? null,

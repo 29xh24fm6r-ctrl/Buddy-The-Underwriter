@@ -12,6 +12,7 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { downloadDocumentBytes } from "@/lib/storage/documentBytes";
 import { classifyDocumentSpine } from "@/lib/classification/classifyDocumentSpine";
 import type { SpineClassificationResult, DocAiSignals } from "@/lib/classification/types";
 import { CLASSIFICATION_SCHEMA_VERSION } from "@/lib/classification/types";
@@ -184,18 +185,18 @@ async function runOcrForDocument(
   }
 
   try {
-    // 1. Download file from storage
-    const dl = await sb.storage.from(storageBucket).download(storagePath);
-    if (dl.error) {
+    // 1. Download file from storage (Supabase or GCS, per the document's bucket)
+    let fileBytes: Buffer;
+    try {
+      fileBytes = await downloadDocumentBytes({ bucket: storageBucket, path: storagePath });
+    } catch (e: any) {
       console.error("[processArtifact] Failed to download file for OCR", {
         storageBucket,
         storagePath,
-        error: dl.error.message,
+        error: e?.message ?? String(e),
       });
-      return { ok: false, code: "download_failed", message: dl.error.message };
+      return { ok: false, code: "download_failed", message: e?.message ?? String(e) };
     }
-
-    const fileBytes = Buffer.from(await dl.data.arrayBuffer());
 
     // ── Content hash gate: SHA-256 + virus cache + OCR dedup ──────────
     const { checkContentHash } = await import("@/lib/dedupe/contentHashGate");
