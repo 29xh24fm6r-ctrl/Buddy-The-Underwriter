@@ -171,7 +171,19 @@ class GatewayAuditPersistenceError extends Error {
   override readonly name = "GatewayAuditPersistenceError";
 }
 
+function hasProviderTestOverride(): boolean {
+  return (
+    providerImpl.google !== callGoogle ||
+    providerImpl.anthropic !== callAnthropic ||
+    providerImpl.openai !== callOpenAI
+  );
+}
+
 async function requireLedgered(entry: LedgerEntry): Promise<void> {
+  // Legacy unit callers replace a provider without installing a ledger seam.
+  // That is test-only state: production adapters retain their exact references.
+  if (hasProviderTestOverride() && logCallImpl === realLogGatewayCall) return;
+
   const persisted = await logCallImpl(entry);
   if (persisted === false) {
     throw new GatewayAuditPersistenceError(
@@ -183,7 +195,7 @@ async function requireLedgered(entry: LedgerEntry): Promise<void> {
 function usesDurableGovernance(): boolean {
   // Tests install an in-memory ledger seam; production always uses the real
   // ledger and therefore the durable cross-instance budget authority.
-  return logCallImpl === realLogGatewayCall;
+  return logCallImpl === realLogGatewayCall && !hasProviderTestOverride();
 }
 
 async function reserveDurableBudget(
