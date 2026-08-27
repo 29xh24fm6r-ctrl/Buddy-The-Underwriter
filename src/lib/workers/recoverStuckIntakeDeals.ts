@@ -29,6 +29,9 @@ const MAX_RECOVERIES_PER_RUN = 20;
 /** Oldest stale upload candidates inspected per run before yielding to the next cron. */
 const MAX_UPLOAD_SCAN_ROWS = 1000;
 
+/** Keep PostgREST IN filters below common proxy URL-size ceilings. */
+const MAX_ARTIFACT_LOOKUP_BATCH = 100;
+
 /** Cooldown: skip deal if an intake.process outbox row was created within this window. */
 const RATE_LIMIT_MINUTES = 10;
 
@@ -253,24 +256,38 @@ export async function recoverStuckIntakeDeals(): Promise<RecoveryResult> {
     result.upload_recovery_errors++;
   } else {
     const sourceIds = (staleUploads ?? []).map((row) => row.id);
-    const artifactLookup =
-      sourceIds.length === 0
-        ? { data: [], error: null }
-        : await sb
-            .from("document_artifacts")
-            .select("id, source_id, status, retry_count")
-            .eq("source_table", "deal_documents")
-            .in("source_id", sourceIds);
+    const artifactRows: Array<{
+      id: string;
+      source_id: string;
+      status: string;
+      retry_count: number | null;
+    }> = [];
+    let artifactLookupError: string | null = null;
 
-    if (artifactLookup.error) {
-      console.error(
-        "[intake-recovery] artifact batch lookup failed:",
-        artifactLookup.error.message,
-      );
+    for (
+      let offset = 0;
+      offset < sourceIds.length;
+      offset += MAX_ARTIFACT_LOOKUP_BATCH
+    ) {
+      const sourceBatch = sourceIds.slice(offset, offset + MAX_ARTIFACT_LOOKUP_BATCH);
+      const lookup = await sb
+        .from("document_artifacts")
+        .select("id, source_id, status, retry_count")
+        .eq("source_table", "deal_documents")
+        .in("source_id", sourceBatch);
+      if (lookup.error) {
+        artifactLookupError = lookup.error.message;
+        break;
+      }
+      artifactRows.push(...(lookup.data ?? []));
+    }
+
+    if (artifactLookupError) {
+      console.error("[intake-recovery] artifact batch lookup failed:", artifactLookupError);
       result.upload_recovery_errors++;
     } else {
       const artifactBySourceId = new Map(
-        (artifactLookup.data ?? []).map((artifact) => [artifact.source_id, artifact]),
+        artifactRows.map((artifact) => [artifact.source_id, artifact]),
       );
       let recoveryAttempts = 0;
 
