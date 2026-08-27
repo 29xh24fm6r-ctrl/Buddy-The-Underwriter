@@ -1,13 +1,18 @@
 /**
- * Pure Vertex location resolution shared by the server-only environment helper
- * and unit tests.
+ * Pure Vertex location and endpoint-host resolution shared by the server-only
+ * environment helper, the Google provider, and unit tests.
  *
- * The Google provider constructs regional API hostnames from this value, so
- * only region-shaped identifiers are safe here. Multi-region identifiers such
- * as "us", "eu", and "global" require different endpoint formats and must not
- * be interpolated into `${location}-aiplatform.googleapis.com`.
+ * Vertex has three endpoint classes:
+ *   regional:     <region>-aiplatform.googleapis.com
+ *   multi-region: aiplatform.<us|eu>.rep.googleapis.com
+ *   global:       aiplatform.googleapis.com
+ *
+ * The location used in the request path must stay paired with the host. Never
+ * rewrite a valid multi-region or global location to a single region.
  */
 export const DEFAULT_VERTEX_LOCATION = "us-central1";
+export const VERTEX_GLOBAL_LOCATION = "global";
+export const VERTEX_MULTI_REGIONS: ReadonlySet<string> = new Set(["us", "eu"]);
 
 const REGIONAL_LOCATION_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+[0-9]$/;
 
@@ -16,11 +21,19 @@ export function normalizeVertexLocation(
 ): string {
   const normalized = value?.trim().toLowerCase();
 
-  if (!normalized || !REGIONAL_LOCATION_PATTERN.test(normalized)) {
+  if (!normalized) {
     return DEFAULT_VERTEX_LOCATION;
   }
 
-  return normalized;
+  if (
+    normalized === VERTEX_GLOBAL_LOCATION ||
+    VERTEX_MULTI_REGIONS.has(normalized) ||
+    REGIONAL_LOCATION_PATTERN.test(normalized)
+  ) {
+    return normalized;
+  }
+
+  return DEFAULT_VERTEX_LOCATION;
 }
 
 export function resolveVertexLocation(
@@ -32,4 +45,20 @@ export function resolveVertexLocation(
     DEFAULT_VERTEX_LOCATION;
 
   return normalizeVertexLocation(configured);
+}
+
+export function getVertexApiHost(
+  location: string | null | undefined,
+): string {
+  const normalized = normalizeVertexLocation(location);
+
+  if (normalized === VERTEX_GLOBAL_LOCATION) {
+    return "aiplatform.googleapis.com";
+  }
+
+  if (VERTEX_MULTI_REGIONS.has(normalized)) {
+    return `aiplatform.${normalized}.rep.googleapis.com`;
+  }
+
+  return `${normalized}-aiplatform.googleapis.com`;
 }

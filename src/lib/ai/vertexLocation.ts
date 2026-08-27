@@ -10,20 +10,18 @@ import { resolveVertexLocation } from "@/lib/ai/vertexLocationValue";
  * Resolution chain (highest priority first):
  *   1. GOOGLE_CLOUD_LOCATION env var
  *   2. GOOGLE_CLOUD_REGION env var
- *   3. Default: "us-central1" (regional endpoint)
+ *   3. Default: "us-central1"
  *
- * Why "us-central1" (not "us" multi-region):
- *   - The current-generation Google GenAI SDK (v2.x, vertexai:true) requires
- *     a specific regional endpoint. Multi-region values like "us" or "eu"
- *     construct invalid endpoint URLs that return HTML auth pages instead
- *     of JSON responses.
- *   - The old (now-legacy) Vertex AI SDK supported multi-region; the
- *     current-generation SDK does not. This was the root cause of
- *     SDK_HTML_RESPONSE failures after SPEC-GEMINI-FLASH-LITE-MIGRATION-1.
- *   - gemini-2.0-flash and gemini-flash-lite are deployed to us-central1.
+ * Valid endpoint classes are preserved:
+ *   - regional locations such as "us-central1"
+ *   - multi-region locations "us" and "eu"
+ *   - the "global" location
  *
- * Invalid, blank, zonal, or multi-region configuration fails safely to
- * us-central1. Callers MUST import this helper rather than defining their own.
+ * The raw-fetch Google provider pairs this location with getVertexApiHost()
+ * so the hostname and /locations/<location> path remain consistent. Invalid,
+ * blank, or zonal values fail safely to us-central1.
+ *
+ * Callers MUST import this helper rather than defining their own.
  */
 export function getVertexLocation(): string {
   return resolveVertexLocation(
