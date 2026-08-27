@@ -5,10 +5,12 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const drift = require("../policyDrift") as typeof import("../policyDrift");
 const living = require("../livingPolicy") as typeof import("../livingPolicy");
+type DriftDependencies = import("../policyDrift").PolicyDriftDependencies;
+type LivingDependencies = import("../livingPolicy").LivingPolicyDependencies;
 
 function driftDeps(
-  overrides: Partial<drift.PolicyDriftDependencies> = {},
-): drift.PolicyDriftDependencies {
+  overrides: Partial<DriftDependencies> = {},
+): DriftDependencies {
   return {
     readApprovedRules: async () => ({
       data: [{ rules_json: { dscr: 1.25, leverage: 4 } }],
@@ -96,8 +98,8 @@ test("policy drift returns durable completion counts", async () => {
 });
 
 function livingDeps(
-  overrides: Partial<living.LivingPolicyDependencies> = {},
-): living.LivingPolicyDependencies {
+  overrides: Partial<LivingDependencies> = {},
+): LivingDependencies {
   return {
     readRecentFindings: async () => ({
       data: [
