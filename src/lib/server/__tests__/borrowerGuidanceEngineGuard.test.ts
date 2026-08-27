@@ -134,9 +134,16 @@ describe("Guidance — no placeholder copy", () => {
 // ---------------------------------------------------------------------------
 
 describe("Guidance API — auth boundary", () => {
-  it("guidance API route uses borrower token auth", () => {
+  it("guidance API route uses canonical borrower token auth", () => {
     const content = readFile("app/api/portal/[token]/guidance/route.ts");
-    assert.ok(content.includes("borrower_portal_links"), "must validate token");
+    assert.ok(
+      content.includes("resolveBorrowerToken"),
+      "must validate through canonical borrower token resolver",
+    );
+    assert.ok(
+      !content.includes('.from("borrower_portal_links")'),
+      "must not bypass the portal-link state machine",
+    );
     assert.ok(!content.includes("clerkAuth"), "must NOT use Clerk auth");
   });
 });
