@@ -26,6 +26,31 @@ const GEMINI_TEMPERATURE = 0.0; // deterministic — lower than advisory's 0.1
 const GEMINI_PRIMARY_TIMEOUT_MS = 45_000; // 45s hard timeout (native PDF processing is heavier)
 const MAX_RETRIES = 1;
 
+/**
+ * Vertex controlled generation contract for document extraction.
+ *
+ * Production returned valid JSON that omitted `facts` on both attempts because
+ * the previous schema constrained only the root to "object". The parser then
+ * rejected the response after provider time had already been spent. Requiring
+ * both authoritative top-level keys makes the provider enforce the same shape
+ * the client and prompts already require. Nested objects stay intentionally
+ * open because fact keys vary by document type and some prompts add optional
+ * source-line evidence.
+ *
+ * Google documents `properties` plus `required` as the supported controlled-
+ * generation contract for JSON responses:
+ * https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/control-generated-output
+ */
+const EXTRACTION_RESPONSE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    facts: { type: "object" },
+    metadata: { type: "object" },
+    evidence: { type: "object" },
+  },
+  required: ["facts", "metadata"],
+};
+
 // ---------------------------------------------------------------------------
 // Strict retry instruction
 // ---------------------------------------------------------------------------
