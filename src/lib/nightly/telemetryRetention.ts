@@ -1,22 +1,22 @@
 /**
- * SPEC-SYSTEM-DEBLOAT-1 Phase B — Telemetry retention (B2 fallback path).
+ * Bounded nightly telemetry retention.
  *
- * pg_cron is not installed on this project, so the three purge RPCs
- * authored in supabase/migrations/20260729000010_telemetry_retention.sql
- * (renamed from ...000000 in SPEC-DRIFT-HARDENING-1 D2 to resolve a
- * duplicate-timestamp collision with 20260729000000_ai_gateway_calls.sql —
- * filename only, DDL untouched) are invoked here, from the nightly cron
- * job, instead of via pg_cron.
- *
- * RPC existence in prod is Matt-verified at migration-apply time, not
- * assumed by this code — a missing RPC is a loud failure (throws), not a
- * skipped step.
+ * Every RPC invocation deletes at most one database batch and therefore
+ * commits independently. The application invokes a capped number of batches
+ * per table so a large backlog cannot monopolize one database transaction or
+ * exhaust the nightly function's execution window.
  */
 
 type RpcResult = { data: unknown; error: { message?: string } | null };
+type InsertResult = { error?: { message?: string } | null };
 type SB = {
-  rpc: (name: string, args?: Record<string, unknown>) => PromiseLike<RpcResult>;
-  from: (table: string) => { insert: (row: Record<string, unknown>) => PromiseLike<unknown> };
+  rpc: (
+    name: string,
+    args?: Record<string, unknown>,
+  ) => PromiseLike<RpcResult>;
+  from: (table: string) => {
+    insert: (row: Record<string, unknown>) => PromiseLike<InsertResult>;
+  };
 };
 
 const PURGE_RPCS = [
@@ -25,30 +25,117 @@ const PURGE_RPCS = [
   { rpcName: "purge_buddy_workers", table: "buddy_workers" },
 ] as const;
 
-export type PurgeResult = { table: string; rpcName: string; rowsPurged: number };
+export const RETENTION_BATCH_SIZE = 5_000;
+export const MAX_RETENTION_BATCHES_PER_TABLE = 10;
 
-/** Invokes all three retention-purge RPCs in order. Throws on the first
- *  RPC error (including "function does not exist") rather than silently
- *  skipping it. */
-export async function runTelemetryRetentionPurge(sb: SB): Promise<PurgeResult[]> {
+export type PurgeResult = {
+  table: string;
+  rpcName: string;
+  rowsPurged: number;
+  batches: number;
+  drained: boolean;
+};
+
+export type PurgeFailure = {
+  table: string;
+  rpcName: string;
+  error: string;
+};
+
+export class TelemetryRetentionPurgeError extends Error {
+  override readonly name = "TelemetryRetentionPurgeError";
+
+  constructor(
+    readonly results: PurgeResult[],
+    readonly failures: PurgeFailure[],
+  ) {
+    super(
+      `Telemetry retention failed for ${failures
+        .map((failure) => `${failure.table}: ${failure.error}`)
+        .join("; ")}`,
+    );
+  }
+}
+
+function parseDeletedRows(data: unknown, rpcName: string): number {
+  const deleted = Number(data ?? 0);
+  if (
+    !Number.isSafeInteger(deleted) ||
+    deleted < 0 ||
+    deleted > RETENTION_BATCH_SIZE
+  ) {
+    throw new Error(
+      `retention RPC "${rpcName}" returned invalid batch count: ${String(data)}`,
+    );
+  }
+  return deleted;
+}
+
+/**
+ * Drains at most 50,000 rows from each table per nightly run. A failure for one
+ * table does not starve the remaining tables, but the aggregate result still
+ * fails loudly after every independent retention path has been attempted.
+ */
+export async function runTelemetryRetentionPurge(
+  sb: SB,
+): Promise<PurgeResult[]> {
   const results: PurgeResult[] = [];
+  const failures: PurgeFailure[] = [];
 
   for (const { rpcName, table } of PURGE_RPCS) {
-    const { data, error } = await sb.rpc(rpcName);
-    if (error) {
-      throw new Error(
-        `telemetry retention purge RPC "${rpcName}" failed (table: ${table}): ${error.message ?? "unknown error"}`,
-      );
+    let rowsPurged = 0;
+    let batches = 0;
+    let drained = false;
+
+    try {
+      while (batches < MAX_RETENTION_BATCHES_PER_TABLE) {
+        const { data, error } = await sb.rpc(rpcName);
+        if (error) {
+          throw new Error(error.message ?? "unknown error");
+        }
+
+        const deleted = parseDeletedRows(data, rpcName);
+        rowsPurged += deleted;
+        batches++;
+
+        if (deleted < RETENTION_BATCH_SIZE) {
+          drained = true;
+          break;
+        }
+      }
+    } catch (error) {
+      failures.push({
+        table,
+        rpcName,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-    results.push({ table, rpcName, rowsPurged: Number(data ?? 0) });
+
+    results.push({ table, rpcName, rowsPurged, batches, drained });
   }
 
-  await sb.from("buddy_system_events").insert({
-    event_type: "telemetry_retention_purge_completed",
-    severity: "info",
+  const eventType =
+    failures.length === 0
+      ? "telemetry_retention_purge_completed"
+      : "telemetry_retention_purge_failed";
+  const insertResult = await sb.from("buddy_system_events").insert({
+    event_type: eventType,
+    severity: failures.length === 0 ? "info" : "error",
     source_system: "nightly-cron",
-    payload: { results },
+    payload: { results, failures },
   });
+
+  if (insertResult?.error) {
+    failures.push({
+      table: "buddy_system_events",
+      rpcName: "retention_result_event",
+      error: insertResult.error.message ?? "unknown insert error",
+    });
+  }
+
+  if (failures.length > 0) {
+    throw new TelemetryRetentionPurgeError(results, failures);
+  }
 
   return results;
 }

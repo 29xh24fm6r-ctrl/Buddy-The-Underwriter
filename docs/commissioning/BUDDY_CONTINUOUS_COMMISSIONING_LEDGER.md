@@ -680,6 +680,168 @@ Open checkpoints:
   Buddy-owned Supabase connection is restored; the differently named project
   exposed by the generic connector remains unqueried.
 
+### PR 917 AI gateway durable-governance factory
+
+Production and dependency checkpoint:
+
+- Production remains on Buddy The Underwriter commit
+  `3c59678b18c6e4127520c76acb606097899c44b2`, which contains the externally
+  merged PRs 911-914. The commissioning agent did not merge them.
+- PR 915 (terminal SignWell convergence) and PR 916 (Golden Trident
+  commissioning-support convergence) remain open, mergeable, and independent
+  of this arc.
+- PR 878's seal-to-marketplace-to-lender code lineage remains deployed.
+  Transactional delivery closure still requires an authorized Golden Trident
+  fixture; no production deal, provider call, or row was created in this arc.
+
+Evidence and root causes:
+
+- `logGatewayCall` swallowed Supabase insert and client failures. A provider
+  result could therefore drive underwriting state without durable SR 11-7
+  audit evidence; a failed attempt could also advance to a second provider
+  while neither attempt was durably recorded.
+- Daily token budgets were process-local maps, so parallel or recycled Vercel
+  instances could each admit the full daily allowance.
+- Streaming calls recorded zero input and output tokens, and embedding calls
+  used the same process-local authority.
+- A first repair draft released expired reservations at zero. Review proved
+  that a process crash after provider admission would reopen potentially spent
+  capacity, so abandoned reservations must be conservatively charged.
+- Character-based estimation could undercount multilingual text. UTF-8 bytes
+  provide a conservative tokenizer-independent upper bound.
+
+Repair in PR 917:
+
+- Make ledger persistence observable and fail closed before an unledgered AI
+  result or fallback attempt can affect product state.
+- Add service-role-only, `SECURITY DEFINER`, empty-search-path reservation and
+  settlement RPCs plus private daily-budget and reservation tables.
+- Serialize admission per UTC day and role with transaction advisory locks,
+  account for active reservations, settle idempotently, and charge expired
+  unconfirmed reservations at their reserved upper bound.
+- Cover generator roles and the gateway-adjacent embedder with the same durable
+  authority. Reserve text by UTF-8 byte upper bound and meter streaming output
+  conservatively instead of recording zero.
+- Revoke table and RPC access from PUBLIC, `anon`, and `authenticated`;
+  grant only `service_role`. The budget tables store counters and role/day
+  metadata only—no prompt, document, model output, or borrower data.
+- Preserve provider chains, model selection, NPI gates, prompts, underwriting
+  calculations, artifact persistence, sealing, publishing, and delivery
+  behavior.
+- Add behavioral tests for fail-closed success/failure paths, embeddings,
+  multilingual estimates, typed budget exhaustion/persistence errors, atomic
+  RPC shape, crash-safe expiry, and schema/privilege tripwires.
+
+Validation history:
+
+- Initial exact-head TypeScript correctly exposed the embedding ledger's stale
+  `Promise<void>` contract; the embedding path was brought under the same
+  fail-closed contract rather than weakened with a type-only patch.
+- A subsequent broad run passed TypeScript, lint, architecture and safety
+  guards, then exposed legacy unit callers that replace providers without a
+  database ledger seam plus one formatting-sensitive structural assertion.
+  Production detection now requires exact real provider and ledger bindings;
+  explicit false-ledger tests still exercise fail-closed behavior.
+- Final exact-head Build Check, CI, preview, and runtime-clean verification are
+  required before this draft can be marked merge-ready.
+
+Open checkpoints:
+
+- Do not merge PR 917 until its final exact-head required checks and Vercel
+  preview are green.
+- The migration has not been applied or queried directly. After merge, verify
+  tables, function definitions, browser-role denials, service-role execution,
+  concurrent admission, settlement, and expiry only through the explicitly
+  verified Buddy-owned Supabase connection.
+- Direct production-row verification remains blocked because the available
+  differently named project has unconfirmed ownership and remains unqueried.
+- Authenticated browser checks, authorized identity/signing/Golden Trident
+  fixtures, and the 13 production-backed research cases remain outstanding.
+
+## 2026-08-27 — bounded nightly work and empty-portfolio convergence
+
+Resume checkpoint:
+
+- PRs 915, 916, and 917 have merged into current `main`; their SignWell,
+  Golden Trident, and durable AI-governance work is preserved in this resolved
+  branch.
+- PR 918 is synchronized through a non-destructive merge of current `main`
+  with only its bounded-nightly-work repair.
+- Direct Buddy database verification remains blocked because the available
+  connector exposes a differently named project whose ownership is not
+  verified. It was not queried.
+
+Production evidence:
+
+- On deployment `dpl_2TxXjafT9K4Y1PMo5ojy7hmQCZ7j` at
+  2026-08-27T07:30:38Z, `/api/cron/nightly` logged
+  `No final decisions found for portfolio aggregation` for five banks.
+- The same run logged a PostgreSQL statement timeout from
+  `purge_buddy_system_events`.
+- The failures are independent of PRs 915-917 and are addressed on branch
+  `codex/nightly-bounded-work`.
+
+Root causes:
+
+- Portfolio aggregation discarded Supabase read and write errors, while
+  throwing for the normal state where a bank has no final decisions. The
+  nightly route therefore emitted production errors and skipped later
+  no-op-safe governance steps for empty banks.
+- Each retention RPC looped through the entire backlog in one transaction.
+  A statement timeout rolled back every batch, so a sufficiently large
+  backlog could make no durable progress.
+- The TypeScript orchestrator called each purge once and stopped at the first
+  failure, allowing one retention path to starve the others.
+
+Repair:
+
+- Empty portfolios now return an explicit null result, while decision reads
+  and snapshot writes fail loudly and distinctly.
+- The nightly route records `skipped_no_final_decisions` and continues policy
+  drift and living-policy work.
+- Additive migration
+  `20260827080000_bounded_nightly_retention.sql` replaces all three purge
+  functions with one 5,000-row transaction per RPC, an empty search path,
+  fully qualified relations, and service-role-only execution.
+- The application drains up to ten batches per table per nightly run, validates
+  provider counts, attempts every table even when one fails, and reports an
+  aggregate failure afterward.
+- Regression coverage exercises empty portfolios, database failures, snapshot
+  writes, draining, caps, cross-table isolation, count validation, and SQL
+  architecture invariants. The schema manifest records the replacement
+  function provenance.
+
+Verification:
+
+- The first CI run correctly rejected replacement-only manifest provenance;
+  the ledger now preserves both the original and replacement migration entries.
+- On code head `966f801aebbb298310671b411d2a11229eb17245`, 13,246 tests
+  ran: 13,237 passed, 0 failed, and 9 skipped. React-server tests passed 18/18.
+  Research evaluation passed 7/7 with the 13 known production-data placeholders
+  explicitly skipped; public Playwright passed with authenticated smoke
+  explicitly skipped.
+- Typecheck, lint, architectural guards, legacy-write, safety, polling,
+  Never-500, schema-select, report-only schema drift, CI, Build Check, Secret
+  Scan, and Route Budget passed.
+- Exact code-head preview `dpl_9hwSDkqnquCcR2HidfWXE3FnV9Tg` was READY,
+  returned HTTP 200 with matching `x-buddy-build`, and had no warning, error,
+  or fatal runtime logs in the verification window.
+- The final ledger-only head must retain the same green required checks before
+  the PR is marked merge-ready.
+- No migration, provider transaction, production row, or production data was
+  changed during this cycle.
+
+Post-merge closure:
+
+- Apply the migration through the normal deployment path, then confirm the next
+  nightly run reports empty portfolios as skips rather than errors.
+- Using the verified Buddy-owned Supabase connection, verify each purge commits
+  bounded progress and that subsequent runs drain the backlog without statement
+  timeouts.
+- The separate transactional blockers remain: authorized SignWell,
+  identity/authenticated-browser, and Golden Trident fixtures, plus replacement
+  of 13 research placeholder cases with production-backed regressions.
+
 ### PR 919 — borrower portal token-state convergence and storage privacy
 
 Evidence and root cause:
@@ -744,4 +906,3 @@ Open checkpoints:
   remain outstanding.
 - The next independent audit target is storage-object lifecycle and orphan
   reconciliation after the token boundary is deployed.
-

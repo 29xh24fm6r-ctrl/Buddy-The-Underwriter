@@ -38,10 +38,15 @@ export default function CommitteeAnticipationPanel({ dealId }: { dealId: string 
     (async () => {
       try {
         const res = await fetch(`/api/deals/${dealId}/committee-anticipation`);
-        const json = await res.json();
+        const contentType = res.headers.get("content-type") ?? "";
+        const json = contentType.includes("application/json")
+          ? await res.json()
+          : null;
         if (cancelled) return;
-        if (!res.ok || !json.ok) {
-          setError(json.error ?? "load_failed");
+        if (!json) {
+          setError(`Committee service returned HTTP ${res.status}`);
+        } else if (!res.ok || !json.ok) {
+          setError(json.error ?? json.reason ?? "load_failed");
         } else {
           setReport(json.report as CommitteeAnticipationReport);
         }

@@ -5,8 +5,8 @@
  * exercises the default `supabaseAdmin()` path here, since if this
  * environment happens to have real Supabase env vars set, that call would
  * be a live network write against production infrastructure. The
- * default-path safety (never-throw on missing env/client) is instead
- * checked structurally (TRIPWIRE test below), matching the convention in
+ * default-path safety (false on missing env/client) is instead checked
+ * structurally (TRIPWIRE test below), matching the convention in
  * openaiResilience.test.ts's "Structural Tripwires" section.
  */
 import { describe, it } from "node:test";
@@ -42,7 +42,7 @@ describe("logGatewayCall", () => {
   it("inserts one row into ai_gateway_calls with the expected snake_case shape", async () => {
     const { client, calls } = makeFakeClient({ error: null });
 
-    await logGatewayCall(
+    const persisted = await logGatewayCall(
       {
         role: "generator",
         provider: "google",
@@ -58,6 +58,7 @@ describe("logGatewayCall", () => {
       client,
     );
 
+    assert.equal(persisted, true);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].table, "ai_gateway_calls");
     assert.deepEqual(calls[0].row, {
@@ -99,10 +100,9 @@ describe("logGatewayCall", () => {
     assert.equal(calls[0].row.error_message, "NPI-tagged request refused");
   });
 
-  it("never throws when the insert itself returns a Supabase error", async () => {
+  it("returns false when the insert itself returns a Supabase error", async () => {
     const { client } = makeFakeClient({ error: { message: "relation does not exist" } });
-    await assert.doesNotReject(() =>
-      logGatewayCall(
+    const persisted = await logGatewayCall(
         {
           role: "structurer",
           provider: "openai",
@@ -116,8 +116,8 @@ describe("logGatewayCall", () => {
           outcome: "success",
         },
         client,
-      ),
-    );
+      );
+    assert.equal(persisted, false);
   });
 
   it("accepts role='embedder' (SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §4 — not a GatewayRole, still ledgerable)", async () => {
@@ -140,15 +140,14 @@ describe("logGatewayCall", () => {
     assert.equal(calls[0].row.role, "embedder");
   });
 
-  it("never throws when the client itself throws synchronously", async () => {
+  it("returns false when the client itself throws synchronously", async () => {
     const throwingClient = {
       from() {
         throw new Error("boom");
       },
     } as unknown as SupabaseClient;
 
-    await assert.doesNotReject(() =>
-      logGatewayCall(
+    const persisted = await logGatewayCall(
         {
           role: "generator",
           provider: "google",
@@ -162,8 +161,8 @@ describe("logGatewayCall", () => {
           outcome: "success",
         },
         throwingClient,
-      ),
-    );
+      );
+    assert.equal(persisted, false);
   });
 });
 

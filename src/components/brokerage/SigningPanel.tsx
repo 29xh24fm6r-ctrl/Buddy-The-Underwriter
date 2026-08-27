@@ -26,6 +26,7 @@ type FormStatus = {
   signed: boolean;
   submissionId: string | null;
   signingUrl: string | null;
+  status?: string | null;
 };
 
 const TRACKED_FORMS = [
@@ -34,6 +35,20 @@ const TRACKED_FORMS = [
   { code: "FORM_912", label: "Form 912" },
   { code: "FORM_4506C", label: "Form 4506-C" },
 ] as const;
+
+const FAILED_TERMINAL_STATUSES = new Set([
+  "expired",
+  "canceled",
+  "cancelled",
+  "declined",
+  "bounced",
+  "blocked",
+  "error",
+]);
+
+function normalizeSigningStatus(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase().replace(/[_-]+/g, " ") : "";
+}
 
 export function SigningPanel({ dealId }: { dealId: string }) {
   const [owners, setOwners] = useState<OwnerRow[]>([]);
@@ -68,6 +83,7 @@ export function SigningPanel({ dealId }: { dealId: string }) {
             signed: false,
             submissionId: row.signwell_document_id ?? null,
             signingUrl: row.signing_url ?? null,
+            status: row.status ?? null,
           };
         }
         for (const row of esign.signedDocuments ?? []) {
@@ -97,6 +113,7 @@ export function SigningPanel({ dealId }: { dealId: string }) {
     if (pending.length === 0) return;
 
     const timer = window.setInterval(async () => {
+      if (document.hidden) return;
       for (const [key, s] of pending) {
         if (!s.submissionId) continue;
         try {
@@ -105,8 +122,24 @@ export function SigningPanel({ dealId }: { dealId: string }) {
             { credentials: "include" },
           );
           const data = await res.json().catch(() => ({}));
-          if (data.ok && data.status === "completed") {
-            setFormStatus((prev) => ({ ...prev, [key]: { ...prev[key], signed: true } }));
+          const normalizedStatus = normalizeSigningStatus(data.status);
+          if (data.ok && ["completed", "manually completed", "signed"].includes(normalizedStatus)) {
+            setFormStatus((prev) => ({
+              ...prev,
+              [key]: { ...prev[key], signed: true, status: data.status },
+            }));
+          } else if (data.ok && FAILED_TERMINAL_STATUSES.has(normalizedStatus)) {
+            setFormStatus((prev) => ({
+              ...prev,
+              [key]: {
+                ...prev[key],
+                signed: false,
+                submissionId: null,
+                signingUrl: null,
+                status: data.status,
+              },
+            }));
+            setError(`The signing request ${normalizedStatus}. You can start a new request.`);
           }
         } catch {
           // non-fatal — try again next tick
@@ -153,6 +186,7 @@ export function SigningPanel({ dealId }: { dealId: string }) {
               signed: false,
               submissionId: data.submission_id,
               signingUrl: data.embed_url ?? null,
+              status: "pending",
             },
           }));
           if (data.embed_url) {

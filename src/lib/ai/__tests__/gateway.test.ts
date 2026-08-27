@@ -380,6 +380,42 @@ describe("runRole: SPEC-GATEWAY-CAPABILITY-EXPANSION-1 field passthrough", () =>
   });
 });
 
+describe("runRole: audit durability", () => {
+  it("fails closed without invoking failover when a successful attempt cannot be ledgered", async () => {
+    let fallbackCalls = 0;
+    __setProviderImplForTests("google", async () => okResult("unledgered"));
+    __setProviderImplForTests("openai", async () => {
+      fallbackCalls++;
+      return okResult("must not run");
+    });
+    __setLogGatewayCallForTests(async () => false);
+
+    await assert.rejects(
+      () => runRole("generator", { prompt: "hi", purpose: "audit_failure" }),
+      /audit persistence failed/,
+    );
+    assert.equal(fallbackCalls, 0);
+  });
+
+  it("stops failover when a failed attempt cannot be ledgered", async () => {
+    let fallbackCalls = 0;
+    __setProviderImplForTests("google", async () => {
+      throw new Error("provider down");
+    });
+    __setProviderImplForTests("openai", async () => {
+      fallbackCalls++;
+      return okResult("must not run");
+    });
+    __setLogGatewayCallForTests(async () => false);
+
+    await assert.rejects(
+      () => runRole("generator", { prompt: "hi", purpose: "audit_failure" }),
+      /audit persistence failed/,
+    );
+    assert.equal(fallbackCalls, 0);
+  });
+});
+
 describe("runRoleStream", () => {
   it("throws for a non-google provider (out of scope for SPEC-M1)", async () => {
     process.env.AI_GATEWAY_CHAIN_INTERVIEWER = "openai:gpt-4o-mini";

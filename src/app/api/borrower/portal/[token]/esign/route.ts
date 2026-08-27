@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requestSignature } from "@/lib/esign/signwell/service";
+import { isTerminalSigningRequestStatus, requestSignature } from "@/lib/esign/signwell/service";
 import {
   createSignwellDocumentFromFile,
   deleteSignwellDocument,
@@ -111,12 +111,15 @@ export async function GET(
   const { data: pending } = await sb
     .from("signing_requests")
     .select("id, form_code, signer_ownership_entity_id, signer_role, status, signing_url, created_at")
-    .eq("deal_id", ctx.dealId)
-    .neq("status", "Completed");
+    .eq("deal_id", ctx.dealId);
+
+  const activeRequests = (pending ?? []).filter(
+    (row) => !isTerminalSigningRequestStatus(row.status),
+  );
 
   return NextResponse.json({
     ok: true,
     signedDocuments: docs ?? [],
-    pendingRequests: pending ?? [],
+    pendingRequests: activeRequests,
   });
 }

@@ -64,7 +64,13 @@ import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { initiateKyc, handleDiditWebhook } from "@/lib/identity/kyc/service";
 import { createDiditSession, fetchDiditSession, getDiditSessionDecision } from "@/lib/identity/kyc/didit";
 import { requiresPersonalPackage } from "@/lib/ownership/rules";
-import { requestSignature, handleSignwellWebhook } from "@/lib/esign/signwell/service";
+import {
+  handleSignwellWebhook,
+  isFailedTerminalSigningRequestStatus,
+  isTerminalSigningRequestStatus,
+  persistSignwellRequestStatus,
+  requestSignature,
+} from "@/lib/esign/signwell/service";
 import {
   createSignwellDocumentFromFile,
   deleteSignwellDocument,
@@ -314,7 +320,7 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
     ]);
 
     const activeRequests = (pendingRequests ?? []).filter(
-      (row) => !["completed", "signed"].includes(String(row.status).toLowerCase()),
+      (row) => !isTerminalSigningRequestStatus(row.status),
     );
 
     return NextResponse.json({
@@ -336,7 +342,32 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
     return NextResponse.json({ ok: true, status: "completed", signedDocument: signedDoc });
   }
 
+  // The borrower session is deal-scoped, so the provider document must be
+  // deal-scoped before it can be fetched. This prevents cross-deal document
+  // probing with a guessed SignWell id.
+  const { data: signingRequest } = await sb
+    .from("signing_requests")
+    .select("id")
+    .eq("deal_id", dealId)
+    .eq("signwell_document_id", submissionId)
+    .maybeSingle();
+  if (!signingRequest) {
+    return NextResponse.json({ ok: false, error: "submission_not_found" }, { status: 404 });
+  }
+
   const document = await fetchSignwellDocument(submissionId);
+  if (isFailedTerminalSigningRequestStatus(document.status)) {
+    const persisted = await persistSignwellRequestStatus(
+      { dealId, documentId: submissionId, status: document.status },
+      sb,
+    );
+    if (!persisted.ok) {
+      return NextResponse.json(
+        { ok: false, error: "status_reconciliation_failed", detail: persisted.detail },
+        { status: 503 },
+      );
+    }
+  }
   return NextResponse.json({ ok: true, status: document.status, submission: document });
 }
 
