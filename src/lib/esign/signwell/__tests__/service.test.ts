@@ -55,6 +55,9 @@ class Q {
   }
   maybeSingle(): Promise<{ data: any; error: any }> {
     if (this._u) {
+      if (this.table === "signing_requests" && this.db.failSigningRequestUpdate) {
+        return Promise.resolve({ data: null, error: { message: "write_rejected" } });
+      }
       this.applyUpdate();
       return Promise.resolve({ data: this.rows()[0], error: null });
     }
@@ -86,7 +89,9 @@ class Q {
 class FakeDb {
   tables: Record<string, Row[]>;
   storage?: any;
-  constructor(seed?: Partial<Record<string, Row[]>>, opts?: { storage?: boolean; uploadFails?: boolean }) {
+  failSigningRequestUpdate: boolean;
+  constructor(seed?: Partial<Record<string, Row[]>>, opts?: { storage?: boolean; uploadFails?: boolean; signingRequestUpdateFails?: boolean }) {
+    this.failSigningRequestUpdate = opts?.signingRequestUpdateFails ?? false;
     this.tables = {
       borrower_identity_verifications: [],
       deal_events: [],
@@ -544,3 +549,106 @@ for (const scenario of [
   });
 }
 
+
+
+for (const terminal of [
+  ["document_expired", "Expired"],
+  ["document_canceled", "Canceled"],
+  ["document_declined", "Declined"],
+  ["document_bounced", "Bounced"],
+  ["document_error", "Error"],
+] as const) {
+  test(`handleSignwellWebhook: ${terminal[0]} durably retires the signing request`, async () => {
+    const payload = {
+      event: { type: terminal[0], time: "2026-08-27T04:00:00.000Z" },
+      data: { object: { id: 1, metadata: { external_id: canonicalExternalId } } },
+    };
+    const db = new FakeDb({ signing_requests: withSigningRequest() });
+    const r = await handleSignwellWebhook(
+      payload,
+      {
+        sb: db as any,
+        signwell: fakeSignwell({
+          fetchSignwellDocument: async () => ({
+            id: 1,
+            status: terminal[1],
+            metadata: { external_id: canonicalExternalId },
+            recipients: [{ id: "1", email: "j@d.com" }],
+          }),
+        }),
+      },
+    );
+
+    assert.deepEqual(r, { ok: true, terminalStatus: terminal[1] });
+    assert.equal(db.tables.signing_requests[0].status, terminal[1]);
+    assert.deepEqual(db.tables.signing_requests[0].raw_last_event, payload);
+    assert.ok(
+      db.tables.deal_events.some(
+        (event) => event.kind === `esign.${terminal[1].toLowerCase()}`,
+      ),
+    );
+    assert.equal(db.tables.signed_documents.length, 0);
+    assert.equal(db.storage.uploads.length, 0);
+  });
+}
+
+test("handleSignwellWebhook: terminal webhook cannot override a different canonical provider status", async () => {
+  const db = new FakeDb({ signing_requests: withSigningRequest() });
+  const r = await handleSignwellWebhook(
+    {
+      event: { type: "document_declined" },
+      data: { object: { id: 1, metadata: { external_id: canonicalExternalId } } },
+    },
+    {
+      sb: db as any,
+      signwell: fakeSignwell({
+        fetchSignwellDocument: async () => ({
+          id: 1,
+          status: "Pending",
+          metadata: { external_id: canonicalExternalId },
+          recipients: [{ id: "1", email: "j@d.com" }],
+        }),
+      }),
+    },
+  );
+
+  assert.deepEqual(r, {
+    ok: false,
+    reason: "PROVIDER_DOCUMENT_MISMATCH",
+    detail: "status_not_declined:pending",
+  });
+  assert.equal(db.tables.signing_requests[0].status, "pending");
+  assert.equal(db.tables.deal_events.length, 0);
+});
+
+test("handleSignwellWebhook: terminal state write failure remains retryable", async () => {
+  const db = new FakeDb(
+    { signing_requests: withSigningRequest() },
+    { signingRequestUpdateFails: true },
+  );
+  const r = await handleSignwellWebhook(
+    {
+      event: { type: "document_expired" },
+      data: { object: { id: 1, metadata: { external_id: canonicalExternalId } } },
+    },
+    {
+      sb: db as any,
+      signwell: fakeSignwell({
+        fetchSignwellDocument: async () => ({
+          id: 1,
+          status: "Expired",
+          metadata: { external_id: canonicalExternalId },
+          recipients: [{ id: "1", email: "j@d.com" }],
+        }),
+      }),
+    },
+  );
+
+  assert.deepEqual(r, {
+    ok: false,
+    reason: "SIGNING_REQUEST_STATUS_UPDATE_FAILED",
+    detail: "write_rejected",
+  });
+  assert.equal(db.tables.signing_requests[0].status, "pending");
+  assert.equal(db.tables.deal_events.length, 0);
+});

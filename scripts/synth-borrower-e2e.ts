@@ -17,7 +17,8 @@
  *
  * Env:
  *   BUDDY_PREVIEW_URL          required base URL (e.g. https://preview-xyz.vercel.app)
- *   SUPABASE_SERVICE_ROLE_KEY  required for any backstop queries (unused in v1)
+ *   SUPABASE_SERVICE_ROLE_KEY  required to persist durable run evidence
+ *   SUPABASE_URL               required (NEXT_PUBLIC_SUPABASE_URL also accepted)
  *   SYNTH_FIXTURE_COUNT        optional cap, default = all fixtures
  *   SYNTH_POLL_INTERVAL_MS     optional, default 5000
  *   SYNTH_POLL_MAX_ATTEMPTS    optional, default 60
@@ -191,9 +192,51 @@ async function runFixture(
   };
 }
 
+async function persistDurableReport(
+  report: Record<string, unknown>,
+  passedGate: boolean,
+): Promise<void> {
+  const serviceRoleKey = env("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseUrl = (
+    process.env.SUPABASE_URL ??
+    process.env.NEXT_PUBLIC_SUPABASE_URL ??
+    ""
+  ).replace(/\/$/, "");
+  if (!supabaseUrl) {
+    throw new Error("Missing required env: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
+  }
+  const response = await fetch(`${supabaseUrl}/rest/v1/ai_events`, {
+    method: "POST",
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+      "content-type": "application/json",
+      prefer: "return=minimal",
+    },
+    body: JSON.stringify({
+      deal_id: null,
+      scope: "synth_borrower_e2e",
+      action: passedGate ? "passed" : "failed",
+      output_json: {
+        ran_at: report.ran_at,
+        baseline_commit: report.baseline_commit,
+        pass_count: report.pass_count,
+        total: report.total,
+        pass_rate: report.pass_rate,
+        threshold: report.threshold,
+        repeat_ask_violation_count: report.repeat_ask_violation_count,
+      },
+      confidence: 1,
+      requires_human_review: !passedGate,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`durable evidence persistence failed: HTTP ${response.status}`);
+  }
+}
+
 async function main(): Promise<void> {
   const baseUrl = env("BUDDY_PREVIEW_URL").replace(/\/$/, "");
-  env("SUPABASE_SERVICE_ROLE_KEY"); // presence check; not used in v1 runner
 
   const fixtures = loadFixtures();
   if (fixtures.length === 0) {
@@ -238,6 +281,11 @@ async function main(): Promise<void> {
   console.log(`[synth-borrower-e2e] report → ${outPath}`);
   console.log(`[synth-borrower-e2e] pass_rate=${passed}/${results.length}`);
 
+  const minPass = REQUIRED_PASS_NUMERATOR / REQUIRED_PASS_DENOMINATOR;
+  const passedGate = repeatAskViolations.length === 0 && passRate >= minPass;
+  await persistDurableReport(report, passedGate);
+  console.log("[synth-borrower-e2e] durable evidence recorded");
+
   // SPEC-M2 BEAT-METRICS-1: the repeat-ask covenant is a hard gate,
   // independent of the pass-rate threshold — even one violation fails the
   // run, since this is the one enforcement mechanism the whole program's
@@ -250,7 +298,6 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const minPass = REQUIRED_PASS_NUMERATOR / REQUIRED_PASS_DENOMINATOR;
   if (passRate < minPass) {
     console.error(
       `[synth-borrower-e2e] FAIL — pass_rate ${passRate} < threshold ${minPass}`,

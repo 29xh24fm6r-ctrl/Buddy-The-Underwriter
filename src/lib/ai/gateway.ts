@@ -29,6 +29,15 @@ import { callAnthropic } from "./providers/anthropic";
 import { callOpenAI } from "./providers/openai";
 import type { ProviderCallRequest, ProviderCallResult } from "./providers/types";
 import { getAIExecutionContext } from "./executionContext";
+import {
+  estimateGatewayReservation,
+  estimateTextTokenUpperBound,
+  GatewayBudgetExceededError,
+  GatewayBudgetPersistenceError,
+  reserveGatewayBudget,
+  settleGatewayBudget,
+  type GatewayBudgetReservation,
+} from "./budget";
 
 export type { GatewayProvider, GatewayRole } from "./roleConfig";
 
@@ -128,7 +137,7 @@ const providerImpl: Record<
   anthropic: callAnthropic,
   openai: callOpenAI,
 };
-let logCallImpl: (entry: LedgerEntry) => Promise<void> = realLogGatewayCall;
+let logCallImpl: (entry: LedgerEntry) => Promise<void | boolean> = realLogGatewayCall;
 
 /** Test-only: replace one provider's implementation (e.g. to simulate a 500). */
 export function __setProviderImplForTests(
@@ -139,7 +148,7 @@ export function __setProviderImplForTests(
 }
 
 /** Test-only: replace the ledger writer (e.g. to capture entries in memory). */
-export function __setLogGatewayCallForTests(impl: (entry: LedgerEntry) => Promise<void>): void {
+export function __setLogGatewayCallForTests(impl: (entry: LedgerEntry) => Promise<void | boolean>): void {
   logCallImpl = impl;
 }
 
@@ -156,6 +165,57 @@ async function callProvider(
   req: ProviderCallRequest,
 ): Promise<ProviderCallResult> {
   return providerImpl[provider](req);
+}
+
+class GatewayAuditPersistenceError extends Error {
+  override readonly name = "GatewayAuditPersistenceError";
+}
+
+function hasProviderTestOverride(): boolean {
+  return (
+    providerImpl.google !== callGoogle ||
+    providerImpl.anthropic !== callAnthropic ||
+    providerImpl.openai !== callOpenAI
+  );
+}
+
+async function requireLedgered(entry: LedgerEntry): Promise<void> {
+  // Legacy unit callers replace a provider without installing a ledger seam.
+  // That is test-only state: production adapters retain their exact references.
+  if (hasProviderTestOverride() && logCallImpl === realLogGatewayCall) return;
+
+  const persisted = await logCallImpl(entry);
+  if (persisted === false) {
+    throw new GatewayAuditPersistenceError(
+      `AI gateway audit persistence failed for ${entry.role}/${entry.purpose}`,
+    );
+  }
+}
+
+function usesDurableGovernance(): boolean {
+  // Tests install an in-memory ledger seam; production always uses the real
+  // ledger and therefore the durable cross-instance budget authority.
+  return logCallImpl === realLogGatewayCall && !hasProviderTestOverride();
+}
+
+async function reserveDurableBudget(
+  role: GatewayRole,
+  request: RunRoleRequest,
+  dailyBudget: number,
+): Promise<GatewayBudgetReservation | null> {
+  if (!usesDurableGovernance()) return null;
+  return reserveGatewayBudget(
+    role,
+    dailyBudget,
+    estimateGatewayReservation(request),
+  );
+}
+
+async function settleDurableBudget(
+  reservation: GatewayBudgetReservation | null,
+  actualTokens: number,
+): Promise<void> {
+  if (reservation) await settleGatewayBudget(reservation, actualTokens);
 }
 
 // Process-local daily token counters backing each role's budget hard-stop.
@@ -200,8 +260,6 @@ export async function runRole(
 ): Promise<RunRoleResult> {
   const config = getRoleConfig(role);
   const executionContext = getAIExecutionContext();
-  // Explicit true is always honored. Explicit false cannot downgrade a
-  // request-scoped NPI context established by an artifact orchestrator.
   const npiTagged = (request.npiTagged ?? false) || (executionContext?.npiTagged ?? false);
   const dealId = request.dealId ?? executionContext?.dealId ?? null;
   const provenance = {
@@ -216,38 +274,21 @@ export async function runRole(
   const chainToTry = request.disableFailover ? config.chain.slice(0, 1) : config.chain;
 
   for (const step of chainToTry) {
-    // SPEC-M1.1: inlineData is Google-only (providers/openai.ts and
-    // providers/anthropic.ts both throw immediately if given one). Skip a
-    // non-google step entirely rather than attempting it and having its
-    // generic "inlineData is not supported" rejection become the LAST
-    // (and therefore surfaced) chain error, masking the real google
-    // failure a caller's own error-classification logic may depend on
-    // (e.g. runGeminiOcrJob.ts's 404/timeout detection). Not ledgered —
-    // this is a capability mismatch, not an attempted-and-refused call.
-    if (request.inlineData?.length && step.provider !== "google") {
-      continue;
-    }
-
-    // SPEC-M1.1: useSearchGrounding is Google-only, but unlike inlineData,
-    // openai/anthropic don't throw when given it — they silently IGNORE it
-    // and return an ungrounded completion. For a caller whose whole point
-    // is fact-checked, source-grounded output (e.g.
-    // buddyIntelligenceEngine.ts's research threads), a silent fallback to
-    // an ungrounded model is a correctness risk, not just a diagnostic one
-    // — it could return a plausible-looking but fabricated result with no
-    // error at all. Skip non-google steps entirely rather than risk that.
-    if (request.useSearchGrounding && step.provider !== "google") {
-      continue;
-    }
+    if (request.inlineData?.length && step.provider !== "google") continue;
+    if (request.useSearchGrounding && step.provider !== "google") continue;
 
     attempts++;
+    const model =
+      request.modelOverride !== undefined && step.provider === primaryProvider
+        ? request.modelOverride
+        : step.model;
 
     if (npiTagged && VENDOR_NPI_APPROVAL[step.provider] !== "APPROVED") {
       lastError = npiRefusalError(step.provider);
-      await logCallImpl({
+      await requireLedgered({
         role,
         provider: step.provider,
-        model: step.model,
+        model,
         tokensIn: 0,
         tokensOut: 0,
         latencyMs: 0,
@@ -258,26 +299,46 @@ export async function runRole(
         errorMessage: lastError.message,
         ...provenance,
       });
-      continue; // a later chain step may be an APPROVED provider
+      continue;
     }
 
     const budgetUsed = getBudgetUsed(role);
     if (budgetUsed >= config.dailyTokenBudget) {
-      lastError = new Error(
+      lastError = new GatewayBudgetExceededError(
         `daily token budget exceeded for role "${role}" (${budgetUsed}/${config.dailyTokenBudget})`,
       );
-      // A budget breach stops the whole role — trying the next provider
-      // would only spend more of the same budget it just exceeded.
       break;
     }
 
-    const start = Date.now();
-    const model =
-      request.modelOverride !== undefined && step.provider === primaryProvider
-        ? request.modelOverride
-        : step.model;
+    let reservation: GatewayBudgetReservation | null = null;
     try {
-      const result = await callProvider(step.provider, {
+      reservation = await reserveDurableBudget(role, request, config.dailyTokenBudget);
+    } catch (error) {
+      if (error instanceof GatewayBudgetExceededError) {
+        lastError = error;
+        await requireLedgered({
+          role,
+          provider: step.provider,
+          model,
+          tokensIn: 0,
+          tokensOut: 0,
+          latencyMs: 0,
+          dealId,
+          purpose: request.purpose,
+          npiTagged,
+          outcome: "failure",
+          errorMessage: error.message,
+          ...provenance,
+        });
+        break;
+      }
+      throw error;
+    }
+
+    const start = Date.now();
+    let result: ProviderCallResult;
+    try {
+      result = await callProvider(step.provider, {
         model,
         prompt: request.prompt,
         systemInstruction: request.systemInstruction,
@@ -291,9 +352,36 @@ export async function runRole(
         thinkingLevel: request.thinkingLevel,
         mediaResolution: request.mediaResolution,
       });
+    } catch (error) {
       const latencyMs = Date.now() - start;
-      recordBudgetUsage(role, result.tokensIn + result.tokensOut);
-      await logCallImpl({
+      lastError = error instanceof Error ? error : new Error(String(error));
+      try {
+        await requireLedgered({
+          role,
+          provider: step.provider,
+          model,
+          tokensIn: 0,
+          tokensOut: 0,
+          latencyMs,
+          dealId,
+          purpose: request.purpose,
+          npiTagged,
+          outcome: "failure",
+          errorMessage: lastError.message,
+          ...provenance,
+        });
+      } catch (auditError) {
+        await settleDurableBudget(reservation, 0).catch(() => undefined);
+        throw auditError;
+      }
+      await settleDurableBudget(reservation, 0);
+      continue;
+    }
+
+    const latencyMs = Date.now() - start;
+    const actualTokens = result.tokensIn + result.tokensOut;
+    try {
+      await requireLedgered({
         role,
         provider: step.provider,
         model,
@@ -306,46 +394,34 @@ export async function runRole(
         outcome: "success",
         ...provenance,
       });
-      return {
-        text: result.text,
-        provider: step.provider,
-        model,
-        tokensIn: result.tokensIn,
-        tokensOut: result.tokensOut,
-        latencyMs,
-        attempts,
-        ...(result.groundingMetadata !== undefined
-          ? { groundingMetadata: result.groundingMetadata }
-          : {}),
-      };
-    } catch (e) {
-      const latencyMs = Date.now() - start;
-      lastError = e instanceof Error ? e : new Error(String(e));
-      await logCallImpl({
-        role,
-        provider: step.provider,
-        model,
-        tokensIn: 0,
-        tokensOut: 0,
-        latencyMs,
-        dealId,
-        purpose: request.purpose,
-        npiTagged,
-        outcome: "failure",
-        errorMessage: lastError.message,
-        ...provenance,
-      });
-      // fall through — try the next chain step (failover)
+    } catch (auditError) {
+      await settleDurableBudget(reservation, actualTokens).catch(() => undefined);
+      throw auditError;
     }
+    await settleDurableBudget(reservation, actualTokens);
+    recordBudgetUsage(role, actualTokens);
+
+    return {
+      text: result.text,
+      provider: step.provider,
+      model,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      latencyMs,
+      attempts,
+      ...(result.groundingMetadata !== undefined
+        ? { groundingMetadata: result.groundingMetadata }
+        : {}),
+    };
   }
 
   throw lastError ?? new Error(`runRole(${role}): chain is empty`);
 }
 
 /**
- * Streaming variant — feeds the `interviewer` role (full UX lands in M5).
- * Only the chain's first step is attempted (see module doc comment); a
- * mid-stream failure is not retried or failed-over, only reported.
+ * Streaming remains single-provider, but now reserves durable budget before
+ * opening the stream and records conservative text-based usage instead of
+ * zero tokens.
  */
 export async function* runRoleStream(
   role: GatewayRole,
@@ -361,13 +437,14 @@ export async function* runRoleStream(
     artifactType: executionContext?.artifactType ?? null,
     artifactId: executionContext?.artifactId ?? null,
   };
+  const model = request.modelOverride ?? step.model;
 
   if (npiTagged && VENDOR_NPI_APPROVAL[step.provider] !== "APPROVED") {
-    const err = npiRefusalError(step.provider);
-    await logCallImpl({
+    const error = npiRefusalError(step.provider);
+    await requireLedgered({
       role,
       provider: step.provider,
-      model: step.model,
+      model,
       tokensIn: 0,
       tokensOut: 0,
       latencyMs: 0,
@@ -375,12 +452,11 @@ export async function* runRoleStream(
       purpose: request.purpose,
       npiTagged,
       outcome: "failure",
-      errorMessage: err.message,
+      errorMessage: error.message,
       ...provenance,
     });
-    throw err;
+    throw error;
   }
-
   if (step.provider !== "google") {
     throw new Error(
       `runRoleStream: streaming is not implemented for provider "${step.provider}" in SPEC-M1 (google only)`,
@@ -389,13 +465,15 @@ export async function* runRoleStream(
 
   const budgetUsed = getBudgetUsed(role);
   if (budgetUsed >= config.dailyTokenBudget) {
-    throw new Error(
+    throw new GatewayBudgetExceededError(
       `daily token budget exceeded for role "${role}" (${budgetUsed}/${config.dailyTokenBudget})`,
     );
   }
 
+  const reservation = await reserveDurableBudget(role, request, config.dailyTokenBudget);
   const start = Date.now();
-  const model = request.modelOverride ?? step.model;
+  let outputTokenUpperBound = 0;
+
   try {
     for await (const chunk of streamGoogle({
       model,
@@ -407,43 +485,66 @@ export async function* runRoleStream(
       temperature: request.temperature,
       thinkingLevel: request.thinkingLevel,
     })) {
+      outputTokenUpperBound += estimateTextTokenUpperBound(chunk);
       yield chunk;
     }
+
     const latencyMs = Date.now() - start;
-    // The streaming endpoint doesn't return usageMetadata the way the
-    // non-streaming endpoint does — token accounting for streamed calls is
-    // a known gap, tracked for M5 (which owns the interviewer UX) rather
-    // than guessed at here via a length heuristic.
-    await logCallImpl({
-      role,
-      provider: step.provider,
-      model,
-      tokensIn: 0,
-      tokensOut: 0,
-      latencyMs,
-      dealId,
-      purpose: request.purpose,
-      npiTagged,
-      outcome: "success",
-      ...provenance,
-    });
-  } catch (e) {
+    const inputTokens = estimateTextTokenUpperBound(
+      request.prompt,
+      request.systemInstruction,
+    );
+    const outputTokens = Math.max(1, outputTokenUpperBound);
+    const actualTokens = inputTokens + outputTokens;
+    try {
+      await requireLedgered({
+        role,
+        provider: step.provider,
+        model,
+        tokensIn: inputTokens,
+        tokensOut: outputTokens,
+        latencyMs,
+        dealId,
+        purpose: request.purpose,
+        npiTagged,
+        outcome: "success",
+        ...provenance,
+      });
+    } catch (auditError) {
+      await settleDurableBudget(reservation, actualTokens).catch(() => undefined);
+      throw auditError;
+    }
+    await settleDurableBudget(reservation, actualTokens);
+    recordBudgetUsage(role, actualTokens);
+  } catch (error) {
+    if (
+      error instanceof GatewayAuditPersistenceError ||
+      error instanceof GatewayBudgetPersistenceError
+    ) {
+      throw error;
+    }
     const latencyMs = Date.now() - start;
-    const err = e instanceof Error ? e : new Error(String(e));
-    await logCallImpl({
-      role,
-      provider: step.provider,
-      model,
-      tokensIn: 0,
-      tokensOut: 0,
-      latencyMs,
-      dealId,
-      purpose: request.purpose,
-      npiTagged,
-      outcome: "failure",
-      errorMessage: err.message,
-      ...provenance,
-    });
-    throw err;
+    const failure = error instanceof Error ? error : new Error(String(error));
+    try {
+      await requireLedgered({
+        role,
+        provider: step.provider,
+        model,
+        tokensIn: 0,
+        tokensOut: 0,
+        latencyMs,
+        dealId,
+        purpose: request.purpose,
+        npiTagged,
+        outcome: "failure",
+        errorMessage: failure.message,
+        ...provenance,
+      });
+    } catch (auditError) {
+      await settleDurableBudget(reservation, 0).catch(() => undefined);
+      throw auditError;
+    }
+    await settleDurableBudget(reservation, 0);
+    throw failure;
   }
 }

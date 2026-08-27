@@ -8,7 +8,11 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import {
+  ensureDealBankAccess,
+  isDealBankAccessGrantFor,
+  type DealBankAccessGrant,
+} from "@/lib/tenant/ensureDealBankAccess";
 import { evaluateMemoInputReadiness } from "./evaluateMemoInputReadiness";
 import {
   loadAllFactConflicts,
@@ -40,6 +44,10 @@ export type BuildMemoInputPackageArgs = {
   // pipeline always wants this (so snapshot reflects the latest reconciliation
   // run); admin-style read paths can pass false to avoid mutating state.
   runReconciliation?: boolean;
+  // A caller may forward the opaque grant issued by the canonical route guard.
+  // The branded grant is deal- and bank-bound, so this avoids a second auth
+  // probe without allowing callers to manufacture authorization.
+  accessGrant?: DealBankAccessGrant;
 };
 
 export type BuildMemoInputPackageResult =
@@ -53,7 +61,13 @@ export type BuildMemoInputPackageResult =
 export async function buildMemoInputPackage(
   args: BuildMemoInputPackageArgs,
 ): Promise<BuildMemoInputPackageResult> {
-  const access = await ensureDealBankAccess(args.dealId);
+  const delegated = args.accessGrant;
+  const delegatedIsValid =
+    !!delegated &&
+    isDealBankAccessGrantFor(delegated, args.dealId, delegated.bankId);
+  const access = delegatedIsValid
+    ? ({ ok: true as const, bankId: delegated.bankId })
+    : await ensureDealBankAccess(args.dealId);
   if (!access.ok) {
     return { ok: false, reason: "tenant_mismatch", error: access.error };
   }
