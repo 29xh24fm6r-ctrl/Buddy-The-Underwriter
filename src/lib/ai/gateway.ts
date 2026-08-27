@@ -31,6 +31,7 @@ import type { ProviderCallRequest, ProviderCallResult } from "./providers/types"
 import { getAIExecutionContext } from "./executionContext";
 import {
   estimateGatewayReservation,
+  estimateTextTokenUpperBound,
   GatewayBudgetExceededError,
   GatewayBudgetPersistenceError,
   reserveGatewayBudget,
@@ -477,11 +478,11 @@ export async function* runRoleStream(
     }
 
     const latencyMs = Date.now() - start;
-    const inputTokens = Math.max(
-      1,
-      Math.ceil((request.prompt.length + (request.systemInstruction?.length ?? 0)) / 2),
+    const inputTokens = estimateTextTokenUpperBound(
+      request.prompt,
+      request.systemInstruction,
     );
-    const outputTokens = Math.max(1, Math.ceil(outputChars / 2));
+    const outputTokens = Math.max(1, outputChars);
     const actualTokens = inputTokens + outputTokens;
     try {
       await requireLedgered({
