@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS public.ai_gateway_daily_budgets (
   usage_day date NOT NULL,
   role text NOT NULL CHECK (role IN (
     'generator', 'verifier', 'structurer', 'interviewer', 'translator',
-    'evidence', 'underwriter'
+    'evidence', 'underwriter', 'embedder'
   )),
   tokens_consumed bigint NOT NULL DEFAULT 0 CHECK (tokens_consumed >= 0),
   tokens_reserved bigint NOT NULL DEFAULT 0 CHECK (tokens_reserved >= 0),
@@ -69,7 +69,7 @@ DECLARE
 BEGIN
   IF p_role IS NULL OR p_role NOT IN (
     'generator', 'verifier', 'structurer', 'interviewer', 'translator',
-    'evidence', 'underwriter'
+    'evidence', 'underwriter', 'embedder'
   ) THEN
     RAISE EXCEPTION 'invalid AI gateway role';
   END IF;
