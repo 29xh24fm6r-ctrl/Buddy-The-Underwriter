@@ -250,7 +250,20 @@ export async function generateTridentBundle(args: {
     const sbaResult = args.sbaCheckpoint ?? (resumedSbaPackageId && completedBusinessPlanPath
       ? ({ ok: true, packageId: resumedSbaPackageId, pdfUrl: null, renderInput: null } as const)
       : await generateSBAPackage(dealId, { mode }));
-    if (!sbaResult.ok) throw new Error(`SBA package generation failed: ${sbaResult.error}`);
+    if (!sbaResult.ok) {
+      // The orchestrator returns WHICH preconditions failed in `blockers`;
+      // only the headline was propagated, so every failure landed in
+      // buddy_trident_bundles.generation_error as the bare string
+      // "SBA package generation failed: Assumption validation failed".
+      // 840 production runs failed that way with no recorded reason, which is
+      // why the largest failure cluster in the factory's history could not be
+      // diagnosed from data. Carry the blockers into the message.
+      const blockers = "blockers" in sbaResult ? (sbaResult.blockers ?? []) : [];
+      throw new Error(
+        `SBA package generation failed: ${sbaResult.error}` +
+          (blockers.length > 0 ? ` — ${blockers.join("; ")}` : ""),
+      );
+    }
 
     // Audit fix (Borrower Intake Program review) — enrichBusinessPlanPackage
     // (SPEC-M8 ARTIFACT-PIPELINE-1's verifier pass) was wired into the SBA

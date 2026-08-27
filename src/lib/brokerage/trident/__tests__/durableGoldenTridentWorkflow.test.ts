@@ -289,7 +289,13 @@ test("the admitted snapshot captures every evidence layer without hashing resear
   ]) {
     assert.match(snapshot, new RegExp(table));
   }
-  assert.match(snapshot, /version: 6/);
+  // The manifest version is now stamped from TRIDENT_SNAPSHOT_VERSION rather
+  // than a literal, so that the value the emitter writes and the value the
+  // verifier compares against cannot drift apart. Assert the binding, not the
+  // spelling — a guard pinned to `version: 6` fails on a correct refactor and
+  // says nothing about whether the two sites agree.
+  assert.match(snapshot, /version:\s*TRIDENT_SNAPSHOT_VERSION/);
+  assert.match(snapshot, /export const TRIDENT_SNAPSHOT_VERSION = 6;/);
   const sourcesStart = snapshot.indexOf("sources: {");
   const governedStart = snapshot.indexOf("governedEvidenceAtAdmission: {");
   const derivedStart = snapshot.indexOf("derivedAtAdmission: {");
@@ -398,7 +404,13 @@ test("commissioning and release share one hardened, governed research contract",
 
 
 test("input admission excludes factory-produced derivatives and canonicalizes before memo binding", () => {
-  assert.match(snapshot, /version:\s*6/);
+  // The manifest version is now stamped from TRIDENT_SNAPSHOT_VERSION rather
+  // than a literal, so that the value the emitter writes and the value the
+  // verifier compares against cannot drift apart. Assert the binding, not the
+  // spelling — a guard pinned to `version: 6` fails on a correct refactor and
+  // says nothing about whether the two sites agree.
+  assert.match(snapshot, /version:\s*TRIDENT_SNAPSHOT_VERSION/);
+  assert.match(snapshot, /export const TRIDENT_SNAPSHOT_VERSION = 6;/);
   assert.match(snapshot, /sources:\s*\{/);
   assert.match(snapshot, /derivedAtAdmission:\s*\{/);
   const sourcesStart = snapshot.indexOf("sources: {");
