@@ -906,3 +906,69 @@ Open checkpoints:
   remain outstanding.
 - The next independent audit target is storage-object lifecycle and orphan
   reconciliation after the token boundary is deployed.
+
+### Storage lifecycle convergence factory
+
+Production and source evidence on 2026-08-27:
+
+- A signed-out request to
+  `/api/deals/eefd62b3-4ae2-4d43-bb80-9953fdca9bcc/uploads`
+  returned HTTP 200 from deployed production with
+  `x-clerk-auth-status: signed-out`. The current invocation returned an empty
+  array, but the route would expose deal-scoped temporary filenames, sizes, and
+  timestamps whenever its warm function instance held files.
+- The legacy `POST /api/storage/upload` route authorized the deal before
+  writing, but both its GCS and Supabase branches returned success after storing
+  bytes without creating `borrower_uploads` or `deal_documents` provenance.
+  A caller interruption or a missing follow-up therefore left an unowned object.
+- No `/api/storage/upload` invocation was found in the available 24-hour
+  production runtime-log window. That is evidence of no observed recent use,
+  not proof that the compatibility route has no callers.
+- The separate orphan detector remains a dark supporting path: it depends on a
+  caller-supplied `exec_sql` RPC and its database-only query is not scoped to
+  the scanned bucket/prefix. It is recorded as a later repair target and was not
+  activated or run against production.
+
+Repair branch: `codex/storage-lifecycle-convergence`.
+
+Repair:
+
+- Require tenant-authorized deal access before any filesystem metadata read in
+  the legacy inventory route.
+- Make every production legacy upload persist canonical upload provenance and
+  run the existing idempotent materializer before returning HTTP 200.
+- Make upload commit failures phase-aware. If the durable audit row exists,
+  preserve the object and return HTTP 202 so background reconciliation can
+  recover without asking the user to upload again.
+- If provenance fails before any durable row exists, remove only the object
+  created by that same request using the provider API. Surface failed
+  compensation as an explicit reconciliation condition.
+- Add behavior tests for successful commit, durable retry, safe compensation,
+  failed compensation, unknown-error byte preservation, and source guards for
+  authorization and both storage providers.
+- No pre-existing object, production row, schema, RLS policy, provider
+  configuration, credential, or dependency is changed.
+
+Verification on code head `26f0f7d9f0f88d09d8817b9c3f493fb5e4344a8a`:
+
+- CI ran 13,246 tests: 13,237 passed, 0 failed, and 9 skipped.
+  React-server-condition tests passed 18/18. Research evaluation passed 7/7;
+  the 13 known production-data placeholders remain explicitly skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only schema drift, Build Check, Secret Scan, Upload
+  Architecture Guard, Route Budget, and public Playwright passed. Public
+  Playwright ran 1 test and skipped 5 authenticated tests because credentials
+  were unavailable.
+- Exact-head Vercel preview `dpl_DGY1EZsDfK15otJHZaEEbZssqLqs` is READY,
+  returned HTTP 200 with `x-buddy-build` matching the code head, and recorded
+  no error/fatal runtime logs in the post-deploy observation window.
+- The same signed-out inventory probe that returned HTTP 200 in production
+  returned HTTP 401 from the exact-head preview with
+  `{"ok":false,"error":"authentication_required"}`.
+- PR 919 remains independently open, mergeable, and zero commits behind
+  `main`; this repair does not modify its portal-token surfaces.
+- Direct orphan-row verification remains blocked until the verified Buddy-owned
+  Supabase connection is available. No unverified database project was queried.
+- This evidence-only ledger commit does not change runtime code. Its resulting
+  exact head must retain green required checks and a READY, SHA-matched preview
+  before merge recommendation.

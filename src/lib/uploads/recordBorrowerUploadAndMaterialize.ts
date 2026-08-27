@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { reconcileUploadsForDeal } from "@/lib/documents/reconcileUploads";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { UploadCommitError } from "@/lib/uploads/uploadCommitError";
 
 export type RecordUploadArgs = {
   dealId: string;
@@ -103,36 +104,53 @@ async function ensureBorrowerUploadRow(sb: ReturnType<typeof supabaseAdmin>, arg
 export async function recordBorrowerUploadAndMaterialize(args: RecordUploadArgs) {
   const sb = supabaseAdmin();
 
-  const upload = await ensureBorrowerUploadRow(sb, args);
-
-  let reconciled = 0;
-  if (args.materialize !== false) {
-    const r = await reconcileUploadsForDeal(args.dealId, args.bankId);
-    reconciled = r.matched;
+  let upload: { uploadId: string; created: boolean };
+  try {
+    upload = await ensureBorrowerUploadRow(sb, args);
+  } catch (error) {
+    throw new UploadCommitError(
+      error instanceof Error ? error.message : "Failed to persist upload audit row",
+      false,
+    );
   }
 
-  await logLedgerEvent({
-    dealId: args.dealId,
-    bankId: args.bankId,
-    eventKey: "upload_commit",
-    uiState: "done",
-    uiMessage: `Upload committed${args.materialize === false ? "" : `. Materialized ${reconciled} docs`}`,
-    meta: {
-      source: args.source ?? "unknown",
-      borrower_upload_id: upload.uploadId,
-      borrower_upload_created: upload.created,
-      storage_bucket: args.storageBucket,
-      storage_path: args.storagePath,
-      original_filename: args.originalFilename,
-      mime_type: args.mimeType,
-      size_bytes: args.sizeBytes,
-      reconciled,
-    },
-  });
+  try {
+    let reconciled = 0;
+    if (args.materialize !== false) {
+      const r = await reconcileUploadsForDeal(args.dealId, args.bankId);
+      reconciled = r.matched;
+    }
 
-  return {
-    uploadId: upload.uploadId,
-    uploadCreated: upload.created,
-    reconciled,
-  };
+    await logLedgerEvent({
+      dealId: args.dealId,
+      bankId: args.bankId,
+      eventKey: "upload_commit",
+      uiState: "done",
+      uiMessage: `Upload committed${args.materialize === false ? "" : `. Materialized ${reconciled} docs`}`,
+      meta: {
+        source: args.source ?? "unknown",
+        borrower_upload_id: upload.uploadId,
+        borrower_upload_created: upload.created,
+        storage_bucket: args.storageBucket,
+        storage_path: args.storagePath,
+        original_filename: args.originalFilename,
+        mime_type: args.mimeType,
+        size_bytes: args.sizeBytes,
+        reconciled,
+      },
+    });
+
+    return {
+      uploadId: upload.uploadId,
+      uploadCreated: upload.created,
+      reconciled,
+    };
+  } catch (error) {
+    // The audit row now owns the object. Callers must preserve the bytes and
+    // allow retry/reconciliation instead of compensating with deletion.
+    throw new UploadCommitError(
+      error instanceof Error ? error.message : "Upload post-commit processing failed",
+      true,
+    );
+  }
 }

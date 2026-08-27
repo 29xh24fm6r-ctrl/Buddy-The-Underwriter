@@ -2,9 +2,14 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseStorageClient } from "@/lib/supabase/client";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
-import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import {
+  buildGcsObjectKey,
+  deleteGcsObject,
+  getGcsBucketName,
+  signGcsUploadUrl,
+} from "@/lib/storage/gcs";
+import { finalizeLegacyUpload } from "@/lib/uploads/finalizeLegacyUpload";
+import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
 import crypto from "node:crypto";
 import { assertDealAccess } from "@/lib/server/deal-access";
 import { accessErrorToResponse } from "@/lib/server/withDealAccess";
@@ -16,17 +21,106 @@ function json(status: number, body: any) {
   return NextResponse.json(body, { status });
 }
 
+async function commitUploadedObject(args: {
+  dealId: string;
+  bankId: string;
+  bucket: string;
+  path: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  removeUncommittedObject: () => Promise<void>;
+}) {
+  const result = await finalizeLegacyUpload({
+    commit: () =>
+      recordBorrowerUploadAndMaterialize({
+        dealId: args.dealId,
+        bankId: args.bankId,
+        storageBucket: args.bucket,
+        storagePath: args.path,
+        originalFilename: args.filename,
+        mimeType: args.mimeType,
+        sizeBytes: args.sizeBytes,
+        source: "banker_upload",
+      }),
+    removeUncommittedObject: args.removeUncommittedObject,
+  });
+
+  const uploaded = {
+    file_key: args.path,
+    mime_type: args.mimeType,
+    size: args.sizeBytes,
+    bucket: args.bucket,
+  };
+
+  if (result.status === "committed") {
+    return json(200, {
+      ok: true,
+      ...uploaded,
+      upload_id: result.commit.uploadId,
+      reconciled: result.commit.reconciled,
+    });
+  }
+
+  if (result.status === "processing_pending") {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        message: "legacy upload persisted but post-commit processing is pending",
+        route: "/api/storage/upload",
+        dealId: args.dealId,
+        error: result.error,
+      }),
+    );
+    return json(202, {
+      ok: true,
+      ...uploaded,
+      durable: true,
+      processing_pending: true,
+    });
+  }
+
+  if (result.status === "rolled_back") {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        message: "legacy upload audit failed; request object removed",
+        route: "/api/storage/upload",
+        dealId: args.dealId,
+        error: result.error,
+      }),
+    );
+    return json(503, {
+      ok: false,
+      error: "upload_commit_failed",
+      bytes_removed: true,
+    });
+  }
+
+  console.error(
+    JSON.stringify({
+      level: "error",
+      message: "legacy upload audit and compensation failed",
+      route: "/api/storage/upload",
+      dealId: args.dealId,
+      error: result.error,
+      cleanupError: result.cleanupError,
+    }),
+  );
+  return json(503, {
+    ok: false,
+    error: "upload_commit_failed_cleanup_failed",
+    requires_reconciliation: true,
+  });
+}
+
 /**
  * POST /api/storage/upload
- * Upload file to Supabase Storage
+ * Legacy server-upload compatibility route.
  *
- * Body: multipart/form-data
- *   - file: File
- *   - dealId: string
- *   - applicationId: string (optional)
- *   - filename: string (optional, uses file.name if not provided)
- *
- * Returns: { file_key, mime_type, size, url }
+ * Every successful production write is committed to the durable upload audit
+ * before success is returned. If that pre-commit write fails, only the object
+ * created by this request is removed through the provider API.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -45,8 +139,9 @@ export async function POST(req: NextRequest) {
       return json(400, { ok: false, error: "Missing dealId" });
     }
 
+    let access: Awaited<ReturnType<typeof assertDealAccess>>;
     try {
-      await assertDealAccess(dealId);
+      access = await assertDealAccess(dealId);
     } catch (error) {
       const accessResponse = accessErrorToResponse(error);
       if (accessResponse) return accessResponse;
@@ -67,24 +162,14 @@ export async function POST(req: NextRequest) {
       return await handleLocalUpload(file, dealId, applicationId, filename);
     }
 
-    // Convert File to ArrayBuffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+    const mimeType = file.type || "application/octet-stream";
 
     if (docStore === "gcs") {
-      const { data: deal } = await supabaseAdmin()
-        .from("deals")
-        .select("bank_id")
-        .eq("id", dealId)
-        .maybeSingle();
-
-      if (!deal?.bank_id) {
-        return json(404, { ok: false, error: "Deal not found" });
-      }
-
       const fileId = crypto.randomUUID();
       const objectPath = buildGcsObjectKey({
-        bankId: deal.bank_id,
+        bankId: access.bankId,
         dealId,
         fileId,
         filename,
@@ -92,13 +177,13 @@ export async function POST(req: NextRequest) {
 
       const signedUploadUrl = await signGcsUploadUrl({
         key: objectPath,
-        contentType: file.type || "application/octet-stream",
+        contentType: mimeType,
         expiresSeconds: Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900"),
       });
 
       const uploadRes = await fetch(signedUploadUrl, {
         method: "PUT",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
+        headers: { "Content-Type": mimeType },
         body: buffer,
       });
 
@@ -107,30 +192,19 @@ export async function POST(req: NextRequest) {
       }
 
       const bucket = getGcsBucketName();
-
-      await logLedgerEvent({
+      return await commitUploadedObject({
         dealId,
-        bankId: deal.bank_id,
-        eventKey: "documents.upload_completed",
-        uiState: "done",
-        uiMessage: "Upload completed (gcs)",
-        meta: {
-          storage_bucket: bucket,
-          storage_path: objectPath,
-          size_bytes: file.size,
-        },
-      });
-
-      return json(200, {
-        ok: true,
-        file_key: objectPath,
-        mime_type: file.type,
-        size: file.size,
+        bankId: access.bankId,
         bucket,
+        path: objectPath,
+        filename,
+        mimeType,
+        sizeBytes: file.size,
+        removeUncommittedObject: () =>
+          deleteGcsObject({ bucket, key: objectPath }),
       });
     }
 
-    // Production: Upload to Supabase Storage
     const timestamp = Date.now();
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const basePath = applicationId
@@ -138,26 +212,32 @@ export async function POST(req: NextRequest) {
       : `${dealId}/uploads`;
 
     const fileKey = `${basePath}/${timestamp}_${safeName}`;
+    const bucket = "deal_uploads";
 
-    // Upload to Supabase Storage
-    const { data, error } = await storage
-      .from("deal_uploads")
-      .upload(fileKey, buffer, {
-        contentType: file.type || "application/octet-stream",
-        upsert: false,
-      });
+    const { data, error } = await storage.from(bucket).upload(fileKey, buffer, {
+      contentType: mimeType,
+      upsert: false,
+    });
 
     if (error) {
       console.error("[storage/upload] Supabase upload failed");
       return json(500, { ok: false, error: "upload_failed" });
     }
 
-    return json(200, {
-      ok: true,
-      file_key: data.path,
-      mime_type: file.type,
-      size: file.size,
-      bucket: "deal_uploads",
+    return await commitUploadedObject({
+      dealId,
+      bankId: access.bankId,
+      bucket,
+      path: data.path,
+      filename,
+      mimeType,
+      sizeBytes: file.size,
+      removeUncommittedObject: async () => {
+        const { error: removeError } = await storage.from(bucket).remove([data.path]);
+        if (removeError) {
+          throw new Error(removeError.message);
+        }
+      },
     });
   } catch (error: unknown) {
     console.error("[storage/upload] unexpected failure", error);
