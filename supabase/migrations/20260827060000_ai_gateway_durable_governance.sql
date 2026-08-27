@@ -89,7 +89,7 @@ BEGIN
   WITH released AS (
     UPDATE public.ai_gateway_budget_reservations
        SET settled_at = v_now,
-           actual_tokens = 0
+           actual_tokens = reserved_tokens
      WHERE usage_day = v_day
        AND role = p_role
        AND settled_at IS NULL
@@ -103,6 +103,7 @@ BEGIN
   IF v_expired > 0 THEN
     UPDATE public.ai_gateway_daily_budgets
        SET tokens_reserved = greatest(0, tokens_reserved - v_expired),
+           tokens_consumed = tokens_consumed + v_expired,
            updated_at = v_now
      WHERE usage_day = v_day AND role = p_role;
   END IF;
@@ -205,7 +206,7 @@ GRANT EXECUTE ON FUNCTION public.settle_ai_gateway_tokens(uuid, bigint)
 COMMENT ON TABLE public.ai_gateway_daily_budgets IS
   'Durable UTC-day AI gateway token consumption and active reservations by role.';
 COMMENT ON TABLE public.ai_gateway_budget_reservations IS
-  'Idempotent cross-instance reservations that prevent concurrent provider calls from exceeding a role budget.';
+  'Idempotent cross-instance reservations; expired unconfirmed calls are conservatively charged at their reserved upper bound.';
 COMMENT ON FUNCTION public.reserve_ai_gateway_tokens(text, bigint, bigint) IS
   'Service-role-only atomic AI token admission; releases expired reservations and returns a reservation id when allowed.';
 COMMENT ON FUNCTION public.settle_ai_gateway_tokens(uuid, bigint) IS
