@@ -21,6 +21,7 @@ import "server-only";
 
 import { buildUnifiedDealReadiness } from "./buildUnifiedDealReadiness";
 import { reconcileDealLifecycle } from "./reconcileDealLifecycle";
+import type { DealBankAccessGrant } from "@/lib/tenant/ensureDealBankAccess";
 import type { UnifiedDealReadiness } from "./types";
 
 export type ReadinessEventTrigger =
@@ -47,6 +48,9 @@ export type RefreshDealReadinessArgs = {
   // Identifier of the user / system actor that caused the event. Required
   // when reconcile=true so any auto-advance ledger writes carry an actor.
   actorId?: string;
+  // Opaque deal/bank proof for sessionless background workers. Browser and
+  // route callers omit this and retain the normal Clerk tenant check.
+  accessGrant?: DealBankAccessGrant;
 };
 
 export type RefreshDealReadinessResult =
@@ -69,6 +73,7 @@ export async function refreshDealReadiness(
       dealId: args.dealId,
       runReconciliation: true,
       runSelfHeal: true,
+      accessGrant: args.accessGrant,
     });
     if (!built.ok) {
       logFailure(args, built.reason);
