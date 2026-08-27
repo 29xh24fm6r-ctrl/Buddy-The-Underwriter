@@ -17,8 +17,10 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { assertDealAccess } from "@/lib/server/deal-access";
 import {
+  isCompletedSigningRequestStatus,
   isFailedTerminalSigningRequestStatus,
   persistSignwellRequestStatus,
+  reconcileSignwellCompletion,
   requestSignature,
 } from "@/lib/esign/signwell/service";
 import { createSignwellDocumentFromFile, deleteSignwellDocument, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
@@ -132,6 +134,35 @@ export async function GET(req: Request, ctx: Ctx) {
     }
 
     const document = await fetchSignwellDocument(submissionId);
+    if (isCompletedSigningRequestStatus(document.status)) {
+      const reconciled = await reconcileSignwellCompletion(
+        { dealId, document },
+        {
+          sb,
+          signwell: {
+            createSignwellDocumentFromFile,
+            deleteSignwellDocument,
+            fetchSignwellDocument,
+            downloadSignwellCompletedPdf,
+          },
+        },
+      );
+      if (!reconciled.ok || !reconciled.completed) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "completion_persistence_failed",
+            detail: reconciled.ok ? "provider_status_not_completed" : reconciled.detail,
+          },
+          { status: 503 },
+        );
+      }
+      return NextResponse.json({
+        ok: true,
+        status: "completed",
+        signedDocument: reconciled.signedDocument,
+      });
+    }
     if (isFailedTerminalSigningRequestStatus(document.status)) {
       const persisted = await persistSignwellRequestStatus(
         { dealId, documentId: submissionId, status: document.status },

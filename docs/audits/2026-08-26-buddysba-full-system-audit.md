@@ -808,3 +808,59 @@ Regression coverage now proves:
 - The domain-boundary follow-up is isolated on `commissioning/public-product-domain-boundary`.
 - Production closure requires the follow-up merge, exact deployment-SHA verification, and browser confirmation that the former `www.buddysba.com/underwriter` crash redirects to the canonical underwriter site.
 - The verified Buddy-owned Supabase connection and authorized Golden Trident fixture remain separate blockers for database and transactional closure.
+
+
+---
+
+## 11. SignWell completion durability — 2026-08-27
+
+### Finding and root cause
+
+Both authenticated e-sign status APIs first checked Buddy's
+`signed_documents` table, but when no row existed they returned SignWell's
+canonical provider status directly. A missed or delayed `document_completed`
+webhook could therefore report `completed` to banker and borrower clients
+before Buddy downloaded the signed compliance PDF, stored it, and recorded its
+durable provenance. Provider completion and Buddy completion were being treated
+as the same state even though only the latter satisfies the compliance record.
+
+### Repair
+
+Completed or manually completed provider states now invoke the same idempotent
+completion pipeline used by verified webhooks. That pipeline revalidates the
+request, deal, signer, IAL2 state, provider document, and recipient; downloads
+and stores the signed PDF; and inserts the `signed_documents` record. Both
+status APIs return `completed` only after a deal- and provider-document-scoped
+read confirms that durable row. Any download, upload, validation, insert, or
+confirmation failure returns a retryable HTTP 503
+`completion_persistence_failed` instead of a false success. Non-completed
+provider statuses and failed-terminal reconciliation retain their existing
+behavior.
+
+### Verification pending
+
+The focused completion-durability guard, complete unit/evaluation suite,
+architecture and schema guards, build, public browser smoke, exact-head preview,
+and runtime logs must pass before merge. Transactional production closure still
+requires an authorized SignWell fixture and verified Buddy-owned Supabase
+connection; the connected database identifying as another product remains
+strictly out of scope and was not queried or modified.
+
+
+### Concurrent production blocker recorded
+
+After PR 926 deployed on exact production commit
+`87059bcd79de9ea1512dc8a71d0d532a8ede3437`, runtime evidence recorded nine
+Gemini OCR budget-reservation failures in the latest observation window because
+`public.reserve_ai_gateway_tokens` is absent from the production schema cache.
+Mistral OCR recovered the document text, but the missing durable budget RPC also
+prevented Gemini classification and routed affected documents to manual review.
+The application repair from merged PR 917 is therefore only partially deployed:
+its database migration remains unapplied.
+
+Applying or verifying that migration is blocked until a Supabase connection is
+proven to belong to Buddy The Underwriter. The available connection identifies
+as a different product and was not queried or modified. The smallest human
+action is to provide or restore the verified Buddy-owned Supabase connection;
+then the already-reviewed migration can be applied and the OCR/classification
+path reverified with a controlled fixture.
