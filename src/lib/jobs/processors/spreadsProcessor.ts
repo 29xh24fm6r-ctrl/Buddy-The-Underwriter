@@ -929,10 +929,26 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     // the rail and DealShell CTA reflect the new state without requiring
     // the banker to refresh manually. Fire-and-forget by design.
     try {
-      const { scheduleReadinessRefresh } = await import(
-        "@/lib/deals/readiness/refreshDealReadiness"
-      );
-      scheduleReadinessRefresh({ dealId, trigger: "spreads_completed" });
+      const [{ scheduleReadinessRefresh }, { ensureDealBankAccessForService }] =
+        await Promise.all([
+          import("@/lib/deals/readiness/refreshDealReadiness"),
+          import("@/lib/tenant/ensureDealBankAccess"),
+        ]);
+      const serviceAccess = await ensureDealBankAccessForService(dealId, bankId);
+      if (serviceAccess.ok) {
+        scheduleReadinessRefresh({
+          dealId,
+          trigger: "spreads_completed",
+          actorId: "system:spreads_processor",
+          accessGrant: serviceAccess.grant,
+        });
+      } else {
+        console.warn("[spreadsProcessor] readiness refresh skipped: service context rejected", {
+          dealId,
+          bankId,
+          reason: serviceAccess.error,
+        });
+      }
     } catch {
       // Refresh hook is best-effort; never fail the spread job for it.
     }
