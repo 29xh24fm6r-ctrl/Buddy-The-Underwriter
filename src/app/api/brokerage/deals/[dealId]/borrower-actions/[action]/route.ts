@@ -66,9 +66,11 @@ import { createDiditSession, fetchDiditSession, getDiditSessionDecision } from "
 import { requiresPersonalPackage } from "@/lib/ownership/rules";
 import {
   handleSignwellWebhook,
+  isCompletedSigningRequestStatus,
   isFailedTerminalSigningRequestStatus,
   isTerminalSigningRequestStatus,
   persistSignwellRequestStatus,
+  reconcileSignwellCompletion,
   requestSignature,
 } from "@/lib/esign/signwell/service";
 import {
@@ -356,6 +358,35 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
   }
 
   const document = await fetchSignwellDocument(submissionId);
+  if (isCompletedSigningRequestStatus(document.status)) {
+    const reconciled = await reconcileSignwellCompletion(
+      { dealId, document },
+      {
+        sb,
+        signwell: {
+          createSignwellDocumentFromFile,
+          deleteSignwellDocument,
+          fetchSignwellDocument,
+          downloadSignwellCompletedPdf,
+        },
+      },
+    );
+    if (!reconciled.ok || !reconciled.completed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "completion_persistence_failed",
+          detail: reconciled.ok ? "provider_status_not_completed" : reconciled.detail,
+        },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json({
+      ok: true,
+      status: "completed",
+      signedDocument: reconciled.signedDocument,
+    });
+  }
   if (isFailedTerminalSigningRequestStatus(document.status)) {
     const persisted = await persistSignwellRequestStatus(
       { dealId, documentId: submissionId, status: document.status },
