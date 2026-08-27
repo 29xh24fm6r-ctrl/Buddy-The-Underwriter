@@ -22,7 +22,7 @@ export async function GET(_: Request, ctx: { params: Promise<{ token: string }> 
 
   const { data, error } = await sb
     .from("deal_uploads")
-    .select("upload_id, checklist_key, doc_type, status, confidence, updated_at, uploads!inner(original_filename, mime_type, bytes, storage_bucket, storage_path, created_at)")
+    .select("upload_id, checklist_key, doc_type, status, confidence, updated_at, uploads!inner(original_filename, mime_type, bytes, created_at)")
     .eq("deal_id", dealId)
     .order("updated_at", { ascending: false });
 
@@ -37,10 +37,6 @@ export async function GET(_: Request, ctx: { params: Promise<{ token: string }> 
     doc_type: r.doc_type,
     status: r.status,
     confidence: r.confidence,
-    storage: {
-      bucket: r.uploads.storage_bucket,
-      path: r.uploads.storage_path,
-    },
     updated_at: r.updated_at,
     created_at: r.uploads.created_at,
   }));
