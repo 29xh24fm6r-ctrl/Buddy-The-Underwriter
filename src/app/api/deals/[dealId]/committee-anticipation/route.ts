@@ -33,7 +33,10 @@ export async function GET(
       );
     }
 
-    const result = await buildCommitteeAnticipation({ dealId });
+    const result = await buildCommitteeAnticipation({
+      dealId,
+      accessGrant: access.grant,
+    });
     if (!result.ok) {
       const status = result.reason === "tenant_mismatch" ? 403 : 500;
       return NextResponse.json(
