@@ -9,112 +9,63 @@ const require = createRequire(import.meta.url);
 const { resolvePortalToken } =
   require("../portalTokenAuth") as typeof import("../portalTokenAuth");
 
-/**
- * Portal-token resolution is the ONLY gate in front of every borrower-portal
- * Trident surface: preview generation, latest-preview, and the signed download
- * of the business plan, projections, and feasibility study.
- *
- * Audit F-08: it checked `expires_at` alone. SPEC-BROKERAGE-LAUNCH-BLOCKERS-V1
- * §3.3 added `borrower_portal_links.revoked_at` precisely so a leaked or
- * superseded link can be killed ahead of its expiry, and the sibling resolver
- * in /api/borrower/resolve already honours it — but a revoked link still
- * resolved here, so revocation was unenforceable on the Trident surface.
- */
-
-type Link = {
-  deal_id: string;
-  expires_at: string | null;
-  revoked_at: string | null;
+type RpcResponse = {
+  data: unknown;
+  error: { message: string } | null;
 };
 
-/** Minimal client exposing only what resolvePortalToken uses. */
-function clientReturning(link: Link | null) {
-  const selected: string[] = [];
-  const client = {
-    selectedColumns: () => selected,
-    from(_table: string) {
-      return {
-        select(columns: string) {
-          selected.push(columns);
-          return this;
-        },
-        eq() {
-          return this;
-        },
-        maybeSingle() {
-          return Promise.resolve({ data: link, error: null });
-        },
-      };
+function clientReturning(response: RpcResponse) {
+  const calls: Array<{ name: string; args: unknown }> = [];
+  return {
+    calls: () => calls,
+    rpc(name: string, args: unknown) {
+      calls.push({ name, args });
+      return Promise.resolve(response);
     },
   };
-  return client;
 }
 
-const FUTURE = new Date(Date.now() + 86_400_000).toISOString();
-const PAST = new Date(Date.now() - 86_400_000).toISOString();
-
-test("a live link resolves to its deal", async () => {
-  const ctx = await resolvePortalToken(
-    "tok-live",
-    clientReturning({ deal_id: "deal-1", expires_at: FUTURE, revoked_at: null }) as any,
-  );
-  assert.deepEqual(ctx, { token: "tok-live", dealId: "deal-1" });
-});
-
-test("a link with no expiry resolves", async () => {
-  const ctx = await resolvePortalToken(
-    "tok-noexp",
-    clientReturning({ deal_id: "deal-1", expires_at: null, revoked_at: null }) as any,
-  );
-  assert.equal(ctx?.dealId, "deal-1");
-});
-
-test("a REVOKED link is rejected even while unexpired", async () => {
-  const ctx = await resolvePortalToken(
-    "tok-revoked",
-    clientReturning({ deal_id: "deal-1", expires_at: FUTURE, revoked_at: PAST }) as any,
-  );
-  assert.equal(ctx, null, "a revoked portal link must not reach any Trident surface");
-});
-
-test("a revoked link with no expiry is still rejected", async () => {
-  const ctx = await resolvePortalToken(
-    "tok-revoked-noexp",
-    clientReturning({ deal_id: "deal-1", expires_at: null, revoked_at: PAST }) as any,
-  );
-  assert.equal(ctx, null);
-});
-
-test("revocation is read from the database, not inferred", async () => {
+test("a live link resolves through the canonical state-machine RPC", async () => {
   const client = clientReturning({
-    deal_id: "deal-1",
-    expires_at: FUTURE,
-    revoked_at: null,
+    data: [{ deal_id: "deal-1", bank_id: "bank-1", label: null }],
+    error: null,
   });
-  await resolvePortalToken("tok-columns", client as any);
-  assert.ok(
-    client.selectedColumns().some((columns) => columns.includes("revoked_at")),
-    "resolvePortalToken must select revoked_at or it cannot enforce revocation",
-  );
+  const ctx = await resolvePortalToken("tok-live", client as any);
+  assert.deepEqual(ctx, { token: "tok-live", dealId: "deal-1" });
+  assert.deepEqual(client.calls(), [
+    { name: "peek_borrower_portal_link", args: { p_token: "tok-live" } },
+  ]);
 });
 
-test("an expired link is rejected", async () => {
+for (const code of [
+  "link_expired",
+  "link_revoked",
+  "link_consumed",
+  "link_not_found",
+]) {
+  test(`${code} is rejected without leaking link state`, async () => {
+    const ctx = await resolvePortalToken(
+      `tok-${code}`,
+      clientReturning({ data: null, error: { message: code } }) as any,
+    );
+    assert.equal(ctx, null);
+  });
+}
+
+test("an indeterminate RPC failure fails closed", async () => {
   const ctx = await resolvePortalToken(
-    "tok-expired",
-    clientReturning({ deal_id: "deal-1", expires_at: PAST, revoked_at: null }) as any,
+    "tok-rpc-failed",
+    clientReturning({ data: null, error: { message: "connection failed" } }) as any,
   );
-  assert.equal(ctx, null);
-});
-
-test("an unknown token is rejected", async () => {
-  const ctx = await resolvePortalToken("tok-missing", clientReturning(null) as any);
   assert.equal(ctx, null);
 });
 
 test("an empty token is rejected without a lookup", async () => {
-  assert.equal(await resolvePortalToken("", clientReturning(null) as any), null);
+  const client = clientReturning({ data: null, error: null });
+  assert.equal(await resolvePortalToken("", client as any), null);
   assert.equal(
-    await resolvePortalToken(undefined as unknown as string, clientReturning(null) as any),
+    await resolvePortalToken(undefined as unknown as string, client as any),
     null,
   );
+  assert.deepEqual(client.calls(), []);
 });

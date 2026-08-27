@@ -841,3 +841,68 @@ Post-merge closure:
 - The separate transactional blockers remain: authorized SignWell,
   identity/authenticated-browser, and Golden Trident fixtures, plus replacement
   of 13 research placeholder cases with production-backed regressions.
+
+### PR 919 — borrower portal token-state convergence and storage privacy
+
+Evidence and root cause:
+
+- The authoritative `peek_borrower_portal_link` RPC rejects expired,
+  revoked, and consumed single-use links, but thirteen public portal data and
+  mutation routes bypassed it with service-role table reads.
+- The document-listing route selected `expires_at` but never enforced it, so
+  an expired bearer link could enumerate borrower filenames, document status,
+  and private storage bucket/object coordinates.
+- Revoked or consumed links remained usable across context, checklist,
+  condition, guided-evidence, document-confirmation, loan-request, request
+  status, and condition-upload paths.
+- Borrower-facing Golden Trident preview generation and signed artifact
+  downloads used a separate direct-table gate which did not enforce consumed
+  state.
+- The context route manually marked a single-use link consumed before the
+  portal's later API calls, leaving authorization behavior split across routes.
+- A legacy orchestration guard encoded the vulnerable direct-table lookup as
+  its definition of token validation.
+
+Repair:
+
+- Converge public portal data and mutation routes on
+  `resolveBorrowerToken`, which validates invites and routes portal links
+  through the authoritative state-machine RPC.
+- Converge session-aware upload context resolution on the same helper.
+- Route Trident portal authorization through `peekBorrowerPortalLink`.
+- Remove storage bucket/object coordinates from the public document response.
+- Replace the stale direct-table guard and add a recursive tripwire preventing
+  future public portal routes from querying `borrower_portal_links`
+  directly.
+- Add Trident tests for expired, revoked, consumed, missing, and indeterminate
+  link state. No migration, credential, provider configuration, or production
+  data change is included.
+
+Verification in progress:
+
+- Initial TypeScript, lint, architecture, safety, Secret Scan, and Route Budget
+  checks passed.
+- Exact code-head preview `dpl_AJzxw3yqt1boyMknvcrcRSAkz5rk` was READY,
+  returned HTTP 200 with matching `x-buddy-build`
+  `5b09ef0d24a8891f0da8aa518b6bae0efaab090f`, and had no error/fatal
+  runtime logs.
+- An unauthenticated request to
+  `/api/portal/commissioning-invalid-token/docs` returned the expected
+  HTTP 404 JSON response.
+- The first broad unit run found the stale phase-65F direct-table guard. The
+  guard has been corrected and the exact-head suite must be green before this
+  PR is merge-ready.
+
+Open checkpoints:
+
+- Monitor PR 919's exact-head required checks and preview after the guard/ledger
+  push; do not merge from commissioning.
+- After merge, reverify the deployed SHA and execute an authorized
+  expired/revoked/consumed-token fixture across document listing, condition
+  upload, and Trident preview/download.
+- Direct row verification remains blocked until the verified Buddy-owned
+  Supabase connection is available. Authenticated browser credentials and
+  authorized transactional identity/signing/Golden Trident fixtures also
+  remain outstanding.
+- The next independent audit target is storage-object lifecycle and orphan
+  reconciliation after the token boundary is deployed.

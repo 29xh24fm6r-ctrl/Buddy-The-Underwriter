@@ -39,11 +39,15 @@ describe("Condition upload route — reality check", () => {
     );
   });
 
-  it("condition upload route uses borrower-token auth (not Clerk)", () => {
+  it("condition upload route uses canonical borrower-token auth (not Clerk)", () => {
     const content = readFile("app/api/portal/[token]/conditions/[conditionId]/upload/route.ts");
     assert.ok(
-      content.includes("borrower_portal_links"),
-      "route must validate against borrower_portal_links",
+      content.includes("resolveBorrowerToken"),
+      "route must validate through canonical borrower token resolver",
+    );
+    assert.ok(
+      !content.includes('.from("borrower_portal_links")'),
+      "route must not bypass the portal-link state machine",
     );
     assert.ok(
       !content.includes("clerkAuth"),
@@ -69,11 +73,15 @@ describe("Condition upload route — reality check", () => {
 // ---------------------------------------------------------------------------
 
 describe("Condition upload — auth boundary", () => {
-  it("portal conditions API uses token auth", () => {
+  it("portal conditions API uses canonical token auth", () => {
     const content = readFile("app/api/portal/[token]/conditions/route.ts");
     assert.ok(
-      content.includes("borrower_portal_links"),
-      "portal conditions API must validate token",
+      content.includes("resolveBorrowerToken"),
+      "portal conditions API must validate through canonical borrower token resolver",
+    );
+    assert.ok(
+      !content.includes('.from("borrower_portal_links")'),
+      "portal conditions API must not bypass the portal-link state machine",
     );
     assert.ok(
       !content.includes("clerkAuth"),
