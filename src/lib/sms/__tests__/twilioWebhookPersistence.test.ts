@@ -42,7 +42,7 @@ test("inbound webhook gates every borrower message and consent transition on per
   for (const variable of ["inboundErr", "optOutErr", "optInErr", "helpErr"]) {
     assert.match(
       source,
-      new RegExp(`requireTwilioWebhookPersistence\\\\(${variable},`),
+      new RegExp(`requireTwilioWebhookPersistence\\(${variable},`),
       `${variable} must prevent a false-success webhook acknowledgement`,
     );
   }
