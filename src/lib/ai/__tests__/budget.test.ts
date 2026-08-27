@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createRequire } from "node:module";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { PDFDocument } from "pdf-lib";
 import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
 
 mockServerOnly();
@@ -35,14 +36,41 @@ describe("durable AI budget estimation", () => {
     assert.equal(estimateTextTokenUpperBound("hello"), 5);
   });
 
-  it("reserves input, schema, inline data, and configured output capacity", () => {
-    const estimate = estimateGatewayReservation({
+  it("uses Gemini's documented per-page accounting for PDF admission", async () => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage();
+    pdf.addPage();
+    const data = Buffer.from(await pdf.save()).toString("base64");
+    const responseSchema = { type: "object" };
+
+    const estimate = await estimateGatewayReservation({
       prompt: "hi",
-      responseSchema: { type: "object" },
-      inlineData: [{ mimeType: "application/pdf", data: "AAAA" }],
+      responseSchema,
+      inlineData: [{ mimeType: "application/pdf; charset=binary", data }],
       maxOutputTokens: 10,
     });
-    assert.ok(estimate >= 16);
+
+    const textEstimate = estimateTextTokenUpperBound(
+      "hi",
+      undefined,
+      JSON.stringify(responseSchema),
+    );
+    assert.equal(estimate, textEstimate + 2 * 258 + 10);
+    assert.ok(data.length > 2 * 258, "transport bytes must not be counted as tokens");
+  });
+
+  it("fails malformed PDF accounting safely to the provider page limit", async () => {
+    const estimate = await estimateGatewayReservation({
+      prompt: "hi",
+      inlineData: [{ mimeType: "application/pdf", data: "not-a-pdf" }],
+      maxOutputTokens: 10,
+    });
+    const textEstimate = estimateTextTokenUpperBound(
+      "hi",
+      undefined,
+      JSON.stringify({}),
+    );
+    assert.equal(estimate, textEstimate + 1_000 * 258 + 10);
   });
 });
 
