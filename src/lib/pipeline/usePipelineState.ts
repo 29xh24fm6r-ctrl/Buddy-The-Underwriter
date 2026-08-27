@@ -36,19 +36,19 @@ export interface PipelineState {
  */
 function getDemoOverride(): PipelineState | null {
   if (typeof window === "undefined") return null;
-  
+
   const params = new URLSearchParams(window.location.search);
   const mode = params.get("__mode");
-  
+
   if (mode !== "demo") return null;
-  
+
   const state = params.get("__state") as PipelineUiState | null;
   const message = params.get("__message");
-  
+
   if (!state || !["working", "done", "waiting"].includes(state)) {
     return null;
   }
-  
+
   return {
     uiState: state,
     isWorking: state === "working",
@@ -60,9 +60,13 @@ function getDemoOverride(): PipelineState | null {
   };
 }
 
-async function fetchLatest(dealId: string): Promise<PipelineLatestResponse> {
+async function fetchLatest(
+  dealId: string,
+  signal: AbortSignal,
+): Promise<PipelineLatestResponse> {
   const res = await fetch(`/api/deals/${dealId}/pipeline/latest`, {
     cache: "no-store",
+    signal,
   });
   // Even if res is non-200, treat as transient and return empty
   if (!res.ok) {
@@ -74,7 +78,7 @@ async function fetchLatest(dealId: string): Promise<PipelineLatestResponse> {
 export function usePipelineState(dealId: string | null) {
   // Check for demo mode override first
   const demoOverride = getDemoOverride();
-  
+
   const [pipeline, setPipeline] = useState<PipelineState>(
     demoOverride || {
       uiState: "done",
@@ -89,6 +93,7 @@ export function usePipelineState(dealId: string | null) {
 
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
   const inflightRef = useRef(false);
 
   useEffect(() => {
@@ -97,24 +102,39 @@ export function usePipelineState(dealId: string | null) {
       setPipeline(demoOverride);
       return;
     }
-    
+
     if (!dealId) return;
 
     let cancelled = false;
 
-    const schedule = (ms: number) => {
+    const clearScheduledPoll = () => {
       if (timerRef.current) window.clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(() => void tick(), ms);
+      timerRef.current = null;
+    };
+
+    const schedule = (ms: number) => {
+      clearScheduledPoll();
+      if (cancelled || document.visibilityState !== "visible") return;
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        void tick();
+      }, ms);
     };
 
     const tick = async () => {
-      if (cancelled) return;
-      if (inflightRef.current) return;
+      if (cancelled || document.visibilityState !== "visible") return;
+      if (inflightRef.current) {
+        schedule(100);
+        return;
+      }
+
       inflightRef.current = true;
+      const controller = new AbortController();
+      controllerRef.current = controller;
 
       try {
-        const json = await fetchLatest(dealId);
-        if (cancelled) return;
+        const json = await fetchLatest(dealId, controller.signal);
+        if (cancelled || document.visibilityState !== "visible") return;
 
         const ev = json.latestEvent;
         const computed = json.computedPipeline;
@@ -138,30 +158,42 @@ export function usePipelineState(dealId: string | null) {
 
         setError(null);
 
-        // Adaptive polling: fast while working, slow while idle
+        // Adaptive polling: fast while working, slow while idle.
         schedule(isWorking ? 2000 : 15000);
       } catch (e: any) {
-        if (cancelled) return;
+        if (
+          cancelled ||
+          document.visibilityState !== "visible" ||
+          e?.name === "AbortError"
+        ) {
+          return;
+        }
         setError(e?.message ?? "pipeline polling failed");
-        // Backoff
         schedule(15000);
       } finally {
+        if (controllerRef.current === controller) controllerRef.current = null;
         inflightRef.current = false;
       }
     };
 
-    const onVis = () => {
-      if (document.visibilityState === "visible") void tick();
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        clearScheduledPoll();
+        controllerRef.current?.abort();
+        return;
+      }
+      void tick();
     };
 
-    document.addEventListener("visibilitychange", onVis);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     void tick();
 
     return () => {
       cancelled = true;
-      document.removeEventListener("visibilitychange", onVis);
-      if (timerRef.current) window.clearTimeout(timerRef.current);
-      timerRef.current = null;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      clearScheduledPoll();
+      controllerRef.current?.abort();
+      controllerRef.current = null;
       inflightRef.current = false;
     };
   }, [dealId]);

@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { usePipelineState } from "@/lib/pipeline/usePipelineState";
+import {
+  usePipelineState,
+  type PipelineState as PipelinePollingState,
+} from "@/lib/pipeline/usePipelineState";
 import type { LifecycleState, LifecycleStage } from "@/buddy/lifecycle/model";
 import { STAGE_LABELS } from "@/buddy/lifecycle/model";
 
@@ -58,6 +61,10 @@ export type CockpitToast = {
 export type CockpitData = {
   /** Whether the deal is currently processing (uploads, AI, etc.) */
   isBusy: boolean;
+  /** Canonical pipeline state shared by cockpit consumers. */
+  pipeline: PipelinePollingState;
+  /** Any error from the canonical pipeline poller. */
+  pipelineError: string | null;
   /** Whether polling is currently active */
   isPolling: boolean;
   /** Checklist summary stats */
@@ -203,7 +210,7 @@ function computeLifecycleDiff(
 
 export function useCockpitData(dealId: string | null, initialLifecycleState?: LifecycleState | null): CockpitData {
   // Use existing pipeline state hook for working/idle detection
-  const { pipeline } = usePipelineState(dealId);
+  const { pipeline, pipelineError } = usePipelineState(dealId);
 
   const [checklistSummary, setChecklistSummary] = useState<ChecklistSummary | null>(null);
   const [processingUploads, setProcessingUploads] = useState(0);
@@ -374,6 +381,8 @@ export function useCockpitData(dealId: string | null, initialLifecycleState?: Li
 
   return {
     isBusy,
+    pipeline,
+    pipelineError,
     isPolling,
     checklistSummary,
     processingUploads,
@@ -421,6 +430,11 @@ export function useCockpitDataContext(): CockpitData {
     throw new Error("useCockpitDataContext must be used within CockpitDataProvider");
   }
   return ctx;
+}
+
+/** Use the shared cockpit poller when present without requiring the provider. */
+export function useOptionalCockpitDataContext(): CockpitData | null {
+  return useContext(CockpitDataContext);
 }
 
 /**

@@ -48,9 +48,11 @@ describe("useAutoIntelligence hook — contract", () => {
     assert.ok(content.includes("retry"), "must expose retry function");
   });
 
-  it("stops polling when complete", () => {
+  it("stops polling when the run is no longer active", () => {
     const content = readFile("lib/hooks/useAutoIntelligence.ts");
-    assert.ok(content.includes("clearInterval"), "must stop polling on completion");
+    assert.ok(!content.includes("setInterval("), "must not use an overlapping interval");
+    assert.ok(content.includes('outcome === "active"'), "must reschedule only active runs");
+    assert.ok(content.includes("clearScheduledPoll"), "must clear pending timeout work");
   });
 });
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ProcessingState, ErrorPanel } from "@/components/SafeBoundary";
 import { usePipelineState } from "@/lib/pipeline/usePipelineState";
+import { useOptionalCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
 import { PIPELINE_COPY } from "@/lib/pipeline/pipelineCopy";
 
 type PipelineStage = "upload" | "ocr_queued" | "ocr_running" | "ocr_complete" | "auto_seeded" | "failed";
@@ -14,6 +15,13 @@ interface PipelineState {
   payload?: any;
   error?: string;
   created_at: string;
+}
+
+/** Reuse the cockpit provider's canonical poller when this widget is nested in it. */
+function useResolvedPipelineState(dealId: string) {
+  const cockpit = useOptionalCockpitDataContext();
+  const standalone = usePipelineState(cockpit ? null : dealId);
+  return cockpit?.pipeline ?? standalone.pipeline;
 }
 
 /**
@@ -37,7 +45,7 @@ export function PipelineStatus({
   dealId: string;
   children: (state: PipelineState | null) => React.ReactNode;
 }) {
-  const { pipeline } = usePipelineState(dealId);
+  const pipeline = useResolvedPipelineState(dealId);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -71,7 +79,7 @@ export function PipelineStatus({
  * Lightweight status badge for showing pipeline state.
  */
 export function PipelineIndicator({ dealId }: { dealId: string }) {
-  const { pipeline } = usePipelineState(dealId);
+  const pipeline = useResolvedPipelineState(dealId);
 
   if (!pipeline.lastMessage) return null;
 
