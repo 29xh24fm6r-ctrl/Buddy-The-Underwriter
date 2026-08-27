@@ -71,7 +71,9 @@ test("synthetic evidence is durable and upload recovery stays authoritative", ()
   assert.match(recovery, /MAX_ARTIFACT_RETRIES = 3/);
   assert.match(recovery, /MAX_UPLOAD_SCAN_ROWS = 1000/);
   assert.match(recovery, /\.limit\(MAX_UPLOAD_SCAN_ROWS\)/);
-  assert.match(recovery, /\.in\("source_id", sourceIds\)/);
+  assert.match(recovery, /MAX_ARTIFACT_LOOKUP_BATCH = 100/);
+  assert.match(recovery, /sourceIds\.slice\(offset, offset \+ MAX_ARTIFACT_LOOKUP_BATCH\)/);
+  assert.match(recovery, /\.in\("source_id", sourceBatch\)/);
   assert.match(recovery, /recoveryAttempts >= MAX_RECOVERIES_PER_RUN/);
   assert.match(recovery, /artifact\.status === "failed"/);
   assert.match(recovery, /intake\.upload_artifact_recovery/);
