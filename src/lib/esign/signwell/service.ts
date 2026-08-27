@@ -94,6 +94,12 @@ export function isTerminalSigningRequestStatus(value: unknown): boolean {
   return TERMINAL_SIGNING_REQUEST_STATUSES.has(normalizeSignwellStatus(value));
 }
 
+export function isFailedTerminalSigningRequestStatus(value: unknown): boolean {
+  return ["expired", "canceled", "cancelled", "declined", "bounced", "blocked", "error"].includes(
+    normalizeSignwellStatus(value),
+  );
+}
+
 export type RequestSignatureArgs = {
   dealId: string;
   bankId: string;
