@@ -20,35 +20,10 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const { token } = await ctx.params;
     const sb = supabaseAdmin();
 
-    const { data: link, error: linkErr } = await sb
-      .from("borrower_portal_links")
-      .select("deal_id, expires_at")
-      .eq("token", token)
-      .maybeSingle();
-
-    if (linkErr) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid or expired link" },
-        { status: 403 },
-      );
-    }
-
-    // Fall back to a borrower_invites token so the invite flow renders too.
-    let dealId: string | null = link?.deal_id ?? null;
-    if (!link) {
-      try {
-        dealId = (await resolveBorrowerToken(token)).deal_id;
-      } catch {
-        return NextResponse.json(
-          { ok: false, error: "Invalid or expired link" },
-          { status: 403 },
-        );
-      }
-    } else if (link.expires_at && new Date(link.expires_at) < new Date()) {
-      return NextResponse.json({ ok: false, error: "Link expired" }, { status: 403 });
-    }
-
-    if (!dealId) {
+    let dealId: string;
+    try {
+      dealId = (await resolveBorrowerToken(token)).deal_id;
+    } catch {
       return NextResponse.json(
         { ok: false, error: "Invalid or expired link" },
         { status: 403 },
