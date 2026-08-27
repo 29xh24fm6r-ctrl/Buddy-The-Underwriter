@@ -4,6 +4,7 @@ import { PDFDocument } from "pdf-lib";
 import {
   mockCreateSignwellDocumentFromFile,
   mockFetchSignwellDocument,
+  mockDeleteSignwellDocument,
   mockDownloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/mockClient";
 
@@ -19,6 +20,10 @@ test("mockCreateSignwellDocumentFromFile: returns a document with an embedded si
   assert.equal(result.status, "pending");
   assert.equal(result.recipients.length, 1);
   assert.match(result.recipients[0].embedded_signing_url!, /^https:\/\/www\.signwell\.com\/embed\/mock-/);
+});
+
+test("mockDeleteSignwellDocument: mirrors provider compensation without external state", async () => {
+  await assert.doesNotReject(() => mockDeleteSignwellDocument("mock-document-1"));
 });
 
 test("mockFetchSignwellDocument: reports canonical completed identity", async () => {

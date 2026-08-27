@@ -609,3 +609,73 @@ Open checkpoints:
   authorized transactional fixture.
 - Replace the 13 research golden-set placeholders with production-backed cases.
 
+
+
+### PR 910 production closure and SignWell request-compensation factory
+
+Production closure:
+
+- PR 910 merged externally as `743899a2e83fe57e7412f5cd4dfb705b751302d5`;
+  the commissioning agent did not merge it.
+- Vercel production deployment `dpl_6dMXz7uB1HpgbpTaEgghnEgN2bcy` is READY
+  on that exact SHA. `www.buddysba.com` returned HTTP 200 with the same
+  `x-buddy-build` value.
+- No PR 910 runtime-error cluster was observed. The two aggregated Golden
+  Trident workflow failures in the seven-day view are deliberate publication
+  blocks after institutional review and belong to older deployments.
+- Transactional SignWell completion/replay closure still requires an authorized
+  fixture; no provider transaction or production row was mutated in this cycle.
+
+New evidence and root cause:
+
+- `requestSignature` creates and sends a non-draft SignWell document before
+  inserting Buddy's durable `signing_requests` provenance row.
+- A missing provider signing URL, a returned insert error, or a thrown database
+  error returned `SUBMISSION_FAILED` without cancelling the already-created
+  provider document. The recipient could retain a live signing invitation that
+  Buddy could not reconcile, while a retry could create a second request.
+- SignWell's current API contract documents
+  `DELETE /api/v1/documents/{id}`; deletion also cancels signing in progress
+  and returns HTTP 204 on success.
+
+Repair branch: `fix/signwell-untracked-document-compensation`.
+
+Repair:
+
+- Add a typed SignWell deletion client that accepts the documented 204 empty
+  response.
+- Compensate every post-creation/pre-tracking failure by deleting the provider
+  document before returning failure.
+- If provider cleanup itself fails, preserve the original failure, return an
+  explicit `provider_cleanup_failed` condition, and log the provider document
+  identity for operational reconciliation.
+- Wire the real and mock client shapes through every Buddy signing route and add
+  regression coverage for missing URLs, database errors and throws, cleanup
+  failure observability, provider endpoint shape, and mock parity.
+- No schema, migration, credential, provider configuration, or production-data
+  change is included.
+
+Verification on code head `427233b794275ee04aee6df66c590647c5e1c200`:
+
+- CI ran 13,224 tests: 13,215 passed, 0 failed, 9 skipped.
+- React-server-condition tests passed 18/18. Research evaluation passed 7/7;
+  the 13 known production-data placeholders remain explicitly skipped.
+- Typecheck, lint, architecture, legacy-write, safety, polling, Never-500,
+  schema-select, report-only schema-drift, Build Check, Secret Scan, Route
+  Budget, and public Playwright passed. Authenticated smoke was unavailable
+  and explicitly skipped.
+- Exact code-head Vercel preview `dpl_GaEogpbrZGksVcrixASH46iK9xJz` is
+  READY, returned HTTP 200 with matching `x-buddy-build`, and recorded no
+  error/fatal runtime logs in the post-deploy window.
+- The complete diff is one commit ahead of current `main`, zero commits
+  behind, and limited to this repair, regression coverage, route wiring, and
+  the ledger. A final ledger-only close commit must retain green required
+  checks before merge recommendation.
+
+Open checkpoints:
+
+- After merge, verify deployed production behavior and execute one authorized
+  failure-compensation fixture plus completion/replay fixture.
+- Direct production-row verification remains blocked until the verified
+  Buddy-owned Supabase connection is restored; the differently named project
+  exposed by the generic connector remains unqueried.

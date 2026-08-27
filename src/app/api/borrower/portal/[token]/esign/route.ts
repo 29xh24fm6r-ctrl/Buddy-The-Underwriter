@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requestSignature } from "@/lib/esign/signwell/service";
 import {
   createSignwellDocumentFromFile,
+  deleteSignwellDocument,
   fetchSignwellDocument,
   downloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/client";
@@ -70,7 +71,7 @@ export async function POST(
     },
     {
       sb,
-      signwell: { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf },
+      signwell: { createSignwellDocumentFromFile, deleteSignwellDocument, fetchSignwellDocument, downloadSignwellCompletedPdf },
       renderFilledPdf: (a) => resolveFilledPdfForSigning({ ...a, supabase: sb }),
     },
   );

@@ -67,6 +67,7 @@ import { requiresPersonalPackage } from "@/lib/ownership/rules";
 import { requestSignature, handleSignwellWebhook } from "@/lib/esign/signwell/service";
 import {
   createSignwellDocumentFromFile,
+  deleteSignwellDocument,
   fetchSignwellDocument,
   downloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/client";
@@ -82,6 +83,7 @@ import { mockCreateDiditSession, mockFetchDiditSession, mockGetDiditSessionDecis
 import { mockRequestSignature } from "@/lib/esign/signwell/mockService";
 import {
   mockCreateSignwellDocumentFromFile,
+  mockDeleteSignwellDocument,
   mockFetchSignwellDocument,
   mockDownloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/mockClient";
@@ -394,7 +396,7 @@ async function postEsign(req: NextRequest, dealId: string, bankId: string): Prom
     ? await mockRequestSignature(signatureArgs, { sb: supabaseAdmin() })
     : await requestSignature(signatureArgs, {
         sb: supabaseAdmin(),
-        signwell: { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf },
+        signwell: { createSignwellDocumentFromFile, deleteSignwellDocument, fetchSignwellDocument, downloadSignwellCompletedPdf },
         renderFilledPdf: (a) => resolveFilledPdfForSigning({ ...a, supabase: supabaseAdmin() }),
       });
 
@@ -441,6 +443,7 @@ async function getMockCompleteEsign(req: NextRequest, dealId: string): Promise<N
       sb,
       signwell: {
         createSignwellDocumentFromFile: mockCreateSignwellDocumentFromFile,
+        deleteSignwellDocument: mockDeleteSignwellDocument,
         fetchSignwellDocument: (documentId) =>
           mockFetchSignwellDocument(documentId, {
             externalId: canonicalExternalId,

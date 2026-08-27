@@ -28,4 +28,12 @@ describe("SignWell initiation contract", () => {
   it("disables recipient reassignment to preserve the IAL2 signer binding", () => {
     assert.match(clientSource, /allow_reassign:\s*false/);
   });
+
+  it("supports provider compensation through the documented delete endpoint", () => {
+    assert.match(
+      clientSource,
+      /signwellFetch\(\`\/documents\/\$\{encodeURIComponent\(documentId\)\}\`, \{ method: "DELETE" \}\)/,
+    );
+    assert.match(clientSource, /if \(res\.status === 204\) return null/);
+  });
 });

@@ -32,6 +32,7 @@ export type SignwellClient = {
     metadata?: { external_id?: string; [key: string]: unknown };
     recipients: Array<{ id: string | number; email?: string | null; signing_url?: string | null; embedded_signing_url?: string | null }>;
   }>;
+  deleteSignwellDocument: (documentId: string) => Promise<void>;
   fetchSignwellDocument: (documentId: string) => Promise<{
     id: string | number;
     status: string;
@@ -78,6 +79,27 @@ export type RequestSignatureArgs = {
 export type RequestSignatureResult =
   | { ok: true; documentId: string; embedUrl: string }
   | { ok: false; reason: "IAL2_NOT_COMPLETED" | "LEGAL_REVIEW_NOT_COMPLETED" | "SUBMISSION_FAILED"; detail?: string };
+
+async function cancelUntrackedSignwellDocument(
+  signwell: SignwellClient,
+  documentId: string,
+  detail: string,
+): Promise<RequestSignatureResult> {
+  try {
+    await signwell.deleteSignwellDocument(documentId);
+    return { ok: false, reason: "SUBMISSION_FAILED", detail };
+  } catch (err) {
+    console.error("[requestSignature] failed to cancel untracked SignWell document", {
+      documentId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      ok: false,
+      reason: "SUBMISSION_FAILED",
+      detail: `${detail}:provider_cleanup_failed`,
+    };
+  }
+}
 
 export async function requestSignature(
   args: RequestSignatureArgs,
@@ -144,7 +166,11 @@ export async function requestSignature(
   const recipient = document.recipients.find((r) => String(r.id) === "1");
   const embedUrl = recipient?.embedded_signing_url ?? recipient?.signing_url;
   if (!embedUrl) {
-    return { ok: false, reason: "SUBMISSION_FAILED", detail: "signwell_response_missing_signing_url" };
+    return cancelUntrackedSignwellDocument(
+      signwell,
+      String(document.id),
+      "signwell_response_missing_signing_url",
+    );
   }
 
   // A successful handoff must have a durable request row. Completion uses
@@ -169,10 +195,18 @@ export async function requestSignature(
       },
     });
     if (signingRequestError) {
-      return { ok: false, reason: "SUBMISSION_FAILED", detail: `signing_request_tracking_failed:${signingRequestError.message}` };
+      return cancelUntrackedSignwellDocument(
+        signwell,
+        String(document.id),
+        `signing_request_tracking_failed:${signingRequestError.message}`,
+      );
     }
   } catch (err: any) {
-    return { ok: false, reason: "SUBMISSION_FAILED", detail: `signing_request_tracking_failed:${err?.message ?? String(err)}` };
+    return cancelUntrackedSignwellDocument(
+      signwell,
+      String(document.id),
+      `signing_request_tracking_failed:${err?.message ?? String(err)}`,
+    );
   }
 
   await sb.from("deal_events").insert({
