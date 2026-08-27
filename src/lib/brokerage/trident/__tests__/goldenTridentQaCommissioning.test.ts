@@ -95,6 +95,7 @@ test("canonical-credit commissioning preserves actionable review evidence and DS
 test("shadow simulations and legacy rows cannot masquerade as commissioning failures or proof", () => {
   assert.match(goldenRun, /evidenceClass: "synthetic_direct_insert"/);
   assert.match(goldenRun, /commissionsGoldenTrident: false/);
-  assert.match(launchReadiness, /post-contract regression\(s\)/);
-  assert.match(launchReadiness, /legacy row\(s\) retained for audit/);
+  assert.match(launchReadiness, /production regression\(s\)/);
+  assert.match(launchReadiness, /legacy row\(s\)/);
+  assert.match(launchReadiness, /synthetic row\(s\) excluded/);
 });
