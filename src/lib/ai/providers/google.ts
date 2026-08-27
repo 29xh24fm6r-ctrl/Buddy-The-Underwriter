@@ -27,6 +27,7 @@ import { isGemini3Model } from "../models";
 import { splitSSEEvents } from "@/lib/sse/parseSSEBuffer";
 import { getVertexAccessToken, getProjectId } from "@/lib/gcpAdcBootstrap";
 import { getVertexLocation } from "../vertexLocation";
+import { getVertexApiHost } from "../vertexLocationValue";
 import type { ProviderCallRequest, ProviderCallResult } from "./types";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
@@ -138,12 +139,13 @@ async function resolveEndpointAndAuth(
       );
     }
     const location = getVertexLocation();
+    const host = getVertexApiHost(location);
     const token = await vertexAccessTokenImpl();
     const method = streaming ? "streamGenerateContent" : "generateContent";
     const query = streaming ? "?alt=sse" : "";
     return {
       url:
-        `https://${location}-aiplatform.googleapis.com/v1/projects/${project}` +
+        `https://${host}/v1/projects/${project}` +
         `/locations/${location}/publishers/google/models/${req.model}:${method}${query}`,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     };

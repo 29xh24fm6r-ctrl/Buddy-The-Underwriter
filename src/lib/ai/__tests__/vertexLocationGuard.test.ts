@@ -15,6 +15,7 @@ import { resolve } from "node:path";
 const ROOT = process.cwd();
 const HELPER_FILE = resolve(ROOT, "src/lib/ai/vertexLocation.ts");
 const VALUE_FILE = resolve(ROOT, "src/lib/ai/vertexLocationValue.ts");
+const GOOGLE_PROVIDER_FILE = resolve(ROOT, "src/lib/ai/providers/google.ts");
 
 // SPEC-M1.1: as each of these callers is migrated onto the AI gateway
 // (runRole with authMode: "vertex"), it stops constructing its own Vertex
@@ -95,4 +96,24 @@ test("[vertex-loc-7] no caller hardcodes 'us-central1' as a default", () => {
       `${rel} still has a 'us-central1' fallback — must use getVertexLocation()`,
     );
   }
+});
+
+
+test("[vertex-loc-8] Google provider uses the endpoint-class host helper", () => {
+  const src = readFileSync(GOOGLE_PROVIDER_FILE, "utf8");
+  assert.match(
+    src,
+    /import\s+\{[^}]*\bgetVertexApiHost\b[^}]*\}\s+from\s+["']\.\.\/vertexLocationValue["']/,
+    "Google provider must import getVertexApiHost",
+  );
+  assert.match(
+    src,
+    /const\s+host\s*=\s*getVertexApiHost\(location\)/,
+    "Google provider must derive the host from the resolved location",
+  );
+  assert.doesNotMatch(
+    src,
+    /\$\{location\}-aiplatform\.googleapis\.com/,
+    "Google provider must not build the regional hostname for every location",
+  );
 });

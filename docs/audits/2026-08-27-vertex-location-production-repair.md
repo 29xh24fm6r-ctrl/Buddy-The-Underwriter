@@ -1,4 +1,4 @@
-# Vertex AI regional endpoint production repair
+# Vertex AI endpoint-class production repair
 
 Date: 2026-08-27
 
@@ -10,34 +10,48 @@ database, deployment, or infrastructure was inspected or modified.
 
 ## Production evidence
 
-The two-hour production runtime review found document extraction requests
-constructing `https://us-aiplatform.googleapis.com` and failing with
-`HTTP 400 Invalid hostname`. The same review separately confirmed the known
-missing `reserve_ai_gateway_tokens` RPC; that database blocker is not changed
-by this source-only repair.
+Production document extraction constructed
+`https://us-aiplatform.googleapis.com` and failed with
+`HTTP 400 Invalid hostname`. The Google provider used one regional hostname
+template for every configured Vertex location.
 
-## Root cause
+The same review separately confirmed the known missing
+`reserve_ai_gateway_tokens` RPC. That database blocker is not changed by this
+source-only repair.
 
-`getVertexLocation()` trusted `GOOGLE_CLOUD_LOCATION` and
-`GOOGLE_CLOUD_REGION` verbatim. Buddy's Google provider interpolates the
-returned value into a regional hostname. A multi-region value such as `us`
-therefore produced an invalid regional endpoint instead of the supported
-`us-central1-aiplatform.googleapis.com` endpoint.
+## Standards correction
+
+PR 932 stopped the invalid-host failure by treating `us`, `eu`, and
+`global` as invalid and substituting `us-central1`. Current Google
+documentation confirms that those values are valid location classes with
+different hostnames:
+
+- regional: `<region>-aiplatform.googleapis.com`
+- US/EU multi-region: `aiplatform.<location>.rep.googleapis.com`
+- global: `aiplatform.googleapis.com`
+
+The operator-selected location and the `/locations/<location>` path must
+remain paired. Silently substituting a single region can change an intentional
+availability or jurisdictional-boundary configuration.
+
+Official evidence:
+
+- https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations
+- https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/request-response-logging
 
 ## Repair
 
-- Centralize pure location normalization and resolution.
-- Accept trimmed, case-normalized regional identifiers.
-- Fail blank, malformed, zonal, multi-region, and global values safely to
-  Buddy's supported `us-central1` deployment.
-- Preserve `GOOGLE_CLOUD_LOCATION` precedence and blank-value fallback to
-  `GOOGLE_CLOUD_REGION`.
-- Add runtime unit coverage plus source guards proving every server lookup is
-  validated.
+- Preserve valid regional, `us`, `eu`, and `global` location values.
+- Reject blank, malformed, and zonal values to the safe `us-central1`
+  default.
+- Select the documented hostname for each endpoint class.
+- Use the same normalized location in the hostname decision and request path.
+- Add runtime and source guards for every endpoint class and the exact
+  production regression.
 
 ## Verification plan
 
-- Focused Vertex location tests.
+- Focused Vertex location and endpoint-host tests.
 - Repository typecheck, lint, architecture/security/schema guards, complete
   unit and research suites, build, and public browser smoke.
 - Exact-head Vercel preview, build-SHA match, and runtime-log inspection.
