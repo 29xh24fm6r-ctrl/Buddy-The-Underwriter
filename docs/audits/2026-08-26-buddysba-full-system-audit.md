@@ -739,3 +739,42 @@ vercel routes rm <id>   # remove it; next.config.mjs is now the source of truth
 
 Until then two header sets race — the same failure mode that silently blocked
 the microphone on `/start`.
+
+---
+
+## 10. Public-domain metadata convergence — 2026-08-27
+
+### Production evidence
+
+The exact production build `7043ce3cdbf320abb5f3d1b4dbc5c1872d075613`
+served `www.buddysba.com` with HTTP 200 but emitted:
+
+- canonical: `https://www.buddytheunderwriter.com`
+- Open Graph URL/site name/title: Buddy The Underwriter / Loan Operations System
+- Twitter identity and image alt text for Buddy The Underwriter
+- root description for the underwriting application rather than SBA packaging
+
+The visible page was the Buddy SBA borrower product. This was not a rendering
+failure: `src/app/page.tsx` overrode only `title`, so every other
+identity-bearing field fell through from the root underwriting layout.
+Both apex production domains also redirect to their `www` host, while
+`getCanonicalUrl()` named the redirecting apex URL.
+
+### Repair
+
+`productMetadata.ts` now builds the complete metadata contract for each public
+product. The Buddy SBA and underwriter entry pages opt into their own title,
+description, canonical, Open Graph, Twitter, site name, and image identity.
+Canonical helpers now name the final production `www` URLs.
+
+Regression coverage proves that the SBA page cannot inherit the Loan Operations
+System description or underwriter canonical, that the underwriter page remains
+bound to its own domain, and that both public entry pages use the complete
+builder.
+
+### Verification pending
+
+The focused tests, full CI/build/security gates, exact-head preview, and rendered
+preview metadata must pass before merge. After merge, re-fetch both production
+domains and verify canonical, description, Open Graph, Twitter, HTTP status,
+matching build SHA, and runtime logs.
