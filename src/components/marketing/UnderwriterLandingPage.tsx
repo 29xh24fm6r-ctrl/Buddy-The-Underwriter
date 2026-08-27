@@ -125,7 +125,7 @@ export function UnderwriterLandingPage() {
           <p className="text-sm text-neutral-500">
             Business owner seeking SBA financing?{" "}
             <Link
-              href="/brokerage"
+              href="https://www.buddysba.com/"
               className="font-medium text-neutral-700 underline transition hover:text-neutral-900"
             >
               Visit BuddySBA.com

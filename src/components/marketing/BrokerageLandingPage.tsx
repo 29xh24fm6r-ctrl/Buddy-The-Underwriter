@@ -763,7 +763,7 @@ export function BrokerageLandingPage() {
               </div>
               <div className="mt-8">
                 <Link
-                  href="/underwriter"
+                  href="https://www.buddytheunderwriter.com/"
                   className="inline-flex items-center gap-2 text-[14px] font-bold text-[#1c8de0] transition hover:text-[#0e6fc0]"
                 >
                   Explore the banking platform
@@ -1016,7 +1016,7 @@ export function BrokerageLandingPage() {
               <div className="space-y-2.5">
                 <a href="#how" className="block text-[13px] transition hover:text-white">How It Works</a>
                 <a href="#package" className="block text-[13px] transition hover:text-white">What Buddy Builds</a>
-                <Link href="/underwriter" className="block text-[13px] transition hover:text-white">For Lenders</Link>
+                <Link href="https://www.buddytheunderwriter.com/" className="block text-[13px] transition hover:text-white">For Lenders</Link>
               </div>
             </div>
 

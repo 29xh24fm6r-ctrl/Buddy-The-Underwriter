@@ -1,15 +1,10 @@
 import type { Metadata } from "next";
 
 import {
-  getCanonicalUrl,
   getMetadataForProduct,
+  PUBLIC_PRODUCT_ORIGINS,
   type DomainProduct,
 } from "@/lib/brokerage/domainRouting";
-
-const PRODUCT_HOSTS: Record<DomainProduct, string> = {
-  brokerage: "www.buddysba.com",
-  underwriter: "www.buddytheunderwriter.com",
-};
 
 const PRODUCT_NAMES: Record<DomainProduct, string> = {
   brokerage: "Buddy SBA",
@@ -26,7 +21,7 @@ const PRODUCT_NAMES: Record<DomainProduct, string> = {
  */
 export function buildProductMetadata(product: DomainProduct): Metadata {
   const copy = getMetadataForProduct(product);
-  const canonical = getCanonicalUrl(PRODUCT_HOSTS[product], "/");
+  const canonical = `${PUBLIC_PRODUCT_ORIGINS[product]}/`;
   const productName = PRODUCT_NAMES[product];
   const imageAlt =
     product === "brokerage"

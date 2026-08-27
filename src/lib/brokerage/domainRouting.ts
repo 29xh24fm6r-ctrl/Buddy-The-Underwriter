@@ -9,9 +9,23 @@
 
 export type DomainProduct = "brokerage" | "underwriter";
 
+export const PUBLIC_PRODUCT_ORIGINS: Record<DomainProduct, string> = {
+  brokerage: "https://www.buddysba.com",
+  underwriter: "https://www.buddytheunderwriter.com",
+};
+
+const BROKERAGE_MARKETING_HOSTS = new Set(["buddysba.com", "www.buddysba.com"]);
+const UNDERWRITER_MARKETING_HOSTS = new Set([
+  "buddytheunderwriter.com",
+  "www.buddytheunderwriter.com",
+]);
+
+function normalizeHost(host: string | null): string {
+  return (host ?? "").toLowerCase().replace(/:\d+$/, "");
+}
+
 export function resolveProductFromHost(host: string | null): DomainProduct {
-  if (!host) return "brokerage";
-  const h = host.toLowerCase().replace(/:\d+$/, ""); // strip port
+  const h = normalizeHost(host);
   if (h.includes("buddytheunderwriter")) return "underwriter";
   if (h.includes("buddysba")) return "brokerage";
   if (h.includes("buddybrokerage")) return "brokerage"; // will 301 at middleware level
@@ -19,19 +33,38 @@ export function resolveProductFromHost(host: string | null): DomainProduct {
 }
 
 export function shouldRedirectBuddyBrokerage(host: string | null): boolean {
-  if (!host) return false;
-  return host.toLowerCase().replace(/:\d+$/, "").includes("buddybrokerage");
+  return normalizeHost(host).includes("buddybrokerage");
+}
+
+/**
+ * Keep each public product entry on the domain configured for that product.
+ *
+ * The production Clerk instance is intentionally bound to the underwriter
+ * application domain. Rendering /underwriter on the borrower domain initializes
+ * Clerk on an unsupported origin and crashes the public page before it can
+ * navigate. These redirects run before the public-route short circuit.
+ */
+export function getPublicProductRedirect(
+  host: string | null,
+  path: string,
+): string | null {
+  const h = normalizeHost(host);
+  const normalizedPath = path.replace(/\/+$/, "") || "/";
+
+  if (BROKERAGE_MARKETING_HOSTS.has(h) && normalizedPath === "/underwriter") {
+    return `${PUBLIC_PRODUCT_ORIGINS.underwriter}/`;
+  }
+
+  if (UNDERWRITER_MARKETING_HOSTS.has(h) && normalizedPath === "/brokerage") {
+    return `${PUBLIC_PRODUCT_ORIGINS.brokerage}/`;
+  }
+
+  return null;
 }
 
 export function getCanonicalUrl(host: string | null, path: string): string {
   const product = resolveProductFromHost(host);
-  // Both apex domains redirect to www in production. Canonical metadata must
-  // name the final 200 URL so crawlers do not have to reconcile a redirecting
-  // canonical with the document they fetched.
-  const domain = product === "underwriter"
-    ? "https://www.buddytheunderwriter.com"
-    : "https://www.buddysba.com";
-  return `${domain}${path}`;
+  return `${PUBLIC_PRODUCT_ORIGINS[product]}${path}`;
 }
 
 export function getMetadataForProduct(product: DomainProduct): {
