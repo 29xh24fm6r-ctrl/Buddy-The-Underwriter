@@ -14,6 +14,7 @@ import { resolve } from "node:path";
 
 const ROOT = process.cwd();
 const HELPER_FILE = resolve(ROOT, "src/lib/ai/vertexLocation.ts");
+const VALUE_FILE = resolve(ROOT, "src/lib/ai/vertexLocationValue.ts");
 
 // SPEC-M1.1: as each of these callers is migrated onto the AI gateway
 // (runRole with authMode: "vertex"), it stops constructing its own Vertex
@@ -25,23 +26,27 @@ const HELPER_FILE = resolve(ROOT, "src/lib/ai/vertexLocation.ts");
 // auth plumbing (getVertexAccessToken/getProjectId), not migration debt.
 const CALLER_FILES = ["src/lib/gcpAdcBootstrap.ts"];
 
-test("[vertex-loc-1] helper file exists at src/lib/ai/vertexLocation.ts", () => {
+test("[vertex-loc-1] helper files exist", () => {
   assert.ok(existsSync(HELPER_FILE), "src/lib/ai/vertexLocation.ts must exist");
+  assert.ok(
+    existsSync(VALUE_FILE),
+    "src/lib/ai/vertexLocationValue.ts must exist",
+  );
 });
 
-test("[vertex-loc-2] helper default is 'us-central1' (last in fallback chain)", () => {
+test("[vertex-loc-2] server helper resolves both env values through the validator", () => {
   const src = readFileSync(HELPER_FILE, "utf8");
   assert.match(
     src,
-    /process\.env\.GOOGLE_CLOUD_LOCATION\s*\|\|\s*process\.env\.GOOGLE_CLOUD_REGION\s*\|\|\s*["']us-central1["']/,
-    "vertexLocation.ts must default to 'us-central1' as last fallback",
+    /resolveVertexLocation\(\s*process\.env\.GOOGLE_CLOUD_LOCATION,\s*process\.env\.GOOGLE_CLOUD_REGION,?\s*\)/,
+    "vertexLocation.ts must validate the location and region before use",
   );
 });
 
 test("[vertex-loc-3] helper reads GOOGLE_CLOUD_LOCATION first", () => {
   const src = readFileSync(HELPER_FILE, "utf8");
-  const locIdx = src.indexOf("GOOGLE_CLOUD_LOCATION");
-  const regionIdx = src.indexOf("GOOGLE_CLOUD_REGION");
+  const locIdx = src.indexOf("process.env.GOOGLE_CLOUD_LOCATION");
+  const regionIdx = src.indexOf("process.env.GOOGLE_CLOUD_REGION");
   assert.ok(locIdx > 0, "must reference GOOGLE_CLOUD_LOCATION");
   assert.ok(regionIdx > 0, "must reference GOOGLE_CLOUD_REGION");
   assert.ok(locIdx < regionIdx, "GOOGLE_CLOUD_LOCATION must take precedence");
