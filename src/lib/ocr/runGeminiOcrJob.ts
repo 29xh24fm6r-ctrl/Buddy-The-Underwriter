@@ -48,7 +48,7 @@ function getGeminiModelFromEnv(): string | null {
  * the guaranteed supported fallback.
  */
 function isKnownRetiredGeminiOverride(model: string): boolean {
-  return /^gemini-(?:1\\.5|2\\.0)(?:-|$)/.test(model);
+  return /^gemini-(?:1\.5|2\.0)(?:-|$)/.test(model);
 }
 
 function getGeminiModelCandidates(): string[] {
