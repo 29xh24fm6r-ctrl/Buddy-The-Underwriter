@@ -4,8 +4,6 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const { runBankNightlyTasks } = require("../runBankNightlyTasks") as typeof import("../runBankNightlyTasks");
-const { NoFinalPortfolioDecisionsError } = require("../../macro/aggregatePortfolio") as typeof import("../../macro/aggregatePortfolio");
-
 type Dependencies = import("../runBankNightlyTasks").Dependencies;
 
 function deps(overrides: Partial<Dependencies> = {}) {
@@ -32,7 +30,9 @@ test("empty portfolios are an expected skip and do not block later governance", 
   const d = deps({
     aggregatePortfolio: async () => {
       d.calls.push("portfolio");
-      throw new NoFinalPortfolioDecisionsError("bank-1");
+      const error = new Error("No final decisions found");
+      Object.assign(error, { code: "NO_FINAL_PORTFOLIO_DECISIONS" });
+      throw error;
     },
   });
 
