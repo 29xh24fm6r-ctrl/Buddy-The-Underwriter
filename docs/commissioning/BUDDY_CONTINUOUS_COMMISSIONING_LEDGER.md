@@ -758,3 +758,86 @@ Open checkpoints:
 - Authenticated browser checks, authorized identity/signing/Golden Trident
   fixtures, and the 13 production-backed research cases remain outstanding.
 
+## 2026-08-27 — bounded nightly work and empty-portfolio convergence
+
+Resume checkpoint:
+
+- PRs 915, 916, and 917 have merged into current `main`; their SignWell,
+  Golden Trident, and durable AI-governance work is preserved in this resolved
+  branch.
+- PR 918 is synchronized through a non-destructive merge of current `main`
+  with only its bounded-nightly-work repair.
+- Direct Buddy database verification remains blocked because the available
+  connector exposes a differently named project whose ownership is not
+  verified. It was not queried.
+
+Production evidence:
+
+- On deployment `dpl_2TxXjafT9K4Y1PMo5ojy7hmQCZ7j` at
+  2026-08-27T07:30:38Z, `/api/cron/nightly` logged
+  `No final decisions found for portfolio aggregation` for five banks.
+- The same run logged a PostgreSQL statement timeout from
+  `purge_buddy_system_events`.
+- The failures are independent of PRs 915-917 and are addressed on branch
+  `codex/nightly-bounded-work`.
+
+Root causes:
+
+- Portfolio aggregation discarded Supabase read and write errors, while
+  throwing for the normal state where a bank has no final decisions. The
+  nightly route therefore emitted production errors and skipped later
+  no-op-safe governance steps for empty banks.
+- Each retention RPC looped through the entire backlog in one transaction.
+  A statement timeout rolled back every batch, so a sufficiently large
+  backlog could make no durable progress.
+- The TypeScript orchestrator called each purge once and stopped at the first
+  failure, allowing one retention path to starve the others.
+
+Repair:
+
+- Empty portfolios now return an explicit null result, while decision reads
+  and snapshot writes fail loudly and distinctly.
+- The nightly route records `skipped_no_final_decisions` and continues policy
+  drift and living-policy work.
+- Additive migration
+  `20260827080000_bounded_nightly_retention.sql` replaces all three purge
+  functions with one 5,000-row transaction per RPC, an empty search path,
+  fully qualified relations, and service-role-only execution.
+- The application drains up to ten batches per table per nightly run, validates
+  provider counts, attempts every table even when one fails, and reports an
+  aggregate failure afterward.
+- Regression coverage exercises empty portfolios, database failures, snapshot
+  writes, draining, caps, cross-table isolation, count validation, and SQL
+  architecture invariants. The schema manifest records the replacement
+  function provenance.
+
+Verification:
+
+- The first CI run correctly rejected replacement-only manifest provenance;
+  the ledger now preserves both the original and replacement migration entries.
+- On code head `966f801aebbb298310671b411d2a11229eb17245`, 13,246 tests
+  ran: 13,237 passed, 0 failed, and 9 skipped. React-server tests passed 18/18.
+  Research evaluation passed 7/7 with the 13 known production-data placeholders
+  explicitly skipped; public Playwright passed with authenticated smoke
+  explicitly skipped.
+- Typecheck, lint, architectural guards, legacy-write, safety, polling,
+  Never-500, schema-select, report-only schema drift, CI, Build Check, Secret
+  Scan, and Route Budget passed.
+- Exact code-head preview `dpl_9hwSDkqnquCcR2HidfWXE3FnV9Tg` was READY,
+  returned HTTP 200 with matching `x-buddy-build`, and had no warning, error,
+  or fatal runtime logs in the verification window.
+- The final ledger-only head must retain the same green required checks before
+  the PR is marked merge-ready.
+- No migration, provider transaction, production row, or production data was
+  changed during this cycle.
+
+Post-merge closure:
+
+- Apply the migration through the normal deployment path, then confirm the next
+  nightly run reports empty portfolios as skips rather than errors.
+- Using the verified Buddy-owned Supabase connection, verify each purge commits
+  bounded progress and that subsequent runs drain the backlog without statement
+  timeouts.
+- The separate transactional blockers remain: authorized SignWell,
+  identity/authenticated-browser, and Golden Trident fixtures, plus replacement
+  of 13 research placeholder cases with production-backed regressions.
