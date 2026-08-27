@@ -6,9 +6,9 @@ import "server-only";
  * ai_gateway_calls. This is both the SR 11-7 model-inventory audit trail
  * and the cost meter behind roleConfig's daily token budgets.
  *
- * Never throws: a ledger write failure must not take down the caller's
- * actual AI request (same never-throw-envelope philosophy as
- * geminiClient.ts). Logs to console.error instead.
+ * Returns false when persistence fails. Gateway callers use that signal to
+ * fail closed: an unledgered provider result must never drive underwriting
+ * state or trigger a second provider attempt.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -46,7 +46,7 @@ export type LedgerEntry = {
 export async function logGatewayCall(
   entry: LedgerEntry,
   client?: SupabaseClient,
-): Promise<void> {
+): Promise<boolean> {
   try {
     // supabaseAdmin() throws if Supabase env vars are missing — resolved
     // inside this try so a misconfigured environment can never surface as
@@ -70,11 +70,14 @@ export async function logGatewayCall(
     });
     if (error) {
       console.error("[ai-gateway:ledger] insert failed", error.message);
+      return false;
     }
+    return true;
   } catch (e) {
     console.error(
       "[ai-gateway:ledger] failed to record call",
       e instanceof Error ? e.message : String(e),
     );
+    return false;
   }
 }
