@@ -31,6 +31,9 @@ export interface SignedUploadResponse {
     headers?: Record<string, string>;
   };
   deal_id?: string; // For borrower portal
+  /** Set when the sign route recognised the sha256 and no upload is needed. */
+  deduped?: boolean;
+  existingDocumentId?: string;
   upload_session_id?: string | null;
   upload_session_expires_at?: string | null;
   error?: string;
@@ -260,6 +263,12 @@ export async function directDealDocumentUpload(
       mime_type: file.type || null,
     });
 
+    // Hash before signing so the server can recognise a file the deal already
+    // holds. Without it the sign route's dedupe can never fire on this path,
+    // which is why every internal upload of the same document created another
+    // copy. A null hash (no SubtleCrypto) degrades to "upload without dedupe".
+    const sha256 = await sha256Hex(file);
+
     // Step 1: Get signed URL
     const signUrl = `/api/deals/${dealId}/files/sign`;
     let signRes: Response | null = null;
@@ -283,6 +292,7 @@ export async function directDealDocumentUpload(
               size_bytes: file.size,
               checklist_key: checklistKey,
               pack_id: packId,
+              sha256,
             }),
           },
           20_000,
@@ -316,6 +326,27 @@ export async function directDealDocumentUpload(
         if (!retryable || attempt === 3) throw e;
         await sleep(300 * attempt);
       }
+    }
+
+    /**
+     * The sign route answers a recognised sha256 with
+     * `{ ok: true, deduped: true, existingDocumentId }` and no upload block:
+     * the bytes are already in storage and the document row already exists.
+     * That is a success — there is nothing to PUT and nothing to record.
+     * Falling through to the guard below reported it to the user as
+     * "Failed to get signed URL".
+     */
+    if (signRes?.ok && signData?.ok && signData.deduped && signData.existingDocumentId) {
+      stage(requestId, onStage, "sign_deduped", {
+        existing_document_id: signData.existingDocumentId,
+      });
+      return {
+        ok: true,
+        file_id: signData.existingDocumentId,
+        checklist_key: checklistKey,
+        request_id: requestId,
+        meta: { deduped: true },
+      } as UploadResult;
     }
 
     if (!signRes || !signData || !signRes.ok || !signData?.ok || !signData.upload) {
@@ -382,6 +413,7 @@ export async function directDealDocumentUpload(
           mime_type: file.type,
           size_bytes: file.size,
           checklist_key: checklistKey,
+          sha256,
           source,
           pack_id: packId,
           slot_id: slotId ?? undefined,
@@ -510,6 +542,20 @@ export async function uploadBorrowerFile(
     });
 
     const signData = await readJson<SignedUploadResponse>(signRes);
+
+    // A recognised hash means the deal already holds this exact file.
+    if (signRes.ok && signData?.ok && signData.deduped && signData.existingDocumentId) {
+      onProgress?.(100);
+      console.log("[upload] borrower dedupe", { requestId, file_id: signData.existingDocumentId });
+      return {
+        ok: true,
+        file_id: signData.existingDocumentId,
+        checklist_key: checklistKey,
+        request_id: requestId,
+        meta: { deduped: true },
+      } as UploadResult;
+    }
+
     if (!signRes.ok || !signData?.ok || !signData.upload) {
       console.warn("[upload] borrower sign failed", { requestId, status: signRes.status });
       return {

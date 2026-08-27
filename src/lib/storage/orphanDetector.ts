@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isGcsBucket } from "@/lib/storage/documentBytes";
+
 type StorageObject = {
   name: string;
   id?: string;
@@ -21,10 +23,73 @@ function isFolderLike(name: string) {
   return name.endsWith("/");
 }
 
+type CachedObject = {
+  path: string;
+  sizeBytes: number | null;
+  mimeType: string | null;
+  lastModified: string | null;
+  etag: string | null;
+};
+
+/**
+ * List a GCS prefix. GCS has no folders — one flat, paginated listing covers
+ * the whole prefix, so this needs none of the breadth-first walking the
+ * Supabase API forces.
+ *
+ * Without this branch the sweeper called Supabase Storage with the GCS bucket
+ * name and threw, leaving every object written since the storage move
+ * invisible to orphan detection.
+ */
+async function listGcsPrefix(
+  bucket: string,
+  prefix: string,
+  maxObjects: number,
+): Promise<CachedObject[]> {
+  const { getGcsClient } = await import("@/lib/storage/gcs");
+  const storage = await getGcsClient();
+  const [files] = await storage.bucket(bucket).getFiles({ prefix, maxResults: maxObjects });
+
+  return files.map((file: any) => ({
+    path: String(file.name),
+    sizeBytes: file.metadata?.size != null ? Number(file.metadata.size) : null,
+    mimeType: file.metadata?.contentType ?? null,
+    lastModified: file.metadata?.updated ?? file.metadata?.timeCreated ?? null,
+    etag: file.metadata?.etag ?? null,
+  }));
+}
+
 // Supabase storage.list() is paginated by "limit" and "offset" (offset can be slow for huge buckets).
 // We do a bounded breadth-first traversal from prefix.
 export async function scanBucketPrefixToCache(input: ScanInput) {
   const { sb, bucket, prefix, runId, maxObjects = 25000 } = input;
+
+  if (isGcsBucket(bucket)) {
+    const objects = await listGcsPrefix(
+      bucket,
+      prefix.replace(/^\//, ""),
+      maxObjects,
+    );
+
+    let stored = 0;
+    for (const obj of objects) {
+      if (stored >= maxObjects) return { capped: true, seen: stored };
+
+      const ins = await sb.from("storage_objects_cache").insert({
+        scan_run_id: runId,
+        bucket,
+        path: obj.path,
+        size_bytes: obj.sizeBytes,
+        mime_type: obj.mimeType,
+        last_modified: obj.lastModified,
+        etag: obj.etag,
+      });
+
+      if (ins.error) throw new Error(`insert storage_objects_cache failed: ${ins.error.message}`);
+      stored++;
+    }
+
+    return { capped: false, seen: stored };
+  }
 
   const queue: string[] = [prefix.replace(/^\//, "").replace(/\/?$/, "/")];
   let seen = 0;

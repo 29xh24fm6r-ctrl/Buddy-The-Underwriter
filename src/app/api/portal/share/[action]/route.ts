@@ -7,6 +7,7 @@
 // "view"/"upload" — no client changes needed.
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { documentUploadBucket, uploadDocumentBytes } from "@/lib/storage/documentBytes";
 import { requireValidShareToken } from "@/lib/portal/shareAuth";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { sha256 as sha256Bytes } from "@/lib/storage/adminStorage";
@@ -101,14 +102,27 @@ async function handleUpload(req: Request) {
   const safeName = (file.name || "upload").replace(/[^\w.\-()+\s]/g, "_");
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const random = sha256Bytes(bytes).slice(0, 12);
-  const storageBucket = "deal-uploads";
+  // Resolve the bucket from DOC_STORE rather than naming one: this route
+  // wrote to "deal-uploads", which exists in neither Supabase nor GCS, so
+  // every share-link upload failed at the storage call.
+  const storageBucket = documentUploadBucket();
   const storagePath = `deals/${dealId}/share/${ts}_${random}_${safeName}`;
 
-  const up = await sb.storage.from(storageBucket).upload(storagePath, bytes, {
-    contentType: file.type || "application/octet-stream",
-    upsert: false,
-  });
-  if (up.error) {
+  try {
+    await uploadDocumentBytes({
+      bucket: storageBucket,
+      path: storagePath,
+      bytes,
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  } catch (e: any) {
+    console.error("[portal/share/upload] storage write failed", {
+      dealId,
+      storageBucket,
+      storagePath,
+      error: e?.message ?? String(e),
+    });
     return NextResponse.json({ ok: false, error: `Upload failed: ${safeName}` }, { status: 500 });
   }
 

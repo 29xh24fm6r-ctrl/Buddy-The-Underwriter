@@ -26,6 +26,31 @@ export function gcsBucketNameOrNull(): string | null {
   return bucket || null;
 }
 
+/**
+ * The bucket new deal documents must be written to, honouring DOC_STORE.
+ *
+ * Several upload routes hardcoded `"deal-uploads"`, a bucket that has never
+ * existed in this Supabase project (its buckets are bank-documents,
+ * borrower_uploads, deal-documents, deal-files, signed-documents,
+ * trident-bundles). Every write through those paths failed with
+ * "Bucket not found" — the borrower share-link uploader failed 100% of the
+ * time — and every read that fell back to that name could never resolve.
+ * Resolve the bucket here instead of restating a literal per route.
+ */
+export function documentUploadBucket(): string {
+  const gcs = gcsBucketNameOrNull();
+  if (String(process.env.DOC_STORE || "").toLowerCase() === "gcs" && gcs) return gcs;
+  return process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
+}
+
+/**
+ * Bucket to assume for a document row that recorded none. Historic rows
+ * predate the bucket column and live in the Supabase upload bucket.
+ */
+export function defaultDocumentBucket(): string {
+  return process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
+}
+
 /** True when `bucket` names the GCS uploads bucket rather than a Supabase one. */
 export function isGcsBucket(bucket: string | null | undefined): boolean {
   const gcs = gcsBucketNameOrNull();
