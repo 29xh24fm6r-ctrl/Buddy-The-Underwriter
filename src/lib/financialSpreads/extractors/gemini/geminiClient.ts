@@ -135,7 +135,7 @@ export async function callGeminiForExtraction(args: {
               : undefined,
           temperature: isRetry ? 0.0 : GEMINI_TEMPERATURE,
           timeoutMs: GEMINI_PRIMARY_TIMEOUT_MS,
-          responseSchema: { type: "object" },
+          responseSchema: EXTRACTION_RESPONSE_SCHEMA,
           // Native PDF path: send the actual document as inlineData.
           // OCR text path: prompt already contains embedded OCR text.
           inlineData: args.pdfBase64
