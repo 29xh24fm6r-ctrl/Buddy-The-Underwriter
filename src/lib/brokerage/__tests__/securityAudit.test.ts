@@ -85,3 +85,90 @@ test("a future redactor version is accepted", () => {
   const f = auditPreviewRedactionProvenance({ bundles: [previewBundle({ redactor_version: "2.0.0" })] });
   assert.equal(f.filter((x) => x.severity === "critical").length, 0);
 });
+
+/**
+ * Audit F-22. auditPreviewRedactionProvenance was implemented, unit-tested,
+ * and accepted as an optional input by runSecurityAudit — but no caller ever
+ * passed it. The check ran against its own fixtures and never against a real
+ * bundle, so a preview artifact stamped by a pre-1.2.0 redactor (the version
+ * that leaked precise borrower figures) would not have been reported by any
+ * gate. These tests assert the wiring, not just the function.
+ */
+const AUDIT_INPUTS = {
+  borrowerIsolation: {
+    sessionA: { tokenHash: "a", dealId: "da" },
+    sessionB: { tokenHash: "b", dealId: "db" },
+    resolveSession: (h: string) => (h === "a" ? { deal_id: "da" } : h === "b" ? { deal_id: "db" } : null),
+    resolveExpired: () => null,
+  },
+  lenderIsolation: { listings: [], claims: [], agreements: [], banks: [] },
+  packageAccess: { accesses: [], claims: [], picks: [], listings: [] },
+  redaction: { listings: [], deals: [] },
+  adminPayloads: { payloads: [] },
+  apiMethodSafety: { routes: [] },
+  rateLimits: { specs: [] },
+} as any;
+
+test("[F-22] runSecurityAudit reports a stale-redactor preview bundle when fed one", () => {
+  const result = m.runSecurityAudit({
+    ...AUDIT_INPUTS,
+    previewRedaction: {
+      bundles: [
+        { id: "b1", mode: "preview", status: "succeeded", superseded_at: null, redactor_version: "1.1.0" },
+      ],
+    },
+  });
+  const finding = result.findings.find((f) => f.check === "preview_stale_redactor_version");
+  assert.ok(finding, "a pre-1.2.0 preview bundle must surface through the top-level audit");
+  assert.equal(finding!.severity, "critical");
+  assert.equal(result.ok, false);
+});
+
+test("[F-22] an unstamped preview bundle is reported as critical", () => {
+  const result = m.runSecurityAudit({
+    ...AUDIT_INPUTS,
+    previewRedaction: {
+      bundles: [
+        { id: "b2", mode: "preview", status: "succeeded", superseded_at: null, redactor_version: null },
+      ],
+    },
+  });
+  assert.ok(result.findings.some((f) => f.check === "preview_missing_redactor_version"));
+  assert.equal(result.ok, false);
+});
+
+test("[F-22] a current preview bundle passes", () => {
+  const result = m.runSecurityAudit({
+    ...AUDIT_INPUTS,
+    previewRedaction: {
+      bundles: [
+        { id: "b3", mode: "preview", status: "succeeded", superseded_at: null, redactor_version: MIN_TRUSTED_REDACTOR_VERSION },
+      ],
+    },
+  });
+  assert.equal(result.findings.some((f) => f.severity === "critical"), false);
+});
+
+test("[F-22] the in-process gates pass preview bundles through to the audit", async () => {
+  // The gates are the callers that were silently dropping this input.
+  const readiness = require("../businessReadinessGate") as typeof import("../businessReadinessGate");
+  const launch = require("../launchGate") as typeof import("../launchGate");
+  const staleBundle = {
+    id: "b4",
+    mode: "preview",
+    status: "succeeded",
+    superseded_at: null,
+    redactor_version: "1.0.0",
+  };
+  for (const [label, gate] of [
+    ["businessReadinessGate", readiness.runSecurityGate],
+    ["launchGate", launch.runSecurityGate],
+  ] as const) {
+    const clean = gate({ bundles: [] } as any);
+    const dirty = gate({ bundles: [staleBundle] } as any);
+    assert.ok(
+      dirty.critical > clean.critical,
+      `${label} must forward preview bundles into the security audit`,
+    );
+  }
+});

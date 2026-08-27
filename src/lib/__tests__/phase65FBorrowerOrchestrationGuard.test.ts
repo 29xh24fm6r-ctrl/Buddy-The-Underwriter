@@ -101,7 +101,14 @@ test("portal request-status route exists", () => {
   assert.ok(fs.existsSync(path.resolve(root, f)), `Missing: ${f}`);
   const content = fs.readFileSync(path.resolve(root, f), "utf8");
   assert.ok(content.includes("deriveBorrowerPortalStatus"), "Must derive borrower status");
-  assert.ok(content.includes("borrower_portal_links"), "Must validate portal token");
+  assert.ok(
+    content.includes("resolveBorrowerToken"),
+    "Must validate through the canonical borrower token resolver",
+  );
+  assert.ok(
+    !content.includes('.from("borrower_portal_links")'),
+    "Must not bypass the portal-link state machine",
+  );
 });
 
 // ── Guard 8: Borrower request catalog has no internal jargon ─

@@ -38,7 +38,12 @@ export async function resolveDealByPhone(phoneE164: string): Promise<{
     .order("created_at", { ascending: false })
     .limit(10);
 
-  if (!portalErr && portalLinks && portalLinks.length > 0) {
+  if (portalErr) {
+    console.error("resolveDealByPhone portal-link lookup error:", portalErr);
+    throw new Error(`resolveDealByPhone portal-link lookup failed: ${portalErr.message}`);
+  }
+
+  if (portalLinks && portalLinks.length > 0) {
     // Check each link's deal for matching phone
     for (const link of portalLinks) {
       const deal = (link as any).deals;
@@ -51,7 +56,12 @@ export async function resolveDealByPhone(phoneE164: string): Promise<{
         .eq("id", deal.id)
         .single();
 
-      if (!dealErr && dealData && dealData.borrower_phone === phoneE164) {
+      if (dealErr) {
+        console.error("resolveDealByPhone deal lookup error:", dealErr);
+        throw new Error(`resolveDealByPhone deal lookup failed: ${dealErr.message}`);
+      }
+
+      if (dealData && dealData.borrower_phone === phoneE164) {
         return {
           deal_id: dealData.id,
           bank_id: dealData.bank_id,
@@ -69,7 +79,12 @@ export async function resolveDealByPhone(phoneE164: string): Promise<{
     .order("created_at", { ascending: false })
     .limit(20);
 
-  if (dealsErr || !deals || deals.length === 0) {
+  if (dealsErr) {
+    console.error("resolveDealByPhone direct lookup error:", dealsErr);
+    throw new Error(`resolveDealByPhone direct lookup failed: ${dealsErr.message}`);
+  }
+
+  if (!deals || deals.length === 0) {
     return null;
   }
 

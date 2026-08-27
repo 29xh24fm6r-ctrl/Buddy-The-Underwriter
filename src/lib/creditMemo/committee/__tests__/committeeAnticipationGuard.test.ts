@@ -264,7 +264,8 @@ test("[ca-guard-8] API route + server assembler are wired", () => {
     join(REPO_ROOT, "src/app/api/deals/[dealId]/committee-anticipation/route.ts"),
   );
   assert.match(route, /buildCommitteeAnticipation/);
-  assert.match(route, /requireDealAccess/);
+  assert.match(route, /ensureDealBankAccessAllowingBrokerageStaff/);
+  assert.doesNotMatch(route, /requireDealAccess|rethrowNextErrors/);
   const assembler = read(join(COMMITTEE, "buildCommitteeAnticipation.ts"));
   assert.match(assembler, /evaluateCommitteeAnticipation/);
   assert.match(assembler, /buildMemoInputPackage/);

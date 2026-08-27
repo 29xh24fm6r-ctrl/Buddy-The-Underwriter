@@ -1,6 +1,22 @@
-import test from "node:test";
+import test, { afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { streamGeminiText } from "../geminiClient";
+import {
+  __resetGatewayBudgetForTests,
+  __resetGatewayTestOverrides,
+  __setLogGatewayCallForTests,
+} from "../gateway";
+
+beforeEach(() => {
+  // These tests mock the provider transport. Keep durable governance explicit
+  // without requiring a live database; production has no test seam.
+  __setLogGatewayCallForTests(async () => true);
+});
+
+afterEach(() => {
+  __resetGatewayTestOverrides();
+  __resetGatewayBudgetForTests();
+});
 
 function fakeGeminiSSEResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();

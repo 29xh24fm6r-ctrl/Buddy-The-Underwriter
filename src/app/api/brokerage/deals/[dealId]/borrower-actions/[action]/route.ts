@@ -64,9 +64,16 @@ import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { initiateKyc, handleDiditWebhook } from "@/lib/identity/kyc/service";
 import { createDiditSession, fetchDiditSession, getDiditSessionDecision } from "@/lib/identity/kyc/didit";
 import { requiresPersonalPackage } from "@/lib/ownership/rules";
-import { requestSignature, handleSignwellWebhook } from "@/lib/esign/signwell/service";
+import {
+  handleSignwellWebhook,
+  isFailedTerminalSigningRequestStatus,
+  isTerminalSigningRequestStatus,
+  persistSignwellRequestStatus,
+  requestSignature,
+} from "@/lib/esign/signwell/service";
 import {
   createSignwellDocumentFromFile,
+  deleteSignwellDocument,
   fetchSignwellDocument,
   downloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/client";
@@ -82,6 +89,7 @@ import { mockCreateDiditSession, mockFetchDiditSession, mockGetDiditSessionDecis
 import { mockRequestSignature } from "@/lib/esign/signwell/mockService";
 import {
   mockCreateSignwellDocumentFromFile,
+  mockDeleteSignwellDocument,
   mockFetchSignwellDocument,
   mockDownloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/mockClient";
@@ -312,7 +320,7 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
     ]);
 
     const activeRequests = (pendingRequests ?? []).filter(
-      (row) => !["completed", "signed"].includes(String(row.status).toLowerCase()),
+      (row) => !isTerminalSigningRequestStatus(row.status),
     );
 
     return NextResponse.json({
@@ -334,7 +342,32 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
     return NextResponse.json({ ok: true, status: "completed", signedDocument: signedDoc });
   }
 
+  // The borrower session is deal-scoped, so the provider document must be
+  // deal-scoped before it can be fetched. This prevents cross-deal document
+  // probing with a guessed SignWell id.
+  const { data: signingRequest } = await sb
+    .from("signing_requests")
+    .select("id")
+    .eq("deal_id", dealId)
+    .eq("signwell_document_id", submissionId)
+    .maybeSingle();
+  if (!signingRequest) {
+    return NextResponse.json({ ok: false, error: "submission_not_found" }, { status: 404 });
+  }
+
   const document = await fetchSignwellDocument(submissionId);
+  if (isFailedTerminalSigningRequestStatus(document.status)) {
+    const persisted = await persistSignwellRequestStatus(
+      { dealId, documentId: submissionId, status: document.status },
+      sb,
+    );
+    if (!persisted.ok) {
+      return NextResponse.json(
+        { ok: false, error: "status_reconciliation_failed", detail: persisted.detail },
+        { status: 503 },
+      );
+    }
+  }
   return NextResponse.json({ ok: true, status: document.status, submission: document });
 }
 
@@ -394,7 +427,7 @@ async function postEsign(req: NextRequest, dealId: string, bankId: string): Prom
     ? await mockRequestSignature(signatureArgs, { sb: supabaseAdmin() })
     : await requestSignature(signatureArgs, {
         sb: supabaseAdmin(),
-        signwell: { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf },
+        signwell: { createSignwellDocumentFromFile, deleteSignwellDocument, fetchSignwellDocument, downloadSignwellCompletedPdf },
         renderFilledPdf: (a) => resolveFilledPdfForSigning({ ...a, supabase: supabaseAdmin() }),
       });
 
@@ -418,6 +451,20 @@ async function getMockCompleteEsign(req: NextRequest, dealId: string): Promise<N
   }
 
   const sb = supabaseAdmin();
+  const { data: signingRequest } = await sb
+    .from("signing_requests")
+    .select("deal_id, form_code, signer_ownership_entity_id, recipient_email")
+    .eq("signwell_document_id", submissionId)
+    .eq("deal_id", dealId)
+    .maybeSingle();
+  const recipientEmail =
+    typeof signingRequest?.recipient_email === "string" ? signingRequest.recipient_email.trim() : "";
+  if (!signingRequest || !recipientEmail) {
+    return htmlResponse("No matching mock signing request found for this deal.", 404);
+  }
+  const canonicalExternalId =
+    `deal:${signingRequest.deal_id}:form:${signingRequest.form_code}:signer:${signingRequest.signer_ownership_entity_id}`;
+
   const result = await handleSignwellWebhook(
     {
       event: { type: "document_completed" },
@@ -427,7 +474,12 @@ async function getMockCompleteEsign(req: NextRequest, dealId: string): Promise<N
       sb,
       signwell: {
         createSignwellDocumentFromFile: mockCreateSignwellDocumentFromFile,
-        fetchSignwellDocument: mockFetchSignwellDocument,
+        deleteSignwellDocument: mockDeleteSignwellDocument,
+        fetchSignwellDocument: (documentId) =>
+          mockFetchSignwellDocument(documentId, {
+            externalId: canonicalExternalId,
+            recipientEmail,
+          }),
         downloadSignwellCompletedPdf: mockDownloadSignwellCompletedPdf,
       },
     },

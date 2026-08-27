@@ -29,11 +29,14 @@ export type SignwellClient = {
   }) => Promise<{
     id: string | number;
     status: string;
+    metadata?: { external_id?: string; [key: string]: unknown };
     recipients: Array<{ id: string | number; email?: string | null; signing_url?: string | null; embedded_signing_url?: string | null }>;
   }>;
+  deleteSignwellDocument: (documentId: string) => Promise<void>;
   fetchSignwellDocument: (documentId: string) => Promise<{
     id: string | number;
     status: string;
+    metadata?: { external_id?: string; [key: string]: unknown };
     recipients: Array<{ id: string | number; email?: string | null; signing_url?: string | null; embedded_signing_url?: string | null }>;
   }>;
   downloadSignwellCompletedPdf: (documentId: string) => Promise<Buffer>;
@@ -62,6 +65,41 @@ export function formStalenessDays(formCode: string): number {
 
 const EXTERNAL_ID_PATTERN = /^deal:([^:]+):form:([^:]+):signer:([^:]+)$/;
 
+const SIGNWELL_TERMINAL_EVENT_STATUSES: Record<string, string> = {
+  document_expired: "Expired",
+  document_canceled: "Canceled",
+  document_declined: "Declined",
+  document_bounced: "Bounced",
+  document_error: "Error",
+};
+
+const TERMINAL_SIGNING_REQUEST_STATUSES = new Set([
+  "completed",
+  "manually completed",
+  "signed",
+  "expired",
+  "canceled",
+  "cancelled",
+  "declined",
+  "bounced",
+  "blocked",
+  "error",
+]);
+
+function normalizeSignwellStatus(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase().replace(/[_-]+/g, " ") : "";
+}
+
+export function isTerminalSigningRequestStatus(value: unknown): boolean {
+  return TERMINAL_SIGNING_REQUEST_STATUSES.has(normalizeSignwellStatus(value));
+}
+
+export function isFailedTerminalSigningRequestStatus(value: unknown): boolean {
+  return ["expired", "canceled", "cancelled", "declined", "bounced", "blocked", "error"].includes(
+    normalizeSignwellStatus(value),
+  );
+}
+
 export type RequestSignatureArgs = {
   dealId: string;
   bankId: string;
@@ -76,6 +114,27 @@ export type RequestSignatureArgs = {
 export type RequestSignatureResult =
   | { ok: true; documentId: string; embedUrl: string }
   | { ok: false; reason: "IAL2_NOT_COMPLETED" | "LEGAL_REVIEW_NOT_COMPLETED" | "SUBMISSION_FAILED"; detail?: string };
+
+async function cancelUntrackedSignwellDocument(
+  signwell: SignwellClient,
+  documentId: string,
+  detail: string,
+): Promise<RequestSignatureResult> {
+  try {
+    await signwell.deleteSignwellDocument(documentId);
+    return { ok: false, reason: "SUBMISSION_FAILED", detail };
+  } catch (err) {
+    console.error("[requestSignature] failed to cancel untracked SignWell document", {
+      documentId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      ok: false,
+      reason: "SUBMISSION_FAILED",
+      detail: `${detail}:provider_cleanup_failed`,
+    };
+  }
+}
 
 export async function requestSignature(
   args: RequestSignatureArgs,
@@ -142,7 +201,11 @@ export async function requestSignature(
   const recipient = document.recipients.find((r) => String(r.id) === "1");
   const embedUrl = recipient?.embedded_signing_url ?? recipient?.signing_url;
   if (!embedUrl) {
-    return { ok: false, reason: "SUBMISSION_FAILED", detail: "signwell_response_missing_signing_url" };
+    return cancelUntrackedSignwellDocument(
+      signwell,
+      String(document.id),
+      "signwell_response_missing_signing_url",
+    );
   }
 
   // A successful handoff must have a durable request row. Completion uses
@@ -167,10 +230,18 @@ export async function requestSignature(
       },
     });
     if (signingRequestError) {
-      return { ok: false, reason: "SUBMISSION_FAILED", detail: `signing_request_tracking_failed:${signingRequestError.message}` };
+      return cancelUntrackedSignwellDocument(
+        signwell,
+        String(document.id),
+        `signing_request_tracking_failed:${signingRequestError.message}`,
+      );
     }
   } catch (err: any) {
-    return { ok: false, reason: "SUBMISSION_FAILED", detail: `signing_request_tracking_failed:${err?.message ?? String(err)}` };
+    return cancelUntrackedSignwellDocument(
+      signwell,
+      String(document.id),
+      `signing_request_tracking_failed:${err?.message ?? String(err)}`,
+    );
   }
 
   await sb.from("deal_events").insert({
@@ -190,6 +261,7 @@ export async function requestSignature(
 export type HandleSignwellWebhookResult =
   | { ok: true; ignored: true }
   | { ok: true; signedDocumentId: string; reused?: true }
+  | { ok: true; terminalStatus: string }
   | {
       ok: false;
       reason:
@@ -197,6 +269,8 @@ export type HandleSignwellWebhookResult =
         | "MISSING_DOCUMENT_ID"
         | "SIGNING_REQUEST_NOT_FOUND"
         | "SIGNING_REQUEST_MISMATCH"
+        | "SIGNING_REQUEST_STATUS_UPDATE_FAILED"
+        | "PROVIDER_DOCUMENT_MISMATCH"
         | "SIGNER_MISMATCH"
         | "IAL2_GATE_FAILED_AT_COMPLETION"
         | "PDF_UPLOAD_FAILED"
@@ -227,6 +301,30 @@ function normalizeEmail(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+export async function persistSignwellRequestStatus(
+  args: { dealId: string; documentId: string; status: string; rawEvent?: unknown },
+  sb: EsignSupabaseClient,
+): Promise<{ ok: true } | { ok: false; detail: string }> {
+  const update: Record<string, unknown> = { status: args.status };
+  if (args.rawEvent !== undefined) update.raw_last_event = args.rawEvent;
+
+  try {
+    const { data, error } = await sb
+      .from("signing_requests")
+      .update(update)
+      .eq("deal_id", args.dealId)
+      .eq("signwell_document_id", args.documentId)
+      .select("id")
+      .maybeSingle();
+    if (error || !data) {
+      return { ok: false, detail: error?.message ?? "signing_request_not_found" };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function handleSignwellWebhook(
   payload: {
     event: { type: string; time?: string | number };
@@ -235,8 +333,9 @@ export async function handleSignwellWebhook(
   deps: { sb: EsignSupabaseClient; signwell: SignwellClient },
 ): Promise<HandleSignwellWebhookResult> {
   const { sb, signwell } = deps;
+  const terminalStatus = SIGNWELL_TERMINAL_EVENT_STATUSES[payload.event.type];
 
-  if (payload.event.type !== "document_completed") {
+  if (payload.event.type !== "document_completed" && !terminalStatus) {
     return { ok: true, ignored: true };
   }
 
@@ -251,6 +350,71 @@ export async function handleSignwellWebhook(
     return { ok: false, reason: "MISSING_DOCUMENT_ID" };
   }
 
+  if (terminalStatus) {
+    const { data: terminalRequest } = await sb
+      .from("signing_requests")
+      .select("deal_id, form_code, signer_ownership_entity_id")
+      .eq("signwell_document_id", documentId)
+      .maybeSingle();
+    if (!terminalRequest) {
+      return { ok: false, reason: "SIGNING_REQUEST_NOT_FOUND" };
+    }
+    if (
+      String(terminalRequest.deal_id) !== dealId ||
+      String(terminalRequest.form_code) !== formCode ||
+      String(terminalRequest.signer_ownership_entity_id) !== signerOwnershipEntityId
+    ) {
+      return { ok: false, reason: "SIGNING_REQUEST_MISMATCH" };
+    }
+
+    // The event hash authenticates event.type and event.time, but not the
+    // object payload. Bind terminal state to SignWell's canonical document
+    // before allowing the webhook to retire an active signing request.
+    const document = await signwell.fetchSignwellDocument(documentId);
+    if (String(document.id) !== documentId) {
+      return { ok: false, reason: "PROVIDER_DOCUMENT_MISMATCH", detail: "document_id_mismatch" };
+    }
+    const expectedExternalId =
+      `deal:${terminalRequest.deal_id}:form:${terminalRequest.form_code}:signer:${terminalRequest.signer_ownership_entity_id}`;
+    if (document.metadata?.external_id !== expectedExternalId || externalId !== expectedExternalId) {
+      return { ok: false, reason: "PROVIDER_DOCUMENT_MISMATCH", detail: "external_id_mismatch" };
+    }
+    const canonicalStatus = normalizeSignwellStatus(document.status);
+    if (canonicalStatus !== normalizeSignwellStatus(terminalStatus)) {
+      return {
+        ok: false,
+        reason: "PROVIDER_DOCUMENT_MISMATCH",
+        detail: `status_not_${normalizeSignwellStatus(terminalStatus)}:${canonicalStatus || "missing"}`,
+      };
+    }
+
+    const persisted = await persistSignwellRequestStatus(
+      { dealId, documentId, status: terminalStatus, rawEvent: payload },
+      sb,
+    );
+    if (!persisted.ok) {
+      return { ok: false, reason: "SIGNING_REQUEST_STATUS_UPDATE_FAILED", detail: persisted.detail };
+    }
+
+    // raw_last_event on signing_requests is the durable audit record. This
+    // secondary timeline event is best effort so an event-table outage
+    // cannot keep a terminal request active forever.
+    try {
+      const { error: eventError } = await sb.from("deal_events").insert({
+        deal_id: dealId,
+        kind: `esign.${normalizeSignwellStatus(terminalStatus).replace(/ /g, "_")}`,
+        payload: { form_code: formCode, signer_ownership_entity_id: signerOwnershipEntityId, document_id: documentId },
+      });
+      if (eventError) {
+        console.error("[handleSignwellWebhook] terminal deal event insert failed (non-fatal):", eventError.message);
+      }
+    } catch (err) {
+      console.error("[handleSignwellWebhook] terminal deal event insert threw (non-fatal):", err);
+    }
+
+    return { ok: true, terminalStatus };
+  }
+
   // SignWell redelivers webhooks. Treat an already-persisted provider
   // document as success before any download, storage, or event side effect.
   const { data: existingSignedDocument } = await sb
@@ -261,17 +425,6 @@ export async function handleSignwellWebhook(
     .maybeSingle();
   if (existingSignedDocument?.id) {
     return { ok: true, signedDocumentId: String(existingSignedDocument.id), reused: true };
-  }
-
-  // Defense in depth — re-confirm IAL2 still holds at completion time.
-  const ial2Valid = await hasValidIal2(dealId, signerOwnershipEntityId, sb);
-  if (!ial2Valid) {
-    await sb.from("deal_events").insert({
-      deal_id: dealId,
-      kind: "esign.completed_without_ial2_anomaly",
-      payload: { form_code: formCode, signer_ownership_entity_id: signerOwnershipEntityId, raw_payload: payload },
-    });
-    return { ok: false, reason: "IAL2_GATE_FAILED_AT_COMPLETION" };
   }
 
   const { data: signingRequest } = await sb
@@ -290,12 +443,42 @@ export async function handleSignwellWebhook(
     return { ok: false, reason: "SIGNING_REQUEST_MISMATCH" };
   }
 
+  // Defense in depth — re-confirm IAL2 still holds at completion time.
+  const ial2Valid = await hasValidIal2(dealId, signerOwnershipEntityId, sb);
+  if (!ial2Valid) {
+    await sb.from("deal_events").insert({
+      deal_id: dealId,
+      kind: "esign.completed_without_ial2_anomaly",
+      payload: { form_code: formCode, signer_ownership_entity_id: signerOwnershipEntityId, raw_payload: payload },
+    });
+    return { ok: false, reason: "IAL2_GATE_FAILED_AT_COMPLETION" };
+  }
+
+  // SignWell's documented event hash covers event.type and event.time, not
+  // data.object. Treat the webhook object only as a lookup hint, then bind
+  // completion to the provider's canonical document before downloading or
+  // persisting signed bytes.
   const document = await signwell.fetchSignwellDocument(documentId);
+  if (String(document.id) !== documentId) {
+    return { ok: false, reason: "PROVIDER_DOCUMENT_MISMATCH", detail: "document_id_mismatch" };
+  }
+  const canonicalStatus = normalizeSignwellStatus(document.status);
+  if (canonicalStatus !== "completed" && canonicalStatus !== "manually completed") {
+    return { ok: false, reason: "PROVIDER_DOCUMENT_MISMATCH", detail: `status_not_completed:${canonicalStatus || "missing"}` };
+  }
+  if (document.metadata?.external_id !== externalId) {
+    return { ok: false, reason: "PROVIDER_DOCUMENT_MISMATCH", detail: "external_id_mismatch" };
+  }
+
   const signer = document.recipients.find((recipient) => String(recipient.id) === "1") ?? document.recipients[0];
   const requestedEmail = normalizeEmail(signingRequest.recipient_email);
   const completedEmail = normalizeEmail(signer?.email);
-  if (requestedEmail && completedEmail && requestedEmail !== completedEmail) {
-    return { ok: false, reason: "SIGNER_MISMATCH" };
+  if (!requestedEmail || !completedEmail || requestedEmail !== completedEmail) {
+    return {
+      ok: false,
+      reason: "SIGNER_MISMATCH",
+      detail: !requestedEmail ? "request_email_missing" : !completedEmail ? "provider_email_missing" : "recipient_email_mismatch",
+    };
   }
 
   const { data: deal } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();

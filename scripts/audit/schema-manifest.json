@@ -45,14 +45,29 @@
     "migration": "20260729000010_telemetry_retention.sql"
   },
   {
+    "name": "purge_buddy_system_events",
+    "type": "function",
+    "migration": "20260827080000_bounded_nightly_retention.sql"
+  },
+  {
     "name": "purge_franchise_sync_runs",
+    "type": "function",
+    "migration": "20260729000010_telemetry_retention.sql"
+  },
+  {
+    "name": "purge_franchise_sync_runs",
+    "type": "function",
+    "migration": "20260827080000_bounded_nightly_retention.sql"
+  },
+  {
+    "name": "purge_buddy_workers",
     "type": "function",
     "migration": "20260729000010_telemetry_retention.sql"
   },
   {
     "name": "purge_buddy_workers",
     "type": "function",
-    "migration": "20260729000010_telemetry_retention.sql"
+    "migration": "20260827080000_bounded_nightly_retention.sql"
   },
   {
     "name": "deal_model_snapshots.quality_flags",
@@ -448,5 +463,40 @@
     "name": "finalize_intake_and_enqueue_processing",
     "type": "function",
     "migration": "20260827010000_atomic_intake_locking.sql"
+  },
+  {
+    "name": "ai_gateway_daily_budgets",
+    "type": "table",
+    "migration": "20260827060000_ai_gateway_durable_governance.sql"
+  },
+  {
+    "name": "ai_gateway_budget_reservations",
+    "type": "table",
+    "migration": "20260827060000_ai_gateway_durable_governance.sql"
+  },
+  {
+    "name": "reserve_ai_gateway_tokens",
+    "type": "function",
+    "migration": "20260827060000_ai_gateway_durable_governance.sql"
+  },
+  {
+    "name": "settle_ai_gateway_tokens",
+    "type": "function",
+    "migration": "20260827060000_ai_gateway_durable_governance.sql"
+  },
+  {
+    "name": "purge_buddy_system_events",
+    "type": "function",
+    "migration": "20260827160000_bounded_telemetry_purge.sql"
+  },
+  {
+    "name": "purge_buddy_workers",
+    "type": "function",
+    "migration": "20260827160000_bounded_telemetry_purge.sql"
+  },
+  {
+    "name": "purge_franchise_sync_runs",
+    "type": "function",
+    "migration": "20260827160000_bounded_telemetry_purge.sql"
   }
 ]

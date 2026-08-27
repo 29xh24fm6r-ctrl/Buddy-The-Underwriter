@@ -463,3 +463,512 @@ Verification target:
   fixture. Direct database verification remains blocked until the owned Buddy
   Supabase project is explicitly available; the differently named project exposed
   by the generic connector was not queried.
+
+### PR 907 production closure and PR 909 Golden Trident request-boundary / CI-honesty factory
+
+Production evidence:
+
+- PR 907 merged externally as `199df7ceb14db01af6cfd6bca97a470acbd51281`;
+  the commissioning agent did not merge it.
+- Vercel production deployment `dpl_9wLdAQSXDcQmH9PxRh1AZ2Br8t5S` is READY
+  on that exact merge. `www.buddysba.com` returned HTTP 200 with the exact
+  `x-buddy-build` SHA, and no error/fatal runtime cluster was observed in the
+  post-deploy window.
+- Source and merge-ref inspection confirms PR 909 retains PR 907's startup-failure
+  lease convergence and post-admission workflow ownership boundaries.
+
+PR 909 evidence and root causes:
+
+- Three Golden Trident initiation surfaces still performed request-scoped inline
+  generation. A platform timeout could terminate the request while the durable
+  bundle lease remained active, producing a 90-minute apparent lockout and an
+  unsafe retry experience.
+- Seventeen tests below Next.js dynamic-route directories were discovered and
+  counted but did not execute. The package script handed bracketed paths through
+  unquoted shell command substitution, allowing the shell to expand or discard
+  them before Node received its positional arguments.
+- Input snapshot ordering used locale-sensitive comparison, feasibility
+  acceptance admitted placeholder narratives, artifact downloads lacked audit
+  events, preview redaction provenance was not wired to the response, and
+  degraded previews did not explain their reason.
+
+Repair:
+
+- Route all three generation entry points through the durable workflow starter and
+  return accepted run identity instead of generating inline.
+- Replace shell command substitution with a `shell:false` argv runner that passes
+  exact literal test paths. Add a guard that executes a real `[token]` route test
+  and requires a non-zero test count.
+- Make snapshot hashing locale-independent, reject placeholder feasibility text,
+  record artifact-download audit events, surface persisted redaction provenance,
+  and give degraded previews an explicit reason.
+- Preserve existing URLs, authorization, workflow admission semantics, and PR 907
+  lease ownership. No schema, migration, dependency, credential, permission,
+  provider configuration, or production-data change is included.
+
+Verification on PR 909 head `badded1be9b87043243e5cbcffe6c001a32e80b8`:
+
+- GitHub reports the branch mergeable, clean, and zero commits behind `main`.
+- CI: 13,214 tests; 13,205 passed, 0 failed, 9 skipped.
+- The effect-based F-24 guard passed, proving tests below dynamic Next.js
+  segment directories execute rather than merely being discovered.
+- React-server condition: 18 passed, 0 failed.
+- Research evaluation: 7 passed, 0 failed, 13 placeholder cases skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500, schema
+  select, and report-only schema-drift gates passed.
+- Build Check, Secret Scan, Route Budget, and public Playwright passed.
+  Public Playwright ran 6 tests: 1 passed and 5 intentionally skipped.
+  Authenticated smoke was unavailable and explicitly skipped.
+- Exact-head Vercel preview `dpl_8s7KrEzvtaptcZEy1Bh6Q4WAzSuY` is READY,
+  returned HTTP 200 with `x-buddy-build` matching the GitHub head, and had no
+  error/fatal runtime logs in the post-deploy observation window.
+- PR 909 is safe for Matt to merge. The commissioning agent did not merge it.
+
+Open checkpoints:
+
+- After merge and deployment, execute one authorized Golden Trident generation
+  and failure/retry fixture to close the transactional lease and delivery path.
+- Direct production-row verification remains blocked until a verified
+  Buddy-owned Supabase project connection is available; the currently exposed
+  differently named project remains unqueried.
+- Replace the 13 research golden-set placeholders with production-backed cases.
+
+### PR 909 production closure and PR 910 SignWell canonical-completion integrity factory
+
+Production and lineage evidence:
+
+- PR 909 merged externally as `034453f92ea4ad71ab943014a0765a47f95af100`;
+  the commissioning agent did not merge it.
+- Vercel production deployment `dpl_2cr6fZWmaecoPv9z9ucYoinY7rpp` is READY
+  on that exact commit. `www.buddysba.com` returned HTTP 200 with
+  `x-buddy-build: 034453f92ea4ad71ab943014a0765a47f95af100`.
+- No Vercel runtime-error cluster was present in the two-hour production
+  observation window.
+- PR 878's seal-to-marketplace-to-lender contract remains in production source
+  lineage through subsequent merges. Transactional closure still requires an
+  authorized fixture; no production deal or provider transaction was created
+  during this cycle.
+
+PR 910 evidence and root cause:
+
+- SignWell's documented event digest authenticates `event.type` and
+  `event.time`, not `data.object`. Buddy refetched the provider document but
+  did not require its canonical ID, terminal completion status, Buddy
+  `external_id`, and recipient email to match the durable signing request
+  before downloading and persisting signed bytes.
+- Completion-time IAL2 evaluation ran before durable signing-request provenance
+  was established, so unbound object fields could reach a deal-scoped anomaly
+  write.
+- The test-mode provider path returned an old permissive document shape and
+  therefore did not exercise the production canonical-completion invariant.
+
+Repair:
+
+- Preserve SignWell metadata when parsing the canonical provider response.
+- Treat webhook object data only as a lookup hint; fail closed unless provider
+  ID, terminal status, external ID, and a non-empty recipient email match the
+  durable signing request before PDF download, storage, or compliance-row
+  persistence.
+- Establish durable signing-request provenance before deal-scoped IAL2 anomaly
+  handling.
+- Make the test-mode completion route reconstruct canonical provider identity
+  from its durable request and add integration and negative regression coverage
+  for document-ID, status, metadata, missing-email, unknown-document, and
+  recipient mismatches.
+- No schema, migration, credential, provider configuration, or production-data
+  mutation is included.
+
+Verification:
+
+- The first full run exposed two stale happy-path fixtures; both were repaired,
+  and the complete suite was rerun.
+- On pre-reconciliation head `09d21511121d26ebaa5eda2b11391890d1fd5df6`:
+  13,193 tests ran; 13,184 passed, 0 failed, 9 skipped. React-server tests were
+  18/18. Research evaluation was 7 passed, 0 failed, with 13 known placeholder
+  cases skipped. Public Playwright passed (1 passed, 5 intentionally skipped);
+  authenticated smoke was unavailable and explicitly skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only schema drift, Build Check, Secret Scan, and Route
+  Budget passed.
+- Exact-head preview `dpl_4cSZXDnQPvPxmrnsk47NumFCx8wh` was READY, returned
+  HTTP 200 with the matching head SHA, and had no error/fatal runtime logs.
+- After PR 909 merged, current `main` was reconciled into PR 910 with no
+  overlapping files. The final exact-head CI/preview rerun is required before
+  the PR can be marked merge-ready.
+
+Open checkpoints:
+
+- Do not merge PR 910 until its post-reconciliation exact-head checks are green.
+- After PR 910 merges, execute one authorized SignWell completion/replay fixture
+  and verify the signed-document row, storage artifact, audit event, and durable
+  request transition.
+- Direct production-row verification remains blocked until the verified
+  Buddy-owned Supabase project connection is available; the differently named
+  project exposed by the generic connector remains unqueried.
+- Golden Trident generation/failure-retry/delivery closure still requires an
+  authorized transactional fixture.
+- Replace the 13 research golden-set placeholders with production-backed cases.
+
+
+
+### PR 910 production closure and SignWell request-compensation factory
+
+Production closure:
+
+- PR 910 merged externally as `743899a2e83fe57e7412f5cd4dfb705b751302d5`;
+  the commissioning agent did not merge it.
+- Vercel production deployment `dpl_6dMXz7uB1HpgbpTaEgghnEgN2bcy` is READY
+  on that exact SHA. `www.buddysba.com` returned HTTP 200 with the same
+  `x-buddy-build` value.
+- No PR 910 runtime-error cluster was observed. The two aggregated Golden
+  Trident workflow failures in the seven-day view are deliberate publication
+  blocks after institutional review and belong to older deployments.
+- Transactional SignWell completion/replay closure still requires an authorized
+  fixture; no provider transaction or production row was mutated in this cycle.
+
+New evidence and root cause:
+
+- `requestSignature` creates and sends a non-draft SignWell document before
+  inserting Buddy's durable `signing_requests` provenance row.
+- A missing provider signing URL, a returned insert error, or a thrown database
+  error returned `SUBMISSION_FAILED` without cancelling the already-created
+  provider document. The recipient could retain a live signing invitation that
+  Buddy could not reconcile, while a retry could create a second request.
+- SignWell's current API contract documents
+  `DELETE /api/v1/documents/{id}`; deletion also cancels signing in progress
+  and returns HTTP 204 on success.
+
+Repair branch: `fix/signwell-untracked-document-compensation`.
+
+Repair:
+
+- Add a typed SignWell deletion client that accepts the documented 204 empty
+  response.
+- Compensate every post-creation/pre-tracking failure by deleting the provider
+  document before returning failure.
+- If provider cleanup itself fails, preserve the original failure, return an
+  explicit `provider_cleanup_failed` condition, and log the provider document
+  identity for operational reconciliation.
+- Wire the real and mock client shapes through every Buddy signing route and add
+  regression coverage for missing URLs, database errors and throws, cleanup
+  failure observability, provider endpoint shape, and mock parity.
+- No schema, migration, credential, provider configuration, or production-data
+  change is included.
+
+Verification on code head `427233b794275ee04aee6df66c590647c5e1c200`:
+
+- CI ran 13,224 tests: 13,215 passed, 0 failed, 9 skipped.
+- React-server-condition tests passed 18/18. Research evaluation passed 7/7;
+  the 13 known production-data placeholders remain explicitly skipped.
+- Typecheck, lint, architecture, legacy-write, safety, polling, Never-500,
+  schema-select, report-only schema-drift, Build Check, Secret Scan, Route
+  Budget, and public Playwright passed. Authenticated smoke was unavailable
+  and explicitly skipped.
+- Exact code-head Vercel preview `dpl_GaEogpbrZGksVcrixASH46iK9xJz` is
+  READY, returned HTTP 200 with matching `x-buddy-build`, and recorded no
+  error/fatal runtime logs in the post-deploy window.
+- The complete diff is one commit ahead of current `main`, zero commits
+  behind, and limited to this repair, regression coverage, route wiring, and
+  the ledger. A final ledger-only close commit must retain green required
+  checks before merge recommendation.
+
+Open checkpoints:
+
+- After merge, verify deployed production behavior and execute one authorized
+  failure-compensation fixture plus completion/replay fixture.
+- Direct production-row verification remains blocked until the verified
+  Buddy-owned Supabase connection is restored; the differently named project
+  exposed by the generic connector remains unqueried.
+
+### PR 917 AI gateway durable-governance factory
+
+Production and dependency checkpoint:
+
+- Production remains on Buddy The Underwriter commit
+  `3c59678b18c6e4127520c76acb606097899c44b2`, which contains the externally
+  merged PRs 911-914. The commissioning agent did not merge them.
+- PR 915 (terminal SignWell convergence) and PR 916 (Golden Trident
+  commissioning-support convergence) remain open, mergeable, and independent
+  of this arc.
+- PR 878's seal-to-marketplace-to-lender code lineage remains deployed.
+  Transactional delivery closure still requires an authorized Golden Trident
+  fixture; no production deal, provider call, or row was created in this arc.
+
+Evidence and root causes:
+
+- `logGatewayCall` swallowed Supabase insert and client failures. A provider
+  result could therefore drive underwriting state without durable SR 11-7
+  audit evidence; a failed attempt could also advance to a second provider
+  while neither attempt was durably recorded.
+- Daily token budgets were process-local maps, so parallel or recycled Vercel
+  instances could each admit the full daily allowance.
+- Streaming calls recorded zero input and output tokens, and embedding calls
+  used the same process-local authority.
+- A first repair draft released expired reservations at zero. Review proved
+  that a process crash after provider admission would reopen potentially spent
+  capacity, so abandoned reservations must be conservatively charged.
+- Character-based estimation could undercount multilingual text. UTF-8 bytes
+  provide a conservative tokenizer-independent upper bound.
+
+Repair in PR 917:
+
+- Make ledger persistence observable and fail closed before an unledgered AI
+  result or fallback attempt can affect product state.
+- Add service-role-only, `SECURITY DEFINER`, empty-search-path reservation and
+  settlement RPCs plus private daily-budget and reservation tables.
+- Serialize admission per UTC day and role with transaction advisory locks,
+  account for active reservations, settle idempotently, and charge expired
+  unconfirmed reservations at their reserved upper bound.
+- Cover generator roles and the gateway-adjacent embedder with the same durable
+  authority. Reserve text by UTF-8 byte upper bound and meter streaming output
+  conservatively instead of recording zero.
+- Revoke table and RPC access from PUBLIC, `anon`, and `authenticated`;
+  grant only `service_role`. The budget tables store counters and role/day
+  metadata only—no prompt, document, model output, or borrower data.
+- Preserve provider chains, model selection, NPI gates, prompts, underwriting
+  calculations, artifact persistence, sealing, publishing, and delivery
+  behavior.
+- Add behavioral tests for fail-closed success/failure paths, embeddings,
+  multilingual estimates, typed budget exhaustion/persistence errors, atomic
+  RPC shape, crash-safe expiry, and schema/privilege tripwires.
+
+Validation history:
+
+- Initial exact-head TypeScript correctly exposed the embedding ledger's stale
+  `Promise<void>` contract; the embedding path was brought under the same
+  fail-closed contract rather than weakened with a type-only patch.
+- A subsequent broad run passed TypeScript, lint, architecture and safety
+  guards, then exposed legacy unit callers that replace providers without a
+  database ledger seam plus one formatting-sensitive structural assertion.
+  Production detection now requires exact real provider and ledger bindings;
+  explicit false-ledger tests still exercise fail-closed behavior.
+- Final exact-head Build Check, CI, preview, and runtime-clean verification are
+  required before this draft can be marked merge-ready.
+
+Open checkpoints:
+
+- Do not merge PR 917 until its final exact-head required checks and Vercel
+  preview are green.
+- The migration has not been applied or queried directly. After merge, verify
+  tables, function definitions, browser-role denials, service-role execution,
+  concurrent admission, settlement, and expiry only through the explicitly
+  verified Buddy-owned Supabase connection.
+- Direct production-row verification remains blocked because the available
+  differently named project has unconfirmed ownership and remains unqueried.
+- Authenticated browser checks, authorized identity/signing/Golden Trident
+  fixtures, and the 13 production-backed research cases remain outstanding.
+
+## 2026-08-27 — bounded nightly work and empty-portfolio convergence
+
+Resume checkpoint:
+
+- PRs 915, 916, and 917 have merged into current `main`; their SignWell,
+  Golden Trident, and durable AI-governance work is preserved in this resolved
+  branch.
+- PR 918 is synchronized through a non-destructive merge of current `main`
+  with only its bounded-nightly-work repair.
+- Direct Buddy database verification remains blocked because the available
+  connector exposes a differently named project whose ownership is not
+  verified. It was not queried.
+
+Production evidence:
+
+- On deployment `dpl_2TxXjafT9K4Y1PMo5ojy7hmQCZ7j` at
+  2026-08-27T07:30:38Z, `/api/cron/nightly` logged
+  `No final decisions found for portfolio aggregation` for five banks.
+- The same run logged a PostgreSQL statement timeout from
+  `purge_buddy_system_events`.
+- The failures are independent of PRs 915-917 and are addressed on branch
+  `codex/nightly-bounded-work`.
+
+Root causes:
+
+- Portfolio aggregation discarded Supabase read and write errors, while
+  throwing for the normal state where a bank has no final decisions. The
+  nightly route therefore emitted production errors and skipped later
+  no-op-safe governance steps for empty banks.
+- Each retention RPC looped through the entire backlog in one transaction.
+  A statement timeout rolled back every batch, so a sufficiently large
+  backlog could make no durable progress.
+- The TypeScript orchestrator called each purge once and stopped at the first
+  failure, allowing one retention path to starve the others.
+
+Repair:
+
+- Empty portfolios now return an explicit null result, while decision reads
+  and snapshot writes fail loudly and distinctly.
+- The nightly route records `skipped_no_final_decisions` and continues policy
+  drift and living-policy work.
+- Additive migration
+  `20260827080000_bounded_nightly_retention.sql` replaces all three purge
+  functions with one 5,000-row transaction per RPC, an empty search path,
+  fully qualified relations, and service-role-only execution.
+- The application drains up to ten batches per table per nightly run, validates
+  provider counts, attempts every table even when one fails, and reports an
+  aggregate failure afterward.
+- Regression coverage exercises empty portfolios, database failures, snapshot
+  writes, draining, caps, cross-table isolation, count validation, and SQL
+  architecture invariants. The schema manifest records the replacement
+  function provenance.
+
+Verification:
+
+- The first CI run correctly rejected replacement-only manifest provenance;
+  the ledger now preserves both the original and replacement migration entries.
+- On code head `966f801aebbb298310671b411d2a11229eb17245`, 13,246 tests
+  ran: 13,237 passed, 0 failed, and 9 skipped. React-server tests passed 18/18.
+  Research evaluation passed 7/7 with the 13 known production-data placeholders
+  explicitly skipped; public Playwright passed with authenticated smoke
+  explicitly skipped.
+- Typecheck, lint, architectural guards, legacy-write, safety, polling,
+  Never-500, schema-select, report-only schema drift, CI, Build Check, Secret
+  Scan, and Route Budget passed.
+- Exact code-head preview `dpl_9hwSDkqnquCcR2HidfWXE3FnV9Tg` was READY,
+  returned HTTP 200 with matching `x-buddy-build`, and had no warning, error,
+  or fatal runtime logs in the verification window.
+- The final ledger-only head must retain the same green required checks before
+  the PR is marked merge-ready.
+- No migration, provider transaction, production row, or production data was
+  changed during this cycle.
+
+Post-merge closure:
+
+- Apply the migration through the normal deployment path, then confirm the next
+  nightly run reports empty portfolios as skips rather than errors.
+- Using the verified Buddy-owned Supabase connection, verify each purge commits
+  bounded progress and that subsequent runs drain the backlog without statement
+  timeouts.
+- The separate transactional blockers remain: authorized SignWell,
+  identity/authenticated-browser, and Golden Trident fixtures, plus replacement
+  of 13 research placeholder cases with production-backed regressions.
+
+### PR 919 — borrower portal token-state convergence and storage privacy
+
+Evidence and root cause:
+
+- The authoritative `peek_borrower_portal_link` RPC rejects expired,
+  revoked, and consumed single-use links, but thirteen public portal data and
+  mutation routes bypassed it with service-role table reads.
+- The document-listing route selected `expires_at` but never enforced it, so
+  an expired bearer link could enumerate borrower filenames, document status,
+  and private storage bucket/object coordinates.
+- Revoked or consumed links remained usable across context, checklist,
+  condition, guided-evidence, document-confirmation, loan-request, request
+  status, and condition-upload paths.
+- Borrower-facing Golden Trident preview generation and signed artifact
+  downloads used a separate direct-table gate which did not enforce consumed
+  state.
+- The context route manually marked a single-use link consumed before the
+  portal's later API calls, leaving authorization behavior split across routes.
+- A legacy orchestration guard encoded the vulnerable direct-table lookup as
+  its definition of token validation.
+
+Repair:
+
+- Converge public portal data and mutation routes on
+  `resolveBorrowerToken`, which validates invites and routes portal links
+  through the authoritative state-machine RPC.
+- Converge session-aware upload context resolution on the same helper.
+- Route Trident portal authorization through `peekBorrowerPortalLink`.
+- Remove storage bucket/object coordinates from the public document response.
+- Replace the stale direct-table guard and add a recursive tripwire preventing
+  future public portal routes from querying `borrower_portal_links`
+  directly.
+- Add Trident tests for expired, revoked, consumed, missing, and indeterminate
+  link state. No migration, credential, provider configuration, or production
+  data change is included.
+
+Verification in progress:
+
+- Initial TypeScript, lint, architecture, safety, Secret Scan, and Route Budget
+  checks passed.
+- Exact code-head preview `dpl_AJzxw3yqt1boyMknvcrcRSAkz5rk` was READY,
+  returned HTTP 200 with matching `x-buddy-build`
+  `5b09ef0d24a8891f0da8aa518b6bae0efaab090f`, and had no error/fatal
+  runtime logs.
+- An unauthenticated request to
+  `/api/portal/commissioning-invalid-token/docs` returned the expected
+  HTTP 404 JSON response.
+- The first broad unit run found the stale phase-65F direct-table guard. The
+  guard has been corrected and the exact-head suite must be green before this
+  PR is merge-ready.
+
+Open checkpoints:
+
+- Monitor PR 919's exact-head required checks and preview after the guard/ledger
+  push; do not merge from commissioning.
+- After merge, reverify the deployed SHA and execute an authorized
+  expired/revoked/consumed-token fixture across document listing, condition
+  upload, and Trident preview/download.
+- Direct row verification remains blocked until the verified Buddy-owned
+  Supabase connection is available. Authenticated browser credentials and
+  authorized transactional identity/signing/Golden Trident fixtures also
+  remain outstanding.
+- The next independent audit target is storage-object lifecycle and orphan
+  reconciliation after the token boundary is deployed.
+
+### Storage lifecycle convergence factory
+
+Production and source evidence on 2026-08-27:
+
+- A signed-out request to
+  `/api/deals/eefd62b3-4ae2-4d43-bb80-9953fdca9bcc/uploads`
+  returned HTTP 200 from deployed production with
+  `x-clerk-auth-status: signed-out`. The current invocation returned an empty
+  array, but the route would expose deal-scoped temporary filenames, sizes, and
+  timestamps whenever its warm function instance held files.
+- The legacy `POST /api/storage/upload` route authorized the deal before
+  writing, but both its GCS and Supabase branches returned success after storing
+  bytes without creating `borrower_uploads` or `deal_documents` provenance.
+  A caller interruption or a missing follow-up therefore left an unowned object.
+- No `/api/storage/upload` invocation was found in the available 24-hour
+  production runtime-log window. That is evidence of no observed recent use,
+  not proof that the compatibility route has no callers.
+- The separate orphan detector remains a dark supporting path: it depends on a
+  caller-supplied `exec_sql` RPC and its database-only query is not scoped to
+  the scanned bucket/prefix. It is recorded as a later repair target and was not
+  activated or run against production.
+
+Repair branch: `codex/storage-lifecycle-convergence`.
+
+Repair:
+
+- Require tenant-authorized deal access before any filesystem metadata read in
+  the legacy inventory route.
+- Make every production legacy upload persist canonical upload provenance and
+  run the existing idempotent materializer before returning HTTP 200.
+- Make upload commit failures phase-aware. If the durable audit row exists,
+  preserve the object and return HTTP 202 so background reconciliation can
+  recover without asking the user to upload again.
+- If provenance fails before any durable row exists, remove only the object
+  created by that same request using the provider API. Surface failed
+  compensation as an explicit reconciliation condition.
+- Add behavior tests for successful commit, durable retry, safe compensation,
+  failed compensation, unknown-error byte preservation, and source guards for
+  authorization and both storage providers.
+- No pre-existing object, production row, schema, RLS policy, provider
+  configuration, credential, or dependency is changed.
+
+Verification on code head `26f0f7d9f0f88d09d8817b9c3f493fb5e4344a8a`:
+
+- CI ran 13,246 tests: 13,237 passed, 0 failed, and 9 skipped.
+  React-server-condition tests passed 18/18. Research evaluation passed 7/7;
+  the 13 known production-data placeholders remain explicitly skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only schema drift, Build Check, Secret Scan, Upload
+  Architecture Guard, Route Budget, and public Playwright passed. Public
+  Playwright ran 1 test and skipped 5 authenticated tests because credentials
+  were unavailable.
+- Exact-head Vercel preview `dpl_DGY1EZsDfK15otJHZaEEbZssqLqs` is READY,
+  returned HTTP 200 with `x-buddy-build` matching the code head, and recorded
+  no error/fatal runtime logs in the post-deploy observation window.
+- The same signed-out inventory probe that returned HTTP 200 in production
+  returned HTTP 401 from the exact-head preview with
+  `{"ok":false,"error":"authentication_required"}`.
+- PR 919 remains independently open, mergeable, and zero commits behind
+  `main`; this repair does not modify its portal-token surfaces.
+- Direct orphan-row verification remains blocked until the verified Buddy-owned
+  Supabase connection is available. No unverified database project was queried.
+- This evidence-only ledger commit does not change runtime code. Its resulting
+  exact head must retain green required checks and a READY, SHA-matched preview
+  before merge recommendation.

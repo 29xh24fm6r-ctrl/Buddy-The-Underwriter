@@ -11,6 +11,7 @@ import "server-only";
  * `borrower_portal_links` directly for state.
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export type PortalLinkRow = {
@@ -64,9 +65,10 @@ function classify(rawMessage: string | null | undefined): PortalLinkErrorCode {
  */
 export async function consumeBorrowerPortalLink(
   token: string,
+  sb?: SupabaseClient,
 ): Promise<PortalLinkRow> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb.rpc("consume_borrower_portal_link", {
+  const client = sb ?? supabaseAdmin();
+  const { data, error } = await client.rpc("consume_borrower_portal_link", {
     p_token: token,
   });
   if (error) {
@@ -90,9 +92,10 @@ export async function consumeBorrowerPortalLink(
  */
 export async function peekBorrowerPortalLink(
   token: string,
+  sb?: SupabaseClient,
 ): Promise<PortalLinkRow> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb.rpc("peek_borrower_portal_link", {
+  const client = sb ?? supabaseAdmin();
+  const { data, error } = await client.rpc("peek_borrower_portal_link", {
     p_token: token,
   });
   if (error) {

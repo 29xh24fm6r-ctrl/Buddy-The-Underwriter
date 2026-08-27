@@ -17,14 +17,9 @@ const state: {
   ensureResult: { ok: true, assumptionsId: "asm-1", alreadyConfirmed: false },
   generateResult: {
     ok: true,
+    accepted: true,
     bundleId: "bundle-1",
-    mode: "preview",
-    paths: {
-      businessPlanPdf: "deal-1/preview/biz.pdf",
-      projectionsPdf: "deal-1/preview/proj.pdf",
-      projectionsXlsx: null,
-      feasibilityPdf: "deal-1/preview/feas.pdf",
-    },
+    runId: "run-1",
   },
   generateCalls: [],
   bundleRow: {
@@ -51,14 +46,9 @@ function reset() {
   };
   state.generateResult = {
     ok: true,
+    accepted: true,
     bundleId: "bundle-1",
-    mode: "preview",
-    paths: {
-      businessPlanPdf: "deal-1/preview/biz.pdf",
-      projectionsPdf: "deal-1/preview/proj.pdf",
-      projectionsXlsx: null,
-      feasibilityPdf: "deal-1/preview/feas.pdf",
-    },
+    runId: "run-1",
   };
   state.generateCalls = [];
   state.bundleRow = {
@@ -97,13 +87,13 @@ require.cache[
 } as any;
 
 require.cache[
-  require.resolve("@/lib/brokerage/trident/generateTridentBundle")
+  require.resolve("@/lib/brokerage/trident/startTridentGeneration")
 ] = {
-  id: "gen-stub",
-  filename: "gen-stub",
+  id: "start-stub",
+  filename: "start-stub",
   loaded: true,
   exports: {
-    generateTridentBundle: async (a: { dealId: string; mode: string }) => {
+    startTridentGeneration: async (a: { dealId: string; mode: string }) => {
       state.generateCalls.push(a);
       return state.generateResult;
     },
@@ -187,23 +177,32 @@ test("portal preview: assumptions blocked → missing_prerequisites + gaps + no 
   assert.equal(state.generateCalls.length, 0);
 });
 
-test("portal preview: happy path → generator called with mode=preview, ok bundle returned", async () => {
+test("[F-17] portal preview: happy path admits the run and returns 202, never waits for it", async () => {
   reset();
   state.resolvedToken = { token: "t", dealId: "deal-1" };
   const { status, body } = await call("t");
-  assert.equal(status, 200);
+  // 202, not 200: the artifacts do not exist yet. This route used to await
+  // the whole factory in-request and return the finished bundle.
+  assert.equal(status, 202);
   assert.equal(body.ok, true);
+  assert.equal(body.accepted, true);
+  assert.equal(body.bundleId, "bundle-1");
+  assert.equal(body.alreadyRunning, false);
   assert.equal(state.generateCalls.length, 1);
   assert.equal(state.generateCalls[0].mode, "preview");
-  assert.equal(body.bundle.id, "bundle-1");
-  assert.equal(body.bundle.mode, "preview");
-  assert.equal(body.bundle.status, "succeeded");
-  assert.equal(body.bundle.businessPlanPdfPath, "deal-1/preview/biz.pdf");
-  assert.equal(body.bundle.projectionsPdfPath, "deal-1/preview/proj.pdf");
-  assert.equal(body.bundle.feasibilityPdfPath, "deal-1/preview/feas.pdf");
 });
 
-test("portal preview: generator failure surfaces bundle in failed state", async () => {
+test("[F-17] portal preview: an already-running lease is accepted, not an error", async () => {
+  reset();
+  state.resolvedToken = { token: "t", dealId: "deal-1" };
+  state.generateResult = { ok: true, accepted: true, bundleId: "bundle-1", alreadyRunning: true };
+  const { status, body } = await call("t");
+  assert.equal(status, 202);
+  assert.equal(body.ok, true);
+  assert.equal(body.alreadyRunning, true, "a second click joins the run in flight");
+});
+
+test("portal preview: admission failure surfaces bundle in failed state", async () => {
   reset();
   state.resolvedToken = { token: "t", dealId: "deal-1" };
   state.generateResult = {

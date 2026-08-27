@@ -10,21 +10,20 @@ import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadSBAAssumptionsPrefill } from "@/lib/sba/sbaAssumptionsPrefill";
 import { logSbaAssumptionsEvent } from "@/lib/sba/logSbaAssumptionsEvent";
-import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
+import { startTridentGeneration } from "@/lib/brokerage/trident/startTridentGeneration";
 import { computeBuddySBAScore } from "@/lib/score/buddySbaScore";
 import { supabaseAdmin as supabaseAdminClient } from "@/lib/supabase/admin";
 import { validateSBAAssumptions } from "@/lib/sba/sbaAssumptionsValidator";
 import type { SBAAssumptions } from "@/lib/sba/sbaReadinessTypes";
 
 export const runtime = "nodejs";
-// SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — bumped from 30s. Confirming now
-// synchronously triggers generateTridentBundle (SBA package + business-plan
-// verification + feasibility study), matching the 120s precedent already
-// established by src/app/api/deals/[dealId]/sba/route.ts's own
-// generate-package action for the same class of work. A fire-and-forget
-// call from inside a serverless function handler is unreliable — the
-// function can be torn down once the response is sent (same reasoning as
-// the seal route's hostile-interrogation call) — so this is awaited.
+// Confirming admits a preview bundle and hands it to the durable workflow,
+// so this ceiling no longer has to cover the factory itself — only the
+// score computation and the assumptions write. It was raised to 120s when
+// confirming awaited the generator inline, on the reasoning that
+// fire-and-forget does not survive serverless teardown. The durable
+// workflow removed that trade-off; the headroom is kept because the score
+// path is unchanged.
 export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
@@ -275,15 +274,22 @@ export async function PATCH(
   }
 
   // SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — this is the confirm action's
-  // actual downstream trigger. Prior to this fix nothing ever called
-  // generateTridentBundle() from the confirm path at all: confirmAndContinue()
-  // separately fired /generate-pdf, which only renders a narrower borrower
-  // roadmap PDF and never touches buddy_sba_packages/buddy_trident_bundles.
-  // Every one of those tables sat at 0 rows in production because of this —
-  // not because confirming itself failed, but because nothing was ever
-  // wired to react to it. Best-effort: a bundle-generation failure must
-  // never undo or mask the assumptions confirmation itself (the borrower's
-  // status IS confirmed regardless), but it must be visible from data.
+  // actual downstream trigger. Prior to that fix nothing reacted to confirm
+  // at all: confirmAndContinue() separately fired /generate-pdf, which only
+  // renders a narrower borrower roadmap PDF and never touches
+  // buddy_sba_packages/buddy_trident_bundles. Every one of those tables sat
+  // at 0 rows in production because of it.
+  //
+  // The trigger now ADMITS the run and hands it to the durable workflow
+  // rather than awaiting the factory in-request (audit F-17). Confirming had
+  // the tightest ceiling of the three inline surfaces at 120s — well under
+  // what a preview run needs — so this path reliably timed out and stranded
+  // the bundle's 90-minute lease, which then refused the borrower's own
+  // retry from the portal.
+  //
+  // Best-effort is unchanged: failing to start must never undo or mask the
+  // confirmation itself (the borrower's status IS confirmed regardless), but
+  // it must stay visible from data.
   let bundleGeneration: { ok: boolean; bundleId: string | null; error?: string } | undefined;
   if (patch.status === "confirmed") {
     await logSbaAssumptionsEvent(
@@ -291,27 +297,33 @@ export async function PATCH(
       sb,
     );
     try {
-      const bundleResult = await generateTridentBundle({
+      const started = await startTridentGeneration({
         dealId: ctx.dealId,
         mode: "preview",
       });
-      bundleGeneration = bundleResult.ok
-        ? { ok: true, bundleId: bundleResult.bundleId }
-        : { ok: false, bundleId: null, error: bundleResult.error };
+      bundleGeneration = started.ok
+        ? { ok: true, bundleId: started.bundleId }
+        : { ok: false, bundleId: null, error: started.error };
       await logSbaAssumptionsEvent(
         {
           dealId: ctx.dealId,
           bankId: ctx.bankId,
-          eventType: bundleResult.ok ? "bundle_generation_succeeded" : "bundle_generation_failed",
-          detail: bundleResult.ok
-            ? { bundleId: bundleResult.bundleId }
-            : { error: bundleResult.error },
+          // "accepted", not "succeeded": the run is admitted here and
+          // completes in the workflow. The bundle row is the record of
+          // whether it finished.
+          eventType: started.ok ? "bundle_generation_accepted" : "bundle_generation_failed",
+          detail: started.ok
+            ? {
+                bundleId: started.bundleId,
+                alreadyRunning: started.alreadyRunning === true,
+              }
+            : { error: started.error },
         },
         sb,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error("[sba-assumptions] generateTridentBundle failed (non-fatal to confirm):", message);
+      console.error("[sba-assumptions] trident admission failed (non-fatal to confirm):", message);
       bundleGeneration = { ok: false, bundleId: null, error: message };
       await logSbaAssumptionsEvent(
         {

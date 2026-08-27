@@ -37,6 +37,11 @@ type LocalState =
   | { phase: "blocked"; gaps: string[] };
 
 const POLL_MS = 4000;
+// A preview run is minutes, not seconds. Cap the wait so a run that dies
+// without ever publishing a bundle surfaces as a failure the borrower can
+// retry, instead of an indefinite spinner.
+const POLL_TIMEOUT_MS = 15 * 60 * 1000;
+const MAX_POLLS = Math.ceil(POLL_TIMEOUT_MS / POLL_MS);
 
 export function TridentPreviewCard({ token }: { token: string }) {
   const [state, setState] = React.useState<LocalState>({
@@ -87,7 +92,7 @@ export function TridentPreviewCard({ token }: { token: string }) {
         credentials: "include",
       });
       const json = (await res.json()) as
-        | { ok: true; bundle: BundleShape }
+        | { ok: true; accepted: true; bundleId: string; alreadyRunning: boolean }
         | { ok: false; error: "missing_prerequisites"; gaps: string[] }
         | {
             ok: false;
@@ -106,7 +111,10 @@ export function TridentPreviewCard({ token }: { token: string }) {
       }
 
       if (json.ok) {
-        setState({ phase: "succeeded", bundle: json.bundle });
+        // The run is admitted, not finished — the durable workflow carries it
+        // on after this response. Stay in "generating"; the poll below picks
+        // up the bundle once latest-preview reports it succeeded.
+        setState({ phase: "generating" });
         return;
       }
 
@@ -136,11 +144,22 @@ export function TridentPreviewCard({ token }: { token: string }) {
   React.useEffect(() => {
     if (state.phase !== "generating") return;
     let cancelled = false;
+    let attempts = 0;
     const tick = async () => {
       const bundle = await fetchLatest();
       if (cancelled) return;
       if (bundle) {
         setState({ phase: "succeeded", bundle });
+        return;
+      }
+      attempts += 1;
+      if (attempts >= MAX_POLLS) {
+        setState({
+          phase: "failed",
+          bundle: null,
+          message:
+            "This is taking longer than expected. Your preview may still be finishing — reload the page in a few minutes, or try again.",
+        });
         return;
       }
       pollHandle.current = setTimeout(tick, POLL_MS);

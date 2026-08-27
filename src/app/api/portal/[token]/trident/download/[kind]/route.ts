@@ -22,6 +22,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolvePortalToken } from "@/lib/brokerage/trident/portalTokenAuth";
+import { auditPackageDownload } from "@/lib/brokerage/packageDelivery";
 
 export const runtime = "nodejs";
 
@@ -80,6 +81,22 @@ export async function GET(
   if (error || !signed?.signedUrl) {
     return NextResponse.json({ ok: false }, { status: 500 });
   }
+
+  // This route wrote no audit entry at all, so borrower-portal artifact
+  // pulls left no trace while the cookie-scoped route recorded credit-memo
+  // pulls (audit F-21). Best-effort: an audit-write failure must not deny
+  // the borrower their own preview.
+  await auditPackageDownload(
+    {
+      actor: dealId,
+      actorScope: "borrower",
+      dealId,
+      action: "package_download",
+      resourceType: `trident_${kind.replace(/-/g, "_")}`,
+      metadata: { mode: "preview", surface: "borrower_portal" },
+    },
+    sb as any,
+  ).catch(() => {});
 
   return NextResponse.json({
     ok: true,

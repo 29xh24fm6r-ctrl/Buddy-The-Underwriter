@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
+
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
 // 10s default for cold-start auth + multi-step Supabase I/O.
@@ -19,6 +22,18 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       );
     }
 
+    // Fail closed before reading any deal-scoped filesystem metadata.
+    try {
+      await assertDealAccess(dealId);
+    } catch (error) {
+      const accessResponse = accessErrorToResponse(error);
+      if (accessResponse) return accessResponse;
+      return NextResponse.json(
+        { ok: false, error: "access_check_failed" },
+        { status: 500 },
+      );
+    }
+
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
 
@@ -31,7 +46,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       names = [];
     }
 
-    // Return newest-first
     const files = await Promise.all(
       names.map(async (name) => {
         const full = path.join(dir, name);

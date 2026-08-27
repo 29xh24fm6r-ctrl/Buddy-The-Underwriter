@@ -76,6 +76,29 @@ export async function getOrCreateBorrowerSession(): Promise<BrokerageBorrowerSes
     throw new Error("claim_brokerage_session returned no deal_id");
   }
 
+  // SPEC-PRODUCT-TYPE-CANON-1 — stamp the canonical product on the deal.
+  //
+  // claim_brokerage_session inserts only bank_id, deal_type='SBA', origin,
+  // display_name and the session token hash. It leaves deals.product_type
+  // NULL, and product_type is the field dealProductType.isSBA() requires and
+  // the intake scenario derives from. In production every buddysba.com deal
+  // had product_type NULL, so isSBA() returned false for all of them and the
+  // SBA slot policy never activated.
+  //
+  // buddysba.com is the SBA brokerage: a deal minted by this session IS an
+  // SBA 7(a) candidate. A banker can still narrow it to 504/Express later —
+  // this only fills the NULL. Best-effort: a stamping failure must not cost
+  // the borrower their session.
+  try {
+    await sb
+      .from("deals")
+      .update({ product_type: "SBA_7A" })
+      .eq("id", dealId)
+      .is("product_type", null);
+  } catch (err) {
+    console.error("[brokerage/session] failed to stamp product_type", err);
+  }
+
   // Set the cookie so the borrower's next request resolves to the same
   // session. Server-only — never read by the client.
   const cookieStore = await cookies();

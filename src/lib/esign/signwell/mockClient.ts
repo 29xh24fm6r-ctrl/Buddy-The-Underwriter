@@ -5,7 +5,7 @@
  * the vendor HTTP calls are faked; the IAL2 re-check-at-completion,
  * signed_documents insert, and storage upload are all real.
  *
- * Only 3 methods, matching SignwellClient exactly — unlike the old DocuSeal
+ * Only 4 methods, matching SignwellClient exactly — unlike the old DocuSeal
  * mock this replaces, there is no separate audit-trail download: SignWell's
  * Audit & Lock trail is appended inside the same completed PDF.
  */
@@ -35,15 +35,36 @@ export async function mockCreateSignwellDocumentFromFile(_args: {
   };
 }
 
-export async function mockFetchSignwellDocument(documentId: string): Promise<{
+export async function mockDeleteSignwellDocument(_documentId: string): Promise<void> {
+  // The mock provider has no external state. Keeping the method in the
+  // exact client shape lets failure-compensation paths stay swappable.
+}
+
+export async function mockFetchSignwellDocument(
+  documentId: string,
+  canonical: { externalId: string; recipientEmail: string },
+): Promise<{
   id: string | number;
   status: string;
-  recipients: Array<{ id: string | number; signing_url?: string | null; embedded_signing_url?: string | null }>;
+  metadata: { external_id: string };
+  recipients: Array<{
+    id: string | number;
+    email: string;
+    signing_url?: string | null;
+    embedded_signing_url?: string | null;
+  }>;
 }> {
   return {
     id: documentId,
     status: "completed",
-    recipients: [{ id: "1", embedded_signing_url: `https://www.signwell.com/embed/mock-${documentId}` }],
+    metadata: { external_id: canonical.externalId },
+    recipients: [
+      {
+        id: "1",
+        email: canonical.recipientEmail,
+        embedded_signing_url: `https://www.signwell.com/embed/mock-${documentId}`,
+      },
+    ],
   };
 }
 

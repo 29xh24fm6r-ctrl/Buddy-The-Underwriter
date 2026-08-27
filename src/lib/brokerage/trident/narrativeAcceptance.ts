@@ -70,7 +70,14 @@ export function assessFeasibilityNarratives(
   narratives: Record<string, unknown> | null,
 ): { ok: boolean; substantive: number; required: number } {
   const substantive = FEASIBILITY_REQUIRED_NARRATIVES.filter(
-    (field) => wordCount(narratives?.[field]) >= 45,
+    // isPresentationSafe applies here for the same reason it applies to the
+    // business plan: both are model output rendered verbatim into a
+    // lender-facing PDF, and this module exists to catch "a real PDF around
+    // placeholder text". Only the plan was checked, so a feasibility section
+    // returned as a fenced JSON blob cleared the word count and shipped to
+    // the committee (audit F-20).
+    (field) =>
+      wordCount(narratives?.[field]) >= 45 && isPresentationSafe(narratives?.[field]),
   ).length;
   const required = FEASIBILITY_REQUIRED_NARRATIVES.length;
   // Same threshold as before — five substantive sections — but they must now

@@ -1,6 +1,6 @@
 // src/app/api/portal/deals/[dealId]/ownership/refresh/route.ts
 import { NextResponse } from "next/server";
-import { requireValidInvite } from "@/lib/portal/auth";
+import { bearerToken, requireInviteForDeal } from "@/lib/portal/auth";
 import { extractOwnershipFindings } from "@/lib/ownership/extractor";
 
 export const runtime = "nodejs";
@@ -17,11 +17,9 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const authHeader = req.headers.get("authorization") ?? "";
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    await requireValidInvite(token);
-
     const { dealId } = await ctx.params;
+    await requireInviteForDeal(bearerToken(req.headers.get("authorization")), dealId);
+
     const findings = await extractOwnershipFindings(dealId);
     return NextResponse.json({ ok: true, found: findings.length });
   } catch (e: any) {

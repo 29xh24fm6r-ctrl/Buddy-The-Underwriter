@@ -4,6 +4,7 @@ import { PDFDocument } from "pdf-lib";
 import {
   mockCreateSignwellDocumentFromFile,
   mockFetchSignwellDocument,
+  mockDeleteSignwellDocument,
   mockDownloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/mockClient";
 
@@ -21,9 +22,18 @@ test("mockCreateSignwellDocumentFromFile: returns a document with an embedded si
   assert.match(result.recipients[0].embedded_signing_url!, /^https:\/\/www\.signwell\.com\/embed\/mock-/);
 });
 
-test("mockFetchSignwellDocument: reports completed status", async () => {
-  const result = await mockFetchSignwellDocument("123");
+test("mockDeleteSignwellDocument: mirrors provider compensation without external state", async () => {
+  await assert.doesNotReject(() => mockDeleteSignwellDocument("mock-document-1"));
+});
+
+test("mockFetchSignwellDocument: reports canonical completed identity", async () => {
+  const result = await mockFetchSignwellDocument("123", {
+    externalId: "deal:d1:form:SBA_1919:signer:o1",
+    recipientEmail: "a@b.com",
+  });
   assert.equal(result.status, "completed");
+  assert.equal(result.metadata.external_id, "deal:d1:form:SBA_1919:signer:o1");
+  assert.equal(result.recipients[0].email, "a@b.com");
 });
 
 test("mockDownloadSignwellCompletedPdf: produces bytes that are a real, loadable PDF", async () => {

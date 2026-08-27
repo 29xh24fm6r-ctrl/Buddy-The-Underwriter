@@ -13,6 +13,7 @@ import {
 import { resolveDealByPhone } from "@/lib/sms/resolve";
 import { resolveByPhone, upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";
 import { computeWebhookUrl, verifyTwilioSignature } from "@/lib/sms/twilioVerify";
+import { requireTwilioWebhookPersistence } from "@/lib/sms/twilioWebhookPersistence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -155,9 +156,7 @@ export async function POST(req: Request) {
       },
     });
 
-    if (inboundErr) {
-      console.error("deal_events insert sms_inbound failed:", inboundErr);
-    }
+    requireTwilioWebhookPersistence(inboundErr, "persist inbound message");
   } else {
     console.warn("[twilio/inbound] no deal_id resolved — skipping deal_events insert", {
       from,
@@ -189,9 +188,7 @@ export async function POST(req: Request) {
         },
       });
 
-      if (optOutErr) {
-        console.error("deal_events insert sms_opt_out failed:", optOutErr);
-      }
+      requireTwilioWebhookPersistence(optOutErr, "persist opt-out");
     }
 
     return new NextResponse(twiml(stopReply()), {
@@ -223,9 +220,7 @@ export async function POST(req: Request) {
         },
       });
 
-      if (optInErr) {
-        console.error("deal_events insert sms_opt_in failed:", optInErr);
-      }
+      requireTwilioWebhookPersistence(optInErr, "persist opt-in");
     }
 
     return new NextResponse(twiml(startReply()), {
@@ -256,9 +251,7 @@ export async function POST(req: Request) {
         },
       });
 
-      if (helpErr) {
-        console.error("deal_events insert sms_help failed:", helpErr);
-      }
+      requireTwilioWebhookPersistence(helpErr, "persist help request");
     }
 
     return new NextResponse(twiml(helpReply()), {

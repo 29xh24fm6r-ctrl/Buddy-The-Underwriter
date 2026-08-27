@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { deriveConditionStatus, type CanonicalConditionStatus } from "@/lib/conditions/deriveConditionStatus";
 import { formatBorrowerConditionCopy } from "@/lib/conditions/formatBorrowerConditionCopy";
 import { getBorrowerNextStep } from "@/lib/conditions/getBorrowerNextStep";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,21 +28,15 @@ export async function GET(_req: NextRequest, ctx: Context) {
     const { token } = await ctx.params;
     const sb = supabaseAdmin();
 
-    // 1. Validate token
-    const { data: link, error: linkErr } = await sb
-      .from("borrower_portal_links")
-      .select("deal_id, expires_at")
-      .eq("token", token)
-      .maybeSingle();
-
-    if (linkErr || !link) {
-      return NextResponse.json({ ok: false, error: "Invalid or expired link" }, { status: 403 });
+    let dealId: string;
+    try {
+      dealId = (await resolveBorrowerToken(token)).deal_id;
+    } catch {
+      return NextResponse.json(
+        { ok: false, error: "Invalid or expired link" },
+        { status: 403 },
+      );
     }
-    if (link.expires_at && new Date(link.expires_at) < new Date()) {
-      return NextResponse.json({ ok: false, error: "Link expired" }, { status: 403 });
-    }
-
-    const dealId = link.deal_id;
 
     // 2. Load conditions from both tables
     const [conditionsRes, legacyRes, linksRes] = await Promise.all([

@@ -11,7 +11,11 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import {
+  ensureDealBankAccess,
+  isDealBankAccessGrantFor,
+  type DealBankAccessGrant,
+} from "@/lib/tenant/ensureDealBankAccess";
 import { buildMemoInputPackage } from "@/lib/creditMemo/inputs/buildMemoInputPackage";
 import { loadResearchForMemo } from "@/lib/creditMemo/canonical/loadResearchForMemo";
 import { evaluateCommitteeAnticipation } from "./evaluateCommitteeAnticipation";
@@ -30,8 +34,15 @@ export type BuildCommitteeAnticipationResult =
 
 export async function buildCommitteeAnticipation(args: {
   dealId: string;
+  accessGrant?: DealBankAccessGrant;
 }): Promise<BuildCommitteeAnticipationResult> {
-  const access = await ensureDealBankAccess(args.dealId);
+  const delegated = args.accessGrant;
+  const delegatedIsValid =
+    !!delegated &&
+    isDealBankAccessGrantFor(delegated, args.dealId, delegated.bankId);
+  const access = delegatedIsValid
+    ? ({ ok: true as const, bankId: delegated.bankId, grant: delegated })
+    : await ensureDealBankAccess(args.dealId);
   if (!access.ok) {
     return { ok: false, reason: "tenant_mismatch", error: access.error };
   }
@@ -40,7 +51,11 @@ export async function buildCommitteeAnticipation(args: {
 
   const [memoPackage, snapshot, research, pricing, policyExceptionsCount, covenantPresent] =
     await Promise.all([
-      buildMemoInputPackage({ dealId: args.dealId, runReconciliation: false }),
+      buildMemoInputPackage({
+        dealId: args.dealId,
+        runReconciliation: false,
+        accessGrant: access.grant,
+      }),
       loadLatestSnapshot(sb, args.dealId, bankId),
       loadResearchForMemo({ dealId: args.dealId, bankId }).catch(() => null),
       loadPricingDecision(sb, args.dealId),

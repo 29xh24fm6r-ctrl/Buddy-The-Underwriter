@@ -17,13 +17,32 @@ import { aggregatePortfolio } from "@/lib/macro/aggregatePortfolio";
 import { detectPolicyDrift } from "@/lib/nightly/policyDrift";
 import { suggestPolicyUpdates } from "@/lib/nightly/livingPolicy";
 import { runTelemetryRetentionPurge } from "@/lib/nightly/telemetryRetention";
+import { runFranchiseSyncJanitor } from "@/lib/nightly/franchiseSyncJanitor";
+import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
+
+/**
+ * Vercel cron issues GET, so GET is the scheduled entry point and POST is kept
+ * for manual/external invocation. Both run the same job.
+ *
+ * SPEC-SYSTEM-DEBLOAT-1 Phase B follow-up: this route holds the telemetry
+ * retention purge, but it was never listed in vercel.json's `crons` array, so
+ * it had never run. buddy_system_events reached 540,185 rows / 360 MB — 56% of
+ * the whole database — while a correct, working purge sat one schedule entry
+ * away. Scheduled as of 2026-08-26.
+ */
+export async function GET(req: NextRequest) {
+  return runNightly(req);
+}
 
 export async function POST(req: NextRequest) {
-  // Verify cron secret (recommended for production)
-  const authHeader = req.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
+  return runNightly(req);
+}
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+async function runNightly(req: NextRequest) {
+  // Constant-time secret check, and fail CLOSED: the previous form
+  // (`if (cronSecret && ...)`) skipped the check entirely whenever
+  // CRON_SECRET was unset, leaving the job open to anonymous invocation.
+  if (!hasValidWorkerSecret(req)) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
       { status: 401 }
@@ -44,11 +63,25 @@ export async function POST(req: NextRequest) {
     retention = { ok: false, error: error.message ?? String(error) };
   }
 
+  // 0b. Franchise sync hygiene — finalize orphaned 'running' rows and surface
+  // sources that are silently degraded or have gone quiet
+  // (SPEC-FRANCHISE-SYNC-HYGIENE-1). Non-fatal: reported, never thrown, so a
+  // janitor problem cannot block the retention purge or the per-bank work.
+  let franchiseSync:
+    | { ok: true; result: Awaited<ReturnType<typeof runFranchiseSyncJanitor>> }
+    | { ok: false; error: string };
+  try {
+    franchiseSync = { ok: true, result: await runFranchiseSyncJanitor(sb) };
+  } catch (error: any) {
+    console.error("Franchise sync janitor failed:", error);
+    franchiseSync = { ok: false, error: error?.message ?? String(error) };
+  }
+
   // Fetch all banks
   const { data: banks } = await sb.from("banks").select("id");
 
   if (!banks || banks.length === 0) {
-    return NextResponse.json({ ok: true, message: "No banks to process", retention });
+    return NextResponse.json({ ok: true, message: "No banks to process", retention, franchiseSync });
   }
 
   const results = [];
@@ -57,9 +90,15 @@ export async function POST(req: NextRequest) {
     try {
       console.log(`Processing nightly tasks for bank ${bank.id}`);
 
-      // 1. Aggregate portfolio
-      await aggregatePortfolio(bank.id);
-      console.log(`✓ Portfolio aggregated for ${bank.id}`);
+      // 1. Aggregate portfolio. A bank with no final decisions is a normal
+      // lifecycle state; keep running the remaining no-op-safe governance
+      // checks and report the skip explicitly.
+      const portfolio = await aggregatePortfolio(bank.id);
+      if (portfolio) {
+        console.log(`✓ Portfolio aggregated for ${bank.id}`);
+      } else {
+        console.log(`Portfolio skipped for ${bank.id}: no final decisions`);
+      }
 
       // 2. Detect policy drift
       await detectPolicyDrift(bank.id);
@@ -71,7 +110,8 @@ export async function POST(req: NextRequest) {
 
       results.push({
         bank_id: bank.id,
-        status: "success"
+        status: "success",
+        portfolio: portfolio ? "aggregated" : "skipped_no_final_decisions",
       });
     } catch (error: any) {
       console.error(`Error processing bank ${bank.id}:`, error);
@@ -88,5 +128,6 @@ export async function POST(req: NextRequest) {
     processed: results.length,
     results,
     retention,
+    franchiseSync,
   });
 }

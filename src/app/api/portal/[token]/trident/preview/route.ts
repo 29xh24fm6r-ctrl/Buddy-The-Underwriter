@@ -18,14 +18,25 @@ import "server-only";
  * with HTTP 200 so the portal UI can render a friendly checklist
  * without the browser fetch turning the response into an error.
  *
- * On other failures the bundle row records the error in
- * generation_error and the route returns the bundle in failed state.
+ * Generation is ADMITTED here and executed by the durable workflow, not
+ * awaited in-request. This route used to await the inline generator —
+ * a full preview run (LLM business plan, AI verifier pass, feasibility
+ * engine, several PDF renders) inside a 300s ceiling. On timeout the
+ * function was reclaimed mid-run and the bundle kept a 90-minute lease in
+ * `running`; the janitor only reclaims once that lease expires, so the
+ * borrower's next "Generate My Preview" was refused for up to an hour and
+ * a half. Audit F-04 fixed the three other trigger surfaces; this one was
+ * missed (audit F-17).
+ *
+ * The response is 202 with { accepted: true }. TridentPreviewCard already
+ * polls latest-preview while it shows "generating", which is how the
+ * finished bundle reaches the borrower.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolvePortalToken } from "@/lib/brokerage/trident/portalTokenAuth";
-import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
+import { startTridentGeneration } from "@/lib/brokerage/trident/startTridentGeneration";
 import { ensureAssumptionsForPreview } from "@/lib/sba/sbaAssumptionsBootstrap";
 
 export const runtime = "nodejs";
@@ -67,37 +78,42 @@ export async function POST(
     });
   }
 
-  const result = await generateTridentBundle({ dealId, mode: "preview" });
+  const started = await startTridentGeneration({ dealId, mode: "preview" });
 
-  // Whether ok or failed, surface the bundle row's current state so the
-  // borrower UI can render generation_error and the friendly "Try Again"
-  // path. The generator already persists status + generation_error.
-  const { data: bundle } = await sb
-    .from("buddy_trident_bundles")
-    .select(
-      "id, deal_id, mode, status, version, business_plan_pdf_path, projections_pdf_path, projections_xlsx_path, feasibility_pdf_path, generation_error, generated_at",
-    )
-    .eq("id", result.bundleId ?? "")
-    .maybeSingle();
-
-  if (!result.ok) {
+  // Admission failed outright (no lease taken, nothing running). Surface the
+  // bundle row when there is one so the UI keeps its "Try Again" path.
+  if (!started.ok) {
+    const { data: bundle } = started.bundleId
+      ? await sb
+          .from("buddy_trident_bundles")
+          .select(
+            "id, deal_id, mode, status, version, business_plan_pdf_path, projections_pdf_path, projections_xlsx_path, feasibility_pdf_path, generation_error, generated_at",
+          )
+          .eq("id", started.bundleId)
+          .maybeSingle()
+      : { data: null };
     return NextResponse.json(
       {
         ok: false,
         error: "generation_failed",
-        bundle: bundle
-          ? shapeBundle(bundle)
-          : null,
-        message: result.error,
+        bundle: bundle ? shapeBundle(bundle) : null,
+        message: started.error,
       },
       { status: 200 },
     );
   }
 
-  return NextResponse.json({
-    ok: true,
-    bundle: bundle ? shapeBundle(bundle) : null,
-  });
+  // Accepted. An already-running lease is the correct answer, not an error:
+  // admission is atomic, so a second click joins the run in flight.
+  return NextResponse.json(
+    {
+      ok: true,
+      accepted: true,
+      bundleId: started.bundleId,
+      alreadyRunning: started.alreadyRunning === true,
+    },
+    { status: 202 },
+  );
 }
 
 function shapeBundle(b: Record<string, unknown>) {

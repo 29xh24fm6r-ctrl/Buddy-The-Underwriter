@@ -303,6 +303,23 @@ export async function GET(
     return NextResponse.json({ ok: false }, { status: 500 });
   }
 
+  // The three Trident artifacts are the deliverable, and a lender holding a
+  // marketplace grant reaches them through this same branch. They were the
+  // only downloads on this route that wrote no marketplace_audit_log entry —
+  // pulling the credit memo was recorded, pulling the business plan,
+  // projections workbook, and feasibility study was not (audit F-21).
+  await auditPackageDownload(
+    {
+      actor: actorInfo.actor,
+      actorScope: actorInfo.actorScope,
+      dealId,
+      action: "package_download",
+      resourceType: kind,
+      metadata: { mode: bundle.mode, accessLevel: actorInfo.accessLevel },
+    },
+    sb as any,
+  ).catch(() => {});
+
   return NextResponse.json({
     ok: true,
     url: signed.signedUrl,

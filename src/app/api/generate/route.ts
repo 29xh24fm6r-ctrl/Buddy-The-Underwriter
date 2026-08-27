@@ -1,3 +1,6 @@
+// route-class: PUBLIC — Stitch screen generation, anonymous by design (see
+// the handler doc below). Not part of the lending data model: it writes
+// screen artifacts, never deal, borrower or bank rows.
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateScreenFromPrompt } from "@/lib/screens/templates";
