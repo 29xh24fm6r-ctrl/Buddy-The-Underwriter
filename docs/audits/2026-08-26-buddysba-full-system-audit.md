@@ -845,3 +845,22 @@ and runtime logs must pass before merge. Transactional production closure still
 requires an authorized SignWell fixture and verified Buddy-owned Supabase
 connection; the connected database identifying as another product remains
 strictly out of scope and was not queried or modified.
+
+
+### Concurrent production blocker recorded
+
+After PR 926 deployed on exact production commit
+`87059bcd79de9ea1512dc8a71d0d532a8ede3437`, runtime evidence recorded nine
+Gemini OCR budget-reservation failures in the latest observation window because
+`public.reserve_ai_gateway_tokens` is absent from the production schema cache.
+Mistral OCR recovered the document text, but the missing durable budget RPC also
+prevented Gemini classification and routed affected documents to manual review.
+The application repair from merged PR 917 is therefore only partially deployed:
+its database migration remains unapplied.
+
+Applying or verifying that migration is blocked until a Supabase connection is
+proven to belong to Buddy The Underwriter. The available connection identifies
+as a different product and was not queried or modified. The smallest human
+action is to provide or restore the verified Buddy-owned Supabase connection;
+then the already-reviewed migration can be applied and the OCR/classification
+path reverified with a controlled fixture.
