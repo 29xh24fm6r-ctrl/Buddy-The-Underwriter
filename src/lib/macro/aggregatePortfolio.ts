@@ -9,6 +9,15 @@
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+export class NoFinalPortfolioDecisionsError extends Error {
+  readonly code = "NO_FINAL_PORTFOLIO_DECISIONS";
+
+  constructor(readonly bankId: string) {
+    super(`No final decisions found for portfolio aggregation (bank: ${bankId})`);
+    this.name = "NoFinalPortfolioDecisionsError";
+  }
+}
+
 export interface PortfolioSnapshot {
   bank_id: string;
   as_of_date: string;
@@ -33,7 +42,7 @@ export async function aggregatePortfolio(bankId: string): Promise<PortfolioSnaps
     .eq("status", "final");
 
   if (!snapshots || snapshots.length === 0) {
-    throw new Error("No final decisions found for portfolio aggregation");
+    throw new NoFinalPortfolioDecisionsError(bankId);
   }
 
   // Aggregate metrics
