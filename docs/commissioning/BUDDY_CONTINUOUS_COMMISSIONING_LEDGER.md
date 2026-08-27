@@ -679,3 +679,76 @@ Open checkpoints:
 - Direct production-row verification remains blocked until the verified
   Buddy-owned Supabase connection is restored; the differently named project
   exposed by the generic connector remains unqueried.
+
+## 2026-08-27 — bounded nightly work and empty-portfolio convergence
+
+Resume checkpoint:
+
+- PRs 915, 916, and 917 are open, independently mergeable, and awaiting
+  Matt's merge. None was merged by the commissioning agent.
+- Previously merged PRs 911-914 are deployed to production on
+  `3c59678b18c6e4127520c76acb606097899c44b2`; the public application
+  returned HTTP 200.
+- Direct Buddy database verification remains blocked because the available
+  connector exposes a differently named project whose ownership is not
+  verified. It was not queried.
+
+Production evidence:
+
+- On deployment `dpl_2TxXjafT9K4Y1PMo5ojy7hmQCZ7j` at
+  2026-08-27T07:30:38Z, `/api/cron/nightly` logged
+  `No final decisions found for portfolio aggregation` for five banks.
+- The same run logged a PostgreSQL statement timeout from
+  `purge_buddy_system_events`.
+- The failures are independent of PRs 915-917 and are addressed on branch
+  `codex/nightly-bounded-work`.
+
+Root causes:
+
+- Portfolio aggregation discarded Supabase read and write errors, while
+  throwing for the normal state where a bank has no final decisions. The
+  nightly route therefore emitted production errors and skipped later
+  no-op-safe governance steps for empty banks.
+- Each retention RPC looped through the entire backlog in one transaction.
+  A statement timeout rolled back every batch, so a sufficiently large
+  backlog could make no durable progress.
+- The TypeScript orchestrator called each purge once and stopped at the first
+  failure, allowing one retention path to starve the others.
+
+Repair:
+
+- Empty portfolios now return an explicit null result, while decision reads
+  and snapshot writes fail loudly and distinctly.
+- The nightly route records `skipped_no_final_decisions` and continues policy
+  drift and living-policy work.
+- Additive migration
+  `20260827080000_bounded_nightly_retention.sql` replaces all three purge
+  functions with one 5,000-row transaction per RPC, an empty search path,
+  fully qualified relations, and service-role-only execution.
+- The application drains up to ten batches per table per nightly run, validates
+  provider counts, attempts every table even when one fails, and reports an
+  aggregate failure afterward.
+- Regression coverage exercises empty portfolios, database failures, snapshot
+  writes, draining, caps, cross-table isolation, count validation, and SQL
+  architecture invariants. The schema manifest records the replacement
+  function provenance.
+
+Verification state:
+
+- Code and regression coverage are committed on
+  `codex/nightly-bounded-work`.
+- Required GitHub CI, exact-head preview, and final diff review are pending.
+- No migration, provider transaction, production row, or production data was
+  changed during this cycle.
+
+Post-merge closure:
+
+- Apply the migration through the normal deployment path, then confirm the next
+  nightly run reports empty portfolios as skips rather than errors.
+- Using the verified Buddy-owned Supabase connection, verify each purge commits
+  bounded progress and that subsequent runs drain the backlog without statement
+  timeouts.
+- The separate transactional blockers remain: authorized SignWell,
+  identity/authenticated-browser, and Golden Trident fixtures, plus replacement
+  of 13 research placeholder cases with production-backed regressions.
+
