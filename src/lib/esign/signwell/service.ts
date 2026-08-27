@@ -94,6 +94,10 @@ export function isTerminalSigningRequestStatus(value: unknown): boolean {
   return TERMINAL_SIGNING_REQUEST_STATUSES.has(normalizeSignwellStatus(value));
 }
 
+export function isCompletedSigningRequestStatus(value: unknown): boolean {
+  return ["completed", "manually completed"].includes(normalizeSignwellStatus(value));
+}
+
 export function isFailedTerminalSigningRequestStatus(value: unknown): boolean {
   return ["expired", "canceled", "cancelled", "declined", "bounced", "blocked", "error"].includes(
     normalizeSignwellStatus(value),
@@ -323,6 +327,68 @@ export async function persistSignwellRequestStatus(
   } catch (err) {
     return { ok: false, detail: err instanceof Error ? err.message : String(err) };
   }
+}
+
+type CanonicalSignwellDocument = Awaited<ReturnType<SignwellClient["fetchSignwellDocument"]>>;
+
+export type ReconcileSignwellCompletionResult =
+  | { ok: true; completed: false }
+  | { ok: true; completed: true; signedDocument: Record<string, unknown> }
+  | { ok: false; detail: string };
+
+/**
+ * Recovers a completed SignWell ceremony when the webhook was missed or
+ * delayed. Provider completion is only a trigger: the caller may report
+ * "completed" after this function confirms Buddy's durable signed_documents
+ * row, which itself is written only after the compliance PDF is stored.
+ */
+export async function reconcileSignwellCompletion(
+  args: { dealId: string; document: CanonicalSignwellDocument },
+  deps: { sb: EsignSupabaseClient; signwell: SignwellClient },
+): Promise<ReconcileSignwellCompletionResult> {
+  if (!isCompletedSigningRequestStatus(args.document.status)) {
+    return { ok: true, completed: false };
+  }
+
+  const documentId = String(args.document.id);
+  const applied = await handleSignwellWebhook(
+    {
+      event: { type: "document_completed" },
+      data: {
+        object: {
+          id: documentId,
+          metadata: args.document.metadata,
+          recipients: args.document.recipients.map((recipient) => ({ id: recipient.id })),
+        },
+      },
+    },
+    deps,
+  );
+  if (!applied.ok) {
+    return {
+      ok: false,
+      detail: `${applied.reason}${applied.detail ? `:${applied.detail}` : ""}`,
+    };
+  }
+
+  const { data: signedDocument, error } = await deps.sb
+    .from("signed_documents")
+    .select("*")
+    .eq("deal_id", args.dealId)
+    .eq("esign_document_id", documentId)
+    .maybeSingle();
+  if (error || !signedDocument) {
+    return {
+      ok: false,
+      detail: error?.message ?? "signed_document_not_durable_after_reconciliation",
+    };
+  }
+
+  return {
+    ok: true,
+    completed: true,
+    signedDocument: signedDocument as Record<string, unknown>,
+  };
 }
 
 export async function handleSignwellWebhook(
