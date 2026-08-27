@@ -1,10 +1,3 @@
-import {
-  aggregatePortfolio,
-  NoFinalPortfolioDecisionsError,
-} from "@/lib/macro/aggregatePortfolio";
-import { detectPolicyDrift } from "@/lib/nightly/policyDrift";
-import { suggestPolicyUpdates } from "@/lib/nightly/livingPolicy";
-
 export type BankNightlyResult = {
   bank_id: string;
   status: "success" | "error";
@@ -15,28 +8,23 @@ export type BankNightlyResult = {
 };
 
 export type Dependencies = {
-  aggregatePortfolio: typeof aggregatePortfolio;
-  detectPolicyDrift: typeof detectPolicyDrift;
-  suggestPolicyUpdates: typeof suggestPolicyUpdates;
-};
-
-const DEFAULT_DEPENDENCIES: Dependencies = {
-  aggregatePortfolio,
-  detectPolicyDrift,
-  suggestPolicyUpdates,
+  aggregatePortfolio: typeof import("@/lib/macro/aggregatePortfolio").aggregatePortfolio;
+  detectPolicyDrift: typeof import("@/lib/nightly/policyDrift").detectPolicyDrift;
+  suggestPolicyUpdates: typeof import("@/lib/nightly/livingPolicy").suggestPolicyUpdates;
 };
 
 export async function runBankNightlyTasks(
   bankId: string,
-  deps: Dependencies = DEFAULT_DEPENDENCIES,
+  dependencies?: Dependencies,
 ): Promise<BankNightlyResult> {
+  const deps = dependencies ?? (await loadDefaultDependencies());
   let portfolio: BankNightlyResult["portfolio"] = "not_run";
 
   try {
     await deps.aggregatePortfolio(bankId);
     portfolio = "aggregated";
   } catch (error) {
-    if (error instanceof NoFinalPortfolioDecisionsError) {
+    if (isNoFinalPortfolioDecisionsError(error)) {
       portfolio = "skipped_no_final_decisions";
     } else {
       return failure(bankId, portfolio, "not_run", "not_run", error);
@@ -62,6 +50,29 @@ export async function runBankNightlyTasks(
     policy_drift: "completed",
     policy_suggestions: "completed",
   };
+}
+
+async function loadDefaultDependencies(): Promise<Dependencies> {
+  const [portfolio, drift, policy] = await Promise.all([
+    import("@/lib/macro/aggregatePortfolio"),
+    import("@/lib/nightly/policyDrift"),
+    import("@/lib/nightly/livingPolicy"),
+  ]);
+
+  return {
+    aggregatePortfolio: portfolio.aggregatePortfolio,
+    detectPolicyDrift: drift.detectPolicyDrift,
+    suggestPolicyUpdates: policy.suggestPolicyUpdates,
+  };
+}
+
+function isNoFinalPortfolioDecisionsError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "NO_FINAL_PORTFOLIO_DECISIONS"
+  );
 }
 
 function failure(
