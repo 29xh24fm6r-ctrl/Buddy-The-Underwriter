@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computeWebhookUrl, verifyTwilioSignature } from "@/lib/sms/twilioVerify";
+import { requireTwilioWebhookPersistence } from "@/lib/sms/twilioWebhookPersistence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,11 +66,13 @@ export async function POST(req: Request) {
   // Look up the deal_id from the outbound_messages row created by the
   // outbound send so we can attach the status to a real deal — deal_events
   // requires deal_id NOT NULL. Schema columns are (deal_id, kind, payload).
-  const { data: outbound } = await sb
+  const { data: outbound, error: outboundLookupError } = await sb
     .from("outbound_messages")
     .select("deal_id")
     .eq("provider_message_id", messageSid)
     .maybeSingle();
+
+  requireTwilioWebhookPersistence(outboundLookupError, "resolve outbound message");
 
   const dealId = (outbound as { deal_id: string | null } | null)?.deal_id ?? null;
 
@@ -86,9 +89,7 @@ export async function POST(req: Request) {
       },
     });
 
-    if (error) {
-      console.error("deal_events insert sms_status failed:", error);
-    }
+    requireTwilioWebhookPersistence(error, "persist delivery status");
   } else {
     console.warn(
       "[twilio/status] no deal_id resolved for messageSid — skipping deal_events insert",
