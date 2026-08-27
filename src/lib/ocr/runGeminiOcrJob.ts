@@ -60,9 +60,17 @@ function isVertexModelNotFoundError(e: any): boolean {
   // VertexAI.ClientError tends to include this text.
   if (msg.includes("got status: 404")) return true;
   if (msg.includes("404 Not Found")) return true;
-  // Some errors embed JSON with code/status.
-  if (msg.includes('"code":404')) return true;
-  if (msg.includes('"status":"NOT_FOUND"')) return true;
+  // Some errors embed JSON with code/status. These MUST tolerate whitespace:
+  // the gateway's Google provider surfaces the upstream body pretty-printed,
+  // so production sees `"code": 404` (with a space) while a compact
+  // `{"code":404}` only ever appears in hand-written fixtures. Matching the
+  // compact form alone silently disabled this fallback in production — a
+  // retired model pinned via GEMINI_OCR_MODEL 404'd and never fell through to
+  // the supported one, failing every OCR job instead of recovering.
+  if (/"code"\s*:\s*404\b/.test(msg)) return true;
+  if (/"status"\s*:\s*"NOT_FOUND"/.test(msg)) return true;
+  // The provider adapter prefixes the status line as `HTTP 404: {...}`.
+  if (/\bHTTP 404\b/.test(msg)) return true;
   return false;
 }
 

@@ -237,7 +237,10 @@ function buildResearchGroup(
           group: "research",
           owner: "buddy",
           severity: "warning",
-          fixPath: w.fixPath ?? `/deals/${dealId}/research`,
+          // SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1: /deals/[dealId]/research
+          // does not exist (404). Research resolution is canonical on the
+          // underwrite workbench, the same destination getBlockerFixAction uses.
+          fixPath: w.fixPath ?? `/deals/${dealId}/underwrite`,
           fixLabel: "Open research",
         });
       }
@@ -257,7 +260,8 @@ function buildResearchGroup(
         group: "research",
         owner: "buddy",
         severity: "blocker",
-        fixPath: `/deals/${dealId}/research`,
+        // SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1: see above — /research 404s.
+        fixPath: `/deals/${dealId}/underwrite`,
         fixLabel: "Run research",
       });
     }

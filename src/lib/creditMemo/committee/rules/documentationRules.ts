@@ -43,7 +43,9 @@ const BLOCKER_TO_OBJECTION: Record<
     label: "Research has not passed quality gate",
     rationale:
       "Committee expects industry / market context — research quality gate has not passed.",
-    fixPath: (d) => `/deals/${d}/research`,
+    // SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1: /deals/[dealId]/research does not
+    // exist (404) — research is resolved on the underwrite workbench.
+    fixPath: (d) => `/deals/${d}/underwrite`,
   },
   open_fact_conflicts: {
     label: "Open fact conflicts",

@@ -77,10 +77,18 @@ const nextConfig = {
       // 'unsafe-inline'/'unsafe-eval' are required by Next's inline bootstrap
       // and by Clerk. Tighten with nonces when the policy is enforced.
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.accounts.dev https://*.clerk.com https://*.vercel-scripts.com https://*.posthog.com",
+      // Clerk instantiates its web worker from a blob: URL. Without an explicit
+      // worker-src the browser falls back to script-src, which has no blob:
+      // source, so every page load reports a violation. Enforcing the policy
+      // without this would break Clerk session handling outright.
+      "worker-src 'self' blob:",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' data: https://fonts.gstatic.com",
       "img-src 'self' data: blob: https:",
-      "connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev https://*.clerk.com https://*.sentry.io https://*.ingest.sentry.io https://*.posthog.com https://vitals.vercel-insights.com",
+      // api.openai.com is called directly from the browser by the voice
+      // interview (VoiceInterviewButton negotiates a WebRTC session against
+      // /v1/realtime/calls); blob: covers uploads read back as object URLs.
+      "connect-src 'self' blob: https://*.supabase.co https://*.clerk.accounts.dev https://*.clerk.com https://*.sentry.io https://*.ingest.sentry.io https://*.posthog.com https://vitals.vercel-insights.com https://api.openai.com",
       "frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com",
       "frame-ancestors 'self'",
       "base-uri 'self'",
