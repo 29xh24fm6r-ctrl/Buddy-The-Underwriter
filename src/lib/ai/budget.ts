@@ -34,20 +34,34 @@ function boundedTokenEstimate(value: number): number {
 }
 
 /**
- * Conservative admission estimate. Text is intentionally estimated at two
- * characters/token and inline base64 at four characters/token so admission
- * errs toward availability protection rather than budget overrun.
+ * Byte-pair tokenizers cannot emit more tokens than the UTF-8 byte stream.
+ * Using bytes is deliberately conservative and gives admission a hard upper
+ * bound even for non-Latin text and symbols.
+ */
+export function estimateTextTokenUpperBound(...values: Array<string | undefined>): number {
+  const bytes = values.reduce(
+    (total, value) => total + new TextEncoder().encode(value ?? "").byteLength,
+    0,
+  );
+  return boundedTokenEstimate(bytes);
+}
+
+/**
+ * Conservative admission estimate. Text is bounded by UTF-8 bytes and inline
+ * base64 is ASCII, so admission errs toward availability protection rather
+ * than allowing aggregate budget overrun.
  */
 export function estimateGatewayReservation(request: BudgetableRequest): number {
-  const textChars =
-    request.prompt.length +
-    (request.systemInstruction?.length ?? 0) +
-    JSON.stringify(request.responseSchema ?? {}).length;
-  const inlineChars = (request.inlineData ?? []).reduce(
+  const textEstimate = estimateTextTokenUpperBound(
+    request.prompt,
+    request.systemInstruction,
+    JSON.stringify(request.responseSchema ?? {}),
+  );
+  const inlineEstimate = (request.inlineData ?? []).reduce(
     (total, part) => total + part.data.length,
     0,
   );
-  const inputEstimate = Math.ceil(textChars / 2) + Math.ceil(inlineChars / 4);
+  const inputEstimate = textEstimate + inlineEstimate;
   return boundedTokenEstimate(
     inputEstimate + (request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS),
   );
