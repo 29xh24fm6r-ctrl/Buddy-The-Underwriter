@@ -1,27 +1,23 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
+import {
+  PortalLinkError,
+  resolveBorrowerToken,
+} from "@/lib/portal/resolveBorrowerToken";
 
 export async function GET(_: Request, ctx: { params: Promise<{ token: string }> }) {
   const sb = supabaseAdmin();
   const { token } = await ctx.params;
 
-  const { data: link, error: linkErr } = await sb
-    .from("borrower_portal_links")
-    .select("deal_id, expires_at")
-    .eq("token", token)
-    .maybeSingle();
-
-  if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 500 });
-
-  // Fall back to a borrower_invites token so the invite flow lists docs too.
-  let dealId: string | null = link?.deal_id ?? null;
-  if (!link) {
-    try {
-      dealId = (await resolveBorrowerToken(token)).deal_id;
-    } catch {
-      return NextResponse.json({ error: "Invalid token" }, { status: 404 });
-    }
+  let dealId: string;
+  try {
+    dealId = (await resolveBorrowerToken(token)).deal_id;
+  } catch (error) {
+    const status = error instanceof PortalLinkError ? error.status : 500;
+    return NextResponse.json(
+      { error: status === 500 ? "Unable to validate token" : "Invalid token" },
+      { status },
+    );
   }
 
   const { data, error } = await sb
