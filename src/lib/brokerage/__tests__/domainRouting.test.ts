@@ -43,10 +43,10 @@ test("buddybrokerage.com should redirect", () => {
 });
 
 test("canonical URLs correct by host", () => {
-  assert.equal(getCanonicalUrl("buddysba.com", "/"), "https://buddysba.com/");
-  assert.equal(getCanonicalUrl("buddysba.com", "/apply"), "https://buddysba.com/apply");
-  assert.equal(getCanonicalUrl("buddytheunderwriter.com", "/"), "https://buddytheunderwriter.com/");
-  assert.equal(getCanonicalUrl("localhost:3000", "/"), "https://buddysba.com/");
+  assert.equal(getCanonicalUrl("buddysba.com", "/"), "https://www.buddysba.com/");
+  assert.equal(getCanonicalUrl("buddysba.com", "/apply"), "https://www.buddysba.com/apply");
+  assert.equal(getCanonicalUrl("buddytheunderwriter.com", "/"), "https://www.buddytheunderwriter.com/");
+  assert.equal(getCanonicalUrl("localhost:3000", "/"), "https://www.buddysba.com/");
 });
 
 test("metadata differs by product", () => {

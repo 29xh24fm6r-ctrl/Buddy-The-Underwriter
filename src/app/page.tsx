@@ -1,9 +1,7 @@
-import type { Metadata } from "next";
 import { BrokerageLandingPage } from "@/components/marketing/BrokerageLandingPage";
+import { buildProductMetadata } from "@/lib/brokerage/productMetadata";
 
-export const metadata: Metadata = {
-  title: "Buddy — Get your SBA loan package built and matched to the right lender",
-};
+export const metadata = buildProductMetadata("brokerage");
 
 export default function Home() {
   return <BrokerageLandingPage />;

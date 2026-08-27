@@ -25,9 +25,12 @@ export function shouldRedirectBuddyBrokerage(host: string | null): boolean {
 
 export function getCanonicalUrl(host: string | null, path: string): string {
   const product = resolveProductFromHost(host);
+  // Both apex domains redirect to www in production. Canonical metadata must
+  // name the final 200 URL so crawlers do not have to reconcile a redirecting
+  // canonical with the document they fetched.
   const domain = product === "underwriter"
-    ? "https://buddytheunderwriter.com"
-    : "https://buddysba.com";
+    ? "https://www.buddytheunderwriter.com"
+    : "https://www.buddysba.com";
   return `${domain}${path}`;
 }
 
