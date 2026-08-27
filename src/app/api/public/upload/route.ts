@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { documentUploadBucket } from "@/lib/storage/documentBytes";
 import { constantTimeEqual, hashPassword, sha256 } from "@/lib/security/tokens";
 import { sha256 as sha256Bytes } from "@/lib/storage/adminStorage";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
@@ -134,7 +135,7 @@ export async function POST(req: Request) {
     );
 
   const dealId = String(link.deal_id);
-  const bucket = "deal-uploads";
+  const bucket = documentUploadBucket();
   const docStore = String(process.env.DOC_STORE || "").toLowerCase();
 
   // Fetch deal to get bank_id (required for ingestion)

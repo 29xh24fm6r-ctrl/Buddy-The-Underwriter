@@ -498,5 +498,10 @@
     "name": "purge_franchise_sync_runs",
     "type": "function",
     "migration": "20260827160000_bounded_telemetry_purge.sql"
+  },
+  {
+    "name": "intake_ocr_failures_v1",
+    "type": "view",
+    "migration": "20260827180000_intake_ocr_health_honest_silence.sql"
   }
 ]

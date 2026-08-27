@@ -3,6 +3,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { signGcsReadUrl } from "@/lib/storage/gcs";
+import { defaultDocumentBucket } from "@/lib/storage/documentBytes";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
 export const runtime = "nodejs";
@@ -118,7 +119,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: str
       );
     }
 
-    const useBucket = String(doc.storage_bucket || "deal-uploads");
+    const useBucket = String(doc.storage_bucket || defaultDocumentBucket());
     const usePath = String(doc.storage_path);
 
     const gcsBucket = process.env.GCS_BUCKET || "";
@@ -187,7 +188,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
 
     const body = await req.json().catch(() => ({}) as any);
     const storagePath = String(body?.stored_name || body?.storage_path || "");
-    const bucket = String(body?.storage_bucket || "deal-uploads");
+    const bucket = String(body?.storage_bucket || defaultDocumentBucket());
 
     if (!storagePath) {
       return NextResponse.json(

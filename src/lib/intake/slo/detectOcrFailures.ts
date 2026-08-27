@@ -29,6 +29,8 @@ type OcrFailuresRow = {
   empty_ocr_count_24h: number | null;
   total_24h: number | null;
   health_color: string | null;
+  skipped_count_24h?: number | null;
+  documents_received_24h?: number | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -58,8 +60,27 @@ export async function detectOcrFailures(): Promise<void> {
     const row: OcrFailuresRow = data;
     const failedCount = Number(row.failed_count_24h ?? 0);
     const emptyCount = Number(row.empty_ocr_count_24h ?? 0);
+    const skippedCount = Number(row.skipped_count_24h ?? 0);
+    const receivedCount = Number(row.documents_received_24h ?? 0);
+    const totalCount = Number(row.total_24h ?? 0);
 
-    if (failedCount === 0 && emptyCount === 0) return;
+    /**
+     * Documents arrived and none of them reached OCR at all. This is the
+     * signature of the 2026-08 outage, where every storage read failed and
+     * OCR was skipped rather than attempted: failed and empty both stayed at
+     * zero, so the old condition below never fired and nothing alerted for a
+     * week. Silence with inbound work is the loudest signal there is.
+     */
+    const receivedButNoneProcessed = receivedCount > 0 && totalCount === 0;
+
+    if (
+      failedCount === 0 &&
+      emptyCount === 0 &&
+      skippedCount === 0 &&
+      !receivedButNoneProcessed
+    ) {
+      return;
+    }
 
     try {
       await writeEvent({
@@ -72,13 +93,18 @@ export async function detectOcrFailures(): Promise<void> {
         meta: {
           failed_count_24h: failedCount,
           empty_ocr_count_24h: emptyCount,
-          total_24h: Number(row.total_24h ?? 0),
+          skipped_count_24h: skippedCount,
+          documents_received_24h: receivedCount,
+          received_but_none_processed: receivedButNoneProcessed,
+          health_color: row.health_color ?? null,
+          total_24h: totalCount,
           detection_version: DETECTION_VERSION,
         },
       });
 
       console.log(
-        `[detectOcrFailures] OCR failures detected: ${failedCount} failed, ${emptyCount} empty (last 24h)`,
+        `[detectOcrFailures] OCR trouble detected: ${failedCount} failed, ${emptyCount} empty, ` +
+          `${skippedCount} skipped, ${receivedCount} documents received with ${totalCount} OCR runs (last 24h)`,
       );
     } catch (e) {
       console.warn("[detectOcrFailures] event emit failed (non-fatal):", e);
