@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { documentUploadBucket } from "@/lib/storage/documentBytes";
 import { scanBucketPrefixToCache } from "@/lib/storage/orphanDetector";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
     await requireSuperAdmin();
 
     const body = await req.json().catch(() => ({}));
-    const bucket = String(body.bucket || "deal-uploads");
+    const bucket = String(body.bucket || documentUploadBucket());
     const prefix = String(body.prefix || "deals/");
 
     const run = await sb

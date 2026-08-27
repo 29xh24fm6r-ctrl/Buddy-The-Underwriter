@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { defaultDocumentBucket } from "@/lib/storage/documentBytes";
 import { signGcsReadUrl } from "@/lib/storage/gcs";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
@@ -42,7 +43,7 @@ export async function GET(_req: NextRequest, ctx: Context) {
       );
     }
 
-    const storageBucket = String(doc.storage_bucket || "deal-uploads");
+    const storageBucket = String(doc.storage_bucket || defaultDocumentBucket());
     const storagePath = String(doc.storage_path || "");
 
     if (!storagePath) {
