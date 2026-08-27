@@ -679,3 +679,56 @@ Open checkpoints:
 - Direct production-row verification remains blocked until the verified
   Buddy-owned Supabase connection is restored; the differently named project
   exposed by the generic connector remains unqueried.
+
+### Storage lifecycle convergence factory
+
+Production and source evidence on 2026-08-27:
+
+- A signed-out request to
+  `/api/deals/eefd62b3-4ae2-4d43-bb80-9953fdca9bcc/uploads`
+  returned HTTP 200 from deployed production with
+  `x-clerk-auth-status: signed-out`. The current invocation returned an empty
+  array, but the route would expose deal-scoped temporary filenames, sizes, and
+  timestamps whenever its warm function instance held files.
+- The legacy `POST /api/storage/upload` route authorized the deal before
+  writing, but both its GCS and Supabase branches returned success after storing
+  bytes without creating `borrower_uploads` or `deal_documents` provenance.
+  A caller interruption or a missing follow-up therefore left an unowned object.
+- No `/api/storage/upload` invocation was found in the available 24-hour
+  production runtime-log window. That is evidence of no observed recent use,
+  not proof that the compatibility route has no callers.
+- The separate orphan detector remains a dark supporting path: it depends on a
+  caller-supplied `exec_sql` RPC and its database-only query is not scoped to
+  the scanned bucket/prefix. It is recorded as a later repair target and was not
+  activated or run against production.
+
+Repair branch: `codex/storage-lifecycle-convergence`.
+
+Repair:
+
+- Require tenant-authorized deal access before any filesystem metadata read in
+  the legacy inventory route.
+- Make every production legacy upload persist canonical upload provenance and
+  run the existing idempotent materializer before returning HTTP 200.
+- Make upload commit failures phase-aware. If the durable audit row exists,
+  preserve the object and return HTTP 202 so background reconciliation can
+  recover without asking the user to upload again.
+- If provenance fails before any durable row exists, remove only the object
+  created by that same request using the provider API. Surface failed
+  compensation as an explicit reconciliation condition.
+- Add behavior tests for successful commit, durable retry, safe compensation,
+  failed compensation, unknown-error byte preservation, and source guards for
+  authorization and both storage providers.
+- No pre-existing object, production row, schema, RLS policy, provider
+  configuration, credential, or dependency is changed.
+
+Verification target:
+
+- Focused upload/storage tests and the full required GitHub suite must pass.
+- Exact-head Vercel preview must be READY, SHA-matched, fail the signed-out
+  inventory probe closed, and have no error/fatal runtime cluster.
+- PR 919 remains independently open, mergeable, and zero commits behind
+  `main`; this repair does not modify its portal-token surfaces.
+- Direct orphan-row verification remains blocked until the verified Buddy-owned
+  Supabase connection is available. No unverified database project was queried.
+
