@@ -14,7 +14,7 @@ export type BankNightlyResult = {
   error?: string;
 };
 
-type Dependencies = {
+export type Dependencies = {
   aggregatePortfolio: typeof aggregatePortfolio;
   detectPolicyDrift: typeof detectPolicyDrift;
   suggestPolicyUpdates: typeof suggestPolicyUpdates;
