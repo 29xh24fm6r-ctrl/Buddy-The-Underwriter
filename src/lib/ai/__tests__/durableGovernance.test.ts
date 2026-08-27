@@ -11,6 +11,7 @@ test("AI gateway budget admission is durable, atomic, and service-role only", ()
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.ai_gateway_daily_budgets/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.ai_gateway_budget_reservations/);
   assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /'underwriter', 'embedder'/);
   assert.match(migration, /SECURITY DEFINER[\s\S]*SET search_path = ''/);
   assert.match(
     migration,
@@ -26,11 +27,14 @@ test("AI gateway budget admission is durable, atomic, and service-role only", ()
 test("gateway fails closed on missing audit evidence and tracks streamed usage", () => {
   const gateway = read("src/lib/ai/gateway.ts");
   const ledger = read("src/lib/ai/ledger.ts");
+  const embed = read("src/lib/ai/embed.ts");
   assert.match(gateway, /reserveDurableBudget/);
   assert.match(gateway, /settleDurableBudget/);
   assert.match(gateway, /GatewayAuditPersistenceError/);
   assert.match(gateway, /outputTokens = Math\.max\(1, Math\.ceil\(outputChars \/ 2\)\)/);
   assert.match(ledger, /Promise<boolean>/);
   assert.match(ledger, /return false/);
+  assert.match(embed, /reserveGatewayBudget\("embedder"/);
+  assert.match(embed, /EmbeddingAuditPersistenceError/);
   assert.doesNotMatch(gateway, /streaming endpoint doesn't return usageMetadata[\s\S]*tokensIn: 0/);
 });
