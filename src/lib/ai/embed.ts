@@ -23,6 +23,7 @@ import { logGatewayCall as realLogGatewayCall, type LedgerEntry } from "./ledger
 import { embedOpenAI } from "./providers/openai";
 import type { EmbedProviderRequest, EmbedProviderResult } from "./providers/openai";
 import {
+  estimateTextTokenUpperBound,
   GatewayBudgetExceededError,
   reserveGatewayBudget,
   settleGatewayBudget,
@@ -125,8 +126,11 @@ async function reserveDurableBudget(
   dailyBudget: number,
 ): Promise<GatewayBudgetReservation | null> {
   if (!usesDurableGovernance()) return null;
-  const requestedTokens = Math.max(1, Math.ceil(request.text.length / 2));
-  return reserveGatewayBudget("embedder", dailyBudget, requestedTokens);
+  return reserveGatewayBudget(
+    "embedder",
+    dailyBudget,
+    estimateTextTokenUpperBound(request.text),
+  );
 }
 
 async function settleDurableBudget(
