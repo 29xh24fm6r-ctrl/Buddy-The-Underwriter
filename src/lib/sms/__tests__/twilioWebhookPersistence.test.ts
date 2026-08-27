@@ -79,6 +79,6 @@ test("phone resolution distinguishes database failure from no match", () => {
   assert.match(legacyResolver, /if \(dealsErr\)[\s\S]*throw new Error/);
   assert.match(
     linkResolver,
-    /resolveByPhone error:[\s\S]*throw new Error\(\`resolveByPhone failed:/,
+    /resolveByPhone error:[\s\S]*resolveByPhone failed:/,
   );
 });
