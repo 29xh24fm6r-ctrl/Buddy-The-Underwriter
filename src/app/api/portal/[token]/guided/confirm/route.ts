@@ -13,7 +13,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const sb = supabaseAdmin();
   const body = await req.json();
 
-  let resolved;
+  let resolved: Awaited<ReturnType<typeof resolveBorrowerToken>>;
   try {
     resolved = await resolveBorrowerToken(token);
   } catch {
