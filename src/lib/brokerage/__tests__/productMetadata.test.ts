@@ -43,5 +43,5 @@ test("both public entry pages opt into complete product metadata", () => {
   );
 
   assert.match(brokeragePage, /buildProductMetadata\("brokerage"\)/);
-  assert.match(underwriterPage, /buildProductMetadata\("underwriter"\)/);
+  assert.match(brokerageRoute, /buildProductMetadata\\("brokerage"\\)/);\n  assert.match(underwriterPage, /buildProductMetadata\("underwriter"\)/);
 });
