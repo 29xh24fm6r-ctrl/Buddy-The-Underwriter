@@ -44,8 +44,11 @@ test("homepage includes secondary bank/lender section", () => {
   );
 });
 
-test("homepage links to /underwriter", () => {
-  assert.ok(homepage.includes('"/underwriter"'), "Must link to /underwriter");
+test("homepage links to the canonical underwriter domain", () => {
+  assert.ok(
+    homepage.includes('"https://www.buddytheunderwriter.com/"'),
+    "Must link to the canonical underwriter domain",
+  );
 });
 
 test("homepage does not present Brokerage and Underwriter as equal primary cards", () => {

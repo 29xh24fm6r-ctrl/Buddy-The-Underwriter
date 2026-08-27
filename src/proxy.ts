@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { logDemoPageviewIfApplicable } from "@/lib/tenant/demoTelemetry";
 import { isPublicBorrowerPortalRoute } from "@/lib/portal/isPublicBorrowerPortalRoute";
 import { isMarketingHost, APP_ORIGIN } from "@/lib/navigation/clerkHosts";
+import { getPublicProductRedirect } from "@/lib/brokerage/domainRouting";
 
 /**
  * HARD RULE:
@@ -92,10 +93,19 @@ function getClientIp(req: Request): string | null {
 
 const applicationProxy = clerkMiddleware(async (auth, req) => {
   const p = req.nextUrl.pathname;
+  const host = req.headers.get("host") ?? req.nextUrl.hostname;
+
+  // Cross-product public entries must reach the domain configured for that
+  // product before the public-route short circuit initializes Clerk.
+  const publicProductRedirect = getPublicProductRedirect(host, p);
+  if (publicProductRedirect) {
+    const target = new URL(publicProductRedirect);
+    target.search = req.nextUrl.search;
+    return NextResponse.redirect(target, 308);
+  }
 
   // ── Domain-based routing for homepage ────────────────────────────────
   if (p === "/") {
-    const host = req.headers.get("host") ?? req.nextUrl.hostname;
     const h = host.toLowerCase().replace(/:\d+$/, "");
 
     // buddybrokerage.com → 301 to buddysba.com

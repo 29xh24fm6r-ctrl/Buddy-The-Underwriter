@@ -31,13 +31,18 @@ test("underwriter metadata remains bound to its own canonical domain", () => {
   assert.equal(metadata.openGraph?.url, "https://www.buddytheunderwriter.com/");
 });
 
-test("both public entry pages opt into complete product metadata", () => {
+test("all public entry pages opt into complete product metadata", () => {
   const brokeragePage = readFileSync(resolve(process.cwd(), "src/app/page.tsx"), "utf8");
+  const brokerageRoute = readFileSync(
+    resolve(process.cwd(), "src/app/brokerage/page.tsx"),
+    "utf8",
+  );
   const underwriterPage = readFileSync(
     resolve(process.cwd(), "src/app/underwriter/page.tsx"),
     "utf8",
   );
 
   assert.match(brokeragePage, /buildProductMetadata\("brokerage"\)/);
+  assert.match(brokerageRoute, /buildProductMetadata\("brokerage"\)/);
   assert.match(underwriterPage, /buildProductMetadata\("underwriter"\)/);
 });

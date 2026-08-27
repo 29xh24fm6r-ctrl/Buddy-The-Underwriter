@@ -10,13 +10,13 @@ const {
   shouldRedirectBuddyBrokerage,
   getCanonicalUrl,
   getMetadataForProduct,
+  getPublicProductRedirect,
+  PUBLIC_PRODUCT_ORIGINS,
 } = require("../domainRouting") as typeof import("../domainRouting");
 
 function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf-8");
 }
-
-// Domain routing logic
 
 test("buddysba.com resolves to brokerage", () => {
   assert.equal(resolveProductFromHost("buddysba.com"), "brokerage");
@@ -42,11 +42,36 @@ test("buddybrokerage.com should redirect", () => {
   assert.equal(shouldRedirectBuddyBrokerage(null), false);
 });
 
-test("canonical URLs correct by host", () => {
+test("canonical URLs use the final www hosts", () => {
+  assert.equal(PUBLIC_PRODUCT_ORIGINS.brokerage, "https://www.buddysba.com");
+  assert.equal(PUBLIC_PRODUCT_ORIGINS.underwriter, "https://www.buddytheunderwriter.com");
   assert.equal(getCanonicalUrl("buddysba.com", "/"), "https://www.buddysba.com/");
   assert.equal(getCanonicalUrl("buddysba.com", "/apply"), "https://www.buddysba.com/apply");
   assert.equal(getCanonicalUrl("buddytheunderwriter.com", "/"), "https://www.buddytheunderwriter.com/");
   assert.equal(getCanonicalUrl("localhost:3000", "/"), "https://www.buddysba.com/");
+});
+
+test("cross-product entries redirect to the product's canonical host", () => {
+  assert.equal(
+    getPublicProductRedirect("www.buddysba.com", "/underwriter"),
+    "https://www.buddytheunderwriter.com/",
+  );
+  assert.equal(
+    getPublicProductRedirect("buddysba.com:443", "/underwriter/"),
+    "https://www.buddytheunderwriter.com/",
+  );
+  assert.equal(
+    getPublicProductRedirect("www.buddytheunderwriter.com", "/brokerage"),
+    "https://www.buddysba.com/",
+  );
+});
+
+test("cross-product redirect does not affect previews or same-product routes", () => {
+  assert.equal(getPublicProductRedirect("localhost:3000", "/underwriter"), null);
+  assert.equal(getPublicProductRedirect("buddy-preview.vercel.app", "/underwriter"), null);
+  assert.equal(getPublicProductRedirect("www.buddysba.com", "/brokerage"), null);
+  assert.equal(getPublicProductRedirect("www.buddytheunderwriter.com", "/underwriter"), null);
+  assert.equal(getPublicProductRedirect("www.buddysba.com", "/apply"), null);
 });
 
 test("metadata differs by product", () => {
@@ -59,8 +84,6 @@ test("metadata differs by product", () => {
   assert.ok(uw.description.includes("underwriting"));
 });
 
-// Content boundary checks
-
 const brokeragePage = read("src/components/marketing/BrokerageLandingPage.tsx");
 const underwriterPage = read("src/components/marketing/UnderwriterLandingPage.tsx");
 
@@ -70,21 +93,21 @@ test("brokerage fee disclosure only on BuddySBA surface", () => {
   assert.ok(!underwriterPage.toLowerCase().includes("packaging fee"));
 });
 
-test("underwriter has borrower cross-nav", () => {
+test("underwriter borrower cross-nav uses the canonical Buddy SBA host", () => {
   assert.ok(underwriterPage.includes("borrower-cross-nav"));
-  assert.ok(underwriterPage.includes('"/brokerage"'));
+  assert.ok(underwriterPage.includes('"https://www.buddysba.com/"'));
+  assert.ok(!underwriterPage.includes('href="/brokerage"'));
 });
 
-test("brokerage has bank cross-nav", () => {
+test("brokerage lender cross-nav uses the canonical underwriter host", () => {
   assert.ok(brokeragePage.includes("bank-platform-entry"));
-  assert.ok(brokeragePage.includes('"/underwriter"'));
+  assert.ok(brokeragePage.includes('"https://www.buddytheunderwriter.com/"'));
+  assert.ok(!brokeragePage.includes('href="/underwriter"'));
 });
-
-// Middleware integration
 
 const proxy = read("src/proxy.ts");
 
-test("middleware rewrites underwriter domain to /underwriter", () => {
+test("middleware rewrites the underwriter root to /underwriter", () => {
   assert.ok(proxy.includes("buddytheunderwriter"));
   assert.ok(proxy.includes("/underwriter"));
 });
@@ -95,7 +118,11 @@ test("middleware redirects buddybrokerage.com", () => {
   assert.ok(proxy.includes("301"));
 });
 
-test("middleware has /brokerage and /underwriter as public routes", () => {
-  assert.ok(proxy.includes('"/brokerage(.*)"'));
-  assert.ok(proxy.includes('"/underwriter(.*)"'));
+test("cross-product redirect runs before the public-route short circuit", () => {
+  const redirectIndex = proxy.indexOf("const publicProductRedirect");
+  const publicReturnIndex = proxy.indexOf("isPublicRoute(req)");
+  assert.ok(redirectIndex >= 0);
+  assert.ok(publicReturnIndex >= 0);
+  assert.ok(redirectIndex < publicReturnIndex);
+  assert.ok(proxy.includes("NextResponse.redirect(target, 308)"));
 });
