@@ -450,6 +450,26 @@
     "migration": "20260827010000_atomic_intake_locking.sql"
   },
   {
+    "name": "ai_gateway_daily_budgets",
+    "type": "table",
+    "migration": "20260827060000_ai_gateway_durable_governance.sql"
+  },
+  {
+    "name": "ai_gateway_budget_reservations",
+    "type": "table",
+    "migration": "20260827060000_ai_gateway_durable_governance.sql"
+  },
+  {
+    "name": "reserve_ai_gateway_tokens",
+    "type": "function",
+    "migration": "20260827060000_ai_gateway_durable_governance.sql"
+  },
+  {
+    "name": "settle_ai_gateway_tokens",
+    "type": "function",
+    "migration": "20260827060000_ai_gateway_durable_governance.sql"
+  },
+  {
     "name": "purge_buddy_system_events",
     "type": "function",
     "migration": "20260827112000_nightly_governance_convergence.sql"
