@@ -448,5 +448,20 @@
     "name": "finalize_intake_and_enqueue_processing",
     "type": "function",
     "migration": "20260827010000_atomic_intake_locking.sql"
+  },
+  {
+    "name": "purge_buddy_system_events",
+    "type": "function",
+    "migration": "20260827112000_nightly_governance_convergence.sql"
+  },
+  {
+    "name": "purge_franchise_sync_runs",
+    "type": "function",
+    "migration": "20260827112000_nightly_governance_convergence.sql"
+  },
+  {
+    "name": "purge_buddy_workers",
+    "type": "function",
+    "migration": "20260827112000_nightly_governance_convergence.sql"
   }
 ]
