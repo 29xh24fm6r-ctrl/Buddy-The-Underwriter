@@ -733,11 +733,23 @@ Repair:
   architecture invariants. The schema manifest records the replacement
   function provenance.
 
-Verification state:
+Verification:
 
-- Code and regression coverage are committed on
-  `codex/nightly-bounded-work`.
-- Required GitHub CI, exact-head preview, and final diff review are pending.
+- The first CI run correctly rejected replacement-only manifest provenance;
+  the ledger now preserves both the original and replacement migration entries.
+- On code head `966f801aebbb298310671b411d2a11229eb17245`, 13,246 tests
+  ran: 13,237 passed, 0 failed, and 9 skipped. React-server tests passed 18/18.
+  Research evaluation passed 7/7 with the 13 known production-data placeholders
+  explicitly skipped; public Playwright passed with authenticated smoke
+  explicitly skipped.
+- Typecheck, lint, architectural guards, legacy-write, safety, polling,
+  Never-500, schema-select, report-only schema drift, CI, Build Check, Secret
+  Scan, and Route Budget passed.
+- Exact code-head preview `dpl_9hwSDkqnquCcR2HidfWXE3FnV9Tg` was READY,
+  returned HTTP 200 with matching `x-buddy-build`, and had no warning, error,
+  or fatal runtime logs in the verification window.
+- The final ledger-only head must retain the same green required checks before
+  the PR is marked merge-ready.
 - No migration, provider transaction, production row, or production data was
   changed during this cycle.
 
