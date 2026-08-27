@@ -6,7 +6,9 @@ const require = createRequire(import.meta.url);
 const { runBankNightlyTasks } = require("../runBankNightlyTasks") as typeof import("../runBankNightlyTasks");
 const { NoFinalPortfolioDecisionsError } = require("../../macro/aggregatePortfolio") as typeof import("../../macro/aggregatePortfolio");
 
-function deps(overrides: Partial<Parameters<typeof runBankNightlyTasks>[1]> = {}) {
+type Dependencies = import("../runBankNightlyTasks").Dependencies;
+
+function deps(overrides: Partial<Dependencies> = {}) {
   const calls: string[] = [];
   return {
     calls,
