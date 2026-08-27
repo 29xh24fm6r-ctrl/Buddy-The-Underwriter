@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { clerkAuth } from "@/lib/auth/clerkServer";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
   return Promise.race<T>([
@@ -12,44 +11,37 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T
   ]);
 }
 
+function emptyProgress(dealId: string, error: string) {
+  return {
+    ok: false,
+    error,
+    dealId,
+    confirmed_docs: 0,
+    total_docs: 0,
+    received_count: 0,
+    total_checklist: 0,
+    docs: { total: 0, confirmed: 0 },
+    checklist: { required: 0, received_required: 0 },
+  };
+}
+
 export async function GET(_: Request, ctx: { params: Promise<{ dealId: string }> }) {
   try {
     const sb = supabaseAdmin();
     const { dealId } = await ctx.params;
-
-    const { userId } = await withTimeout(clerkAuth(), 8_000, "clerkAuth");
-    if (!userId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Unauthorized",
-          dealId,
-          docs: { total: 0, confirmed: 0 },
-          checklist: { required: 0, received_required: 0 },
-        },
-        { status: 401 },
-      );
-    }
-
-    const bankId = await withTimeout(getCurrentBankId(), 8_000, "getCurrentBankId");
-
-    // Tenant enforcement (avoid leaking deal existence across banks)
-    const { data: deal, error: dealErr } = await withTimeout(
-      sb.from("deals").select("id, bank_id").eq("id", dealId).maybeSingle(),
+    const access = await withTimeout(
+      ensureDealBankAccessAllowingBrokerageStaff(dealId),
       8_000,
-      "dealLookup",
+      "dealAccess",
     );
-    if (dealErr || !deal || deal.bank_id !== bankId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Deal not found",
-          dealId,
-          docs: { total: 0, confirmed: 0 },
-          checklist: { required: 0, received_required: 0 },
-        },
-        { status: 404 },
-      );
+    if (!access.ok) {
+      const status =
+        access.error === "unauthorized"
+          ? 401
+          : access.error === "deal_not_found"
+            ? 404
+            : 403;
+      return NextResponse.json(emptyProgress(dealId, access.error), { status });
     }
 
     const { data: uploads } = await withTimeout(
@@ -57,7 +49,6 @@ export async function GET(_: Request, ctx: { params: Promise<{ dealId: string }>
       10_000,
       "uploads",
     );
-
     const { data: checklist } = await withTimeout(
       sb.from("deal_checklist_items").select("received_at, required").eq("deal_id", dealId),
       10_000,
@@ -66,39 +57,27 @@ export async function GET(_: Request, ctx: { params: Promise<{ dealId: string }>
 
     const totalDocs = uploads?.length ?? 0;
     const confirmedDocs = (uploads ?? []).filter((u: any) => u.status === "confirmed").length;
-
-    const requiredItems = (checklist ?? []).filter((c: any) => c.required).length;
-    const receivedRequired = (checklist ?? []).filter((c: any) => c.required && c.received_at).length;
-
-    // Back-compat with UI components expecting top-level primitive fields.
-    const total_docs = totalDocs;
-    const confirmed_docs = confirmedDocs;
-    const total_checklist = requiredItems;
-    const received_count = receivedRequired;
+    const requiredItems = (checklist ?? []).filter((item: any) => item.required).length;
+    const receivedRequired = (checklist ?? []).filter(
+      (item: any) => item.required && item.received_at,
+    ).length;
 
     return NextResponse.json({
       ok: true,
       dealId,
-      confirmed_docs,
-      total_docs,
-      received_count,
-      total_checklist,
+      confirmed_docs: confirmedDocs,
+      total_docs: totalDocs,
+      received_count: receivedRequired,
+      total_checklist: requiredItems,
       docs: { total: totalDocs, confirmed: confirmedDocs },
       checklist: { required: requiredItems, received_required: receivedRequired },
     });
   } catch (error: any) {
     const isTimeout = String(error?.message || "").startsWith("timeout:");
     console.error("[/api/deals/[dealId]/progress]", error);
-    return NextResponse.json({
-      ok: false,
-      error: isTimeout ? "Request timed out" : "Failed to fetch progress",
-      dealId: (await ctx.params).dealId,
-      confirmed_docs: 0,
-      total_docs: 0,
-      received_count: 0,
-      total_checklist: 0,
-      docs: { total: 0, confirmed: 0 },
-      checklist: { required: 0, received_required: 0 },
-    }, { status: isTimeout ? 504 : 500 });
+    return NextResponse.json(
+      emptyProgress((await ctx.params).dealId, isTimeout ? "Request timed out" : "Failed to fetch progress"),
+      { status: isTimeout ? 504 : 500 },
+    );
   }
 }
