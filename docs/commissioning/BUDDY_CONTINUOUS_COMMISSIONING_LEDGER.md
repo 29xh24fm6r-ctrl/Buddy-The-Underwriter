@@ -722,13 +722,27 @@ Repair:
 - No pre-existing object, production row, schema, RLS policy, provider
   configuration, credential, or dependency is changed.
 
-Verification target:
+Verification on code head `26f0f7d9f0f88d09d8817b9c3f493fb5e4344a8a`:
 
-- Focused upload/storage tests and the full required GitHub suite must pass.
-- Exact-head Vercel preview must be READY, SHA-matched, fail the signed-out
-  inventory probe closed, and have no error/fatal runtime cluster.
+- CI ran 13,246 tests: 13,237 passed, 0 failed, and 9 skipped.
+  React-server-condition tests passed 18/18. Research evaluation passed 7/7;
+  the 13 known production-data placeholders remain explicitly skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only schema drift, Build Check, Secret Scan, Upload
+  Architecture Guard, Route Budget, and public Playwright passed. Public
+  Playwright ran 1 test and skipped 5 authenticated tests because credentials
+  were unavailable.
+- Exact-head Vercel preview `dpl_DGY1EZsDfK15otJHZaEEbZssqLqs` is READY,
+  returned HTTP 200 with `x-buddy-build` matching the code head, and recorded
+  no error/fatal runtime logs in the post-deploy observation window.
+- The same signed-out inventory probe that returned HTTP 200 in production
+  returned HTTP 401 from the exact-head preview with
+  `{"ok":false,"error":"authentication_required"}`.
 - PR 919 remains independently open, mergeable, and zero commits behind
   `main`; this repair does not modify its portal-token surfaces.
 - Direct orphan-row verification remains blocked until the verified Buddy-owned
   Supabase connection is available. No unverified database project was queried.
+- This evidence-only ledger commit does not change runtime code. Its resulting
+  exact head must retain green required checks and a READY, SHA-matched preview
+  before merge recommendation.
 
