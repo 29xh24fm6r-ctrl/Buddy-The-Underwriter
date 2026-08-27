@@ -267,10 +267,31 @@ export function buildAnnualProjections(
 }
 
 /** Pass 4 (continued): monthly CF for Year 1 */
+/**
+ * Year-1 monthly liquidity schedule.
+ *
+ * `openingCash` is the borrower's cash on hand at the start of the projection
+ * period (the governed CASH fact). It seeds `cumulativeCash`, which is
+ * therefore a CASH BALANCE, not a cumulative net change.
+ *
+ * That distinction was the defect. The series used to start at zero while two
+ * consumers read it differently: buildBalanceSheetProjections added the
+ * opening balance back (`bsBase.cash + year1EndingCash`), treating it as a
+ * delta, while the business-plan renderer printed it verbatim as "a cumulative
+ * cash position of $X" — a balance. For the QA fixture, whose governed CASH
+ * fact is $240,000, that made ten of twelve months read negative and reported
+ * a tightest-month cash position of about -$140,000 to a lender, for a
+ * business that never drops below roughly +$100,000. The AI reviewer rejected
+ * the resulting plan for exactly this: "The arithmetic is inconsistent."
+ *
+ * Seeding here makes one reading correct everywhere; callers must no longer
+ * add the opening balance a second time.
+ */
 export function buildMonthlyProjections(
   assumptions: SBAAssumptions,
   year1: AnnualProjectionYear,
   useOfProceeds: UseOfProceedsLine[] = [],
+  openingCash = 0,
 ): MonthlyProjection[] {
   const sbaMonthly = monthlyPayment(
     assumptions.loanImpact.loanAmount,
@@ -304,7 +325,8 @@ export function buildMonthlyProjections(
     .reduce((sum, item) => sum + item.amount, 0);
   const closingUses = canonicalClosingUses > 0 ? canonicalClosingUses : fallbackClosingUses;
 
-  let cumulativeCash = 0;
+  // A balance, seeded from cash on hand — see the contract above.
+  let cumulativeCash = Number.isFinite(openingCash) ? openingCash : 0;
   let priorReceivables = 0;
   let priorPayables = 0;
   let priorInventory = 0;

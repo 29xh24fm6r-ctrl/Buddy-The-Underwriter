@@ -304,6 +304,9 @@ export async function generateSBAPackage(
     baseYear,
     projectedDscrThreshold,
     useOfProceeds,
+    // Cash on hand at the start of the projection period. Without it the
+    // monthly series is a net change that the renderer prints as a balance.
+    openingCash: bsBase.cash,
   });
   const {
     annualProjections,
@@ -645,16 +648,17 @@ export async function generateSBAPackage(
     roadmapBatch[2].status === "fulfilled" ? roadmapBatch[2].value : null;
 
   // ── Phase BPG — Balance sheet projections
-  const year1MonthlyEndingCash = monthlyProjections.at(-1)?.cumulativeCash;
+  // cumulativeCash is now seeded with bsBase.cash inside the projection
+  // engine, so it IS the ending balance. Adding bsBase.cash again here would
+  // double-count opening cash — which is the mirror image of the bug this
+  // fixes, and the reason both readings had to move together.
+  const year1EndingCash = monthlyProjections.at(-1)?.cumulativeCash;
   const balanceSheetProjections = buildBalanceSheetProjections(
     assumptions,
     annualProjections,
     bsBase,
     {
-      year1EndingCash:
-        typeof year1MonthlyEndingCash === "number"
-          ? bsBase.cash + year1MonthlyEndingCash
-          : undefined,
+      year1EndingCash: typeof year1EndingCash === "number" ? year1EndingCash : undefined,
     },
   );
 
