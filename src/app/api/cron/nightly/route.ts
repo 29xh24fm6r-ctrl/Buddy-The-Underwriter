@@ -13,9 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { aggregatePortfolio } from "@/lib/macro/aggregatePortfolio";
-import { detectPolicyDrift } from "@/lib/nightly/policyDrift";
-import { suggestPolicyUpdates } from "@/lib/nightly/livingPolicy";
+import { runBankNightlyTasks } from "@/lib/nightly/runBankNightlyTasks";
 import { runTelemetryRetentionPurge } from "@/lib/nightly/telemetryRetention";
 import { runFranchiseSyncJanitor } from "@/lib/nightly/franchiseSyncJanitor";
 import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
@@ -54,10 +52,19 @@ async function runNightly(req: NextRequest) {
   // 0. Telemetry retention purge — global, runs regardless of bank count.
   // A missing/broken purge RPC is a loud failure (SPEC-SYSTEM-DEBLOAT-1
   // Phase B): it is reported in the response, not swallowed.
-  let retention: { ok: true; results: Awaited<ReturnType<typeof runTelemetryRetentionPurge>> } | { ok: false; error: string };
+  let retention:
+    | { ok: true; results: Awaited<ReturnType<typeof runTelemetryRetentionPurge>> }
+    | {
+        ok: false;
+        error: string;
+        results?: Awaited<ReturnType<typeof runTelemetryRetentionPurge>>;
+      };
   try {
     const results = await runTelemetryRetentionPurge(sb);
-    retention = { ok: true, results };
+    const complete = results.every((result) => result.complete);
+    retention = complete
+      ? { ok: true, results }
+      : { ok: false, error: "telemetry_retention_incomplete", results };
   } catch (error: any) {
     console.error("Telemetry retention purge failed:", error);
     retention = { ok: false, error: error.message ?? String(error) };
@@ -87,33 +94,28 @@ async function runNightly(req: NextRequest) {
   const results = [];
 
   for (const bank of banks) {
-    try {
-      console.log(`Processing nightly tasks for bank ${bank.id}`);
+    console.log(`Processing nightly tasks for bank ${bank.id}`);
+    const result = await runBankNightlyTasks(bank.id);
 
-      // 1. Aggregate portfolio
-      await aggregatePortfolio(bank.id);
-      console.log(`✓ Portfolio aggregated for ${bank.id}`);
-
-      // 2. Detect policy drift
-      await detectPolicyDrift(bank.id);
-      console.log(`✓ Policy drift detected for ${bank.id}`);
-
-      // 3. Suggest policy updates
-      await suggestPolicyUpdates(bank.id);
-      console.log(`✓ Policy suggestions generated for ${bank.id}`);
-
-      results.push({
-        bank_id: bank.id,
-        status: "success"
-      });
-    } catch (error: any) {
-      console.error(`Error processing bank ${bank.id}:`, error);
-      results.push({
-        bank_id: bank.id,
-        status: "error",
-        error: error.message
-      });
+    if (result.status === "error") {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          message: "Nightly bank governance failed",
+          ...result,
+        }),
+      );
+    } else {
+      console.info(
+        JSON.stringify({
+          level: "info",
+          message: "Nightly bank governance completed",
+          ...result,
+        }),
+      );
     }
+
+    results.push(result);
   }
 
   return NextResponse.json({
