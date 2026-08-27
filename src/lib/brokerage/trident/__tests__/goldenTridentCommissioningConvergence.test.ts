@@ -41,6 +41,8 @@ test("readiness distinguishes production defects from synthetic evidence", () =>
   assert.match(page, /select\("id, created_at, is_test"\)/);
   assert.match(page, /deal\.is_test === true/);
   assert.match(page, /synthetic row\(s\) excluded/);
+  assert.match(page, /order\("created_at", \{ ascending: true \}\)/);
+  assert.match(page, /\.limit\(1000\)/);
   assert.match(page, /scope", "synth_borrower_e2e"/);
   assert.match(page, /scope", "brokerage_session_cleanup"/);
   assert.doesNotMatch(page, /\.ci\/synth-borrower-e2e-report\.json/);
@@ -52,7 +54,11 @@ test("synthetic evidence is durable and upload recovery stays authoritative", ()
   assert.match(runner, /rest\/v1\/ai_events/);
   assert.match(runner, /scope: "synth_borrower_e2e"/);
   assert.match(runner, /await persistDurableReport\(report, passedGate\)/);
-  assert.match(recovery, /backfillDealArtifacts/);
-  assert.match(recovery, /intake\.upload_artifacts_recovered/);
+  assert.match(recovery, /queueArtifact/);
+  assert.match(recovery, /MAX_ARTIFACT_RETRIES = 3/);
+  assert.match(recovery, /\.limit\(MAX_RECOVERIES_PER_RUN\)/);
+  assert.match(recovery, /artifact\.status === "failed"/);
+  assert.match(recovery, /intake\.upload_artifact_recovery/);
+  assert.doesNotMatch(recovery, /backfillDealArtifacts/);
   assert.doesNotMatch(recovery, /finalized_at:\s*(new Date|ranAt|now)/);
 });
