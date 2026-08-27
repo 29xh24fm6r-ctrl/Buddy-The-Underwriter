@@ -42,12 +42,27 @@
   {
     "name": "purge_buddy_system_events",
     "type": "function",
+    "migration": "20260729000010_telemetry_retention.sql"
+  },
+  {
+    "name": "purge_buddy_system_events",
+    "type": "function",
     "migration": "20260827080000_bounded_nightly_retention.sql"
   },
   {
     "name": "purge_franchise_sync_runs",
     "type": "function",
+    "migration": "20260729000010_telemetry_retention.sql"
+  },
+  {
+    "name": "purge_franchise_sync_runs",
+    "type": "function",
     "migration": "20260827080000_bounded_nightly_retention.sql"
+  },
+  {
+    "name": "purge_buddy_workers",
+    "type": "function",
+    "migration": "20260729000010_telemetry_retention.sql"
   },
   {
     "name": "purge_buddy_workers",
