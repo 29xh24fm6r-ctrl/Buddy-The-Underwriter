@@ -150,8 +150,9 @@ async function checkPendingOcr(): Promise<Check> {
     .select("id, deal_id, created_at")
     .eq("is_active", true)
     .is("finalized_at", null)
-    .order("created_at", { ascending: false })
-    .limit(100);
+    // Oldest first prevents fresh uploads from hiding long-stalled work.
+    .order("created_at", { ascending: true })
+    .limit(1000);
   if (error) {
     return {
       id: "pending_ocr",
