@@ -460,7 +460,7 @@ export async function* runRoleStream(
 
   const reservation = await reserveDurableBudget(role, request, config.dailyTokenBudget);
   const start = Date.now();
-  let outputChars = 0;
+  let outputTokenUpperBound = 0;
 
   try {
     for await (const chunk of streamGoogle({
@@ -473,7 +473,7 @@ export async function* runRoleStream(
       temperature: request.temperature,
       thinkingLevel: request.thinkingLevel,
     })) {
-      outputChars += chunk.length;
+      outputTokenUpperBound += estimateTextTokenUpperBound(chunk);
       yield chunk;
     }
 
@@ -482,7 +482,7 @@ export async function* runRoleStream(
       request.prompt,
       request.systemInstruction,
     );
-    const outputTokens = Math.max(1, outputChars);
+    const outputTokens = Math.max(1, outputTokenUpperBound);
     const actualTokens = inputTokens + outputTokens;
     try {
       await requireLedgered({
