@@ -3,6 +3,9 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { GatewayRole } from "./roleConfig";
+
+export type GatewayBudgetRole = GatewayRole | "embedder";
+
 type BudgetableRequest = {
   prompt: string;
   systemInstruction?: string;
@@ -51,7 +54,7 @@ export function estimateGatewayReservation(request: BudgetableRequest): number {
 }
 
 export async function reserveGatewayBudget(
-  role: GatewayRole,
+  role: GatewayBudgetRole,
   dailyBudget: number,
   requestedTokens: number,
   client?: SupabaseClient,
