@@ -16,7 +16,11 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { assertDealAccess } from "@/lib/server/deal-access";
-import { requestSignature } from "@/lib/esign/signwell/service";
+import {
+  isFailedTerminalSigningRequestStatus,
+  persistSignwellRequestStatus,
+  requestSignature,
+} from "@/lib/esign/signwell/service";
 import { createSignwellDocumentFromFile, deleteSignwellDocument, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
 import { resolveFilledPdfForSigning } from "@/lib/esign/signwell/resolveFilledPdfForSigning";
 import { accessErrorToResponse } from "@/lib/server/withDealAccess";
@@ -114,7 +118,32 @@ export async function GET(req: Request, ctx: Ctx) {
       return NextResponse.json({ ok: true, status: "completed", signedDocument: signedDoc });
     }
 
+    // Bind every provider lookup to a request owned by this deal. Without
+    // this check, a user with access to deal A could probe a guessed
+    // SignWell document id belonging to deal B.
+    const { data: signingRequest } = await sb
+      .from("signing_requests")
+      .select("id")
+      .eq("deal_id", dealId)
+      .eq("signwell_document_id", submissionId)
+      .maybeSingle();
+    if (!signingRequest) {
+      return NextResponse.json({ ok: false, error: "submission_not_found" }, { status: 404 });
+    }
+
     const document = await fetchSignwellDocument(submissionId);
+    if (isFailedTerminalSigningRequestStatus(document.status)) {
+      const persisted = await persistSignwellRequestStatus(
+        { dealId, documentId: submissionId, status: document.status },
+        sb,
+      );
+      if (!persisted.ok) {
+        return NextResponse.json(
+          { ok: false, error: "status_reconciliation_failed", detail: persisted.detail },
+          { status: 503 },
+        );
+      }
+    }
     return NextResponse.json({ ok: true, status: document.status, submission: document });
   } catch (e: unknown) {
     const accessRes = accessErrorToResponse(e);

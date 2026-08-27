@@ -28,17 +28,29 @@ mockServerOnly();
 const require_ = createRequire(import.meta.url);
 const bie = require_("@/lib/research/buddyIntelligenceEngine") as typeof import("@/lib/research/buddyIntelligenceEngine");
 const { callGeminiGrounded, describeThreadDiagnostic } = bie;
+const {
+  __setLogGatewayCallForTests,
+  __resetGatewayTestOverrides,
+} = require_("@/lib/ai/gateway") as typeof import("@/lib/ai/gateway");
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "../../../..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
 const realFetch = globalThis.fetch;
-afterEach(() => { globalThis.fetch = realFetch; });
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  __resetGatewayTestOverrides();
+});
 
 let originalApiKey: string | undefined;
 before(() => { originalApiKey = process.env.GEMINI_API_KEY; });
-beforeEach(() => { process.env.GEMINI_API_KEY = "test-key"; });
+beforeEach(() => {
+  process.env.GEMINI_API_KEY = "test-key";
+  // This suite mocks transport while retaining the production provider adapter.
+  // Supply an explicit successful audit seam; production has no test seam.
+  __setLogGatewayCallForTests(async () => true);
+});
 after(() => {
   if (originalApiKey === undefined) delete process.env.GEMINI_API_KEY;
   else process.env.GEMINI_API_KEY = originalApiKey;

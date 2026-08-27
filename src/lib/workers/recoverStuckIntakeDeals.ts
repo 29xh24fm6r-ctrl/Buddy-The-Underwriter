@@ -1,11 +1,12 @@
 /**
  * Server-side self-healing for stuck intake processing deals.
  *
- * Runs on a 3-minute cron. Three recovery checks:
+ * Runs on a 3-minute cron. Four recovery checks:
  *
  *   A) Confirmed deals with no live outbox row → re-enqueue
  *   B) Long-stalled claimed rows → emit observability event (claim RPC reclaims naturally)
  *   C) Dead-lettered rows whose deal is still confirmed → re-enqueue fresh row
+ *   D) Stale active uploads without finalization → bounded artifact recovery
  *
  * Invariants:
  *   - NEVER imports runIntakeProcessing or processConfirmedIntake
@@ -20,9 +21,16 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { insertOutboxEvent } from "@/lib/outbox/insertOutboxEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { queueArtifact } from "@/lib/artifacts/queueArtifact";
 
-/** Max deals to recover per invocation to bound execution time. */
+/** Max recovery writes per invocation to bound execution time. */
 const MAX_RECOVERIES_PER_RUN = 20;
+
+/** Oldest stale upload candidates inspected per run before yielding to the next cron. */
+const MAX_UPLOAD_SCAN_ROWS = 1000;
+
+/** Keep PostgREST IN filters below common proxy URL-size ceilings. */
+const MAX_ARTIFACT_LOOKUP_BATCH = 100;
 
 /** Cooldown: skip deal if an intake.process outbox row was created within this window. */
 const RATE_LIMIT_MINUTES = 10;
@@ -30,11 +38,19 @@ const RATE_LIMIT_MINUTES = 10;
 /** Claimed rows older than this are eligible for reclaim by the claim RPC. */
 const STALE_CLAIM_SECONDS = 180;
 
+/** Automatic retries stop here; persistent failures require operator review. */
+const MAX_ARTIFACT_RETRIES = 3;
+
 export type RecoveryResult = {
   reenqueued_no_live_row: number;
   reenqueued_dead_letter: number;
   reclaim_eligible: number;
   skipped_rate_limited: number;
+  upload_documents_scanned: number;
+  upload_artifacts_queued: number;
+  upload_artifacts_requeued: number;
+  upload_artifacts_skipped: number;
+  upload_recovery_errors: number;
 };
 
 export async function recoverStuckIntakeDeals(): Promise<RecoveryResult> {
@@ -44,6 +60,11 @@ export async function recoverStuckIntakeDeals(): Promise<RecoveryResult> {
     reenqueued_dead_letter: 0,
     reclaim_eligible: 0,
     skipped_rate_limited: 0,
+    upload_documents_scanned: 0,
+    upload_artifacts_queued: 0,
+    upload_artifacts_requeued: 0,
+    upload_artifacts_skipped: 0,
+    upload_recovery_errors: 0,
   };
 
   // ── A) Confirmed deals with no live outbox row ───────────────────────
@@ -211,6 +232,131 @@ export async function recoverStuckIntakeDeals(): Promise<RecoveryResult> {
       });
 
       result.reenqueued_dead_letter++;
+    }
+  }
+
+  // ── D) Stale active uploads without finalization ─────────────────────
+  // Never manufacture finalized_at. Queue only the exact missing artifact,
+  // and retry FAILED artifacts through the canonical RPC with a hard ceiling.
+  // Scan a bounded oldest-first page, but cap actual writes separately so
+  // exhausted or already-active artifacts cannot starve later recoverable rows.
+  // The artifact processor owns stale PROCESSING lease recovery.
+  const staleUploadCutoff = new Date(Date.now() - 15 * 60_000).toISOString();
+  const { data: staleUploads, error: uploadErr } = await sb
+    .from("deal_documents")
+    .select("id, deal_id, bank_id")
+    .eq("is_active", true)
+    .is("finalized_at", null)
+    .lt("created_at", staleUploadCutoff)
+    .order("created_at", { ascending: true })
+    .limit(MAX_UPLOAD_SCAN_ROWS);
+
+  if (uploadErr) {
+    console.error("[intake-recovery] stale upload query failed:", uploadErr.message);
+    result.upload_recovery_errors++;
+  } else {
+    const sourceIds = (staleUploads ?? []).map((row) => row.id);
+    const artifactRows: Array<{
+      id: string;
+      source_id: string;
+      status: string;
+      retry_count: number | null;
+    }> = [];
+    let artifactLookupError: string | null = null;
+
+    for (
+      let offset = 0;
+      offset < sourceIds.length;
+      offset += MAX_ARTIFACT_LOOKUP_BATCH
+    ) {
+      const sourceBatch = sourceIds.slice(offset, offset + MAX_ARTIFACT_LOOKUP_BATCH);
+      const lookup = await sb
+        .from("document_artifacts")
+        .select("id, source_id, status, retry_count")
+        .eq("source_table", "deal_documents")
+        .in("source_id", sourceBatch);
+      if (lookup.error) {
+        artifactLookupError = lookup.error.message;
+        break;
+      }
+      artifactRows.push(...(lookup.data ?? []));
+    }
+
+    if (artifactLookupError) {
+      console.error("[intake-recovery] artifact batch lookup failed:", artifactLookupError);
+      result.upload_recovery_errors++;
+    } else {
+      const artifactBySourceId = new Map(
+        artifactRows.map((artifact) => [artifact.source_id, artifact]),
+      );
+      let recoveryAttempts = 0;
+
+      for (const row of staleUploads ?? []) {
+        result.upload_documents_scanned++;
+        const artifact = artifactBySourceId.get(row.id);
+        const isRecoverable =
+          !artifact ||
+          (artifact.status === "failed" &&
+            Number(artifact.retry_count ?? 0) < MAX_ARTIFACT_RETRIES);
+
+        if (!isRecoverable) {
+          result.upload_artifacts_skipped++;
+          continue;
+        }
+        if (recoveryAttempts >= MAX_RECOVERIES_PER_RUN) break;
+        recoveryAttempts++;
+
+        let action: "queued" | "requeued" | "failed" = "failed";
+        let error: string | null = null;
+
+        if (!artifact) {
+          const queued = await queueArtifact({
+            dealId: row.deal_id,
+            bankId: row.bank_id,
+            sourceTable: "deal_documents",
+            sourceId: row.id,
+          });
+          if (queued.ok && !queued.alreadyQueued) {
+            result.upload_artifacts_queued++;
+            action = "queued";
+          } else if (queued.ok) {
+            result.upload_artifacts_skipped++;
+            continue;
+          } else {
+            result.upload_recovery_errors++;
+            error = queued.error ?? "artifact queue failed";
+          }
+        } else {
+          const retry = await sb.rpc("queue_document_artifact", {
+            p_deal_id: row.deal_id,
+            p_bank_id: row.bank_id,
+            p_source_table: "deal_documents",
+            p_source_id: row.id,
+          });
+          if (retry.error) {
+            result.upload_recovery_errors++;
+            error = retry.error.message;
+          } else {
+            result.upload_artifacts_requeued++;
+            action = "requeued";
+          }
+        }
+
+        void writeEvent({
+          dealId: row.deal_id,
+          kind: "intake.upload_artifact_recovery",
+          scope: "intake",
+          meta: {
+            document_id: row.id,
+            artifact_id: artifact?.id ?? null,
+            previous_status: artifact?.status ?? "missing",
+            previous_retry_count: Number(artifact?.retry_count ?? 0),
+            action,
+            error,
+            recovery_version: "recovery_v4",
+          },
+        });
+      }
     }
   }
 
