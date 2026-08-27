@@ -17,7 +17,20 @@ test("brokerage artifact inspection uses one scoped tenant boundary", () => {
   }
   const committeeRoute = read(paths[4]);
   assert.doesNotMatch(committeeRoute, /requireDealAccess|rethrowNextErrors/);
+  assert.match(committeeRoute, /accessGrant: access\.grant/);
   assert.match(committeeRoute, /NextResponse\.json/);
+
+  const committeeBuilder = read(
+    "src/lib/creditMemo/committee/buildCommitteeAnticipation.ts",
+  );
+  const memoBuilder = read(
+    "src/lib/creditMemo/inputs/buildMemoInputPackage.ts",
+  );
+  for (const builder of [committeeBuilder, memoBuilder]) {
+    assert.match(builder, /accessGrant\?: DealBankAccessGrant/);
+    assert.match(builder, /isDealBankAccessGrantFor/);
+  }
+  assert.match(committeeBuilder, /accessGrant: access\.grant/);
 });
 
 test("committee anticipation never assumes an HTML response is JSON", () => {
