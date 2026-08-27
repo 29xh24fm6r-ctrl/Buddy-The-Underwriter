@@ -972,3 +972,20 @@ Verification on code head `26f0f7d9f0f88d09d8817b9c3f493fb5e4344a8a`:
 - This evidence-only ledger commit does not change runtime code. Its resulting
   exact head must retain green required checks and a READY, SHA-matched preview
   before merge recommendation.
+
+
+## 2026-08-27 — document worker convergence (post-PR 935)
+
+- Production evidence: PR 935 merged as `369044c8ffef4ce8b714e1f277f62599511f583e`; its Vercel production deployment reached READY and owns `www.buddysba.com`.
+- Confirmed root causes from the prior production worker tick:
+  - `EXTRACTION_HEARTBEAT` used the canonical financial-fact writer without a period, so the period-integrity guard rejected it and the spreads extractor failed with `deal_financial_facts_upsert_failed:invalid_period_date`.
+  - the spreads worker scheduled unified readiness through the browser/session tenant guard, producing `not_authenticated` / `tenant_mismatch` despite already holding a deal- and bank-bound leased job.
+  - TypeScript admitted Aegis `event_type=info`, but the live `buddy_system_events_event_type_check` enum does not; informational rows were rejected.
+- Repair branch: `commissioning/document-worker-convergence`.
+- Repair:
+  - explicitly permits the sentinel period only for the non-financial extraction-heartbeat metadata row;
+  - verifies the worker's deal/bank pair through the service client, issues the existing opaque branded grant, and forwards it through unified readiness and memo-input assembly; browser callers still execute the normal Clerk tenant check;
+  - normalizes the TypeScript-only Aegis `info` alias to persisted `success`, and fixes the one direct alert-ledger insert;
+  - adds a static regression guard for all three contracts.
+- Production verification: pending merge and a subsequent document-worker invocation. An authenticated controlled upload/OCR fixture and the complete PR 878 Golden Trident delivery ceremony remain separately blocked on authorized fixtures.
+- Database evidence remains blocked: the available Supabase connection identifies as Pulse OS rather than Buddy and was not queried or modified.
