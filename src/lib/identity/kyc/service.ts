@@ -198,12 +198,15 @@ export async function handleDiditWebhook(
   const session = await didit.fetchDiditSession(sessionId);
   const status = mapDiditStatus(session.status);
 
-  const { data: record } = await sb
+  const { data: record, error: recordLookupError } = await sb
     .from("borrower_identity_verifications")
-    .select("id")
+    .select("id, deal_id")
     .eq("vendor_inquiry_id", sessionId)
     .maybeSingle();
 
+  if (recordLookupError) {
+    throw new Error(`didit_webhook_record_lookup_failed: ${recordLookupError.message}`);
+  }
   if (!record) {
     return { ok: false, reason: "VERIFICATION_NOT_FOUND" };
   }
@@ -216,19 +219,22 @@ export async function handleDiditWebhook(
     update.completed_at = new Date().toISOString();
   }
 
-  await sb.from("borrower_identity_verifications").update(update).eq("id", record.id);
-
-  const { data: fullRecord } = await sb
+  const { error: statusUpdateError } = await sb
     .from("borrower_identity_verifications")
-    .select("deal_id")
-    .eq("id", record.id)
-    .maybeSingle();
+    .update(update)
+    .eq("id", record.id);
+  if (statusUpdateError) {
+    throw new Error(`didit_webhook_status_update_failed: ${statusUpdateError.message}`);
+  }
 
-  await sb.from("deal_events").insert({
-    deal_id: fullRecord?.deal_id ?? null,
+  const { error: auditEventError } = await sb.from("deal_events").insert({
+    deal_id: record.deal_id ?? null,
     kind: `kyc.verification_${status}`,
     payload: { verification_id: record.id, vendor_inquiry_id: sessionId },
   });
+  if (auditEventError) {
+    throw new Error(`didit_webhook_audit_event_failed: ${auditEventError.message}`);
+  }
 
   return { ok: true, verification_id: record.id, status };
 }
@@ -243,7 +249,16 @@ export const RECONCILABLE_STATUSES = ["created", "pending", "needs_review"];
 
 export type ReconcileResult =
   | { ok: true; verificationId: string; previousStatus: string; status: string; changed: boolean }
-  | { ok: false; reason: "VERIFICATION_NOT_FOUND" | "NO_VENDOR_SESSION" | "VENDOR_FETCH_FAILED"; detail?: string };
+  | {
+      ok: false;
+      reason:
+        | "VERIFICATION_NOT_FOUND"
+        | "NO_VENDOR_SESSION"
+        | "VENDOR_FETCH_FAILED"
+        | "DB_READ_FAILED"
+        | "DB_UPDATE_FAILED";
+      detail?: string;
+    };
 
 /**
  * Pull canonical state for ONE verification straight from Didit and write
@@ -273,12 +288,15 @@ export async function reconcileVerification(
 ): Promise<ReconcileResult> {
   const { sb, didit } = deps;
 
-  const { data: record } = await sb
+  const { data: record, error: recordReadError } = await sb
     .from("borrower_identity_verifications")
     .select("id, deal_id, ownership_entity_id, vendor, vendor_inquiry_id, status, completed_at")
     .eq("id", verificationId)
     .maybeSingle();
 
+  if (recordReadError) {
+    return { ok: false, reason: "DB_READ_FAILED", detail: recordReadError.message };
+  }
   if (!record) return { ok: false, reason: "VERIFICATION_NOT_FOUND" };
   if (!record.vendor_inquiry_id || record.vendor === "mock_didit") {
     return { ok: false, reason: "NO_VENDOR_SESSION" };
@@ -311,7 +329,13 @@ export async function reconcileVerification(
     update.completed_at = new Date().toISOString();
   }
 
-  await sb.from("borrower_identity_verifications").update(update).eq("id", record.id);
+  const { error: statusUpdateError } = await sb
+    .from("borrower_identity_verifications")
+    .update(update)
+    .eq("id", record.id);
+  if (statusUpdateError) {
+    return { ok: false, reason: "DB_UPDATE_FAILED", detail: statusUpdateError.message };
+  }
 
   await sb.from("deal_events").insert({
     deal_id: record.deal_id ?? null,
