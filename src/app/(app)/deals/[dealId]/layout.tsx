@@ -2,7 +2,7 @@ import DealShell from "./DealShell";
 import { cache } from "react";
 import type { Metadata } from "next";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 import { dealLabel } from "@/lib/deals/dealLabel";
 import { loadDealNameProjection } from "@/lib/deals/loadDealNameProjection";
 import { getCanonicalMemoStatusForDeals } from "@/lib/creditMemo/canonical/getCanonicalMemoStatusForDeals";
@@ -10,7 +10,7 @@ import { resolveDealLoanAmount } from "@/lib/loanRequests/resolveDealLoanAmount"
 
 const getDealShellContext = cache(async (dealId: string) => {
   try {
-    const access = await ensureDealBankAccess(dealId);
+    const access = await ensureDealBankAccessAllowingBrokerageStaff(dealId);
     if (!access.ok) return null;
 
     // SPEC-DEAL-SHELL-ACTUALLY-USES-NAME-PROJECTION-1: the deal name is loaded
