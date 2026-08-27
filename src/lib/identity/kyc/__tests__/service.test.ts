@@ -548,3 +548,20 @@ test("reconcileVerification: database update failure leaves durable state unchan
   assert.equal(db.tables.deal_events.length, 0);
 });
 
+test("handleDiditWebhook: audit write failure is not acknowledged after durable status changes", async () => {
+  const db = new FakeDb(
+    {
+      borrower_identity_verifications: [
+        { id: "v1", deal_id: "d1", vendor_inquiry_id: "sess_1", status: "pending" },
+      ],
+    },
+    { "deal_events:insert": "audit unavailable" },
+  );
+
+  await assert.rejects(
+    () => handleDiditWebhook({ session_id: "sess_1" }, { sb: db as any, didit: fakeDidit() }),
+    /didit_webhook_audit_event_failed: audit unavailable/,
+  );
+  assert.equal(db.tables.borrower_identity_verifications[0].status, "approved");
+});
+
