@@ -25,6 +25,21 @@ const PURGE_RPCS = [
   { rpcName: "purge_buddy_workers", table: "buddy_workers" },
 ] as const;
 
+/**
+ * CROSS-LAYER CONTRACT — must equal the `p_max_rows` DEFAULT on the three
+ * purge_* functions (supabase/migrations/20260827160000_bounded_telemetry_purge.sql).
+ *
+ * The RPCs are invoked below as `sb.rpc(rpcName)` with NO arguments, so the
+ * SQL default IS the batch size. parseDeletedRows() rejects any return above
+ * this value, and the loop treats a short return as "drained". Raise one side
+ * without the other and retention either fails loudly (SQL cap higher) or
+ * stops draining early (SQL cap lower). Change both together.
+ *
+ * Why bounded at all: the original SQL looped unbounded inside one statement
+ * and could not finish against `authenticator`'s statement_timeout=8s once a
+ * backlog existed. On 2026-08-27 that meant retention had never completed and
+ * buddy_system_events had reached 360 MB of a 648 MB database.
+ */
 export const RETENTION_BATCH_SIZE = 5_000;
 export const MAX_RETENTION_BATCHES_PER_TABLE = 10;
 

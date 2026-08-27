@@ -641,3 +641,101 @@ instead of citing a resolved blocker.
    this branch changes that; it needs one deliberate end-to-end run.
 4. **Provision lender programs** — `matchLendersToDeal` is correct but has one
    row to match against.
+
+---
+
+## 9. Production remediation executed — 2026-08-27
+
+The §8 "still needs a human" items were carried out against production with the
+owner's explicit authority. Measurements are before → after, taken live.
+
+### Database reclaimed: 648 MB → 204 MB (−69%)
+
+| Table | Rows before | Rows after | Size before | Size after |
+|---|---|---|---|---|
+| `buddy_system_events` | 544,072 | **13,944** | 360 MB | **11 MB** |
+| `buddy_sba_scores` | 12,605 | **129** | 46 MB | **528 kB** |
+| `buddy_workers` | 58,216 | **9** | 15 MB | **48 kB** |
+| `franchise_sync_runs` | 25,481 | **6,474** | 7.5 MB | **1.1 MB** |
+
+Score pruning kept every row that matters: the **1 locked** row (a decision
+record — never deletable), all **15 active** rows, and the 20 most recent
+superseded rows per deal for history. Verified by dry run before executing.
+
+`VACUUM` alone was not enough — it marks pages reusable but does not return
+them to the OS, so the files stayed bloated after the deletes. `VACUUM FULL`
+was required for the sizes above.
+
+### The two fixed bugs are confirmed dead in production
+
+Of the 228,026 events remaining after aged-row retention, **214,082 (94%)**
+were artifacts of the two bugs this branch fixed:
+
+| Signature | Rows | Last occurrence |
+|---|---|---|
+| `observer` / "Attachment not found" | 116,728 | 2026-08-26 21:20:20 |
+| "No jobs available" × 3 processors | 97,354 | 2026-08-26 21:18:37 |
+
+Both stop dead within minutes of the fix deploying, and **zero** occurrences
+exist after it. Those rows were purged; the delete was scoped to those exact
+signatures with a `created_at < 2026-08-26 22:00Z` bound, so any future
+recurrence still surfaces as a real signal rather than being pre-deleted.
+
+Error rows in `buddy_system_events` went from ~214,000 to **224**. The error
+stream is now honest, which is what makes error-rate alerting possible at all.
+
+### The franchise janitor worked on its first run
+
+`franchise_sync_runs` had **0** rows left in `running`. All 5,748 orphans carry
+the `ORPHANED_RUN` marker, stamped at **07:30:48 UTC** — the `30 7 * * *` cron
+this branch scheduled, on its first firing. No manual intervention was needed.
+
+### A new defect the first cron run exposed
+
+That same run also proved §5.7's fix incomplete. From the Vercel runtime log at
+07:30:38 UTC:
+
+```
+Telemetry retention purge failed: Error: telemetry retention purge RPC
+"purge_buddy_system_events" failed (table: buddy_system_events):
+canceling statement due to statement timeout
+```
+
+Scheduling the cron was necessary but not sufficient. The purge functions from
+`20260729000010_telemetry_retention.sql` ran an **unbounded `LOOP` inside a
+single statement** — 10,000 rows, `pg_sleep(0.1)`, repeat until clean — against
+`authenticator`'s `statement_timeout=8s`. With 316,046 rows past retention that
+is ~32 batches plus 3.2 s of sleep alone. It could never succeed, which is why
+retention had never once completed despite correct-looking code on both sides.
+
+`20260827160000_bounded_telemetry_purge.sql` replaces all three with bounded,
+single-statement deletes that return a row count, leaving the batching loop to
+the caller — where it belongs, on the client side of a statement timeout.
+
+**Cross-layer contract:** the SQL `p_max_rows` default must equal
+`RETENTION_BATCH_SIZE` in `telemetryRetention.ts` (5,000), because the caller
+invokes `sb.rpc(name)` with no arguments — so the SQL default *is* the batch
+size, and `parseDeletedRows()` throws above it while treating a short return as
+"drained". Documented on both sides. (The TypeScript half of this had already
+been rewritten correctly on `main` after the audit branch merged; only the
+database half was missing, which is precisely why it failed silently.)
+
+Verified post-migration: correct signatures and defaults, `EXECUTE` granted to
+`service_role` and denied to `public`, and all three returning promptly under
+the exact zero-argument call shape the application uses.
+
+### Not done, and why
+
+**The duplicate Vercel Project Routes header rule still needs removing.** No MCP
+tool exposes Vercel's routes configuration, and this environment's network
+policy denies outbound to `buddysba.com` (`connect_rejected: gateway answered
+403 to CONNECT`), so neither the routes API nor live header verification is
+reachable from here. It remains a human action:
+
+```
+vercel routes list      # find the global security rule
+vercel routes rm <id>   # remove it; next.config.mjs is now the source of truth
+```
+
+Until then two header sets race — the same failure mode that silently blocked
+the microphone on `/start`.
