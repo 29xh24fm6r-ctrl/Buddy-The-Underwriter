@@ -76,3 +76,39 @@ The client mirrors that split: a PUT that never reaches storage now throws
 `upload_transport_blocked` (banner: "Uploads are being blocked before they
 reach storage… nothing needs restarting"), and only a real HTTP status from
 storage throws `upload_session_expired_restart`.
+
+## Reading the bytes back (the second half of the outage)
+
+CORS governs whether bytes reach the bucket. A separate defect governed
+whether anything could read them again.
+
+Uploads moved to GCS (`DOC_STORE=gcs`) while the processing chain kept
+calling `supabase.storage.from(document.storage_bucket).download(path)`.
+Supabase has no bucket named `buddy-the-underwriter-uploads`, so every
+download failed and intake degraded silently to filename-only
+classification. Production ledger, 2026-08-20 → 2026-08-27:
+
+```
+ocr.triggered → "Running OCR on 2025_TaxReturn.pdf"
+ocr.skipped   → reason: "download_failed"   ("using filename only")
+quality       → FAILED_LOW_TEXT, ocr_text_length 71
+gatekeeper    → "No OCR text available and file is not a directly-viewable image"
+```
+
+All six GCS-stored documents in production carried a gatekeeper error; all
+348 Supabase-era documents did not.
+
+`src/lib/storage/documentBytes.ts` is now the single place that knows a deal
+document can live in either backend:
+
+| Function | Use |
+| --- | --- |
+| `downloadDocumentBytes` | read a document's bytes for OCR/extraction |
+| `uploadDocumentBytes` | write derived objects (PDF segments) |
+| `deleteDocumentObject` | rollback/cleanup |
+| `createDocumentDownloadUrl` | time-limited read URL for viewing |
+| `isGcsBucket` | routing predicate |
+
+`src/lib/storage/__tests__/documentBytes.test.ts` fails the build if any
+processing module goes back to calling Supabase Storage directly with a
+document's bucket.

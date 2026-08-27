@@ -314,10 +314,27 @@ export function CoreDocumentsPanel({ dealId, gatekeeperPrimaryRouting = false }:
 
       const { file_id, object_path, signed_url, upload_session_id } = signData.upload;
 
-      // Step 2: Upload bytes directly to storage
+      // Step 2: Upload bytes directly to storage.
+      //
+      // The extra headers from /sign (notably x-goog-content-length-range) are
+      // part of the V4 signature — GCS rejects the PUT with 403 when they are
+      // missing, so they must be forwarded verbatim rather than replaced with
+      // Content-Type alone.
+      const putHeaders: Record<string, string> = {
+        "Content-Type": file.type || "application/octet-stream",
+      };
+      if (signData.upload.headers) {
+        for (const [key, value] of Object.entries(
+          signData.upload.headers as Record<string, string>,
+        )) {
+          if (key.toLowerCase() === "content-type") continue;
+          putHeaders[key] = value;
+        }
+      }
+
       const putRes = await fetch(signed_url, {
         method: "PUT",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
+        headers: putHeaders,
         body: file,
       });
       if (!putRes.ok) {
