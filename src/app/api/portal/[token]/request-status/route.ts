@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { deriveBorrowerPortalStatus } from "@/core/borrower-orchestration/deriveBorrowerPortalStatus";
 import type { BorrowerCampaignStatus, BorrowerItemStatus } from "@/core/borrower-orchestration/types";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,26 +24,18 @@ export async function GET(_req: Request, ctx: Ctx) {
   const { token } = await ctx.params;
   const sb = supabaseAdmin();
 
-  // Validate token
-  const { data: link } = await sb
-    .from("borrower_portal_links")
-    .select("id, deal_id, expires_at")
-    .eq("token", token)
-    .maybeSingle();
-
-  if (!link) {
+  let dealId: string;
+  try {
+    dealId = (await resolveBorrowerToken(token)).deal_id;
+  } catch {
     return NextResponse.json({ ok: false, error: "invalid_token" }, { status: 404 });
-  }
-
-  if (link.expires_at && new Date(link.expires_at) < new Date()) {
-    return NextResponse.json({ ok: false, error: "token_expired" }, { status: 410 });
   }
 
   // Find active campaign for this deal linked to this portal link (or any active campaign)
   const { data: campaign } = await sb
     .from("borrower_request_campaigns")
     .select("id, status, action_code, borrower_name, created_at")
-    .eq("deal_id", link.deal_id)
+    .eq("deal_id", dealId)
     .in("status", ["sent", "in_progress", "completed"])
     .order("created_at", { ascending: false })
     .limit(1)

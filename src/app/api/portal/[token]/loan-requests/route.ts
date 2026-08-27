@@ -2,6 +2,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createLoanRequest } from "@/lib/loanRequests/actions";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,38 +14,9 @@ export const dynamic = "force-dynamic";
 async function resolveDealFromToken(
   token: string,
 ): Promise<{ dealId: string } | null> {
-  const sb = supabaseAdmin();
-
-  // Try borrower_portal_links first (plain token match)
-  const { data: link } = await sb
-    .from("borrower_portal_links")
-    .select("deal_id, expires_at, used_at, single_use")
-    .eq("token", token)
-    .maybeSingle();
-
-  if (link) {
-    if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) {
-      return null;
-    }
-    return { dealId: link.deal_id };
-  }
-
-  // Fall back to borrower_invites (SHA256 hash)
   try {
-    const { sha256Base64url } = await import("@/lib/portal/token");
-    const tokenHash = sha256Base64url(token);
-    const { data: invite } = await sb
-      .from("borrower_invites")
-      .select("deal_id, expires_at, revoked_at")
-      .eq("token_hash", tokenHash)
-      .maybeSingle();
-
-    if (!invite) return null;
-    if (invite.revoked_at) return null;
-    if (invite.expires_at && new Date(invite.expires_at) < new Date())
-      return null;
-
-    return { dealId: invite.deal_id };
+    const resolved = await resolveBorrowerToken(token);
+    return { dealId: resolved.deal_id };
   } catch {
     return null;
   }

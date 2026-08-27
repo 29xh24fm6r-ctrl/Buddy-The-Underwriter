@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { processConditionUpload } from "@/lib/conditions/processConditionUpload";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { validateUploadSession } from "@/lib/uploads/uploadSession";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,13 +57,10 @@ export async function POST(req: NextRequest, ctx: Context) {
     // 1. Validate borrower portal token
     const sb = supabaseAdmin();
 
-    const { data: link, error: linkErr } = await sb
-      .from("borrower_portal_links")
-      .select("deal_id, expires_at")
-      .eq("token", token)
-      .maybeSingle();
-
-    if (linkErr || !link) {
+    let dealId: string;
+    try {
+      dealId = (await resolveBorrowerToken(token)).deal_id;
+    } catch {
       console.warn("[portal/conditions/upload] Invalid token", {
         event: "borrower_token_invalid",
         token: token.slice(0, 8) + "...",
@@ -74,15 +72,6 @@ export async function POST(req: NextRequest, ctx: Context) {
         { status: 403 },
       );
     }
-
-    if (link.expires_at && new Date(link.expires_at) < new Date()) {
-      return NextResponse.json(
-        { ok: false, error: "Link expired" },
-        { status: 403 },
-      );
-    }
-
-    const dealId = link.deal_id;
 
     // 2. Fetch deal bank_id
     const { data: deal, error: dealErr } = await sb

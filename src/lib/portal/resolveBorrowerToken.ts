@@ -66,7 +66,7 @@ export async function resolveBorrowerToken(
   return {
     deal_id: link.deal_id,
     bank_id: link.bank_id,
-    name: null,
+    name: link.label,
     email: null,
     source: "portal_link",
   };
