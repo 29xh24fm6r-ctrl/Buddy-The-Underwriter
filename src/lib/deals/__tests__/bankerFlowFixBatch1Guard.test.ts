@@ -65,12 +65,10 @@ describe("SPEC-BANKER-FLOW-FIX-BATCH-1 guards", () => {
   // Fix 7 — borrower routes already denormalize borrower_name (verified in §0)
 
   // Fix 1 comment
-  test("vertexLocation.ts mentions the GenAI SDK's regional endpoint requirement", () => {
-    // SPEC-M1.1: vertexLocation.ts's doc comment was reworded to drop the
-    // literal "@google/genai" substring (it tripped guard-ai-gateway-
-    // only.mjs's plain-text scan via its own incident-history doc comment,
-    // not a real call site) — meaning preserved, just no longer a literal
-    // package-name string.
-    assert.ok(VERTEX_SRC.includes("current-generation Google GenAI SDK"));
+  test("vertexLocation.ts documents supported Vertex endpoint classes", () => {
+    assert.ok(VERTEX_SRC.includes("regional locations"));
+    assert.ok(VERTEX_SRC.includes("multi-region locations"));
+    assert.ok(VERTEX_SRC.includes('the "global" location'));
+    assert.ok(VERTEX_SRC.includes("getVertexApiHost()"));
   });
 });
