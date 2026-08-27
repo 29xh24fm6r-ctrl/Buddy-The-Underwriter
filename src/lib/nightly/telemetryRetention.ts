@@ -2,8 +2,8 @@
  * Bounded telemetry retention orchestration.
  *
  * Each RPC deletes at most one database batch. Repetition lives here so every
- * RPC call commits independently and a large first table cannot hold one
- * transaction until PostgREST's statement timeout.
+ * RPC call commits independently. Tables advance round-robin so a large first
+ * table cannot consume the worker budget before later tables receive a batch.
  */
 
 type RpcResult = { data: unknown; error: { message?: string } | null };
@@ -48,6 +48,8 @@ export type RetentionOptions = {
   now?: () => number;
 };
 
+type PurgeState = PurgeResult & { active: boolean };
+
 export async function runTelemetryRetentionPurge(
   sb: SB,
   options: RetentionOptions = {},
@@ -58,56 +60,69 @@ export async function runTelemetryRetentionPurge(
   const timeBudgetMs = options.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS;
   const now = options.now ?? Date.now;
   const startedAt = now();
-  const results: PurgeResult[] = [];
+  const states: PurgeState[] = PURGE_RPCS.map(({ rpcName, table }) => ({
+    table,
+    rpcName,
+    rowsPurged: 0,
+    batches: 0,
+    complete: false,
+    stoppedReason: "batch_limit",
+    active: true,
+  }));
 
-  for (const { rpcName, table } of PURGE_RPCS) {
-    let rowsPurged = 0;
-    let batches = 0;
-    let complete = false;
-    let stoppedReason: PurgeStopReason = "batch_limit";
-    let failure: string | undefined;
+  let timeBudgetReached = false;
 
-    while (batches < maxBatchesPerTable) {
+  for (
+    let round = 0;
+    round < maxBatchesPerTable && states.some((state) => state.active);
+    round += 1
+  ) {
+    for (const state of states) {
+      if (!state.active) continue;
+
       if (now() - startedAt >= timeBudgetMs) {
-        stoppedReason = "time_budget";
+        for (const pending of states) {
+          if (pending.active) {
+            pending.stoppedReason = "time_budget";
+            pending.active = false;
+          }
+        }
+        timeBudgetReached = true;
         break;
       }
 
-      const { data, error } = await sb.rpc(rpcName);
+      const { data, error } = await sb.rpc(state.rpcName);
       if (error) {
-        stoppedReason = "rpc_error";
-        failure = error.message ?? "unknown error";
-        break;
+        state.stoppedReason = "rpc_error";
+        state.error = error.message ?? "unknown error";
+        state.active = false;
+        continue;
       }
 
       const deleted = Number(data ?? 0);
       if (!Number.isFinite(deleted) || deleted < 0) {
-        stoppedReason = "rpc_error";
-        failure = `invalid purge row count: ${String(data)}`;
-        break;
+        state.stoppedReason = "rpc_error";
+        state.error = `invalid purge row count: ${String(data)}`;
+        state.active = false;
+        continue;
       }
 
-      rowsPurged += deleted;
-      batches += 1;
+      state.rowsPurged += deleted;
+      state.batches += 1;
 
       if (deleted < batchSize) {
-        complete = true;
-        stoppedReason = "drained";
-        break;
+        state.complete = true;
+        state.stoppedReason = "drained";
+        state.active = false;
       }
     }
 
-    results.push({
-      table,
-      rpcName,
-      rowsPurged,
-      batches,
-      complete,
-      stoppedReason,
-      ...(failure ? { error: failure } : {}),
-    });
+    if (timeBudgetReached) break;
   }
 
+  const results: PurgeResult[] = states.map(
+    ({ active: _active, ...result }) => result,
+  );
   const allComplete = results.every((result) => result.complete);
   const event = {
     event_type: allComplete
