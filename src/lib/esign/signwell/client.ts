@@ -40,6 +40,7 @@ async function signwellFetch(path: string, init: RequestInit): Promise<unknown> 
     const body = await res.text().catch(() => "");
     throw new Error(`SignWell API ${path} failed: ${res.status} ${res.statusText} — ${body}`);
   }
+  if (res.status === 204) return null;
   return res.json();
 }
 
@@ -129,6 +130,15 @@ export async function createSignwellDocumentFromFile(args: {
 export async function fetchSignwellDocument(documentId: string): Promise<SignwellDocument> {
   const raw = await signwellFetch(`/documents/${encodeURIComponent(documentId)}`, { method: "GET" });
   return DocumentSchema.parse(raw);
+}
+
+/**
+ * Deletes a SignWell document and cancels signing if it is already in
+ * progress. Used as a compensating action when Buddy cannot durably track
+ * a document after the provider has accepted it.
+ */
+export async function deleteSignwellDocument(documentId: string): Promise<void> {
+  await signwellFetch(`/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
 }
 
 /**

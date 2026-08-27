@@ -121,6 +121,7 @@ function fakeSignwell(overrides?: Partial<SignwellClient>): SignwellClient {
       status: "pending",
       recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_abc" }],
     }),
+    deleteSignwellDocument: async () => undefined,
     fetchSignwellDocument: async (documentId) => ({
       id: documentId,
       status: "completed",
@@ -184,6 +185,93 @@ test("requestSignature: with IAL2 -> creates document + writes esign.requested e
     template_version: "v1",
     identity_verification_id: "v1",
   });
+});
+
+test("requestSignature: missing provider signing URL cancels the untracked document", async () => {
+  const deleted: string[] = [];
+  const db = new FakeDb({ borrower_identity_verifications: withIal2() });
+  const r = await requestSignature(
+    { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
+    {
+      sb: db as any,
+      signwell: fakeSignwell({
+        createSignwellDocumentFromFile: async () => ({ id: 456, status: "pending", recipients: [] }),
+        deleteSignwellDocument: async (documentId) => { deleted.push(documentId); },
+      }),
+      renderFilledPdf: fakeRenderFilledPdf,
+    },
+  );
+
+  assert.deepEqual(r, { ok: false, reason: "SUBMISSION_FAILED", detail: "signwell_response_missing_signing_url" });
+  assert.deepEqual(deleted, ["456"]);
+  assert.equal(db.tables.signing_requests.length, 0);
+  assert.equal(db.tables.deal_events.length, 0);
+});
+
+test("requestSignature: tracking failure cancels the provider document before returning failure", async () => {
+  const deleted: string[] = [];
+  const db = new FakeDb({ borrower_identity_verifications: withIal2() });
+  const sb = {
+    storage: db.storage,
+    from: (table: string) => table === "signing_requests"
+      ? { insert: async () => ({ error: { message: "database_unavailable" } }) }
+      : db.from(table),
+  };
+  const r = await requestSignature(
+    { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
+    {
+      sb: sb as any,
+      signwell: fakeSignwell({
+        deleteSignwellDocument: async (documentId) => { deleted.push(documentId); },
+      }),
+      renderFilledPdf: fakeRenderFilledPdf,
+    },
+  );
+
+  assert.deepEqual(r, {
+    ok: false,
+    reason: "SUBMISSION_FAILED",
+    detail: "signing_request_tracking_failed:database_unavailable",
+  });
+  assert.deepEqual(deleted, ["12345"]);
+  assert.equal(db.tables.deal_events.length, 0);
+});
+
+test("requestSignature: provider cleanup failure is explicit and keeps the document identity in server logs", async () => {
+  const db = new FakeDb({ borrower_identity_verifications: withIal2() });
+  const sb = {
+    storage: db.storage,
+    from: (table: string) => table === "signing_requests"
+      ? { insert: async () => { throw new Error("insert_threw"); } }
+      : db.from(table),
+  };
+  const originalConsoleError = console.error;
+  const errors: unknown[][] = [];
+  console.error = (...args: unknown[]) => { errors.push(args); };
+  try {
+    const r = await requestSignature(
+      { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
+      {
+        sb: sb as any,
+        signwell: fakeSignwell({
+          deleteSignwellDocument: async () => { throw new Error("delete_failed"); },
+        }),
+        renderFilledPdf: fakeRenderFilledPdf,
+      },
+    );
+
+    assert.deepEqual(r, {
+      ok: false,
+      reason: "SUBMISSION_FAILED",
+      detail: "signing_request_tracking_failed:insert_threw:provider_cleanup_failed",
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+  assert.equal(errors.length, 1);
+  assert.match(String(errors[0][0]), /failed to cancel untracked SignWell document/);
+  assert.deepEqual(errors[0][1], { documentId: "12345", error: "delete_failed" });
+  assert.equal(db.tables.deal_events.length, 0);
 });
 
 test("requestSignature: pdf render fails -> SUBMISSION_FAILED, no document created", async () => {

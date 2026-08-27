@@ -145,6 +145,7 @@ test("full IAL2 -> e-sign happy path", async () => {
   // 3. Request signature — IAL2 gate must now pass
   const signwell: SignwellClient = {
     createSignwellDocumentFromFile: async () => ({ id: 99, status: "pending", recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_xyz" }] }),
+    deleteSignwellDocument: async () => undefined,
     fetchSignwellDocument: async () => ({
       id: 99,
       status: "completed",

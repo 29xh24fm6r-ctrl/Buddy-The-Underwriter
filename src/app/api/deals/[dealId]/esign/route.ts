@@ -17,7 +17,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { assertDealAccess } from "@/lib/server/deal-access";
 import { requestSignature } from "@/lib/esign/signwell/service";
-import { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
+import { createSignwellDocumentFromFile, deleteSignwellDocument, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
 import { resolveFilledPdfForSigning } from "@/lib/esign/signwell/resolveFilledPdfForSigning";
 import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
@@ -73,7 +73,7 @@ export async function POST(req: Request, ctx: Ctx) {
       },
       {
         sb,
-        signwell: { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf },
+        signwell: { createSignwellDocumentFromFile, deleteSignwellDocument, fetchSignwellDocument, downloadSignwellCompletedPdf },
         renderFilledPdf: (a) => resolveFilledPdfForSigning({ ...a, supabase: sb }),
       },
     );

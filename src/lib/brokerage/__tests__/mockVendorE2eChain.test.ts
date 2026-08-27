@@ -6,6 +6,7 @@ import { mockCreateDiditSession, mockFetchDiditSession, mockGetDiditSessionDecis
 import { mockRequestSignature } from "@/lib/esign/signwell/mockService";
 import {
   mockCreateSignwellDocumentFromFile,
+  mockDeleteSignwellDocument,
   mockFetchSignwellDocument,
   mockDownloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/mockClient";
@@ -211,6 +212,7 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
       sb: db as any,
       signwell: {
         createSignwellDocumentFromFile: mockCreateSignwellDocumentFromFile,
+        deleteSignwellDocument: mockDeleteSignwellDocument,
         fetchSignwellDocument: (documentId) =>
           mockFetchSignwellDocument(documentId, {
             externalId,
