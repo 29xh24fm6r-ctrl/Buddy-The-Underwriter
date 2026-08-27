@@ -3,7 +3,13 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { GatewayRole } from "./roleConfig";
-import type { RunRoleRequest } from "./gateway";
+type BudgetableRequest = {
+  prompt: string;
+  systemInstruction?: string;
+  responseSchema?: Record<string, unknown>;
+  inlineData?: { mimeType: string; data: string }[];
+  maxOutputTokens?: number;
+};
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 
@@ -11,6 +17,14 @@ export type GatewayBudgetReservation = {
   id: string;
   reservedTokens: number;
 };
+
+export class GatewayBudgetExceededError extends Error {
+  override readonly name = "GatewayBudgetExceededError";
+}
+
+export class GatewayBudgetPersistenceError extends Error {
+  override readonly name = "GatewayBudgetPersistenceError";
+}
 
 function boundedTokenEstimate(value: number): number {
   return Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(value)));
@@ -21,7 +35,7 @@ function boundedTokenEstimate(value: number): number {
  * characters/token and inline base64 at four characters/token so admission
  * errs toward availability protection rather than budget overrun.
  */
-export function estimateGatewayReservation(request: RunRoleRequest): number {
+export function estimateGatewayReservation(request: BudgetableRequest): number {
   const textChars =
     request.prompt.length +
     (request.systemInstruction?.length ?? 0) +
@@ -52,10 +66,10 @@ export async function reserveGatewayBudget(
     .single();
 
   if (error) {
-    throw new Error(`AI budget reservation failed: ${error.message}`);
+    throw new GatewayBudgetPersistenceError(`AI budget reservation failed: ${error.message}`);
   }
   if (!data?.allowed || !data.reservation_id) {
-    throw new Error(
+    throw new GatewayBudgetExceededError(
       `daily token budget exceeded for role "${role}" (${Number(
         data?.tokens_consumed ?? 0,
       )} consumed + ${Number(data?.tokens_reserved ?? 0)} reserved / ${dailyBudget})`,
@@ -75,12 +89,12 @@ export async function settleGatewayBudget(
   const sb = (client ?? supabaseAdmin()) as any;
   const { data, error } = await sb.rpc("settle_ai_gateway_tokens", {
     p_reservation_id: reservation.id,
-    p_actual_tokens: boundedTokenEstimate(Math.max(0, actualTokens)),
+    p_actual_tokens: Math.max(0, Math.ceil(actualTokens)),
   });
   if (error) {
-    throw new Error(`AI budget settlement failed: ${error.message}`);
+    throw new GatewayBudgetPersistenceError(`AI budget settlement failed: ${error.message}`);
   }
   if (data !== true) {
-    throw new Error("AI budget settlement failed: reservation not found");
+    throw new GatewayBudgetPersistenceError("AI budget settlement failed: reservation not found");
   }
 }
