@@ -15,7 +15,7 @@
 import "server-only";
 
 import { NextRequest } from "next/server";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccessAllowingBrokerageStaff";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
 import { sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
 import { normalizeYearArray } from "@/buddy/lifecycle/normalizeYears";
@@ -125,7 +125,7 @@ async function buildPayload(
     // === Phase 2: Verify deal access ===
     let access: { ok: boolean; error?: string; bankId?: string };
     try {
-      access = await ensureDealBankAccess(dealId);
+      access = await ensureDealBankAccessAllowingBrokerageStaff(dealId);
     } catch (accessErr) {
       const errInfo = sanitizeErrorForEvidence(accessErr);
       console.error(`[lifecycle] correlationId=${correlationId} dealId=${dealId} source=access error=${errInfo.message}`);
@@ -186,7 +186,7 @@ async function buildPayload(
       };
     }
 
-    // CRITICAL FIX: If ensureDealBankAccess passed (Phase 2), the deal EXISTS.
+    // CRITICAL FIX: If ensureDealBankAccessAllowingBrokerageStaff passed (Phase 2), the deal EXISTS.
     // Any "deal_not_found" from derivation is a transient query failure, NOT a
     // real missing deal. Strip it — returning deal_not_found for an existing deal
     // is the root cause of the persistent cockpit blocker.

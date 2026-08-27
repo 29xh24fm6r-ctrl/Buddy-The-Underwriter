@@ -1,11 +1,12 @@
 /**
  * Server-side self-healing for stuck intake processing deals.
  *
- * Runs on a 3-minute cron. Three recovery checks:
+ * Runs on a 3-minute cron. Four recovery checks:
  *
  *   A) Confirmed deals with no live outbox row → re-enqueue
  *   B) Long-stalled claimed rows → emit observability event (claim RPC reclaims naturally)
  *   C) Dead-lettered rows whose deal is still confirmed → re-enqueue fresh row
+ *   D) Stale active uploads without finalization → idempotently requeue artifacts
  *
  * Invariants:
  *   - NEVER imports runIntakeProcessing or processConfirmedIntake
@@ -20,6 +21,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { insertOutboxEvent } from "@/lib/outbox/insertOutboxEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { backfillDealArtifacts } from "@/lib/artifacts/queueArtifact";
 
 /** Max deals to recover per invocation to bound execution time. */
 const MAX_RECOVERIES_PER_RUN = 20;
@@ -35,6 +37,9 @@ export type RecoveryResult = {
   reenqueued_dead_letter: number;
   reclaim_eligible: number;
   skipped_rate_limited: number;
+  upload_deals_backfilled: number;
+  upload_artifacts_queued: number;
+  upload_backfill_errors: number;
 };
 
 export async function recoverStuckIntakeDeals(): Promise<RecoveryResult> {
@@ -44,6 +49,9 @@ export async function recoverStuckIntakeDeals(): Promise<RecoveryResult> {
     reenqueued_dead_letter: 0,
     reclaim_eligible: 0,
     skipped_rate_limited: 0,
+    upload_deals_backfilled: 0,
+    upload_artifacts_queued: 0,
+    upload_backfill_errors: 0,
   };
 
   // ── A) Confirmed deals with no live outbox row ───────────────────────
@@ -211,6 +219,45 @@ export async function recoverStuckIntakeDeals(): Promise<RecoveryResult> {
       });
 
       result.reenqueued_dead_letter++;
+    }
+  }
+
+  // ── D) Stale active uploads without finalization ─────────────────────
+  // Never manufacture finalized_at. Re-enter the idempotent artifact queue
+  // so the normal OCR/classification pipeline remains the sole authority.
+  const staleUploadCutoff = new Date(Date.now() - 15 * 60_000).toISOString();
+  const { data: staleUploads, error: uploadErr } = await sb
+    .from("deal_documents")
+    .select("deal_id, bank_id")
+    .eq("is_active", true)
+    .is("finalized_at", null)
+    .lt("created_at", staleUploadCutoff)
+    .limit(100);
+
+  if (uploadErr) {
+    console.error("[intake-recovery] stale upload query failed:", uploadErr.message);
+    result.upload_backfill_errors++;
+  } else {
+    const uniqueDeals = new Map<string, string>();
+    for (const row of staleUploads ?? []) {
+      if (row.deal_id && row.bank_id) uniqueDeals.set(row.deal_id, row.bank_id);
+    }
+    for (const [dealId, bankId] of uniqueDeals) {
+      const stats = await backfillDealArtifacts(dealId, bankId);
+      result.upload_deals_backfilled++;
+      result.upload_artifacts_queued += stats.queued;
+      result.upload_backfill_errors += stats.errors;
+      void writeEvent({
+        dealId,
+        kind: "intake.upload_artifacts_recovered",
+        scope: "intake",
+        meta: {
+          queued: stats.queued,
+          skipped: stats.skipped,
+          errors: stats.errors,
+          recovery_version: "recovery_v2",
+        },
+      });
     }
   }
 

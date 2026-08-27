@@ -1,6 +1,6 @@
 import "server-only";
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -91,9 +91,6 @@ async function checkRlsEnabled(): Promise<Check[]> {
 }
 
 async function checkBrokerageAnonymousNoCookieAnchor(): Promise<Check> {
-  // SPEC §9.2: no duplicate draft deals from session refresh/retry.
-  // Surface as: count of brokerage_anonymous deals without a matching
-  // session token row.
   let brokerageBankId: string | null = null;
   try {
     brokerageBankId = await getBrokerageBankId();
@@ -108,7 +105,7 @@ async function checkBrokerageAnonymousNoCookieAnchor(): Promise<Check> {
   const sb = supabaseAdmin();
   const { data: deals, error } = await sb
     .from("deals")
-    .select("id, created_at")
+    .select("id, created_at, is_test")
     .eq("bank_id", brokerageBankId)
     .eq("origin", "brokerage_anonymous")
     .is("brokerage_session_token_hash", null)
@@ -122,37 +119,88 @@ async function checkBrokerageAnonymousNoCookieAnchor(): Promise<Check> {
       value: `query failed: ${error.message}`,
     };
   }
-  // The June 21 hardening migration was additive and could not manufacture a
-  // token for pre-existing anonymous rows. Those legacy rows are retained for
-  // audit history; only null-token drafts created after the contract shipped
-  // indicate that the live funnel has regressed.
+
   const contractStartedAt = Date.parse("2026-06-21T00:00:00.000Z");
-  const rows = (deals ?? []) as Array<{ id: string; created_at: string | null }>;
-  const regressions = rows.filter((deal) => {
+  const rows = (deals ?? []) as Array<{
+    id: string;
+    created_at: string | null;
+    is_test: boolean | null;
+  }>;
+  const synthetic = rows.filter((deal) => deal.is_test === true);
+  const productionRows = rows.filter((deal) => deal.is_test !== true);
+  const regressions = productionRows.filter((deal) => {
     const createdAt = deal.created_at ? Date.parse(deal.created_at) : Number.NaN;
     return Number.isFinite(createdAt) && createdAt >= contractStartedAt;
   });
-  const legacyCount = rows.length - regressions.length;
+  const legacyCount = productionRows.length - regressions.length;
   return {
     id: "orphan_drafts",
     label: "Orphan brokerage drafts after session hardening",
     status: regressions.length === 0 ? "ok" : regressions.length < 5 ? "warn" : "fail",
-    value: `${regressions.length} post-contract regression(s); ${legacyCount} legacy row(s) retained for audit`,
+    value:
+      `${regressions.length} production regression(s); ` +
+      `${legacyCount} legacy row(s); ${synthetic.length} synthetic row(s) excluded`,
   };
 }
 
 async function checkPendingOcr(): Promise<Check> {
   const sb = supabaseAdmin();
-  const { count } = await sb
+  const { data: docs, error } = await sb
     .from("deal_documents")
-    .select("id", { count: "exact", head: true })
-    .is("finalized_at", null);
-  const n = count ?? 0;
+    .select("id, deal_id, created_at")
+    .eq("is_active", true)
+    .is("finalized_at", null)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) {
+    return {
+      id: "pending_ocr",
+      label: "Uploads pending OCR",
+      status: "fail",
+      value: `query failed: ${error.message}`,
+    };
+  }
+
+  const rows = (docs ?? []) as Array<{
+    id: string;
+    deal_id: string;
+    created_at: string | null;
+  }>;
+  const dealIds = [...new Set(rows.map((row) => row.deal_id).filter(Boolean))];
+  const testDealIds = new Set<string>();
+  if (dealIds.length > 0) {
+    const { data: deals, error: dealError } = await sb
+      .from("deals")
+      .select("id, is_test")
+      .in("id", dealIds);
+    if (dealError) {
+      return {
+        id: "pending_ocr",
+        label: "Uploads pending OCR",
+        status: "fail",
+        value: `deal classification failed: ${dealError.message}`,
+      };
+    }
+    for (const deal of (deals ?? []) as Array<{ id: string; is_test: boolean | null }>) {
+      if (deal.is_test === true) testDealIds.add(deal.id);
+    }
+  }
+
+  const productionRows = rows.filter((row) => !testDealIds.has(row.deal_id));
+  const staleBefore = Date.now() - 15 * 60_000;
+  const stuck = productionRows.filter((row) => {
+    const createdAt = row.created_at ? Date.parse(row.created_at) : Number.NaN;
+    return Number.isFinite(createdAt) && createdAt < staleBefore;
+  });
+  const fresh = productionRows.length - stuck.length;
+  const syntheticCount = rows.length - productionRows.length;
   return {
     id: "pending_ocr",
     label: "Uploads pending OCR",
-    status: n === 0 ? "ok" : n < 10 ? "warn" : "fail",
-    value: `${n} document(s) with finalized_at IS NULL`,
+    status: stuck.length === 0 ? "ok" : stuck.length < 10 ? "warn" : "fail",
+    value:
+      `${stuck.length} stuck production document(s); ${fresh} fresh; ` +
+      `${syntheticCount} synthetic excluded`,
   };
 }
 
@@ -173,58 +221,55 @@ async function checkPortalLinkRevokedColumn(): Promise<Check> {
 }
 
 async function checkSyntheticBorrowerReport(): Promise<Check> {
-  const reportPath = join(process.cwd(), ".ci/synth-borrower-e2e-report.json");
-  if (!existsSync(reportPath)) {
-    return {
-      id: "synth_borrower_report",
-      label: "Synthetic borrower run",
-      status: "warn",
-      value: "no report present (.ci/synth-borrower-e2e-report.json missing)",
-    };
-  }
-  try {
-    const r = JSON.parse(readFileSync(reportPath, "utf8")) as {
-      ran_at: string;
-      pass_count: number;
-      total: number;
-    };
-    const ranAtTs = new Date(r.ran_at).getTime();
-    const ageDays = (Date.now() - ranAtTs) / 86400000;
-    const passOk = r.pass_count >= 13;
-    const ageOk = ageDays <= 7;
-    return {
-      id: "synth_borrower_report",
-      label: "Synthetic borrower run (≤7d old, ≥13/15)",
-      status: passOk && ageOk ? "ok" : passOk ? "warn" : "fail",
-      value: `${r.pass_count}/${r.total} from ${r.ran_at} (${ageDays.toFixed(1)}d ago)`,
-    };
-  } catch (e) {
+  const sb = supabaseAdmin();
+  const { data, error } = await sb
+    .from("ai_events")
+    .select("created_at, action, output_json")
+    .eq("scope", "synth_borrower_e2e")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) {
     return {
       id: "synth_borrower_report",
       label: "Synthetic borrower run",
       status: "fail",
-      value: `report unreadable: ${(e as Error).message}`,
+      value: `evidence query failed: ${error.message}`,
     };
   }
+  const row = (data?.[0] ?? null) as {
+    created_at: string;
+    action: string;
+    output_json: Record<string, unknown> | null;
+  } | null;
+  if (!row) {
+    return {
+      id: "synth_borrower_report",
+      label: "Synthetic borrower run",
+      status: "warn",
+      value: "no durable run evidence recorded",
+    };
+  }
+  const output = row.output_json ?? {};
+  const passCount = Number(output.pass_count ?? 0);
+  const total = Number(output.total ?? 0);
+  const repeatViolations = Number(output.repeat_ask_violation_count ?? 0);
+  const ageDays = (Date.now() - new Date(row.created_at).getTime()) / 86_400_000;
+  const passed =
+    row.action === "passed" &&
+    passCount >= 13 &&
+    total >= 15 &&
+    repeatViolations === 0;
+  const fresh = Number.isFinite(ageDays) && ageDays <= 7;
+  return {
+    id: "synth_borrower_report",
+    label: "Synthetic borrower run (≤7d old, ≥13/15)",
+    status: passed && fresh ? "ok" : passed ? "warn" : "fail",
+    value:
+      `${passCount}/${total} from ${row.created_at} (${ageDays.toFixed(1)}d ago); ` +
+      `repeat violations=${repeatViolations}; action=${row.action}`,
+  };
 }
 
-/**
- * SPEC-DRIFT-HARDENING-1 D3 — Schema Parity panel.
- *
- * Reads scripts/audit/schema-manifest.json (every table/column/view/function
- * a migration >= its CUTOFF_VERSION claims to create — enforced statically
- * against migration files by `pnpm guard:schema-manifest`) and confirms
- * each entry actually exists in the LIVE schema via
- * src/lib/admin/schemaParityCheck.ts (the buddy_table_exists /
- * buddy_column_exists / buddy_view_exists RPCs). This is the runtime half
- * of D3: the guard catches "migration author forgot to update the
- * manifest" at commit time; this panel catches "the manifest says this
- * should exist live but it doesn't" (e.g. a migration was authored but
- * never actually applied — the exact 2026-07-30 incident this spec exists
- * to prevent). The RPC-calling logic lives in schemaParityCheck.ts, not
- * here, because this page.tsx imports "server-only" and so — like every
- * other page.tsx in this repo — cannot be unit-tested directly.
- */
 async function checkSchemaParity(): Promise<Check> {
   const manifestPath = join(process.cwd(), "scripts/audit/schema-manifest.json");
   let manifest: SchemaManifestEntry[];
@@ -242,31 +287,41 @@ async function checkSchemaParity(): Promise<Check> {
 }
 
 async function checkLastCleanupCron(): Promise<Check> {
-  // Best-effort: read the most recent ai_events row tagged
-  // brokerage_session_cleanup. Falls back gracefully if the scope is
-  // absent.
   const sb = supabaseAdmin();
-  const { data } = await sb
+  const { data, error } = await sb
     .from("ai_events")
-    .select("created_at")
+    .select("created_at, action, output_json")
     .eq("scope", "brokerage_session_cleanup")
     .order("created_at", { ascending: false })
     .limit(1);
-  const row = (data?.[0] ?? null) as { created_at: string } | null;
+  if (error) {
+    return {
+      id: "cleanup_cron",
+      label: "Expired-session cleanup CRON",
+      status: "fail",
+      value: `evidence query failed: ${error.message}`,
+    };
+  }
+  const row = (data?.[0] ?? null) as {
+    created_at: string;
+    action: string;
+    output_json: Record<string, unknown> | null;
+  } | null;
   if (!row) {
     return {
       id: "cleanup_cron",
       label: "Expired-session cleanup CRON",
       status: "warn",
-      value: "no recent run recorded",
+      value: "no durable run evidence recorded",
     };
   }
-  const ageH = (Date.now() - new Date(row.created_at).getTime()) / 3600_000;
+  const ageH = (Date.now() - new Date(row.created_at).getTime()) / 3_600_000;
+  const successful = row.action === "completed";
   return {
     id: "cleanup_cron",
     label: "Expired-session cleanup CRON last run",
-    status: ageH <= 24 ? "ok" : ageH <= 48 ? "warn" : "fail",
-    value: `${ageH.toFixed(1)}h ago`,
+    status: !successful ? "fail" : ageH <= 24 ? "ok" : ageH <= 48 ? "warn" : "fail",
+    value: `${ageH.toFixed(1)}h ago; action=${row.action}`,
   };
 }
 
