@@ -5,6 +5,7 @@ import "server-only";
 // Pure function. Consumes EXISTING projections (never recomputes them) and
 // evaluates whether the financials support the proposed venture.
 
+import { computeDimensionCompleteness } from "./dimensionCompleteness";
 import type {
   DimensionScore,
   FinancialViabilityInput,
@@ -248,13 +249,14 @@ export function analyzeFinancialViability(
 
   // ── Composite ──────────────────────────────────────────────────────
 
-  const dimensions = [
-    dscrScore,
-    breakEvenScore,
-    capScore,
-    cashScore,
-    downsideScore,
+  const entries = [
+    { key: "debtServiceCoverage", score: dscrScore },
+    { key: "breakEvenMargin", score: breakEvenScore },
+    { key: "capitalizationAdequacy", score: capScore },
+    { key: "cashRunway", score: cashScore },
+    { key: "downsideResilience", score: downsideScore },
   ];
+  const dimensions = entries.map((e) => e.score);
   const totalWeight = dimensions.reduce((s, d) => s + d.weight, 0);
   const weightedSum = dimensions.reduce(
     (s, d) => s + d.score * d.weight,
@@ -262,8 +264,7 @@ export function analyzeFinancialViability(
   );
   const overallScore = Math.round(weightedSum / totalWeight);
 
-  const dataPoints = dimensions.length;
-  const available = dimensions.filter((d) => d.dataAvailable).length;
+  const coverage = computeDimensionCompleteness(entries);
 
   return {
     overallScore,
@@ -272,7 +273,8 @@ export function analyzeFinancialViability(
     capitalizationAdequacy: capScore,
     cashRunway: cashScore,
     downsideResilience: downsideScore,
-    dataCompleteness: available / dataPoints,
+    dataCompleteness: coverage.completeness,
+    coverage,
     flags,
   };
 }

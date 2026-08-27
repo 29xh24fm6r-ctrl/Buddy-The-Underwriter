@@ -667,7 +667,7 @@ export async function generateTridentBundle(args: {
           .select("verification_verdict,projections_assumptions_narrative,sources_and_uses")
           .eq("id", sbaResult.packageId).single(),
         sb.from("buddy_feasibility_studies")
-          .select("verification_verdict,data_completeness,narrative_citations")
+          .select("verification_verdict,data_completeness,narrative_citations,market_demand_detail,financial_viability_detail,operational_readiness_detail,location_suitability_detail")
           .eq("id", sourceFeasibilityId).single(),
         sb.from("canonical_memo_narratives")
           .select("id,input_hash,research_trust_grade")
@@ -686,6 +686,24 @@ export async function generateTridentBundle(args: {
         const value = entry as { precise?: unknown; urls?: unknown } | null;
         return value?.precise === true && Array.isArray(value.urls) && value.urls.length > 0;
       }).length;
+      // Each dimension detail carries `coverage.missing` — the metric keys the
+      // study measured as applicable but unavailable. Surfacing them turns the
+      // completeness blocker from a bare percentage into a list of the exact
+      // evidence a lender would have to supply.
+      const missingFeasibilityEvidence = (
+        [
+          ["market_demand", releaseFeasibility?.market_demand_detail],
+          ["financial_viability", releaseFeasibility?.financial_viability_detail],
+          ["operational_readiness", releaseFeasibility?.operational_readiness_detail],
+          ["location_suitability", releaseFeasibility?.location_suitability_detail],
+        ] as Array<[string, unknown]>
+      ).flatMap(([dimension, detail]) => {
+        const missing = (detail as { coverage?: { missing?: unknown } } | null)?.coverage?.missing;
+        return Array.isArray(missing)
+          ? missing.filter((k): k is string => typeof k === "string").map((k) => `${dimension}.${k}`)
+          : [];
+      });
+
       const spreadPayload = releaseSpread?.rendered_json as Record<string, unknown> | null;
       const certificationAudit = spreadPayload?.certificationAudit as Record<string, unknown> | null;
       const spreadAccuracy = certificationAudit?.spreadAccuracy as Record<string, unknown> | null;
@@ -694,6 +712,7 @@ export async function generateTridentBundle(args: {
         businessPlanVerdict: releasePkg?.verification_verdict,
         feasibilityVerdict: releaseFeasibility?.verification_verdict,
         feasibilityCompleteness: releaseFeasibility?.data_completeness,
+        feasibilityMissingEvidence: missingFeasibilityEvidence,
         feasibilityCitationCount: citationCount,
         projectionsNarrative: releasePkg?.projections_assumptions_narrative,
         sourcesAndUses: releasePkg?.sources_and_uses,
