@@ -90,9 +90,15 @@ async function runNightly(req: NextRequest) {
     try {
       console.log(`Processing nightly tasks for bank ${bank.id}`);
 
-      // 1. Aggregate portfolio
-      await aggregatePortfolio(bank.id);
-      console.log(`✓ Portfolio aggregated for ${bank.id}`);
+      // 1. Aggregate portfolio. A bank with no final decisions is a normal
+      // lifecycle state; keep running the remaining no-op-safe governance
+      // checks and report the skip explicitly.
+      const portfolio = await aggregatePortfolio(bank.id);
+      if (portfolio) {
+        console.log(`✓ Portfolio aggregated for ${bank.id}`);
+      } else {
+        console.log(`Portfolio skipped for ${bank.id}: no final decisions`);
+      }
 
       // 2. Detect policy drift
       await detectPolicyDrift(bank.id);
@@ -104,7 +110,8 @@ async function runNightly(req: NextRequest) {
 
       results.push({
         bank_id: bank.id,
-        status: "success"
+        status: "success",
+        portfolio: portfolio ? "aggregated" : "skipped_no_final_decisions",
       });
     } catch (error: any) {
       console.error(`Error processing bank ${bank.id}:`, error);
