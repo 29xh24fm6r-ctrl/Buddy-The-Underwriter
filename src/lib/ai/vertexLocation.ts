@@ -1,5 +1,7 @@
 import "server-only";
 
+import { resolveVertexLocation } from "@/lib/ai/vertexLocationValue";
+
 /**
  * Single source of truth for Vertex AI location resolution.
  *
@@ -19,15 +21,13 @@ import "server-only";
  *     current-generation SDK does not. This was the root cause of
  *     SDK_HTML_RESPONSE failures after SPEC-GEMINI-FLASH-LITE-MIGRATION-1.
  *   - gemini-2.0-flash and gemini-flash-lite are deployed to us-central1.
- *   - GOOGLE_CLOUD_LOCATION Vercel env var must also be set to "us-central1".
  *
- * Callers MUST import this helper rather than defining their own. A
- * source-grep guard test enforces this.
+ * Invalid, blank, zonal, or multi-region configuration fails safely to
+ * us-central1. Callers MUST import this helper rather than defining their own.
  */
 export function getVertexLocation(): string {
-  return (
-    process.env.GOOGLE_CLOUD_LOCATION ||
-    process.env.GOOGLE_CLOUD_REGION ||
-    "us-central1"
+  return resolveVertexLocation(
+    process.env.GOOGLE_CLOUD_LOCATION,
+    process.env.GOOGLE_CLOUD_REGION,
   );
 }
