@@ -655,11 +655,27 @@ Repair:
 - No schema, migration, credential, provider configuration, or production-data
   change is included.
 
-Verification target:
+Verification on code head `427233b794275ee04aee6df66c590647c5e1c200`:
 
-- Focused SignWell unit/integration tests, full CI and build guards, complete
-  diff inspection, and exact-head Vercel preview must pass before merge
-  recommendation.
+- CI ran 13,224 tests: 13,215 passed, 0 failed, 9 skipped.
+- React-server-condition tests passed 18/18. Research evaluation passed 7/7;
+  the 13 known production-data placeholders remain explicitly skipped.
+- Typecheck, lint, architecture, legacy-write, safety, polling, Never-500,
+  schema-select, report-only schema-drift, Build Check, Secret Scan, Route
+  Budget, and public Playwright passed. Authenticated smoke was unavailable
+  and explicitly skipped.
+- Exact code-head Vercel preview `dpl_GaEogpbrZGksVcrixASH46iK9xJz` is
+  READY, returned HTTP 200 with matching `x-buddy-build`, and recorded no
+  error/fatal runtime logs in the post-deploy window.
+- The complete diff is one commit ahead of current `main`, zero commits
+  behind, and limited to this repair, regression coverage, route wiring, and
+  the ledger. A final ledger-only close commit must retain green required
+  checks before merge recommendation.
+
+Open checkpoints:
+
+- After merge, verify deployed production behavior and execute one authorized
+  failure-compensation fixture plus completion/replay fixture.
 - Direct production-row verification remains blocked until the verified
   Buddy-owned Supabase connection is restored; the differently named project
   exposed by the generic connector remains unqueried.
