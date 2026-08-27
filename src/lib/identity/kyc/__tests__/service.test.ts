@@ -11,11 +11,13 @@ class Q {
   _u: Row | null = null;
   _i: Row[] | null = null;
   _l: number | null = null;
+  operation: "select" | "insert" | "update" = "select";
   constructor(db: FakeDb, table: string) {
     this.db = db;
     this.table = table;
   }
   select(_?: string) {
+    this.operation = "select";
     return this;
   }
   order(_k: string, _o?: any) {
@@ -38,6 +40,7 @@ class Q {
     return this;
   }
   insert(p: Row | Row[]) {
+    this.operation = "insert";
     const rows = Array.isArray(p) ? p : [p];
     const withIds = rows.map((r) => ({ id: r.id ?? `id-${Math.random().toString(36).slice(2, 8)}`, ...r }));
     this.db.tables[this.table] ??= [];
@@ -46,14 +49,19 @@ class Q {
     return this;
   }
   update(u: Row) {
+    this.operation = "update";
     this._u = u;
     return this;
   }
   single(): Promise<{ data: any; error: any }> {
+    const failure = this.db.failures[`${this.table}:${this.operation}`];
+    if (failure) return Promise.resolve({ data: null, error: { message: failure } });
     if (this._i) return Promise.resolve({ data: this._i[0], error: null });
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
   maybeSingle(): Promise<{ data: any; error: any }> {
+    const failure = this.db.failures[`${this.table}:${this.operation}`];
+    if (failure) return Promise.resolve({ data: null, error: { message: failure } });
     if (this._u) {
       this.applyUpdate();
       return Promise.resolve({ data: this.rows()[0], error: null });
@@ -61,6 +69,10 @@ class Q {
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
   then(resolve: any, reject?: any) {
+    const failure = this.db.failures[`${this.table}:${this.operation}`];
+    if (failure) {
+      return Promise.resolve({ data: null, error: { message: failure } }).then(resolve, reject);
+    }
     if (this._u) {
       this.applyUpdate();
       return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
@@ -85,13 +97,15 @@ class Q {
 
 class FakeDb {
   tables: Record<string, Row[]>;
-  constructor(seed?: Partial<Record<string, Row[]>>) {
+  failures: Record<string, string>;
+  constructor(seed?: Partial<Record<string, Row[]>>, failures?: Record<string, string>) {
     this.tables = {
       borrower_identity_verifications: [],
       ownership_entities: [],
       deal_events: [],
       ...seed,
     };
+    this.failures = failures ?? {};
   }
   from(t: string) {
     return new Q(this, t);
@@ -452,3 +466,85 @@ test("reconcileVerification: performs one canonical vendor read and no redundant
   assert.equal(db.tables.borrower_identity_verifications[0].status, "approved");
   assert.ok(db.tables.borrower_identity_verifications[0].completed_at);
 });
+
+test("handleDiditWebhook: database lookup failure is retryable and never acknowledged as not found", async () => {
+  const db = new FakeDb(
+    {
+      borrower_identity_verifications: [
+        { id: "v1", deal_id: "d1", vendor_inquiry_id: "sess_1", status: "pending" },
+      ],
+    },
+    { "borrower_identity_verifications:select": "database unavailable" },
+  );
+
+  await assert.rejects(
+    () => handleDiditWebhook({ session_id: "sess_1" }, { sb: db as any, didit: fakeDidit() }),
+    /didit_webhook_record_lookup_failed: database unavailable/,
+  );
+  assert.equal(db.tables.borrower_identity_verifications[0].status, "pending");
+  assert.equal(db.tables.deal_events.length, 0);
+});
+
+test("handleDiditWebhook: database update failure throws so the provider can retry", async () => {
+  const db = new FakeDb(
+    {
+      borrower_identity_verifications: [
+        { id: "v1", deal_id: "d1", vendor_inquiry_id: "sess_1", status: "pending" },
+      ],
+    },
+    { "borrower_identity_verifications:update": "write rejected" },
+  );
+
+  await assert.rejects(
+    () => handleDiditWebhook({ session_id: "sess_1" }, { sb: db as any, didit: fakeDidit() }),
+    /didit_webhook_status_update_failed: write rejected/,
+  );
+  assert.equal(db.tables.borrower_identity_verifications[0].status, "pending");
+  assert.equal(db.tables.deal_events.length, 0);
+});
+
+test("reconcileVerification: database read failure is not misreported as a missing verification", async () => {
+  const db = new FakeDb(undefined, {
+    "borrower_identity_verifications:select": "database unavailable",
+  });
+
+  const result = await reconcileVerification("v1", { sb: db as any, didit: fakeDidit() });
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.reason, "DB_READ_FAILED");
+    assert.equal(result.detail, "database unavailable");
+  }
+});
+
+test("reconcileVerification: database update failure leaves durable state unchanged and reports failure", async () => {
+  const db = new FakeDb(
+    {
+      borrower_identity_verifications: [
+        {
+          id: "v1",
+          deal_id: "d1",
+          ownership_entity_id: "o1",
+          vendor: "didit",
+          vendor_inquiry_id: "sess_1",
+          status: "created",
+          completed_at: null,
+          created_at: "2026-08-25",
+        },
+      ],
+    },
+    { "borrower_identity_verifications:update": "write rejected" },
+  );
+
+  const result = await reconcileVerification("v1", { sb: db as any, didit: fakeDidit() });
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.reason, "DB_UPDATE_FAILED");
+    assert.equal(result.detail, "write rejected");
+  }
+  assert.equal(db.tables.borrower_identity_verifications[0].status, "created");
+  assert.equal(db.tables.borrower_identity_verifications[0].completed_at, null);
+  assert.equal(db.tables.deal_events.length, 0);
+});
+
