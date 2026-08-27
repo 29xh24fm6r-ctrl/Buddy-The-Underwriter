@@ -15,6 +15,8 @@ type BudgetableRequest = {
 };
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 4096;
+const GEMINI_PDF_TOKENS_PER_PAGE = 258;
+const GEMINI_PDF_MAX_PAGES = 1000;
 
 export type GatewayBudgetReservation = {
   id: string;
@@ -47,20 +49,49 @@ export function estimateTextTokenUpperBound(...values: Array<string | undefined>
 }
 
 /**
- * Conservative admission estimate. Text is bounded by UTF-8 bytes and inline
- * base64 is ASCII, so admission errs toward availability protection rather
- * than allowing aggregate budget overrun.
+ * Gemini bills PDF input by page, not by the size of its base64 transport.
+ * Parse valid PDFs so admission reserves the documented 258 tokens per page.
+ * If page parsing fails, reserve the provider's full 1,000-page allowance:
+ * malformed input still fails closed without pretending its bytes are tokens.
  */
-export function estimateGatewayReservation(request: BudgetableRequest): number {
+async function estimateInlinePart(part: { mimeType: string; data: string }): Promise<number> {
+  const mimeType = part.mimeType.split(";", 1)[0]?.trim().toLowerCase();
+  if (mimeType !== "application/pdf") {
+    return boundedTokenEstimate(part.data.length);
+  }
+
+  try {
+    const { PDFDocument } = await import("pdf-lib");
+    const pdf = await PDFDocument.load(Buffer.from(part.data, "base64"), {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+    const pageCount = Math.max(
+      1,
+      Math.min(pdf.getPageCount(), GEMINI_PDF_MAX_PAGES),
+    );
+    return boundedTokenEstimate(pageCount * GEMINI_PDF_TOKENS_PER_PAGE);
+  } catch {
+    return GEMINI_PDF_MAX_PAGES * GEMINI_PDF_TOKENS_PER_PAGE;
+  }
+}
+
+/**
+ * Conservative admission estimate. Text remains bounded by UTF-8 bytes.
+ * Binary media uses provider-aware accounting where Buddy has a documented
+ * contract; other inline media retains the conservative transport bound.
+ */
+export async function estimateGatewayReservation(
+  request: BudgetableRequest,
+): Promise<number> {
   const textEstimate = estimateTextTokenUpperBound(
     request.prompt,
     request.systemInstruction,
     JSON.stringify(request.responseSchema ?? {}),
   );
-  const inlineEstimate = (request.inlineData ?? []).reduce(
-    (total, part) => total + part.data.length,
-    0,
-  );
+  const inlineEstimate = (
+    await Promise.all((request.inlineData ?? []).map(estimateInlinePart))
+  ).reduce((total, estimate) => total + estimate, 0);
   const inputEstimate = textEstimate + inlineEstimate;
   return boundedTokenEstimate(
     inputEstimate + (request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS),

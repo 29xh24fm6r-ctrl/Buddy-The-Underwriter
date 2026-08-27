@@ -207,7 +207,7 @@ async function reserveDurableBudget(
   return reserveGatewayBudget(
     role,
     dailyBudget,
-    estimateGatewayReservation(request),
+    await estimateGatewayReservation(request),
   );
 }
 
