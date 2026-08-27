@@ -778,3 +778,33 @@ The focused tests, full CI/build/security gates, exact-head preview, and rendere
 preview metadata must pass before merge. After merge, re-fetch both production
 domains and verify canonical, description, Open Graph, Twitter, HTTP status,
 matching build SHA, and runtime logs.
+
+
+## 2026-08-27 — Public product domain-boundary commissioning
+
+### Evidence
+
+- The production borrower surface served `/underwriter` directly on `www.buddysba.com`.
+- A credential-free browser run reproduced a client-side exception before the lender page became usable.
+- The browser console identified the boundary failure: Clerk's production key is restricted to the underwriter application domain, and `useClerk` ran without a working `ClerkProvider` on the borrower origin.
+- Both public landing pages linked to the other product with relative URLs, so cross-product navigation preserved the wrong host.
+- Middleware classified `/underwriter` and `/brokerage` as public before its marketing-host redirect, allowing the invalid render.
+
+### Root cause and repair
+
+The public surfaces shared routes but did not enforce their product-domain boundary. The repair centralizes the two canonical origins, changes both cross-product entry points to absolute canonical links, redirects a mismatched production host before the public-route short circuit, preserves query parameters, and binds the direct brokerage route to complete Buddy SBA metadata. Preview and local hosts remain unchanged.
+
+Regression coverage now proves:
+
+- each cross-product entry resolves to its canonical production host;
+- preview, local, same-product, and unrelated routes are not redirected;
+- the defensive redirect executes before the public-route return;
+- public cross-navigation no longer uses relative product paths;
+- the direct brokerage route cannot inherit underwriting metadata.
+
+### Checkpoint
+
+- PR 925 merged externally and remains the deployed metadata baseline; it was not merged by the commissioning process.
+- The domain-boundary follow-up is isolated on `commissioning/public-product-domain-boundary`.
+- Production closure requires the follow-up merge, exact deployment-SHA verification, and browser confirmation that the former `www.buddysba.com/underwriter` crash redirects to the canonical underwriter site.
+- The verified Buddy-owned Supabase connection and authorized Golden Trident fixture remain separate blockers for database and transactional closure.
