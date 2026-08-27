@@ -82,7 +82,7 @@ export async function resolveByPhone(phoneE164: string): Promise<{
 
   if (error) {
     console.error("resolveByPhone error:", error);
-    return null;
+    throw new Error(`resolveByPhone failed: ${error.message}`);
   }
 
   if (!data || data.length === 0) {
