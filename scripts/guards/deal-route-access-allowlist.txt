@@ -51,7 +51,6 @@ src/app/api/deals/[dealId]/pricing/quote/route.ts
 src/app/api/deals/[dealId]/pricing/quotes/route.ts
 src/app/api/deals/[dealId]/pricing/scenarios/route.ts
 src/app/api/deals/[dealId]/pricing/status/route.ts
-src/app/api/deals/[dealId]/progress/route.ts
 src/app/api/deals/[dealId]/reviews/route.ts
 src/app/api/deals/[dealId]/slots/route.ts
 src/app/api/deals/[dealId]/snapshots/route.ts
