@@ -29,6 +29,27 @@ const BASE_ARGS = {
   documentId: "doc-1",
 };
 
+function assertStrictObjectSchemas(schema: any): void {
+  if (!schema || typeof schema !== "object") return;
+  if (schema.type === "object") {
+    assert.equal(
+      schema.additionalProperties,
+      false,
+      "every object node must reject undeclared properties for OpenAI strict output",
+    );
+    const propertyNames = Object.keys(schema.properties ?? {}).sort();
+    assert.deepEqual(
+      [...(schema.required ?? [])].sort(),
+      propertyNames,
+      "every declared object property must be required for OpenAI strict output",
+    );
+  }
+  for (const value of Object.values(schema.properties ?? {})) {
+    assertStrictObjectSchemas(value);
+  }
+  if (schema.items) assertStrictObjectSchemas(schema.items);
+}
+
 beforeEach(() => {
   __setProviderImplForTests("openai", async () => {
     throw new Error("openai fallback not configured in this test");
@@ -54,6 +75,28 @@ test("happy path: threads authMode:vertex through and returns validated entities
   assert.equal(result?.entities[0].type, "ein");
   assert.equal(result?.formFields[0].name, "tax_year");
   assert.equal(result?._meta.source, "gemini_flash_structured_assist");
+});
+
+test("OpenAI fallback receives a recursively closed structured-output schema", async () => {
+  let captured: any = null;
+  __setProviderImplForTests("google", async () => {
+    throw new Error("HTTP 503: primary unavailable");
+  });
+  __setProviderImplForTests("openai", async (req: any) => {
+    captured = req;
+    return okResult(VALID_STRUCTURED_JSON);
+  });
+
+  const result = await extractStructuredAssist(BASE_ARGS);
+
+  assert.ok(result);
+  assert.ok(captured?.responseSchema);
+  assertStrictObjectSchemas(captured.responseSchema);
+  assert.deepEqual(captured.responseSchema.required, ["entities", "formFields"]);
+  assert.deepEqual(
+    captured.responseSchema.properties.entities.items.required,
+    ["type", "mentionText", "confidence", "normalizedValue"],
+  );
 });
 
 test("unsupported canonicalType: returns null without calling the gateway", async () => {
