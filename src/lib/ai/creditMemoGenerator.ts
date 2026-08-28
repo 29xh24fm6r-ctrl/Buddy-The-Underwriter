@@ -5,12 +5,12 @@ import { runRole } from "./gateway";
 // Gateway helper
 // ---------------------------------------------------------------------------
 //
-// SPEC-M1.1 — migrated onto the AI gateway (generator role). A permissive
-// object responseSchema is passed (rather than the full MemoJsonSchema
-// zod schema hand-translated to JSON Schema) to preserve the existing
-// "ask for JSON via prompt, zod-validate, repair-retry on failure" contract
-// exactly — this function's whole job is producing raw text for the
-// caller's own generate+repair loop, not enforcing a schema itself.
+// SPEC-M1.1 — migrated onto the AI gateway (generator role). This memo
+// intentionally uses provider-native JSON-object mode rather than strict
+// JSON Schema: keyMetrics has dynamic keys and several section fields are
+// optional. The caller's Zod schema remains the canonical validator and
+// preserves the existing generate+repair loop across Google -> OpenAI
+// failover without handing OpenAI an invalid placeholder strict schema.
 
 async function geminiGenerate(system: string, userContent: string): Promise<string> {
   const result = await runRole("generator", {
@@ -27,7 +27,7 @@ async function geminiGenerate(system: string, userContent: string): Promise<stri
     npiTagged: true,
     temperature: 0.2,
     maxOutputTokens: 8192,
-    responseSchema: { type: "object" },
+    responseJsonObject: true,
     prompt: `${system}\n\n${userContent}`,
   });
   return result.text;

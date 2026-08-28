@@ -92,9 +92,9 @@ const USE_OF_PROCEEDS_SCHEMA = {
         properties: {
           category: { type: "string", enum: CATEGORIES },
           amount: { type: "number" },
-          description: { type: "string" },
+          description: { type: ["string", "null"] },
         },
-        required: ["category", "amount"],
+        required: ["category", "amount", "description"],
         additionalProperties: false,
       },
     },

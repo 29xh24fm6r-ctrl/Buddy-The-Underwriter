@@ -109,3 +109,30 @@ test("classifyUseOfProceeds drops entries with an invalid category from a malfor
   assert.equal(result.categorized.length, 1);
   assert.equal(result.categorized[0].category, "equipment");
 });
+
+test("classifyUseOfProceeds sends an OpenAI-strict nested schema", async () => {
+  let capturedRequest: any;
+  __setProviderImplForTests("openai", async (request) => {
+    capturedRequest = request;
+    return {
+      text: JSON.stringify({
+        categorized: [{ category: "equipment", amount: 50000, description: null }],
+        hasUncategorizedResidue: false,
+        rationale: "Explicit equipment purpose.",
+      }),
+      tokensIn: 10,
+      tokensOut: 10,
+    };
+  });
+
+  const result = await classifyUseOfProceeds({
+    dealId: "deal-schema",
+    totalLoanAmount: 50000,
+    lineItems: [{ description: "equipment", category: null, amount: 50000 }],
+  });
+
+  const itemSchema = capturedRequest.responseSchema.properties.categorized.items;
+  assert.deepEqual(itemSchema.required, ["category", "amount", "description"]);
+  assert.deepEqual(itemSchema.properties.description.type, ["string", "null"]);
+  assert.equal(result.categorized[0].category, "equipment");
+});

@@ -141,3 +141,26 @@ test("attempt 2 (repair) recovers when attempt 1 returns malformed JSON but atte
   assert.equal(memoJson.meta.recommendedDecision, "DECLINE");
   assert.equal(isFallbackStub, false, "a repair-recovered real memo must not be marked as a fallback stub");
 });
+
+test("Google failure can recover through OpenAI JSON-object failover without a placeholder strict schema", async () => {
+  __setVendorApprovalForTests("google", "APPROVED");
+  __setVendorApprovalForTests("openai", "APPROVED");
+  __setProviderImplForTests("google", async () => {
+    throw new Error("simulated Google outage");
+  });
+  let fallbackRequest: any;
+  __setProviderImplForTests("openai", async (request) => {
+    fallbackRequest = request;
+    return { text: validMemoText(), tokensIn: 20, tokensOut: 20 };
+  });
+
+  const { memoJson, isFallbackStub } = await generateAdvancedCreditMemo({
+    dealId: "deal-failover",
+    context: { borrower: { name: "Acme Co" } },
+  });
+
+  assert.equal(fallbackRequest.responseJsonObject, true);
+  assert.equal(fallbackRequest.responseSchema, undefined);
+  assert.equal(memoJson.meta.recommendedDecision, "APPROVE");
+  assert.equal(isFallbackStub, false);
+});
