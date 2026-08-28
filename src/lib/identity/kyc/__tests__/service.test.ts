@@ -565,3 +565,36 @@ test("handleDiditWebhook: audit write failure is not acknowledged after durable 
   assert.equal(db.tables.borrower_identity_verifications[0].status, "approved");
 });
 
+
+
+test("initiateKyc: authoritative state-read failure stops before provider creation", async () => {
+  const db = new FakeDb(
+    { ownership_entities: [{ id: "o1", display_name: "Jane Doe" }] },
+    { "borrower_identity_verifications:select": "database_unavailable" },
+  );
+  let createCalls = 0;
+  const didit = fakeDidit({
+    createDiditSession: async () => {
+      createCalls += 1;
+      return {
+        session_id: "sess_new",
+        status: "Not Started",
+        workflow_id: "wf_1",
+        url: "https://verify.didit.me/session/sess_new",
+      };
+    },
+  });
+
+  const result = await initiateKyc(
+    { dealId: "d1", bankId: "b1", ownershipEntityId: "o1", initiatorUserId: "u1" },
+    { sb: db as any, didit, workflowId: "wf_1" },
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    reason: "STATE_READ_FAILED",
+    detail: "existing_verification_lookup_failed:database_unavailable",
+  });
+  assert.equal(createCalls, 0);
+  assert.equal(db.tables.borrower_identity_verifications.length, 0);
+});
