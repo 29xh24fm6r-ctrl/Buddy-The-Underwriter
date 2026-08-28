@@ -17,6 +17,7 @@ import crypto from "node:crypto";
 export type BuildPackageInput = {
   dealId: string;
   riskGrade: string;
+  governedDscrFloor: number;
   dealType: DealType;
   actualDscr: number | null;
   actualLeverage: number | null;
@@ -34,6 +35,7 @@ export async function buildCovenantPackage(
   // Pass 1: Deterministic rule engine
   const rawSet = runCovenantRuleEngine({
     riskGrade: input.riskGrade,
+    governedDscrFloor: input.governedDscrFloor,
     dealType: input.dealType,
     actualDscr: input.actualDscr,
     actualLeverage: input.actualLeverage,
