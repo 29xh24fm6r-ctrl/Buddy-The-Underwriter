@@ -17,31 +17,7 @@ function safeJsonParse(s: string) {
   }
 }
 
-function buildJsonSchema() {
-  return {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      suggestions: {
-        type: "array",
-        maxItems: 8,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            field_key: { type: "string", enum: ALLOWED_FACT_KEYS },
-            field_value: {},
-            value_text: { type: ["string", "null"] },
-            confidence: { type: ["number", "null"], minimum: 0, maximum: 1 },
-            rationale: { type: "string", maxLength: 300 },
-          },
-          required: ["field_key", "field_value", "rationale"],
-        },
-      },
-    },
-    required: ["suggestions"],
-  } as const;
-}
+const ALLOWED_FACT_KEY_SET = new Set<string>(ALLOWED_FACT_KEYS);
 
 export type SuggestedFact = {
   field_key: string;
@@ -70,7 +46,7 @@ export async function suggestFactsFromBorrowerText(turnText: string): Promise<Su
       "rationale must cite the exact portion (quote or tight paraphrase) supporting the fact.",
     ].join("\n"),
     prompt: `Borrower said:\n\n${turnText}`,
-    responseSchema: buildJsonSchema(),
+    responseJsonObject: true,
   });
 
   const textOut = result.text;
@@ -81,13 +57,26 @@ export async function suggestFactsFromBorrowerText(turnText: string): Promise<Su
   if (!Array.isArray(suggestions)) return [];
 
   return suggestions
-    .filter((s: any) => s && s.field_key && typeof s.rationale === "string")
+    .filter(
+      (s: any) =>
+        s &&
+        typeof s === "object" &&
+        ALLOWED_FACT_KEY_SET.has(String(s.field_key)) &&
+        Object.prototype.hasOwnProperty.call(s, "field_value") &&
+        typeof s.rationale === "string",
+    )
     .slice(0, 8)
     .map((s: any) => ({
       field_key: String(s.field_key),
       field_value: s.field_value,
-      value_text: s.value_text ?? null,
-      confidence: typeof s.confidence === "number" ? s.confidence : null,
+      value_text: typeof s.value_text === "string" ? s.value_text : null,
+      confidence:
+        typeof s.confidence === "number" &&
+        Number.isFinite(s.confidence) &&
+        s.confidence >= 0 &&
+        s.confidence <= 1
+          ? s.confidence
+          : null,
       rationale: String(s.rationale),
     }));
 }
