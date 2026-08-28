@@ -13,6 +13,7 @@ import "server-only";
 import * as Sentry from "@sentry/nextjs";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { UnderwriterFeedback } from "./types";
+import { restoreBankerSubmittedSnapshotAfterFailedDecision } from "@/lib/creditMemo/submission/submitCreditMemoToUnderwriting";
 
 export type RecordUnderwriterDecisionArgs = {
   dealId: string;
@@ -129,26 +130,20 @@ export async function recordUnderwriterDecision(
 
     let compensationFailed = false;
     try {
-      const { data: restored, error: restoreError } = await supabase
-        .from("credit_memo_snapshots")
-        .update({
-          status: "banker_submitted",
-          underwriter_feedback_json: {},
-        })
-        .eq("id", args.snapshotId)
-        .eq("deal_id", args.dealId)
-        .eq("status", nextStatus)
-        .select("id")
-        .maybeSingle();
-
-      compensationFailed = Boolean(restoreError || !restored);
-      if (restoreError) {
+      const restored =
+        await restoreBankerSubmittedSnapshotAfterFailedDecision({
+          dealId: args.dealId,
+          snapshotId: args.snapshotId,
+          expectedStatus: nextStatus,
+        });
+      compensationFailed = !restored.ok;
+      if (!restored.ok) {
         console.error(
           "[recordUnderwriterDecision] snapshot compensation failed",
           {
             dealId: args.dealId,
             snapshotId: args.snapshotId,
-            code: restoreError.code,
+            code: restored.code,
           },
         );
       }
