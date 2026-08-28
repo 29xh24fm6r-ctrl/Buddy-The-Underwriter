@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -60,4 +61,27 @@ test("extracts safe JSON failure evidence without exposing HTML", async () => {
     await readSBAGenerationFailure(html),
     "Generation request failed (HTTP 502).",
   );
+});
+
+
+const client = readFileSync(
+  "src/components/sba/AssumptionInterview.tsx",
+  "utf8",
+);
+
+test("generation client requires a terminal bounded SSE contract", () => {
+  const start = client.indexOf("async function runStreamingGenerate()");
+  const end = client.indexOf("const handleConfirm = async");
+  const generation = client.slice(start, end);
+
+  assert.ok(start > 0 && end > start);
+  assert.match(generation, /!response\.ok/);
+  assert.match(generation, /contentType\.includes\("text\/event-stream"\)/);
+  assert.match(generation, /readSBAGenerationFailure\(response\)/);
+  assert.match(generation, /parseSBAGenerationStreamBlock\(block\)/);
+  assert.match(generation, /terminalEvent: "complete" \| "error" \| null/);
+  assert.match(generation, /Generation stream ended before completion/);
+  assert.match(generation, /controller\.abort\(\), 180_000/);
+  assert.match(generation, /reader\.cancel\(\)/);
+  assert.match(generation, /Generation timed out after three minutes/);
 });
