@@ -11,6 +11,13 @@ import type { SpreadsIntelligenceResult } from "./types";
 
 const GENERATING_WARNING_MIN = 10;
 const GENERATING_CRITICAL_MIN = 60;
+/**
+ * How many times a single spread row may be reset to "queued" by the auto-heal
+ * before it is declared unrecoverable. Without a cap the observer resets the
+ * row's updated_at every hour forever, so it is permanently "about to retry"
+ * and the deal never finishes and never surfaces a terminal error.
+ */
+const MAX_AUTO_HEAL_ATTEMPTS = 3;
 const ORPHAN_LEASE_THRESHOLD_MIN = 15;
 const WORKER_HEARTBEAT_STALE_SEC = 60;
 const SNAPSHOT_BLOCKED_STALE_MIN = 15;
@@ -59,9 +66,14 @@ export async function runSpreadsIntelligence(): Promise<{
 /* ------------------------------------------------------------------ */
 
 /**
- * Detect deal_spreads stuck in "generating" status.
+ * Detect deal_spreads stuck in "queued"/"generating" status.
  * WARNING at 10min, CRITICAL at 60min.
- * Auto-heal at 60min: set status to "error" so pipeline can retry.
+ *
+ * Auto-heal at 60min: the row is auto-healed by resetting it to "queued" AND
+ * enqueuing a spread job for it,
+ * up to MAX_AUTO_HEAL_ATTEMPTS times; after that mark it error/
+ * SPREAD_STUCK_UNRECOVERABLE. Resetting the row without enqueuing a job is not a
+ * heal — the row simply goes stale again and is "healed" again an hour later.
  */
 async function checkSpreadGeneratingTimeout(
   sb: ReturnType<typeof supabaseAdmin>,
@@ -75,7 +87,7 @@ async function checkSpreadGeneratingTimeout(
 
     const { data: stuckSpreads, error } = await sb
       .from("deal_spreads" as any)
-      .select("id, deal_id, bank_id, spread_type, status, started_at, updated_at")
+      .select("id, deal_id, bank_id, spread_type, status, started_at, updated_at, error_details_json")
       .in("status", ["queued", "generating"])
       .lt("updated_at", warningCutoff);
 
@@ -84,6 +96,15 @@ async function checkSpreadGeneratingTimeout(
       return;
     }
 
+    // Deals that had a spread reset to "queued" this pass. Resetting the row is
+    // only half a heal — without a backing deal_spread_jobs row nothing will ever
+    // pick it up, so the row just goes stale again and is "healed" on the next
+    // tick, forever. Collect the targets and enqueue real work once per deal.
+    const requeueByDeal = new Map<
+      string,
+      { dealId: string; bankId: string; spreadTypes: Set<string> }
+    >();
+
     for (const spread of (stuckSpreads ?? []) as any[]) {
       const effectiveStart = spread.started_at ?? spread.updated_at;
       const minutesStuck = (Date.now() - new Date(effectiveStart).getTime()) / 60_000;
@@ -91,24 +112,73 @@ async function checkSpreadGeneratingTimeout(
 
       result.spreads_generating_timeout++;
 
+      let healOutcome: "requeued" | "terminal" | null = null;
+
       if (isCritical) {
-        // Reset to queued so spreads retry instead of dying permanently
-        await sb
-          .from("deal_spreads" as any)
-          .update({
-            status: "queued",
-            finished_at: null,
-            error: `[observer] reset after ${Math.round(minutesStuck)}min timeout — retrying`,
-            error_code: null,
-            attempts: 0,
-            error_details_json: {
-              minutesStuck: Math.round(minutesStuck),
-              autoHealed: true,
-              spreadId: spread.id,
-            },
-            updated_at: new Date().toISOString(),
-          } as any)
-          .eq("id", spread.id);
+        const priorDetails =
+          spread.error_details_json && typeof spread.error_details_json === "object"
+            ? spread.error_details_json
+            : {};
+        const healCount =
+          (typeof priorDetails.healCount === "number" ? priorDetails.healCount : 0) + 1;
+
+        if (healCount > MAX_AUTO_HEAL_ATTEMPTS) {
+          // Retrying has not worked. Fail closed on a terminal error rather than
+          // resetting the clock again — an endlessly "retrying" spread is
+          // indistinguishable from a working one in the UI, and the deal silently
+          // never completes.
+          await sb
+            .from("deal_spreads" as any)
+            .update({
+              status: "error",
+              finished_at: new Date().toISOString(),
+              error: `[observer] still stuck after ${MAX_AUTO_HEAL_ATTEMPTS} auto-heal attempts — giving up`,
+              error_code: "SPREAD_STUCK_UNRECOVERABLE",
+              error_details_json: {
+                ...priorDetails,
+                minutesStuck: Math.round(minutesStuck),
+                autoHealed: false,
+                healCount,
+                spreadId: spread.id,
+              },
+              updated_at: new Date().toISOString(),
+            } as any)
+            .eq("id", spread.id);
+
+          healOutcome = "terminal";
+        } else {
+          // Reset to queued so spreads retry instead of dying permanently.
+          // `attempts` is deliberately NOT zeroed — zeroing it destroys the only
+          // record of how many times this row has already been through the loop.
+          await sb
+            .from("deal_spreads" as any)
+            .update({
+              status: "queued",
+              finished_at: null,
+              error: `[observer] reset after ${Math.round(minutesStuck)}min timeout — re-enqueued (attempt ${healCount}/${MAX_AUTO_HEAL_ATTEMPTS})`,
+              error_code: null,
+              error_details_json: {
+                ...priorDetails,
+                minutesStuck: Math.round(minutesStuck),
+                autoHealed: true,
+                healCount,
+                spreadId: spread.id,
+              },
+              updated_at: new Date().toISOString(),
+            } as any)
+            .eq("id", spread.id);
+
+          const dealKey = `${spread.deal_id}::${spread.bank_id}`;
+          const entry = requeueByDeal.get(dealKey) ?? {
+            dealId: String(spread.deal_id),
+            bankId: String(spread.bank_id),
+            spreadTypes: new Set<string>(),
+          };
+          entry.spreadTypes.add(String(spread.spread_type));
+          requeueByDeal.set(dealKey, entry);
+
+          healOutcome = "requeued";
+        }
 
         result.spreads_auto_healed++;
 
@@ -144,14 +214,22 @@ async function checkSpreadGeneratingTimeout(
         deal_id: spread.deal_id,
         bank_id: spread.bank_id,
         error_class: "timeout",
-        error_message: `Spread ${spread.spread_type} stuck in "${spread.status}" for ${Math.round(minutesStuck)} minutes${isCritical ? " — auto-healed to error" : ""}`,
-        resolution_status: isCritical ? "resolved" : "open",
-        ...(isCritical
+        error_message: `Spread ${spread.spread_type} stuck in "${spread.status}" for ${Math.round(minutesStuck)} minutes${
+          healOutcome === "requeued"
+            ? " — reset to queued and re-enqueued"
+            : healOutcome === "terminal"
+              ? ` — gave up after ${MAX_AUTO_HEAL_ATTEMPTS} auto-heal attempts, marked error`
+              : ""
+        }`,
+        // A re-queued spread is NOT resolved — it is being retried, and the
+        // finding must stay open so a spread that never converges keeps showing
+        // up instead of being closed out every hour.
+        resolution_status: healOutcome === "terminal" ? "resolved" : "open",
+        ...(healOutcome === "terminal"
           ? {
               resolved_at: new Date().toISOString(),
               resolved_by: "observer",
-              resolution_note:
-                "Auto-healed: status set to error after 60min timeout",
+              resolution_note: `Unrecoverable: still stuck after ${MAX_AUTO_HEAL_ATTEMPTS} auto-heal attempts, status set to error`,
             }
           : {}),
         payload: {
@@ -159,9 +237,43 @@ async function checkSpreadGeneratingTimeout(
           spread_id: spread.id,
           spread_type: spread.spread_type,
           minutes_stuck: Math.round(minutesStuck),
-          auto_healed: isCritical,
+          auto_healed: healOutcome === "requeued",
+          heal_outcome: healOutcome,
         },
       }).catch(() => {});
+    }
+
+    // Give every reset row a job to be picked up by. enqueueSpreadRecompute
+    // creates the deal_spread_jobs row first and merges into an existing active
+    // job when there is one, so this is safe to call on every tick and cannot
+    // produce duplicate jobs (the deal_spread_jobs_one_active_per_deal partial
+    // unique index enforces that too).
+    if (requeueByDeal.size > 0) {
+      const { enqueueSpreadRecompute } = await import(
+        "@/lib/financialSpreads/enqueueSpreadRecompute"
+      );
+
+      for (const entry of requeueByDeal.values()) {
+        try {
+          const res = await enqueueSpreadRecompute({
+            dealId: entry.dealId,
+            bankId: entry.bankId,
+            spreadTypes: Array.from(entry.spreadTypes) as any,
+            skipPrereqCheck: true,
+            meta: { source: "observer_auto_heal", triggerReason: "spread_generating_timeout" },
+          });
+
+          if (!res.ok) {
+            errors.push(
+              `spread_generating_timeout: re-enqueue failed for deal ${entry.dealId}: ${res.error}`,
+            );
+          }
+        } catch (enqueueErr: any) {
+          errors.push(
+            `spread_generating_timeout: re-enqueue threw for deal ${entry.dealId}: ${enqueueErr?.message}`,
+          );
+        }
+      }
     }
   } catch (err: any) {
     errors.push(`spread_generating_timeout: ${err.message}`);
