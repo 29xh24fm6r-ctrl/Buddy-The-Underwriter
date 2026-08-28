@@ -167,6 +167,18 @@ describe("Intelligence API — contract", () => {
     );
     assert.ok(content.includes("status: 503"), "must return retryable HTTP 503");
     assert.ok(content.includes('"Retry-After": "10"'), "must bound client retry");
+    assert.ok(
+      content.includes('lenderMatchRes.error?.code === "PGRST205"'),
+      "must recognize an uninstalled optional lender-match capability",
+    );
+    assert.ok(
+      content.includes('degradedSources: lenderMatchesUnavailable ? ["lender_matches"] : []'),
+      "must disclose degraded optional sources instead of reporting them as healthy",
+    );
+    assert.ok(
+      content.includes("lenderMatchesUnavailable ? null : lenderMatchRes.error"),
+      "must keep non-capability lender-match failures fail-closed",
+    );
   });
 });
 
