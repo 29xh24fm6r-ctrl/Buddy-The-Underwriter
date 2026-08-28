@@ -11,6 +11,7 @@ import "server-only";
  */
 
 import { loadDealGroundingSegments, attributeFeasibilityCitations, flagUncitedFeasibilityFields } from "./feasibilityCitations";
+import { auditNarrativeFigures } from "./narrativeFigureAudit";
 import { finishInstitutionalArtifact } from "@/lib/ai/frontierArtifactFactory";
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
 import type { CompositeFeasibilityScore, FeasibilityNarratives } from "./types";
@@ -239,11 +240,39 @@ export async function enrichFeasibilityStudy(args: {
         }
       : null,
   };
+  // Deterministic half of the evidence boundary. `facts.evidencePolicy`
+  // tells the generator and the reviewer not to derive figures the model did
+  // not produce; both are instructions to a language model. This checks. Any
+  // figure the narrative asserts that no supplied evidence supports is named
+  // for the reviewer, so the repair pass is aimed at that figure instead of
+  // being asked to re-read a policy paragraph. Reporting only — the verdict
+  // stays with the institutional review.
+  const figureAudit = auditNarrativeFigures({
+    narratives: narratives as unknown as Record<string, unknown>,
+    evidence: facts,
+  });
+  const untracedFigures = figureAudit.untraced.slice(0, 20);
+  if (untracedFigures.length > 0) {
+    console.warn(
+      "[feasibility] narrative figures absent from supplied evidence:",
+      untracedFigures.map((f) => `${f.section}:${f.text}`).join(", "),
+    );
+  }
+  const auditedFacts = {
+    ...facts,
+    untracedFigures: untracedFigures.map((f) => ({
+      section: f.section,
+      figure: f.text,
+      finding:
+        "This figure does not appear in the supplied deterministic evidence. Either remove it or attribute it explicitly as an author estimate.",
+    })),
+  };
+
   // Keep the evidence boundary comfortably below the synchronous review
   // budget. This is a fail-fast invariant, not a license to silently discard
   // calculations: the curated contract above contains every decision-material
   // figure and explicitly excludes high-volume monthly detail.
-  const serializedFacts = JSON.stringify(facts);
+  const serializedFacts = JSON.stringify(auditedFacts);
   const maxEvidenceCharacters = 24_000;
   if (serializedFacts.length > maxEvidenceCharacters) {
     throw new Error(

@@ -94,12 +94,36 @@ export function computeCompositeFeasibility(params: {
 
   // ── Confidence ───────────────────────────────────────────────────
 
-  const dataCompletenessAvg =
-    (params.marketDemand.dataCompleteness +
-      params.financialViability.dataCompleteness +
-      params.operationalReadiness.dataCompleteness +
-      params.locationSuitability.dataCompleteness) /
-    4;
+  // Weight the dimensions the same way the score does. A plain /4 average
+  // let a 0.15-weight dimension move the release gate as much as a
+  // 0.35-weight one, so "data completeness" did not describe the share of
+  // the decision that was evidence-backed — which is how the PDF presents it
+  // and how the release gate reads it.
+  const completenessByDimension: Array<[keyof typeof weights, number, string]> = [
+    ["marketDemand", params.marketDemand.dataCompleteness, "Market Demand"],
+    ["financialViability", params.financialViability.dataCompleteness, "Financial Viability"],
+    ["operationalReadiness", params.operationalReadiness.dataCompleteness, "Operational Readiness"],
+    ["locationSuitability", params.locationSuitability.dataCompleteness, "Location Suitability"],
+  ];
+  const dataCompletenessAvg = completenessByDimension.reduce(
+    (sum, [key, value]) => sum + value * weights[key],
+    0,
+  );
+
+  // Name the gaps, not just their size. `feasibility_data_completeness_below_
+  // 70_percent` told an operator nothing about which evidence to go get.
+  const missingEvidence = [
+    ...params.marketDemand.coverage.missing.map((k) => `market_demand.${k}`),
+    ...params.financialViability.coverage.missing.map((k) => `financial_viability.${k}`),
+    ...params.operationalReadiness.coverage.missing.map((k) => `operational_readiness.${k}`),
+    ...params.locationSuitability.coverage.missing.map((k) => `location_suitability.${k}`),
+  ];
+  const notApplicableEvidence = [
+    ...params.marketDemand.coverage.notApplicable.map((n) => `market_demand.${n.key}`),
+    ...params.financialViability.coverage.notApplicable.map((n) => `financial_viability.${n.key}`),
+    ...params.operationalReadiness.coverage.notApplicable.map((n) => `operational_readiness.${n.key}`),
+    ...params.locationSuitability.coverage.notApplicable.map((n) => `location_suitability.${n.key}`),
+  ];
 
   let confidenceLevel: "High" | "Moderate" | "Low";
   if (dataCompletenessAvg >= 0.75) confidenceLevel = "High";
@@ -113,15 +137,9 @@ export function computeCompositeFeasibility(params: {
     else if (confidenceLevel === "Low") confidenceLevel = "Moderate";
   }
 
-  const dimensionsMissingData: string[] = [];
-  if (params.marketDemand.dataCompleteness < 0.5)
-    dimensionsMissingData.push("Market Demand");
-  if (params.financialViability.dataCompleteness < 0.5)
-    dimensionsMissingData.push("Financial Viability");
-  if (params.operationalReadiness.dataCompleteness < 0.5)
-    dimensionsMissingData.push("Operational Readiness");
-  if (params.locationSuitability.dataCompleteness < 0.5)
-    dimensionsMissingData.push("Location Suitability");
+  const dimensionsMissingData = completenessByDimension
+    .filter(([, value]) => value < 0.5)
+    .map(([, , label]) => label);
 
   return {
     overallScore,
@@ -149,5 +167,7 @@ export function computeCompositeFeasibility(params: {
     allFlags,
     overallDataCompleteness: dataCompletenessAvg,
     dimensionsMissingData,
+    missingEvidence,
+    notApplicableEvidence,
   };
 }

@@ -12,6 +12,7 @@ function release(overrides: Record<string, unknown> = {}) {
     businessPlanVerdict: "pass",
     feasibilityVerdict: "pass",
     feasibilityCompleteness: 0.9,
+    feasibilityMissingEvidence: [],
     feasibilityCitationCount: 3,
     projectionsNarrative: Array.from({ length: 40 }, () => "word").join(" "),
     sourcesAndUses: { balanced: true, imbalance: 0 },

@@ -5,12 +5,22 @@ import "server-only";
 // Pure function. Scores economic health, real estate, access & visibility,
 // and risk exposure from BIE research + trade-area + property inputs.
 
+import { computeDimensionCompleteness } from "./dimensionCompleteness";
 import type {
   DimensionScore,
   LocationSuitabilityInput,
   LocationSuitabilityScore,
   MarketFlag,
 } from "./types";
+
+// Manufacturing (NAICS 31-33). Same rule marketDemandAnalysis applies to
+// consumer trade-area demand: a plant's feasibility does not turn on
+// storefront visibility.
+const RETAIL_VISIBILITY_NOT_APPLICABLE_SECTORS = ["31", "32", "33"];
+
+function naicsSector(code: string | null | undefined): string {
+  return code?.replace(/\D/g, "").slice(0, 2) ?? "";
+}
 
 export function analyzeLocationSuitability(
   input: LocationSuitabilityInput,
@@ -115,6 +125,30 @@ export function analyzeLocationSuitability(
             : "unverified"
       }.`,
     };
+  } else if (input.financesRealProperty === false) {
+    // The metric above scores a PROPOSED PROPERTY's lease, zoning and
+    // parking. When the deal's own use of proceeds finances no real property
+    // — an equipment and working-capital loan, say — there is no property for
+    // a lender to document, so its absence is not an evidence gap. Only a
+    // definite `false` excludes: a missing use of proceeds is `null`, and
+    // absence of information still reads as a gap.
+    reScore = {
+      score: 50,
+      weight: 0.25,
+      dataSource: "Not applicable — loan finances no real property",
+      dataAvailable: false,
+      notApplicable: true,
+      notApplicableReason:
+        "The use of proceeds finances no real property, so there is no proposed property to assess.",
+      detail:
+        "This loan finances no real property. Feasibility is assessed at the market level.",
+    };
+    flags.push({
+      severity: "info",
+      dimension: "realEstateMarket",
+      message:
+        "Proposed-property analysis excluded: the use of proceeds finances no real property.",
+    });
   } else {
     reScore = {
       score: 40,
@@ -151,6 +185,28 @@ export function analyzeLocationSuitability(
       dataAvailable: true,
       detail: `Daily traffic count: ${traffic.toLocaleString()} vehicles.`,
     };
+  } else if (RETAIL_VISIBILITY_NOT_APPLICABLE_SECTORS.includes(naicsSector(input.naicsCode))) {
+    // Daily drive-by traffic measures walk-in reach. A manufacturing plant
+    // ships to business customers; a traffic count would not change the
+    // feasibility read, so its absence is not an evidence gap the lender
+    // could close.
+    accessScore = {
+      score: 50,
+      weight: 0.2,
+      dataSource: "Not applicable — no walk-in trade",
+      dataAvailable: false,
+      notApplicable: true,
+      notApplicableReason:
+        "Daily traffic count measures walk-in reach, which does not bear on a B2B manufacturer.",
+      detail:
+        "Daily traffic count is not a decision-useful access measure for this B2B borrower.",
+    };
+    flags.push({
+      severity: "info",
+      dimension: "accessAndVisibility",
+      message:
+        "Retail traffic and visibility excluded from decision evidence for this manufacturing borrower.",
+    });
   } else {
     accessScore = {
       score: 50,
@@ -216,13 +272,20 @@ export function analyzeLocationSuitability(
 
   // ── Composite ──────────────────────────────────────────────────────
 
-  const dimensions = [econScore, reScore, accessScore, riskScore];
+  const entries = [
+    { key: "economicHealth", score: econScore },
+    { key: "realEstateMarket", score: reScore },
+    { key: "accessAndVisibility", score: accessScore },
+    { key: "riskExposure", score: riskScore },
+  ];
+  const dimensions = entries.map((e) => e.score);
   const totalWeight = dimensions.reduce((s, d) => s + d.weight, 0);
   const weightedSum = dimensions.reduce(
     (s, d) => s + d.score * d.weight,
     0,
   );
   const overallScore = Math.round(weightedSum / totalWeight);
+  const coverage = computeDimensionCompleteness(entries);
 
   return {
     overallScore,
@@ -230,8 +293,8 @@ export function analyzeLocationSuitability(
     realEstateMarket: reScore,
     accessAndVisibility: accessScore,
     riskExposure: riskScore,
-    dataCompleteness:
-      dimensions.filter((d) => d.dataAvailable).length / dimensions.length,
+    dataCompleteness: coverage.completeness,
+    coverage,
     flags,
   };
 }

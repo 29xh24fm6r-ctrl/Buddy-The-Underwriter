@@ -14,6 +14,23 @@ export interface DimensionScore {
   dataSource: string;
   /** Was the input data actually available? Missing data ≠ failure */
   dataAvailable: boolean;
+  /**
+   * Does this metric bear on THIS borrower's feasibility at all?
+   *
+   * "Not applicable" is a different claim from `dataAvailable: false`.
+   * Missing means the metric matters and we could not source it — a real
+   * evidence gap. Not applicable means the metric does not measure anything
+   * about this deal (consumer trade-area density for a B2B manufacturer,
+   * retail traffic counts for a plant with no storefront), so counting it as
+   * a gap understates how complete the evidence base actually is.
+   *
+   * Completeness divides by applicable weight only. Every exclusion must be
+   * driven by a named rule and carry `notApplicableReason`, so the exclusion
+   * is auditable rather than silent — see computeDimensionCompleteness.
+   */
+  notApplicable?: boolean;
+  /** Why this metric does not bear on this borrower. Required when notApplicable. */
+  notApplicableReason?: string;
   /** Human-readable explanation of the score */
   detail: string;
 }
@@ -33,6 +50,8 @@ export interface MarketDemandScore {
   competitiveDensity: DimensionScore;
   demandTrend: DimensionScore;
   dataCompleteness: number;
+  /** Which metrics are missing vs. not applicable, and the weight behind each. */
+  coverage: import("./dimensionCompleteness").DimensionCompleteness;
   flags: MarketFlag[];
 }
 
@@ -83,6 +102,8 @@ export interface FinancialViabilityScore {
   cashRunway: DimensionScore;
   downsideResilience: DimensionScore;
   dataCompleteness: number;
+  /** Which metrics are missing vs. not applicable, and the weight behind each. */
+  coverage: import("./dimensionCompleteness").DimensionCompleteness;
   flags: MarketFlag[];
 }
 
@@ -126,6 +147,8 @@ export interface OperationalReadinessScore {
   staffingReadiness: DimensionScore;
   franchiseSupport: DimensionScore;
   dataCompleteness: number;
+  /** Which metrics are missing vs. not applicable, and the weight behind each. */
+  coverage: import("./dimensionCompleteness").DimensionCompleteness;
   flags: MarketFlag[];
 }
 
@@ -163,6 +186,8 @@ export interface LocationSuitabilityScore {
   accessAndVisibility: DimensionScore;
   riskExposure: DimensionScore;
   dataCompleteness: number;
+  /** Which metrics are missing vs. not applicable, and the weight behind each. */
+  coverage: import("./dimensionCompleteness").DimensionCompleteness;
   flags: MarketFlag[];
 }
 
@@ -188,6 +213,15 @@ export interface LocationSuitabilityInput {
   city: string | null;
   state: string | null;
   zipCode: string | null;
+  /** Drives which location metrics bear on this borrower (see DimensionScore.notApplicable). */
+  naicsCode: string | null;
+  /**
+   * Does this loan finance real property? Read from the deal's own use of
+   * proceeds. `null` means the use of proceeds was unavailable — which is
+   * absence of information, not evidence of no property, so it must still
+   * read as a gap.
+   */
+  financesRealProperty: boolean | null;
   research: {
     marketIntelligence: string | null;
     areaSpecificRisks: string | null;
@@ -223,6 +257,10 @@ export interface CompositeFeasibilityScore {
   allFlags: MarketFlag[];
 
   overallDataCompleteness: number;
+  /** Metric keys that bear on this deal but have no data, e.g. "market_demand.demandTrend". */
+  missingEvidence: string[];
+  /** Metric keys excluded from the completeness denominator as not applicable. */
+  notApplicableEvidence: string[];
   dimensionsMissingData: string[];
 }
 
