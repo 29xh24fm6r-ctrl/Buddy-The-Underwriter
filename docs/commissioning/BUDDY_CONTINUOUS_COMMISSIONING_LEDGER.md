@@ -972,3 +972,38 @@ Verification on code head `26f0f7d9f0f88d09d8817b9c3f493fb5e4344a8a`:
 - This evidence-only ledger commit does not change runtime code. Its resulting
   exact head must retain green required checks and a READY, SHA-matched preview
   before merge recommendation.
+
+
+## 2026-08-28 — Deterministic benchmark-rate feed
+
+Production evidence:
+
+- Vercel recorded HTTP 500 for `GET /api/rates/latest` on 2026-08-27.
+- SOFR, five-year Treasury, and prime-rate truth all depended on one grounded
+  generative-AI request. A gateway budget, provider, grounding, or JSON failure
+  therefore blocked pricing.
+- The prior parser admitted unvalidated rate/date values and exposed no source URL.
+
+Repair branch: `commissioning/deterministic-benchmark-rates`.
+
+Repair:
+
+- Replace AI lookup with the New York Fed SOFR API, Treasury daily par-yield XML,
+  and Federal Reserve H.15 prime series from FRED.
+- Add FRED fallback for SOFR and five-year Treasury, strict range/freshness
+  validation, explicit provenance, a bounded last-known-good window, and a
+  retryable HTTP 503 contract when no validated observation exists.
+- Add regression coverage for primary feeds, fallback, invalid/stale rejection,
+  and stale-on-refresh behavior.
+- No schema, credential, provider configuration, dependency, or production-data
+  change.
+
+Open checkpoints:
+
+1. Require focused tests plus complete CI, Build Check, Secret Scan, architecture,
+   safety, schema, Never-500, and public Playwright on the exact head.
+2. Require a READY, SHA-matched, runtime-clean preview before merge recommendation.
+3. After merge, verify production `/api/rates/latest`, pricing scenario admission,
+   and absence of rate-feed HTTP 500 events.
+4. Golden Trident transactional closure and direct database evidence remain
+   blocked by the authorized fixture and verified Buddy-owned Supabase connection.
