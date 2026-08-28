@@ -36,7 +36,7 @@ describe("research mission rollout compatibility", () => {
 
   it("keeps Clerk attribution on the primary insert after the migration", () => {
     assert.match(runMission, /created_by: userId \?\? null/);
-    assert.match(runMission, /Once the created_by TEXT migration is live/);
+    assert.match(runMission, /insert\\(missionInsert\\)/);
   });
 });
 
