@@ -24,6 +24,14 @@ export interface PortfolioSnapshot {
 
 type PortfolioClient = ReturnType<typeof supabaseAdmin>;
 
+const PORTFOLIO_DECISION_COLUMNS = [
+  "inputs_json",
+  "model_json",
+  "exceptions_json",
+  "committee_required",
+  "decision",
+].join(",");
+
 /**
  * Returns null when a bank has not produced a final decision yet. That is a
  * normal lifecycle state, not a failed nightly job. Database read/write
@@ -33,10 +41,32 @@ export async function aggregatePortfolio(
   bankId: string,
   sb: PortfolioClient = supabaseAdmin(),
 ): Promise<PortfolioSnapshot | null> {
+  // decision_snapshots is canonically deal-scoped; it has no bank_id column.
+  // Resolve the tenant boundary from deals before reading final decisions so
+  // snapshots from another bank can never enter this bank's aggregate.
+  const { data: deals, error: dealReadError } = await sb
+    .from("deals")
+    .select("id")
+    .eq("bank_id", bankId);
+
+  if (dealReadError) {
+    throw new Error(
+      `Portfolio deal scope read failed for bank ${bankId}: ${dealReadError.message}`,
+    );
+  }
+
+  const dealIds = (deals ?? [])
+    .map((deal) => deal.id)
+    .filter((dealId): dealId is string => typeof dealId === "string" && dealId.length > 0);
+
+  if (dealIds.length === 0) {
+    return null;
+  }
+
   const { data: snapshots, error: readError } = await sb
     .from("decision_snapshots")
-    .select("*")
-    .eq("bank_id", bankId)
+    .select(PORTFOLIO_DECISION_COLUMNS)
+    .in("deal_id", dealIds)
     .eq("status", "final");
 
   if (readError) {
