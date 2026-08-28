@@ -1,9 +1,15 @@
 export const maxDuration = 15;
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
+import {
+  requireDealCockpitAccess,
+  COCKPIT_ROLES,
+} from "@/lib/auth/requireDealCockpitAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { deriveDealInsights, type InsightInput } from "@/lib/intelligence/insights/deriveDealInsights";
+import {
+  deriveDealInsights,
+  type InsightInput,
+} from "@/lib/intelligence/insights/deriveDealInsights";
 import { deriveAutoIntelligenceState } from "@/lib/intelligence/auto/deriveAutoIntelligenceState";
 
 export const runtime = "nodejs";
@@ -20,11 +26,16 @@ type Ctx = { params: Promise<{ dealId: string }> };
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const { dealId } = await ctx.params;
   const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
-  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.error },
+      { status: auth.status },
+    );
+  }
 
   const sb = supabaseAdmin();
 
-  // Load all sources in parallel
+  // Load all sources in parallel.
   const [
     intelligenceRunRes,
     intelligenceStepsRes,
@@ -34,38 +45,108 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     lifecycleRes,
     blockerRes,
   ] = await Promise.all([
-    sb.from("deal_intelligence_runs").select("id, status").eq("deal_id", dealId).order("requested_at", { ascending: false }).limit(1).maybeSingle(),
-    sb.from("deal_intelligence_steps").select("step_code, status, summary, error_detail")
-      .eq("deal_id", dealId).order("step_code"),
-    sb.from("financial_snapshots").select("id, snapshot_json").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-    sb.from("deal_risk_pricing_model").select("finalized, risk_grade, risk_score").eq("deal_id", dealId).maybeSingle(),
+    sb
+      .from("deal_intelligence_runs")
+      .select("id, status")
+      .eq("deal_id", dealId)
+      .order("requested_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    sb
+      .from("deal_intelligence_steps")
+      .select("step_code, status, summary, error_detail")
+      .eq("deal_id", dealId)
+      .order("step_code"),
+    sb
+      .from("financial_snapshots")
+      .select("id, snapshot_json")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    sb
+      .from("deal_risk_pricing_model")
+      .select("finalized, risk_grade, risk_score")
+      .eq("deal_id", dealId)
+      .maybeSingle(),
     sb.from("deal_lender_matches" as any).select("id").eq("deal_id", dealId),
     sb.from("deals").select("stage").eq("id", dealId).maybeSingle(),
-    sb.from("deal_pipeline_ledger").select("event_key, ui_message").eq("deal_id", dealId).eq("event_key", "lifecycle.blocker").order("created_at", { ascending: false }).limit(10),
+    sb
+      .from("deal_pipeline_ledger")
+      .select("event_key, ui_message")
+      .eq("deal_id", dealId)
+      .eq("event_key", "lifecycle.blocker")
+      .order("created_at", { ascending: false })
+      .limit(10),
   ]);
 
-  // Derive intelligence state
+  const queryFailures = [
+    { source: "intelligence_run", error: intelligenceRunRes.error },
+    { source: "intelligence_steps", error: intelligenceStepsRes.error },
+    { source: "financial_snapshot", error: snapshotRes.error },
+    { source: "risk_pricing", error: riskPricingRes.error },
+    { source: "lender_matches", error: lenderMatchRes.error },
+    { source: "lifecycle", error: lifecycleRes.error },
+    { source: "lifecycle_blockers", error: blockerRes.error },
+  ].filter(({ error }) => error);
+
+  if (queryFailures.length > 0) {
+    console.error("[deal/insights] source queries failed", {
+      dealId,
+      failures: queryFailures.map(({ source, error }) => ({
+        source,
+        code: error?.code ?? null,
+        message: error?.message ?? "unknown database error",
+      })),
+    });
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "intelligence_sources_unavailable",
+        retryable: true,
+      },
+      {
+        status: 503,
+        headers: {
+          "Cache-Control": "no-store",
+          "Retry-After": "10",
+        },
+      },
+    );
+  }
+
+  // Derive intelligence state.
   const intelState = deriveAutoIntelligenceState(
     intelligenceRunRes.data,
     (intelligenceStepsRes.data ?? []).map((s: any) => ({
-      step_code: s.step_code, status: s.status, summary: s.summary ?? {}, error_detail: s.error_detail,
+      step_code: s.step_code,
+      status: s.status,
+      summary: s.summary ?? {},
+      error_detail: s.error_detail,
     })),
   );
 
-  // Extract snapshot narrative
+  // Extract snapshot narrative.
   const snapshotJson = (snapshotRes.data as any)?.snapshot_json;
-  const snapshotNarrative = snapshotJson ? {
-    executiveSummary: snapshotJson?.executive_summary ?? snapshotJson?.executiveSummary ?? null,
-    risks: Array.isArray(snapshotJson?.risks) ? snapshotJson.risks : [],
-    mitigants: Array.isArray(snapshotJson?.mitigants) ? snapshotJson.mitigants : [],
-    recommendation: snapshotJson?.recommendation ?? snapshotJson?.verdict ?? null,
-  } : null;
+  const snapshotNarrative = snapshotJson
+    ? {
+        executiveSummary:
+          snapshotJson?.executive_summary ??
+          snapshotJson?.executiveSummary ??
+          null,
+        risks: Array.isArray(snapshotJson?.risks) ? snapshotJson.risks : [],
+        mitigants: Array.isArray(snapshotJson?.mitigants)
+          ? snapshotJson.mitigants
+          : [],
+        recommendation:
+          snapshotJson?.recommendation ?? snapshotJson?.verdict ?? null,
+      }
+    : null;
 
-  // Build lifecycle blockers from derived state
-  // For now, use a simplified approach
+  // Build lifecycle blockers from derived state.
   const lifecycleBlockers: Array<{ code: string; message: string }> = [];
 
-  // Build insight input
   const insightInput: InsightInput = {
     dealId,
     intelligenceRunning: intelState.pipelineRunning,
@@ -75,12 +156,15 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     riskPricingExists: Boolean(riskPricingRes.data),
     riskPricingFinalized: (riskPricingRes.data as any)?.finalized === true,
     riskGrade: (riskPricingRes.data as any)?.risk_grade ?? null,
-    riskScore: (riskPricingRes.data as any)?.risk_score != null ? Number((riskPricingRes.data as any).risk_score) : null,
+    riskScore:
+      (riskPricingRes.data as any)?.risk_score != null
+        ? Number((riskPricingRes.data as any).risk_score)
+        : null,
     lenderMatchCount: (lenderMatchRes.data ?? []).length,
     lenderMatchReady: (lenderMatchRes.data ?? []).length > 0,
     lifecycleStage: (lifecycleRes.data as any)?.stage ?? null,
     lifecycleBlockers,
-    lifecycleNextAction: null, // Will be populated from lifecycle derivation in future
+    lifecycleNextAction: null,
   };
 
   const insight = deriveDealInsights(insightInput);
