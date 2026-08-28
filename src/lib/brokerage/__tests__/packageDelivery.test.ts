@@ -76,3 +76,17 @@ test("source docs full only",async()=>{const full=await m.buildPackageManifest("
 test("signed URL no raw path",async()=>{const r=await m.createSignedPackageDownload("d1","business_plan",{id:"x",scope:"borrower"},sealedDb() as any);assert.equal(r.ok,true);if(r.ok){assert.ok(!r.url.includes("/gcs/"));assert.ok(r.url.includes("business_plan"));}});
 test("audit view",async()=>{const db=sealedDb();await m.auditPackageView({actor:"b1",actorScope:"lender",dealId:"d1",action:"package_view"},db as any);assert.equal(db.tables.marketplace_audit_log.length,1);});
 test("audit download",async()=>{const db=sealedDb();await m.auditPackageDownload({actor:"x",actorScope:"borrower",dealId:"d1",action:"package_download",resourceType:"business_plan"},db as any);assert.equal(db.tables.marketplace_audit_log[0].metadata.resourceType,"business_plan");});
+
+
+test("audit persistence failure is returned to delivery callers",async()=>{
+  const failingDb={
+    from:()=>({
+      insert:async()=>({error:{message:"database unavailable"}}),
+    }),
+  };
+  const result=await m.auditPackageDownload(
+    {actor:"b1",actorScope:"lender",dealId:"d1",action:"package_download",resourceType:"business_plan"},
+    failingDb as any,
+  );
+  assert.deepEqual(result,{ok:false,error:"database unavailable"});
+});
