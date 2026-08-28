@@ -6,6 +6,7 @@ import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { loadLastEvents } from "../_components/loadLastEvents";
 import { StuckTable, type StuckRow } from "../_components/StuckTable";
 import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { DealPackageReview } from "@/components/brokerage/DealPackageReview";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +15,22 @@ const ALLOWED_ORIGINS = new Set(["brokerage_anonymous", "brokerage_claimed"]);
 export default async function BrokerageDealsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ origin?: string }>;
+  searchParams: Promise<{ origin?: string; dealId?: string }>;
 }) {
   const sp = await searchParams;
+
+  // ?dealId= renders the pre-seal package review for one deal. Mounted here
+  // rather than at its own /review route because the repo sits at 1987/2048
+  // Vercel function slots (scripts/count-routes.mjs) — same reason the
+  // packages page hosts the Golden Trident lab behind ?lab=.
+  if (sp.dealId) {
+    return (
+      <div style={{ padding: "18px 24px 40px" }}>
+        <DealPackageReview dealId={sp.dealId} />
+      </div>
+    );
+  }
+
   const origin = sp.origin && ALLOWED_ORIGINS.has(sp.origin)
     ? sp.origin
     : "brokerage_anonymous";
@@ -108,6 +122,40 @@ export default async function BrokerageDealsPage({
       )}
 
       <StuckTable rows={rows} emptyLabel={`No ${origin} deals.`} />
+
+      {dealList.length > 0 && (
+        <div style={{ marginTop: 22 }}>
+          <h2 style={{ color: c.paper, fontSize: 14, margin: "0 0 4px" }}>Pre-seal package review</h2>
+          <p style={{ color: c.textMuted, fontSize: 12, margin: "0 0 10px" }}>
+            Open the full package — business plan, feasibility, projections, spreads, credit memo and SBA
+            forms — exactly as a bank would receive it.
+          </p>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
+            {dealList.map((d) => (
+              <li key={d.id}>
+                <Link
+                  href={`/admin/brokerage/deals?dealId=${encodeURIComponent(d.id)}`}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    padding: "9px 11px",
+                    border: `1px solid ${c.border}`,
+                    borderRadius: 4,
+                    background: c.card,
+                    color: c.paper,
+                    fontSize: 13,
+                    textDecoration: "none",
+                  }}
+                >
+                  <span>{d.display_name || d.id.slice(0, 8)}</span>
+                  <span style={{ color: c.brassBright }}>Review package →</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
