@@ -89,7 +89,11 @@ describe("borrower intake hydration gate", () => {
     assert.match(client, /setProgressHydrated\(false\)/);
     assert.match(client, /setHydrationError\(/);
     assert.match(client, />\s*Retry loading\s*</);
-    assert.doesNotMatch(client, /finally \{[\s\S]*?setProgressHydrated\(true\)/);
+    const hydrateStart = client.indexOf("const hydrateProgress");
+    const hydrateEnd = client.indexOf("// Re-hydrate when deal changes", hydrateStart);
+    const hydrateBlock = client.slice(hydrateStart, hydrateEnd);
+    assert.doesNotMatch(hydrateBlock, /finally/);
+    assert.match(hydrateBlock, /setProgressHydrated\(true\)/);
   });
 
   test("hydration rejects a session-to-deal mismatch", () => {

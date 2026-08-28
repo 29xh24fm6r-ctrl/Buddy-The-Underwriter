@@ -52,8 +52,9 @@ function makeDb(tables: Record<string, Row[]>, opts: { failOn?: FailFn } = {}) {
         return ok(null);
       }
       if (op === "update") {
-        rows.filter(matches).forEach((r) => Object.assign(r, payload));
-        return ok(null);
+        const changed = rows.filter(matches);
+        changed.forEach((r) => Object.assign(r, payload));
+        return ok(single ? (changed[0] ?? null) : changed);
       }
       const found = rows.filter(matches);
       if (head && wantCount) return ok(null, found.length);
@@ -67,6 +68,7 @@ function makeDb(tables: Record<string, Row[]>, opts: { failOn?: FailFn } = {}) {
         return q;
       },
       eq(c: string, v: any) { filters.push([c, v]); return q; },
+      is(c: string, v: any) { filters.push([c, v]); return q; },
       order() { return q; },
       limit() { return q; },
       insert(p: any) { op = "insert"; payload = p; return q; },
@@ -221,27 +223,22 @@ test("GET fails closed when the progress row cannot be read", async () => {
   assert.equal(body.progress, undefined, "must not hand back a fabricated position");
 });
 
-test("GET floors the completion set when a completion read fails", async () => {
-  // A failed count does not mean the chapter is incomplete, only that we
-  // could not check — and shrinking the set rewinds the borrower.
+test("GET blocks when completion evidence cannot be loaded", async () => {
   db = makeDb(productionFixture(), {
     failOn: (table) =>
       table === "deal_documents" ? { message: "permission denied" } : null,
   });
   sessionDealId = DEAL;
 
-  const { body } = await getJson();
-  const p = body.progress;
-  assert.deepEqual(p.completedChapters, [1, 2, 3, 4], "last_valid_chapter=4 is the floor");
-  assert.deepEqual(p.degraded, ["deal_documents"], "the failed read must be named");
-  const resolved = Math.min(p.currentChapter, p.completedChapters.length + 1);
-  assert.equal(resolved, 5, "a degraded read must not rewind the borrower");
+  const { status, body } = await getJson();
+  assert.equal(status, 503);
+  assert.equal(body.ok, false);
+  assert.equal(body.error, "progress_load_failed");
+  assert.equal(body.dealId, DEAL);
+  assert.equal(body.progress, undefined, "degraded evidence must not expose a writable workspace");
 });
 
-test("GET omits facts rather than emptying them when hydration fails", async () => {
-  // The client does setPurposes(p.facts.purposes ?? []), so returning a
-  // well-formed empty facts object after a failed read wipes the borrower's
-  // answers out of local state.
+test("GET blocks rather than fabricating facts when hydration fails", async () => {
   db = makeDb(productionFixture(), {
     failOn: (table, op) =>
       table === "borrower_concierge_sessions" && op === "select"
@@ -250,12 +247,14 @@ test("GET omits facts rather than emptying them when hydration fails", async () 
   });
   sessionDealId = DEAL;
 
-  const { body } = await getJson();
-  assert.equal(body.ok, true);
-  assert.equal(body.progress.facts, undefined, "absent, not blank");
+  const { status, body } = await getJson();
+  assert.equal(status, 503);
+  assert.equal(body.ok, false);
+  assert.equal(body.error, "progress_load_failed");
+  assert.equal(body.progress, undefined, "failed fact reads must not look like empty answers");
 });
 
-test("GET returns a clean first-run shape when there is genuinely no progress", async () => {
+test("GET returns a clean first-run shape when there is genuinely no progress", async () => {test("GET returns a clean first-run shape when there is genuinely no progress", async () => {
   const tables = productionFixture();
   tables.borrower_intake_progress = [];
   tables.borrower_concierge_sessions = [];
@@ -301,9 +300,7 @@ test("POST advances the version from the persisted one", async () => {
   assert.equal(tables.borrower_intake_progress[0].current_chapter, 5);
 });
 
-test("POST never regresses last_valid_chapter on a degraded read", async () => {
-  // The stored pointer says chapter 4 was reached. A failed completion read
-  // must not lower it — that is the same "unknown treated as absent" bug.
+test("POST refuses to advance when completion proof is degraded", async () => {
   const tables = productionFixture();
   db = makeDb(tables, {
     failOn: (table) =>
@@ -313,15 +310,21 @@ test("POST never regresses last_valid_chapter on a degraded read", async () => {
   });
   sessionDealId = DEAL;
 
+  const before = { ...tables.borrower_intake_progress[0] };
   const res = await POST(mkReq({ chapter: 5, data: {} }));
   const body = (await res.json()) as any;
 
-  assert.equal(body.ok, true);
-  assert.equal(body.progress.lastValidChapter, 4, "must hold at the persisted 4");
-  assert.equal(tables.borrower_intake_progress[0].last_valid_chapter, 4);
+  assert.equal(res.status, 503);
+  assert.equal(body.ok, false);
+  assert.equal(body.error, "progress_save_failed");
+  assert.deepEqual(
+    tables.borrower_intake_progress[0],
+    before,
+    "degraded evidence must not mutate the resume pointer",
+  );
 });
 
-test("POST rejects an out-of-range chapter", async () => {
+test("POST rejects an out-of-range chapter", async () => {test("POST rejects an out-of-range chapter", async () => {
   db = makeDb(productionFixture());
   sessionDealId = DEAL;
 
