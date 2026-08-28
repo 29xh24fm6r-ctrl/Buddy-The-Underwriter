@@ -989,3 +989,61 @@ Verification on code head `26f0f7d9f0f88d09d8817b9c3f493fb5e4344a8a`:
   - adds a static regression guard for all three contracts.
 - Production verification: pending merge and a subsequent document-worker invocation. An authenticated controlled upload/OCR fixture and the complete PR 878 Golden Trident delivery ceremony remain separately blocked on authorized fixtures.
 - Database evidence remains blocked: the available Supabase connection identifies as Pulse OS rather than Buddy and was not queried or modified.
+
+
+### Golden Trident artifact persistence truthfulness — PR 969
+
+Checkpoint:
+
+- PRs 967 and 968 remain clean, mergeable, and exactly current with `main`;
+  their marketplace/download callers were not modified.
+- Production remains on `fe428208311739a0147294d10c1e2d3d4d1ceb2b`, serves
+  `www.buddysba.com` with HTTP 200, and has no grouped runtime errors in the
+  latest two-hour observation window.
+- PR 878's Golden Trident code remains deployed. Complete seal-to-marketplace-
+  to-lender transactional closure still requires a verified Buddy-owned
+  Supabase connection and an authorized sealed transaction.
+
+Evidence and root cause:
+
+- Supabase updates do not return affected rows unless `.select()` is chained.
+  Golden Trident's artifact stages treated an error-free update as proof even
+  when a lease/filter matched zero rows.
+- Business-plan, projection, and feasibility objects are uploaded before their
+  database manifest references are written. A lost lease, database outage, or
+  returned-value mismatch could therefore leave borrower artifacts untracked
+  in storage while the factory advanced.
+- Reviewed business-plan source paths and canonical SBA/memo/spread/feasibility
+  bindings had the same error-only proof gap.
+- Final projection source reads also discarded database errors, collapsing
+  authoritative-state outages into a later generic missing-artifact failure.
+
+Repair branch: `codex/commission-trident-artifact-persistence`.
+
+Repair:
+
+- Add one returned-row proof boundary for artifact and source-binding writes.
+  It distinguishes database errors, zero-row lease loss, and returned-value
+  mismatch.
+- Compensate failed manifest writes by removing only storage objects uploaded by
+  the current attempt, grouped and deduplicated by bucket. Previously persisted
+  and resumable artifacts are never removed.
+- Require the Storage upload response to return the exact requested object path.
+- Apply the boundary to reviewed business-plan sources, bundle business plans,
+  projection PDF/XLSX files, feasibility files, SBA/feasibility checkpoints,
+  and canonical memo/spread bindings.
+- Surface final projection source-read outages directly.
+- Add direct regression coverage for success, database failure, zero-row
+  updates, mismatched returned rows, grouped cleanup, deduplication, and
+  cleanup-failure evidence.
+- No schema, migration, dependency, credential, provider, or production-data
+  change.
+
+Verification:
+
+- Required GitHub Actions and the exact-head Vercel preview are pending.
+- Post-merge transactional closure requires an authorized Golden Trident
+  generation fixture and the verified Buddy-owned Supabase connection.
+- The next independent audit target is sealed-artifact retention and
+  supersession reconciliation. The QA-identity outage classification repair
+  remains deferred while PRs 967-968 own overlapping delivery callers.
