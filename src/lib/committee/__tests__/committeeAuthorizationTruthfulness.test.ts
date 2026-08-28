@@ -34,7 +34,7 @@ test("[committee-auth-2] policy retrieval cannot select another bank", () => {
   for (const source of [BLENDED_ROUTE, EVALUATE_ROUTE]) {
     assert.match(source, /requestedBankId !== access\.bankId/);
     assert.match(source, /bank_scope_mismatch/);
-    assert.match(source, /bankId: access\.bankId/);
+    assert.match(source, /(?:const bankId =|bankId:) access\.bankId/);
   }
 });
 
@@ -72,16 +72,23 @@ test("[decision-truth-1] decision finalization enforces provenance and separatio
   assert.match(DECISION_WRITER, /\.neq\("submitted_by", args\.underwriterId\)/);
 });
 
-test("[decision-truth-2] mirror failures compensate before acknowledgement", () => {
-  assert.match(DECISION_WRITER, /decision_status_sync_failed/);
-  assert.match(DECISION_WRITER, /decision_reconciliation_required/);
-  assert.match(
-    DECISION_WRITER,
-    /status:\s*"banker_submitted"[\s\S]*?underwriter_feedback_json:\s*\{\}/,
+test("[decision-truth-2] decision finalization preserves a retryable snapshot", () => {
+  const statusMirrorIndex = DECISION_WRITER.indexOf(
+    "const { error: statusError }",
   );
+  const snapshotUpdateIndex = DECISION_WRITER.indexOf(
+    "const { error: snapshotError",
+  );
+
+  assert.ok(statusMirrorIndex >= 0, "deal status mirror must be explicit");
+  assert.ok(
+    snapshotUpdateIndex > statusMirrorIndex,
+    "deal status must be persisted before the snapshot becomes terminal",
+  );
+  assert.match(DECISION_WRITER, /decision_status_compensation_failed/);
+  assert.match(DECISION_WRITER, /decision_reconciliation_required/);
   assert.match(DECISION_WRITER, /level:\s*"fatal"/);
 });
-
 test("[decision-truth-3] malformed feedback is rejected, not dropped", () => {
   assert.match(DECISION_ROUTE, /parseRequestedChanges/);
   assert.match(DECISION_ROUTE, /parseConditions/);
