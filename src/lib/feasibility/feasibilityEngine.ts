@@ -31,6 +31,7 @@ import type {
   FeasibilityResult,
   ManagementMemberLite,
   PlannedHireLite,
+  PropertyDetail,
   TradeAreaData,
 } from "./types";
 
@@ -49,6 +50,7 @@ type SbaPackageRow = {
   projections_annual?: unknown;
   break_even?: unknown;
   sources_and_uses?: unknown;
+  use_of_proceeds?: unknown;
   global_dscr?: number | null;
   balance_sheet_projections?: unknown;
 };
@@ -433,10 +435,69 @@ export async function generateFeasibilityStudy(params: {
     franchiseOperationsManual: null,
   });
 
+  // ── 11b. Proposed property (Golden Trident audit) ──────────────
+  // LocationSuitabilityInput.property drives BOTH realEstateMarket and
+  // accessAndVisibility, and it was hard-coded to null. Those two of the
+  // sixteen scored metrics were therefore `dataAvailable: false` for every
+  // study the system has ever produced — 26 of 26 — which held the ceiling
+  // on data_completeness at exactly the 0.70 the release gate demands. The
+  // fields were already on deal_loan_requests; nothing was reading them.
+  const { data: loanRequest } = await sb
+    .from("deal_loan_requests")
+    .select("property_type, occupancy_type, property_value, purchase_price, property_address_json")
+    .eq("deal_id", dealId)
+    .eq("bank_id", bankId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const propertyAddress = pickObject(loanRequest?.property_address_json);
+  const hasIdentifiedLocation =
+    Object.values(propertyAddress).some(
+      (v) => typeof v === "string" && v.trim().length > 0,
+    ) ||
+    pickNumber(loanRequest?.property_value) != null ||
+    pickNumber(loanRequest?.purchase_price) != null;
+
+  // Only claim property evidence when the loan file actually carries it.
+  // A missing loan-request row is absence of information, not evidence that
+  // the deal has no property, so it must still read as a gap.
+  // Does this loan finance real property at all? Read from the deal's own
+  // sources & uses. `null` when there is no use-of-proceeds to read, so the
+  // absence of information keeps reading as a gap rather than an exclusion.
+  const useOfProceedsLines = pickArray<{ category?: unknown; description?: unknown; label?: unknown }>(
+    sbaPackage?.use_of_proceeds,
+  );
+  const REAL_PROPERTY_PROCEEDS = /real\s*estate|land|building|property|construction|leasehold\s+improvement/i;
+  const financesRealProperty: boolean | null =
+    useOfProceedsLines.length === 0
+      ? null
+      : useOfProceedsLines.some((line) =>
+          REAL_PROPERTY_PROCEEDS.test(
+            [line.category, line.description, line.label]
+              .filter((v): v is string => typeof v === "string")
+              .join(" "),
+          ),
+        );
+
+  const propertyDetail: PropertyDetail | null = hasIdentifiedLocation
+    ? {
+        hasIdentifiedLocation: true,
+        isLeaseNegotiated: false,
+        monthlyRent: null,
+        squareFootage: null,
+        zonedCorrectly: null,
+        parkingAdequate: null,
+        trafficCountDaily: null,
+      }
+    : null;
+
   const locationSuitability = analyzeLocationSuitability({
     city: deal.city,
     state: deal.state,
     zipCode: null,
+    naicsCode,
+    financesRealProperty,
     research: {
       marketIntelligence: research.marketIntelligence,
       areaSpecificRisks: bieMarket?.areaSpecificRisksText ?? null,
@@ -452,7 +513,7 @@ export async function generateFeasibilityStudy(params: {
           medianRentPsf: null,
         }
       : null,
-    property: null,
+    property: propertyDetail,
   });
 
   // ── 12. Composite score ────────────────────────────────────────

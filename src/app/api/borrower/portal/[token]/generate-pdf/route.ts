@@ -199,6 +199,10 @@ export async function POST(
     assumptions,
     baseYear,
     projectedDscrThreshold,
+    // Same governed fact the package orchestrator uses. Omitting it here would
+    // make this surface render a cash line that disagrees with the business
+    // plan for the same deal.
+    openingCash: getFact("SL_CASH", "CASH"),
   });
   const {
     annualProjections: annual,

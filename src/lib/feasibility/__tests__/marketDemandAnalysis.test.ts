@@ -42,7 +42,15 @@ test("manufacturing NAICS excludes consumer population adequacy from decision ev
   assert.match(result.populationAdequacy.detail, /not decision-useful.*B2B/i);
   assert.doesNotMatch(result.populationAdequacy.detail, /revenue per capita/i);
   assert.equal(result.demandTrend.dataSource, "Governed industry market-growth research");
-  assert.equal(result.dataCompleteness, 2 / 3);
+  // Weight-aware over applicable metrics: consumer trade-area population
+  // (0.30) leaves the denominator, income (0.20) and industry growth (0.20)
+  // are backed, competitive density (0.30) is a real gap. 0.40 / 0.70.
+  assert.equal(result.dataCompleteness, 0.4 / 0.7);
+  assert.deepEqual(result.coverage.missing, ["competitiveDensity"]);
+  assert.deepEqual(
+    result.coverage.notApplicable.map((n) => n.key),
+    ["populationAdequacy"],
+  );
   assert.ok(
     result.flags.some(
       (flag) =>
