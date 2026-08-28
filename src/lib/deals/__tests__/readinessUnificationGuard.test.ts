@@ -15,13 +15,26 @@ const RECONCILER_SRC = readFileSync(
 );
 
 describe("SPEC-READINESS-SYSTEM-UNIFICATION-1 guards", () => {
-  test("recomputeDealReady calls scheduleReadinessRefresh in not-ready path", () => {
-    // scheduleReadinessRefresh must appear in the else branch (not-ready)
-    const elseIdx = READINESS_SRC.indexOf("Deal not ready - clear timestamp");
-    const refreshIdx = READINESS_SRC.indexOf("scheduleReadinessRefresh", elseIdx);
+  test("recomputeDealReady schedules refresh after not-ready persistence and regression evidence", () => {
+    const elseIdx = READINESS_SRC.indexOf("Deal not ready - persist and prove");
+    const clearIdx = READINESS_SRC.indexOf(
+      "readiness_clear_update_failed",
+      elseIdx,
+    );
+    const revertedIdx = READINESS_SRC.indexOf(
+      "readiness_reverted_event_failed",
+      elseIdx,
+    );
+    const refreshIdx = READINESS_SRC.indexOf(
+      "scheduleReadinessRefresh",
+      elseIdx,
+    );
     assert.ok(
-      elseIdx > 0 && refreshIdx > 0 && refreshIdx > elseIdx,
-      "scheduleReadinessRefresh must be called in the not-ready else branch",
+      elseIdx > 0 &&
+        clearIdx > elseIdx &&
+        revertedIdx > clearIdx &&
+        refreshIdx > revertedIdx,
+      "scheduleReadinessRefresh must follow authoritative not-ready persistence and regression evidence",
     );
   });
 

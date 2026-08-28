@@ -48,10 +48,12 @@ describe("Phase T — Auto-Scoped Slot Generation + Readiness Blocking", () => {
       "Guard T-03: readiness must gate on entityBindingRequired from getEntityBindingStatus",
     );
 
-    // Fail-closed: catch block must also return ready: false
+    // Fail-closed: unavailable authority must reject the computation so callers
+    // cannot clear or set readiness from unproven entity evidence.
     assert.ok(
-      src.includes("Entity binding status unavailable"),
-      "Guard T-03: readiness must fail closed when entity binding status is unavailable",
+      src.includes("readiness_entity_binding_failed") &&
+        src.includes("throw new Error("),
+      "Guard T-03: readiness must reject unavailable entity binding authority",
     );
   });
 
