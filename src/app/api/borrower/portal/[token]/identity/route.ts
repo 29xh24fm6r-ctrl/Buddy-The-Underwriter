@@ -85,13 +85,20 @@ export async function GET(
     console.error(`[portal/identity] reconcile failed deal=${ctx.dealId}`, e);
   }
 
-  const { data: owners } = await sb
+  const { data: owners, error: ownersError } = await sb
     .from("ownership_entities")
     .select("id, display_name, ownership_pct")
     .eq("deal_id", ctx.dealId)
     .order("ownership_pct", { ascending: false, nullsFirst: false });
 
-  const allOwners = (owners ?? []) as Array<{
+  if (ownersError || !Array.isArray(owners)) {
+    return NextResponse.json(
+      { ok: false, error: "identity_state_unavailable", detail: "ownership_entities_read_failed" },
+      { status: 503 },
+    );
+  }
+
+  const allOwners = owners as Array<{
     id: string;
     display_name: string;
     ownership_pct: number | null;
@@ -103,14 +110,21 @@ export async function GET(
 
   const ownerIds = qualifyingOwners.map((o) => o.id);
 
-  const { data: verifications } = await sb
+  const { data: verifications, error: verificationsError } = await sb
     .from("borrower_identity_verifications")
     .select("id, ownership_entity_id, status, vendor_artifacts_url, created_at, completed_at")
     .eq("deal_id", ctx.dealId)
     .in("ownership_entity_id", ownerIds.length > 0 ? ownerIds : ["__none__"]);
 
+  if (verificationsError || !Array.isArray(verifications)) {
+    return NextResponse.json(
+      { ok: false, error: "identity_state_unavailable", detail: "identity_verifications_read_failed" },
+      { status: 503 },
+    );
+  }
+
   const verificationMap = new Map<string, Record<string, unknown>>();
-  for (const v of verifications ?? []) {
+  for (const v of verifications) {
     const existing = verificationMap.get(v.ownership_entity_id as string);
     if (!existing || (v.created_at as string) > (existing.created_at as string)) {
       verificationMap.set(v.ownership_entity_id as string, v);
@@ -197,7 +211,7 @@ export async function POST(
   const sb = supabaseAdmin();
 
   if (action === "refresh") {
-    const { data: latest } = await sb
+    const { data: latest, error: latestError } = await sb
       .from("borrower_identity_verifications")
       .select("id")
       .eq("deal_id", ctx.dealId)
@@ -205,6 +219,17 @@ export async function POST(
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (latestError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "IDENTITY_STATE_UNAVAILABLE",
+          message: "We could not read identity verification status. Please try again in a moment.",
+        },
+        { status: 503 },
+      );
+    }
 
     if (!latest) {
       return NextResponse.json(
@@ -259,7 +284,7 @@ export async function POST(
   // session is actually Approved would otherwise hand the borrower back
   // the same finished session URL forever.
   try {
-    const { data: existing } = await sb
+    const { data: existing, error: existingError } = await sb
       .from("borrower_identity_verifications")
       .select("id")
       .eq("deal_id", ctx.dealId)
@@ -268,6 +293,16 @@ export async function POST(
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+    if (existingError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "IDENTITY_STATE_UNAVAILABLE",
+          message: "We could not read identity verification status. Please try again in a moment.",
+        },
+        { status: 503 },
+      );
+    }
     if (existing) {
       await reconcileVerification(existing.id as string, { sb, didit: diditClient });
     }
@@ -311,7 +346,12 @@ export async function POST(
   }
 
   if (!result.ok) {
-    const status = result.reason === "OWNER_NOT_FOUND" ? 404 : 500;
+    const status =
+      result.reason === "OWNER_NOT_FOUND"
+        ? 404
+        : result.reason === "STATE_READ_FAILED"
+          ? 503
+          : 500;
     return NextResponse.json(
       {
         ok: false,
