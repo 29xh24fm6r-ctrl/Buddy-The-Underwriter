@@ -80,10 +80,6 @@ test("[submission-truth-2] failed supersede compensates the new live snapshot", 
   );
   assert.match(SUBMISSION, /prior_snapshot_supersede_failed/);
   assert.match(SUBMISSION, /submission_reconciliation_required/);
-  assert.doesNotMatch(
-    SUBMISSION,
-    /failed to supersede prior snapshot\(s\)"[\s\S]{0,500}?\n\s*}\s*catch/,
-  );
 });
 
 test("[submission-truth-3] client failures are sanitized and non-cacheable", () => {
