@@ -857,11 +857,13 @@ async function uploadReviewedPdf(
   args: { dealId: string; artifact: string; buffer: Buffer },
 ): Promise<string> {
   const path = `${args.artifact === "business_plan" ? "sba-packages" : "feasibility-studies"}/${args.dealId}/${Date.now()}_reviewed.pdf`;
-  const { error } = await sb.storage.from("deal-documents").upload(path, args.buffer, {
+  const { data, error } = await sb.storage.from("deal-documents").upload(path, args.buffer, {
     contentType: "application/pdf",
     upsert: true,
   });
-  if (error) throw new Error(`Reviewed ${args.artifact} PDF upload failed: ${error.message}`);
+  if (error || data?.path !== path) {
+    throw new Error(`Reviewed ${args.artifact} PDF upload failed: ${error?.message ?? "uploaded path not returned"}`);
+  }
   return path;
 }
 
@@ -886,14 +888,16 @@ async function copyToTridentBucket(
 
   const buf = Buffer.from(await data.arrayBuffer());
   const targetPath = `${args.dealId}/${args.mode}/${Date.now()}_${args.artifact}.${args.ext}`;
-  const { error: uploadError } = await sb.storage.from("trident-bundles").upload(targetPath, buf, {
+  const { data: uploaded, error: uploadError } = await sb.storage.from("trident-bundles").upload(targetPath, buf, {
     contentType:
       args.ext === "pdf"
         ? "application/pdf"
         : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     upsert: true,
   });
-  if (uploadError) throw new Error(`Artifact target upload failed: ${uploadError.message}`);
+  if (uploadError || uploaded?.path !== targetPath) {
+    throw new Error(`Artifact target upload failed: ${uploadError?.message ?? "uploaded path not returned"}`);
+  }
   return targetPath;
 }
 
@@ -967,12 +971,12 @@ async function renderFeasibilityPreview(
   }
 
   const path = `${args.dealId}/preview/${Date.now()}_feasibility.pdf`;
-  const { error } = await sb.storage
+  const { data, error } = await sb.storage
     .from("trident-bundles")
     .upload(path, buf, {
       contentType: "application/pdf",
       upsert: true,
     });
-  if (error) return null;
+  if (error || data?.path !== path) return null;
   return path;
 }
