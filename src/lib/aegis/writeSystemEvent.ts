@@ -36,7 +36,11 @@ export async function writeSystemEvent(
     const { data, error } = await sb
       .from("buddy_system_events" as any)
       .insert({
-        event_type: event.event_type,
+        // Production's check constraint allows error/warning/retry/recovery/
+        // success/heartbeat/deploy/stuck_job/lease_expired/suppressed. "info"
+        // was later added to TypeScript only, so normalize that compatibility
+        // alias instead of emitting a row the database must reject.
+        event_type: event.event_type === "info" ? "success" : event.event_type,
         severity: event.severity,
         error_signature: event.error_signature ?? null,
         source_system: event.source_system,

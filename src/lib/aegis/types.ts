@@ -7,6 +7,8 @@ import "server-only";
 export type AegisEventType =
   | "error"
   | "warning"
+  // Compatibility alias for callers that mean informational success. The
+  // database enum does not contain "info"; writeSystemEvent normalizes it.
   | "info"
   | "retry"
   | "recovery"

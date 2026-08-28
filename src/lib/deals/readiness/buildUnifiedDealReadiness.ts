@@ -6,7 +6,11 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import {
+  ensureDealBankAccess,
+  isDealBankAccessGrantFor,
+  type DealBankAccessGrant,
+} from "@/lib/tenant/ensureDealBankAccess";
 import { deriveLifecycleState } from "@/buddy/lifecycle/deriveLifecycleState";
 import { buildMemoInputPackage } from "@/lib/creditMemo/inputs/buildMemoInputPackage";
 import { selfHealDeal, type SelfHealReport } from "./selfHealDeal";
@@ -29,6 +33,9 @@ export type BuildUnifiedDealReadinessArgs = {
   // conditions. The /readiness/refresh route turns this on; lazy GETs
   // leave it off to keep the path fast.
   runSelfHeal?: boolean;
+  // Trusted worker callers may forward the opaque, deal/bank-bound grant
+  // issued after the leased job's bank is verified against the deal row.
+  accessGrant?: DealBankAccessGrant;
 };
 
 export type BuildUnifiedDealReadinessResult =
@@ -47,7 +54,13 @@ export type BuildUnifiedDealReadinessResult =
 export async function buildUnifiedDealReadiness(
   args: BuildUnifiedDealReadinessArgs,
 ): Promise<BuildUnifiedDealReadinessResult> {
-  const access = await ensureDealBankAccess(args.dealId);
+  const delegated = args.accessGrant;
+  const delegatedIsValid =
+    !!delegated &&
+    isDealBankAccessGrantFor(delegated, args.dealId, delegated.bankId);
+  const access = delegatedIsValid
+    ? ({ ok: true as const, bankId: delegated.bankId, grant: delegated })
+    : await ensureDealBankAccess(args.dealId);
   if (!access.ok) {
     return { ok: false, reason: "tenant_mismatch", error: access.error };
   }
@@ -76,6 +89,7 @@ export async function buildUnifiedDealReadiness(
   const inputResult = await buildMemoInputPackage({
     dealId: args.dealId,
     runReconciliation: args.runReconciliation ?? true,
+    accessGrant: access.grant,
   });
   const memoInputReadiness =
     inputResult.ok ? inputResult.package.readiness : null;

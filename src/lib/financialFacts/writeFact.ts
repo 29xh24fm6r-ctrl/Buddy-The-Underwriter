@@ -70,7 +70,9 @@ export async function upsertDealFinancialFact(args: {
    * EXTRACTION facts with an unknown period (which would create phantom spread
    * columns); it must NOT silently void these intentional derived writes. When this
    * flag is set, the EXACT sentinel period is permitted (any other sub-minimum/garbage
-   * date is still rejected). Extraction writers never set this, so the guard is intact.
+   * date is still rejected). Extraction value writers never set this. The one
+   * non-financial EXTRACTION_HEARTBEAT metadata row opts in explicitly so a
+   * completed zero-fact extraction remains observable without inventing a period.
    */
   allowSentinelPeriod?: boolean;
 }): Promise<{ ok: true } | { ok: false; error: string; skipped?: boolean }> {
