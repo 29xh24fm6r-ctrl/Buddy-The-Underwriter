@@ -698,7 +698,7 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log(    console.log(
+    console.log(
       `${LOG_PREFIX} saved deal=${dealId} ch=${chapter}` +
       ` completed=${completedChapters.join(",") || "none"}` +
       ` lastValid=${lastValidChapter ?? "none"} v=${nextVersion}` +
