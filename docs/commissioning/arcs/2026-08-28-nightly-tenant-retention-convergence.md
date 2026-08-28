@@ -53,9 +53,16 @@ Production continued serving `www.buddysba.com` with HTTP 200 on
 ## Verification status
 
 - Source and schema evidence: complete.
-- Focused and broad automated validation: pending CI.
-- Exact-head Vercel preview: pending.
-- Production verification: requires Matt's merge and the next nightly
+- Code head `a19bac91ef14c2553f27e4f9ffa57c185bebd588`:
+  - 13,347 tests: 13,338 passed, 0 failed, 9 skipped;
+  - React-server tests: 18 passed, 0 failed;
+  - research evaluation: 7 passed, 0 failed, 13 production-fixture placeholders
+    skipped;
+  - CI, Build Check, Secret Scan, typecheck, lint, architecture, safety,
+    schema-select, Never-500, and public Playwright passed.
+- Exact-head preview `dpl_DoWsXR1NNqcophKUwjjUjsoArWU3` is READY, HTTP
+  200, SHA-matched to the code head, and has no error/fatal runtime logs.
+- Production verification requires Matt's merge and the next nightly
   invocation.
 - Direct row-level verification: blocked because the available Supabase
   connection identifies as another product and was not accessed.
