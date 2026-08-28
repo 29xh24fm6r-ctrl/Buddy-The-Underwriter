@@ -35,10 +35,13 @@ function normalizeMimeType(mimeType: string): string {
   return normalized;
 }
 
+const RETIRED_GEMINI_MODELS = new Set(["gemini-2.0-flash"]);
+
 function getGeminiModelFromEnv(): string | null {
   const raw = process.env.GEMINI_OCR_MODEL || process.env.GEMINI_MODEL;
   const normalized = typeof raw === "string" ? raw.trim() : "";
-  return normalized ? normalized : null;
+  if (!normalized || RETIRED_GEMINI_MODELS.has(normalized)) return null;
+  return normalized;
 }
 
 function getGeminiModelCandidates(): string[] {
