@@ -16,6 +16,10 @@ import {
   computeAssumptionsCompletionPct,
   validateSBAAssumptions,
 } from "@/lib/sba/sbaAssumptionsValidator";
+import {
+  parseSBAGenerationStreamBlock,
+  readSBAGenerationFailure,
+} from "@/lib/sba/sbaGenerationStream";
 import { getAssumptionCoachingTips } from "@/lib/sba/sbaAssumptionCoach";
 import { getConceptExplanation } from "@/lib/sba/sbaConceptExplainer";
 import type { DraftedAssumptions } from "@/lib/sba/sbaAssumptionDrafter";
@@ -821,65 +825,91 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
   const [genError, setGenError] = useState<string | null>(null);
 
   async function runStreamingGenerate() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 180_000);
+    let terminalEvent: "complete" | "error" | null = null;
+
     setGenerating(true);
     setGenStep("Starting...");
     setGenPct(0);
     setGenError(null);
 
     try {
-      const res = await fetch(`/api/deals/${dealId}/sba`, {
+      const response = await fetch(`/api/deals/${dealId}/sba`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "generate-package" }),
+        signal: controller.signal,
       });
+      const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
 
-      if (!res.body) {
-        setGenError("Streaming not supported by this browser.");
-        setGenerating(false);
-        return;
+      if (!response.ok || !contentType.includes("text/event-stream")) {
+        throw new Error(await readSBAGenerationFailure(response));
+      }
+      if (!response.body) {
+        throw new Error("Streaming is not supported by this browser.");
       }
 
-      const reader = res.body.getReader();
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
 
-      while (true) {
+      const handleBlock = (block: string) => {
+        const data = parseSBAGenerationStreamBlock(block);
+        if (!data) return;
+
+        setGenStep(data.step);
+        setGenPct(data.pct);
+
+        if (data.step === "error") {
+          terminalEvent = "error";
+          setGenError(data.error || "Package generation failed.");
+          setGenerating(false);
+        } else if (data.step === "complete") {
+          terminalEvent = "complete";
+          // Allow the 100% frame to render, then dismiss.
+          setTimeout(() => {
+            setGenerating(false);
+            onConfirmed();
+          }, 500);
+        }
+      };
+
+      while (!terminalEvent) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          buffer += decoder.decode();
+          if (buffer.trim()) handleBlock(buffer);
+          break;
+        }
+
         buffer += decoder.decode(value, { stream: true });
-        // SSE events are separated by two newlines.
-        const events = buffer.split("\n\n");
+        const events = buffer.split(/\r?\n\r?\n/);
         buffer = events.pop() ?? "";
-        for (const ev of events) {
-          const line = ev.startsWith("data: ") ? ev.slice(6) : ev;
-          if (!line.trim()) continue;
-          try {
-            const data = JSON.parse(line) as {
-              step: string;
-              pct: number;
-              error?: string;
-            };
-            setGenStep(data.step);
-            setGenPct(data.pct);
-            if (data.step === "error" && data.error) {
-              setGenError(data.error);
-              setGenerating(false);
-            }
-            if (data.step === "complete") {
-              // Allow the 100% frame to render, then dismiss.
-              setTimeout(() => {
-                setGenerating(false);
-                onConfirmed();
-              }, 500);
-            }
-          } catch {
-            // ignore malformed frame
-          }
+        for (const event of events) {
+          handleBlock(event);
+          if (terminalEvent) break;
         }
       }
-    } catch (e) {
-      setGenError(e instanceof Error ? e.message : "Network error");
+
+      if (terminalEvent) {
+        await reader.cancel().catch(() => undefined);
+      } else {
+        throw new Error(
+          "Generation stream ended before completion. Please retry.",
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof DOMException && error.name === "AbortError"
+          ? "Generation timed out after three minutes. Please retry."
+          : error instanceof Error
+            ? error.message
+            : "Network error";
+      setGenError(message);
       setGenerating(false);
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
