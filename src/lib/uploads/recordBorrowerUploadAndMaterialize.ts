@@ -34,6 +34,12 @@ async function ensureBorrowerUploadRow(sb: ReturnType<typeof supabaseAdmin>, arg
     .eq("storage_path", args.storagePath)
     .maybeSingle();
 
+  if (existing.error) {
+    throw new Error(
+      `Failed to inspect existing borrower upload: ${existing.error.message}`,
+    );
+  }
+
   if (existing.data?.id) {
     return { uploadId: String(existing.data.id), created: false };
   }
@@ -47,11 +53,26 @@ async function ensureBorrowerUploadRow(sb: ReturnType<typeof supabaseAdmin>, arg
     .is("deal_id", null)
     .maybeSingle();
 
+  if (orphan.error) {
+    throw new Error(
+      `Failed to inspect orphan borrower upload: ${orphan.error.message}`,
+    );
+  }
+
   if (orphan.data?.id) {
-    await sb
+    const repaired = await sb
       .from("borrower_uploads")
       .update({ deal_id: args.dealId })
-      .eq("id", orphan.data.id);
+      .eq("id", orphan.data.id)
+      .is("deal_id", null)
+      .select("id")
+      .maybeSingle();
+
+    if (repaired.error || !repaired.data?.id) {
+      throw new Error(
+        repaired.error?.message || "Failed to repair orphan borrower upload",
+      );
+    }
 
     await logLedgerEvent({
       dealId: args.dealId,
