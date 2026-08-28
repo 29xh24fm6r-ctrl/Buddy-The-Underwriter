@@ -701,6 +701,10 @@ export async function extractFactsFromDocument(args: {
     factValueNum: extractedText ? extractedText.length : null,
     factValueText: docType,
     confidence: classRes.data?.confidence ?? null,
+    // A heartbeat is extraction metadata, not a statement-period value. It
+    // intentionally uses the sentinel period so spread preflight can detect
+    // that extraction ran even when the provider produced zero facts.
+    allowSentinelPeriod: true,
     provenance: {
       source_type: "DOC_EXTRACT",
       source_ref: `deal_documents:${args.documentId}`,

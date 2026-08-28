@@ -974,54 +974,18 @@ Verification on code head `26f0f7d9f0f88d09d8817b9c3f493fb5e4344a8a`:
   before merge recommendation.
 
 
-## 2026-08-28 — Deterministic benchmark-rate feed
+## 2026-08-27 — document worker convergence (post-PR 935)
 
-Production evidence:
-
-- Vercel recorded HTTP 500 for `GET /api/rates/latest` on 2026-08-27.
-- SOFR, five-year Treasury, and prime-rate truth all depended on one grounded
-  generative-AI request. A gateway budget, provider, grounding, or JSON failure
-  therefore blocked pricing.
-- The prior parser admitted unvalidated rate/date values and exposed no source URL.
-
-Repair branch: `commissioning/deterministic-benchmark-rates`.
-
-Repair:
-
-- Replace AI lookup with the New York Fed SOFR API, Treasury daily par-yield XML,
-  and Federal Reserve H.15 prime series from FRED.
-- Add FRED fallback for SOFR and five-year Treasury, strict range/freshness
-  validation, explicit provenance, a bounded last-known-good window, and a
-  retryable HTTP 503 contract when no validated observation exists.
-- Add regression coverage for primary feeds, fallback, invalid/stale rejection,
-  and stale-on-refresh behavior.
-- No schema, credential, provider configuration, dependency, or production-data
-  change.
-
-Open checkpoints:
-
-1. Require focused tests plus complete CI, Build Check, Secret Scan, architecture,
-   safety, schema, Never-500, and public Playwright on the exact head.
-2. Require a READY, SHA-matched, runtime-clean preview before merge recommendation.
-3. After merge, verify production `/api/rates/latest`, pricing scenario admission,
-   and absence of rate-feed HTTP 500 events.
-4. Golden Trident transactional closure and direct database evidence remain
-   blocked by the authorized fixture and verified Buddy-owned Supabase connection.
-
-
-PR 941 verification checkpoint:
-
-- Code head `bc67b371e35e1f367d5848644c0eb481d0d82ae8` was mergeable and zero
-  commits behind `main`.
-- CI: 13,341 tests; 13,332 passed, 0 failed, 9 skipped. React-server 18/18.
-  Research evaluation 7/7 with 13 production-data placeholders still skipped.
-- CI, Build Check, Secret Scan, Route Budget, architecture, safety, schema,
-  Never-500, drift, and public Playwright all passed.
-- Exact-head deployment `dpl_4HsNe7yJjQwetiyYZdcXAQQGgt43` was READY,
-  HTTP 200, and SHA-matched. No error/fatal/warning runtime logs followed the probe.
-- Live preview `/api/rates/latest` returned validated SOFR 3.64% (NY Fed,
-  2026-08-26), five-year Treasury 4.38% (Treasury, 2026-08-27), and prime
-  6.75% (H.15/FRED, 2026-08-26), with explicit source URLs.
-- The evidence-only ledger push must retain all required checks on its final head.
-- After Matt merges PR 941, repeat the live production rate probe and confirm no
-  new rate-feed HTTP 500 events before closing the finding.
+- Production evidence: PR 935 merged as `369044c8ffef4ce8b714e1f277f62599511f583e`; its Vercel production deployment reached READY and owns `www.buddysba.com`.
+- Confirmed root causes from the prior production worker tick:
+  - `EXTRACTION_HEARTBEAT` used the canonical financial-fact writer without a period, so the period-integrity guard rejected it and the spreads extractor failed with `deal_financial_facts_upsert_failed:invalid_period_date`.
+  - the spreads worker scheduled unified readiness through the browser/session tenant guard, producing `not_authenticated` / `tenant_mismatch` despite already holding a deal- and bank-bound leased job.
+  - TypeScript admitted Aegis `event_type=info`, but the live `buddy_system_events_event_type_check` enum does not; informational rows were rejected.
+- Repair branch: `commissioning/document-worker-convergence`.
+- Repair:
+  - explicitly permits the sentinel period only for the non-financial extraction-heartbeat metadata row;
+  - verifies the worker's deal/bank pair through the service client, issues the existing opaque branded grant, and forwards it through unified readiness and memo-input assembly; browser callers still execute the normal Clerk tenant check;
+  - normalizes the TypeScript-only Aegis `info` alias to persisted `success`, and fixes the one direct alert-ledger insert;
+  - adds a static regression guard for all three contracts.
+- Production verification: pending merge and a subsequent document-worker invocation. An authenticated controlled upload/OCR fixture and the complete PR 878 Golden Trident delivery ceremony remain separately blocked on authorized fixtures.
+- Database evidence remains blocked: the available Supabase connection identifies as Pulse OS rather than Buddy and was not queried or modified.
