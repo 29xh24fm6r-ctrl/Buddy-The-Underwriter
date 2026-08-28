@@ -55,7 +55,7 @@ export async function GET(
   // PREVIEW-ONLY. Spec: borrower portal pre-pick must not touch final
   // bundles. The cookie-scoped download route is the surface that
   // prefers final → preview; this one does not.
-  const { data: bundle } = await sb
+  const { data: bundle, error: bundleError } = await sb
     .from("buddy_trident_bundles")
     .select("*")
     .eq("deal_id", dealId)
@@ -64,6 +64,12 @@ export async function GET(
     .is("superseded_at", null)
     .maybeSingle();
 
+  if (bundleError) {
+    return NextResponse.json(
+      { ok: false, error: "package_state_unavailable" },
+      { status: 503 },
+    );
+  }
   if (!bundle) {
     return NextResponse.json({ ok: false }, { status: 404 });
   }
@@ -86,7 +92,7 @@ export async function GET(
   // pulls left no trace while the cookie-scoped route recorded credit-memo
   // pulls (audit F-21). Best-effort: an audit-write failure must not deny
   // the borrower their own preview.
-  await auditPackageDownload(
+  const audit = await auditPackageDownload(
     {
       actor: dealId,
       actorScope: "borrower",
@@ -96,7 +102,13 @@ export async function GET(
       metadata: { mode: "preview", surface: "borrower_portal" },
     },
     sb as any,
-  ).catch(() => {});
+  );
+  if (!audit.ok) {
+    return NextResponse.json(
+      { ok: false, error: "download_audit_persistence_failed" },
+      { status: 503 },
+    );
+  }
 
   return NextResponse.json({
     ok: true,
