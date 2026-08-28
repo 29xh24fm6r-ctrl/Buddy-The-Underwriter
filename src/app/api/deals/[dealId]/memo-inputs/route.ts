@@ -459,6 +459,27 @@ async function postFromWizard(
         dealId,
         code: ownersError.code ?? null,
       });
+      const lookupFailures = ["management_owner_lookup"];
+      const lookupAudit = await writeEvent({
+        dealId,
+        kind: "memo_input.wizard_save",
+        meta: {
+          bank_id: bankId,
+          payload_keys: Object.keys(overrides),
+          borrower_story_written: false,
+          management_writes: 0,
+          requested_management_writes: managementInputs.length,
+          failed_operations: lookupFailures,
+          save_ok: false,
+        },
+      });
+      if (!lookupAudit.ok) {
+        lookupFailures.push("audit_event");
+        console.error("[memo-inputs from-wizard] lookup audit failed", {
+          dealId,
+          error: lookupAudit.error ?? null,
+        });
+      }
       return NextResponse.json(
         {
           ok: false,
@@ -467,7 +488,7 @@ async function postFromWizard(
           borrowerStoryWritten: false,
           managementWrites: 0,
           requestedManagementWrites: managementInputs.length,
-          failedOperations: ["management_owner_lookup"],
+          failedOperations: lookupFailures,
         },
         {
           status: 500,
