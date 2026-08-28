@@ -9,7 +9,7 @@ Scope: Buddy The Underwriter only (`29xh24fm6r-ctrl/Buddy-The-Underwriter` and `
 - PR 878 is merged and its Golden Trident code is deployed.
 - Production deployment `dpl_EQob5PMxWaA85DupqtdKcuaYEi49` serves exact commit `fe428208311739a0147294d10c1e2d3d4d1ceb2b` at HTTP 200.
 - An exact-deployment runtime scan covering 2026-08-28 17:04–21:04 UTC found no warning, error, or fatal entries.
-- Direct source inspection found that the authenticated brokerage dispatcher, borrower portal dispatcher, lender package-access route, package-manifest builder, and assembled-SBA-package lookup ignored authoritative Supabase read errors. Database outages could therefore be reported as ordinary 404 package absence.
+- Direct source inspection found that the authenticated brokerage dispatcher and borrower portal dispatcher ignored bundle, lender-access, and deal-ownership read errors; the assembled-SBA-package lookup also discarded its query error. Database outages could therefore be reported as ordinary 404 package absence.
 - All Golden Trident download routes generated or rendered an artifact before attempting audit persistence, but the audit helper discarded insert failures and callers still returned the deliverable.
 
 ## Root cause
@@ -21,9 +21,9 @@ The delivery boundary treated audit writes as best-effort telemetry and destruct
 - Make package view/download audit helpers return explicit success or failure, including thrown database failures.
 - Withhold signed URLs and rendered committee artifacts unless the required download audit persists.
 - Return HTTP 503 for authoritative-state and audit-persistence failures while preserving non-enumerating 404 responses for genuine authorization denial or package absence.
-- Check lender access, deal ownership, preview/final bundle, sealed-package, supporting-form, listing, and assembled-package reads.
+- Check lender access, deal ownership, preview/final bundle, and assembled-package reads; preserve the manifest builder's existing fail-closed sealed-package and supporting-record checks.
 - Preserve preview-tier confinement and the existing five-minute signed-URL TTL.
-- Map lender package-state unavailability to an explicit 503 rather than a false 404.
+- Preserve the lender manifest route's existing package-state failure signal and map it to an explicit 503 rather than a false 404.
 
 ## Regression coverage
 
