@@ -61,3 +61,10 @@ The connected Supabase resource identifies as a different product and was not ac
 - PR 878's full Golden Trident seal-to-marketplace-to-lender ceremony still requires an authorized production-safe transaction and verified Buddy-owned Supabase access.
 - PRs 944 and 945 remain prior independent merge checkpoints.
 - Next independent target: inspect committee voting, minutes generation, attestation, dissent, quorum, and immutable-record truthfulness without database mutation.
+
+## CI repair evidence
+
+- Initial broad CI exposed one brittle bank-scope contract and two lifecycle-ownership guard failures.
+- The bank-scope contract now accepts the route's authoritative local binding.
+- Failed decision mirroring now restores the retryable snapshot through the canonical submission owner, preserving the single-writer lifecycle invariant.
+- Replacement exact-head CI and deployment verification are pending.
