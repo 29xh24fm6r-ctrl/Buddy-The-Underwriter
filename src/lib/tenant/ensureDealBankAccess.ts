@@ -1,3 +1,5 @@
+import "server-only";
+
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "./getCurrentBankId";
 import { getBrokerageBankId } from "./brokerage";
@@ -98,6 +100,65 @@ export async function ensureDealBankAccess(dealId: string): Promise<EnsureResult
     const msg = e instanceof Error ? e.message : "unknown";
     console.warn("[ensureDealBankAccess] error", { dealId, userId, userBankId, error: msg });
     return { ok: false, error: "unauthorized", detail: msg };
+  }
+}
+
+/**
+ * Issue the same opaque deal/bank grant for a trusted background worker.
+ *
+ * This is deliberately not a blind bypass: the service-role lookup must prove
+ * that the supplied deal exists and belongs to the exact bank carried by the
+ * leased job. The branded grant remains impossible to manufacture outside this
+ * module and can only be replayed for that verified pair.
+ */
+export async function ensureDealBankAccessForService(
+  dealId: string,
+  expectedBankId: string,
+): Promise<EnsureResult> {
+  try {
+    const sb = supabaseAdmin();
+    const { data: deal, error } = await sb
+      .from("deals")
+      .select("id, bank_id")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    if (error || !deal) {
+      console.warn("[ensureDealBankAccessForService] deal_not_found", {
+        dealId,
+        expectedBankId,
+      });
+      return { ok: false, error: "deal_not_found" };
+    }
+
+    if (deal.bank_id !== expectedBankId) {
+      console.warn("[ensureDealBankAccessForService] TENANT MISMATCH", {
+        dealId,
+        expectedBankId,
+        dealBankId: deal.bank_id,
+      });
+      return {
+        ok: false,
+        error: "tenant_mismatch",
+        detail: `worker bank ${expectedBankId} != deal bank ${deal.bank_id}`,
+      };
+    }
+
+    return {
+      ok: true,
+      dealId: deal.id,
+      bankId: deal.bank_id,
+      userId: "system:service_worker",
+      grant: issueGrant(deal.id, deal.bank_id),
+    };
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : "unknown";
+    console.warn("[ensureDealBankAccessForService] error", {
+      dealId,
+      expectedBankId,
+      error: detail,
+    });
+    return { ok: false, error: "unauthorized", detail };
   }
 }
 
