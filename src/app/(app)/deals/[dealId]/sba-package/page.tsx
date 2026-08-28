@@ -59,6 +59,11 @@ export default async function SBAPackagePage({
       loadBorrowerStory(dealId),
     ]);
 
+  if (assumptionsResult.error || packageResult.error) {
+    console.error("[sba-package/page] canonical state load failed");
+    throw new Error("SBA package state could not be loaded.");
+  }
+
   const assumptions: SBAAssumptions | null = assumptionsResult.data
     ? {
         dealId,
@@ -75,6 +80,7 @@ export default async function SBAPackagePage({
   const packageRow = packageResult.data;
   const packageData: SBAPackageData | null = packageRow
     ? {
+        id: packageRow.id,
         dealId: packageRow.deal_id,
         assumptionsId: packageRow.assumptions_id,
         generatedAt: packageRow.generated_at,
