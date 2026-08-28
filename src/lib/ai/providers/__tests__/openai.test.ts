@@ -95,3 +95,53 @@ describe("embedOpenAI: §4 embeddings", () => {
     }
   });
 });
+
+describe("callOpenAI: JSON response modes", () => {
+  it("uses json_object without inventing a strict schema for caller-validated payloads", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({
+        choices: [{ message: { content: "{\"ok\":true}" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 3, completion_tokens: 2 },
+      }),
+    );
+    try {
+      const result = await callOpenAI({
+        model: "gpt-4o-mini",
+        prompt: "return JSON",
+        timeoutMs: 5000,
+        responseJsonObject: true,
+      });
+      const body = JSON.parse(calls[0].init.body);
+      assert.deepEqual(body.response_format, { type: "json_object" });
+      assert.equal(result.text, "{\"ok\":true}");
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps strict json_schema mode authoritative when a schema is supplied", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({
+        choices: [{ message: { content: "{\"ok\":true}" }, finish_reason: "stop" }],
+      }),
+    );
+    try {
+      await callOpenAI({
+        model: "gpt-4o-mini",
+        prompt: "return JSON",
+        timeoutMs: 5000,
+        responseSchema: {
+          type: "object",
+          properties: { ok: { type: "boolean" } },
+          required: ["ok"],
+          additionalProperties: false,
+        },
+      });
+      const body = JSON.parse(calls[0].init.body);
+      assert.equal(body.response_format.type, "json_schema");
+      assert.equal(body.response_format.json_schema.strict, true);
+    } finally {
+      restore();
+    }
+  });
+});
