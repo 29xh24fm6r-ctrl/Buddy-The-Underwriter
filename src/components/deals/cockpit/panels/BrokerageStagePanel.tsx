@@ -35,9 +35,14 @@ export function BrokerageStagePanel({ dealId }: { dealId: string }) {
     setLoading(true);
     try {
       const res = await fetch(`/api/admin/brokerage/deals/${dealId}/execution`);
+      if (res.status === 204) {
+        // Not a brokerage-pipeline deal. This is an expected, non-error state.
+        setWs(null);
+        setError(null);
+        return;
+      }
       const json = await res.json();
       if (!res.ok || !json.ok) {
-        // 404 here just means this isn't a brokerage-pipeline deal yet — not an error worth surfacing.
         setWs(null);
         setError(null);
         return;

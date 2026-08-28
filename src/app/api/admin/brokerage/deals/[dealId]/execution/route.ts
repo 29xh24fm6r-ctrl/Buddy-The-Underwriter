@@ -43,7 +43,11 @@ export async function GET(
     .eq("bank_id", brokerageBankId)
     .maybeSingle();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  if (!deal) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  // The cockpit mounts its optional brokerage panel for every deal. A deal
+  // outside this brokerage tenant is therefore "not applicable", not a missing
+  // application route. 204 keeps that expected state out of the browser error
+  // console without exposing cross-tenant existence.
+  if (!deal) return new NextResponse(null, { status: 204 });
 
   const currentStage = (deal.brokerage_stage as BrokerageStage | null) ?? "intake";
   const candidateStages = ALLOWED_TRANSITIONS[currentStage] ?? [];

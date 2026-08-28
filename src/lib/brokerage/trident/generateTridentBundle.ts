@@ -738,7 +738,16 @@ export async function generateTridentBundle(args: {
         source_spread_id: releaseSpread?.id ?? null,
         canonical_memo_input_hash: canonicalMemoInputHash,
       };
-      await sb.from("buddy_trident_bundles").update({ release_gate_json: releaseManifest }).eq("id", bundleId).eq("lease_token", args.leaseToken);
+      const { data: persistedGate, error: releaseGatePersistError } = await sb
+        .from("buddy_trident_bundles")
+        .update({ release_gate_json: releaseManifest })
+        .eq("id", bundleId)
+        .eq("lease_token", args.leaseToken)
+        .select("id")
+        .maybeSingle();
+      if (releaseGatePersistError || !persistedGate) {
+        throw new Error(`release_gate_persist_failed:${releaseGatePersistError?.message ?? "row_not_returned"}`);
+      }
       if (!gate.ok) throw new Error(`Golden Trident release blocked: ${gate.reasons.join(", ")}`);
     }
 

@@ -142,17 +142,20 @@ async function getKycStatus(req: NextRequest, dealId: string, sessionEmail: stri
     // A single owner's status must belong to this deal — a borrower must
     // never be able to probe another deal's verification record by guessing
     // an ownershipEntityId (fails closed, same invariant as seal/pick).
-    const { data: owner } = await sb
+    const { data: owner, error: ownerError } = await sb
       .from("ownership_entities")
       .select("id")
       .eq("id", ownershipEntityId)
       .eq("deal_id", dealId)
       .maybeSingle();
+    if (ownerError) {
+      return NextResponse.json({ ok: false, error: "identity_state_unavailable" }, { status: 503 });
+    }
     if (!owner) {
       return NextResponse.json({ ok: false, error: "owner_not_found" }, { status: 404 });
     }
 
-    const { data } = await sb
+    const { data, error: verificationError } = await sb
       .from("borrower_identity_verifications")
       .select("*")
       .eq("deal_id", dealId)
@@ -160,27 +163,39 @@ async function getKycStatus(req: NextRequest, dealId: string, sessionEmail: stri
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+    if (verificationError) {
+      return NextResponse.json({ ok: false, error: "identity_state_unavailable" }, { status: 503 });
+    }
 
     return NextResponse.json({ ok: true, verification: data ?? null });
   }
 
-  const { data: owners } = await sb
+  const { data: owners, error: ownersError } = await sb
     .from("ownership_entities")
     .select("id, display_name, ownership_pct")
     .eq("deal_id", dealId);
 
-  const { data: verifications } = await sb
+  const { data: verifications, error: verificationsError } = await sb
     .from("borrower_identity_verifications")
     .select("ownership_entity_id, status, completed_at, created_at")
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false });
 
-  const owingOwners = ((owners ?? []) as Array<Record<string, any>>).filter((o) =>
+  if (
+    ownersError ||
+    verificationsError ||
+    !Array.isArray(owners) ||
+    !Array.isArray(verifications)
+  ) {
+    return NextResponse.json({ ok: false, error: "identity_state_unavailable" }, { status: 503 });
+  }
+
+  const owingOwners = (owners as Array<Record<string, any>>).filter((o) =>
     requiresPersonalPackage(o.ownership_pct),
   );
 
   const rows = owingOwners.map((owner) => {
-    const latest = (verifications ?? []).find((v: any) => v.ownership_entity_id === owner.id) ?? null;
+    const latest = verifications.find((v: any) => v.ownership_entity_id === owner.id) ?? null;
     const ial2Status: "verified" | "pending" | "declined" | "not_started" = !latest
       ? "not_started"
       : ["completed", "approved"].includes(latest.status)
@@ -209,12 +224,15 @@ async function postKyc(req: NextRequest, dealId: string, bankId: string): Promis
 
   const sb = supabaseAdmin();
 
-  const { data: owner } = await sb
+  const { data: owner, error: ownerError } = await sb
     .from("ownership_entities")
     .select("id")
     .eq("id", ownershipEntityId)
     .eq("deal_id", dealId)
     .maybeSingle();
+  if (ownerError) {
+    return NextResponse.json({ ok: false, error: "identity_state_unavailable" }, { status: 503 });
+  }
   if (!owner) {
     return NextResponse.json({ ok: false, error: "owner_not_found" }, { status: 404 });
   }
@@ -251,7 +269,14 @@ async function postKyc(req: NextRequest, dealId: string, bankId: string): Promis
   if (!result.ok) {
     return NextResponse.json(
       { ok: false, error: result.reason },
-      { status: result.reason === "OWNER_NOT_FOUND" ? 404 : 500 },
+      {
+        status:
+          result.reason === "OWNER_NOT_FOUND"
+            ? 404
+            : result.reason === "STATE_READ_FAILED"
+              ? 503
+              : 500,
+      },
     );
   }
 
