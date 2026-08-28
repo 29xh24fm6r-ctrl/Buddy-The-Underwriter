@@ -17,6 +17,65 @@ import { z } from "zod";
  */
 export const STRUCTURED_SCHEMA_VERSION = "structured_v1";
 
+/**
+ * Provider-enforced response contract for structured assist.
+ *
+ * OpenAI strict structured output requires every object to be closed and every
+ * declared property to be required. Buddy's Google adapter removes
+ * `additionalProperties` recursively from its own copy before sending Gemini's
+ * OpenAPI-subset schema, so this single contract is safe across the generator
+ * role's Google -> OpenAI failover chain.
+ */
+export const STRUCTURED_OUTPUT_RESPONSE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    entities: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          type: { type: "string" },
+          mentionText: { type: "string" },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+          normalizedValue: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              moneyValue: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  units: { type: "number" },
+                  nanos: { type: "number" },
+                },
+                required: ["units", "nanos"],
+              },
+            },
+            required: ["moneyValue"],
+          },
+        },
+        required: ["type", "mentionText", "confidence", "normalizedValue"],
+      },
+    },
+    formFields: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          value: { type: "string" },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+        },
+        required: ["name", "value", "confidence"],
+      },
+    },
+  },
+  required: ["entities", "formFields"],
+};
+
 // ── Entity Schema ───────────────────────────────────────────────────
 
 const MoneyValueSchema = z.object({
