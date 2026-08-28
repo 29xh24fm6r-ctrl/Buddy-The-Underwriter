@@ -38,7 +38,11 @@ export async function GET(
 
   const result = await getLenderPackageAccess(accessId, lender.lenderBankId, supabaseAdmin() as any);
   if (!result.ok) {
-    return NextResponse.json({ ok: false }, { status: 404 });
+    const status = result.error === "package_state_unavailable" ? 503 : 404;
+    return NextResponse.json(
+      { ok: false, ...(status === 503 ? { error: result.error } : {}) },
+      { status },
+    );
   }
 
   // P0-9: Test applications cannot be distributed to real lenders.
