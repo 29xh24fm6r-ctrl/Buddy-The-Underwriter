@@ -47,6 +47,12 @@ export type RunRoleRequest = {
   maxOutputTokens?: number;
   /** JSON Schema for structured output (routed to each provider's native mechanism). */
   responseSchema?: Record<string, unknown>;
+  /**
+   * Request provider-native JSON-object output without a strict schema.
+   * Callers remain responsible for parsing and validating the returned JSON.
+   * Mutually exclusive with responseSchema.
+   */
+  responseJsonObject?: boolean;
   /** Ledger `purpose` column — short, stable label, e.g. "naics_suggest". */
   purpose: string;
   dealId?: string | null;
@@ -258,6 +264,9 @@ export async function runRole(
   role: GatewayRole,
   request: RunRoleRequest,
 ): Promise<RunRoleResult> {
+  if (request.responseSchema && request.responseJsonObject) {
+    throw new Error("runRole: responseSchema and responseJsonObject are mutually exclusive");
+  }
   const config = getRoleConfig(role);
   const executionContext = getAIExecutionContext();
   const npiTagged = (request.npiTagged ?? false) || (executionContext?.npiTagged ?? false);
@@ -345,6 +354,7 @@ export async function runRole(
         maxOutputTokens: request.maxOutputTokens,
         timeoutMs: request.timeoutMs ?? config.timeoutMs,
         responseSchema: request.responseSchema,
+        responseJsonObject: request.responseJsonObject,
         authMode: request.authMode ?? step.authMode,
         inlineData: request.inlineData,
         useSearchGrounding: request.useSearchGrounding,
