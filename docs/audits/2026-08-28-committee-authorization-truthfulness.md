@@ -68,4 +68,7 @@ The connected Supabase resource identifies as a different product and was not ac
 - The bank-scope contract now accepts the route's authoritative local binding.
 - Failed decision mirroring now restores the retryable snapshot through the canonical submission owner, preserving the single-writer lifecycle invariant.
 - Active repair PR: #947. PR #946 was superseded only because GitHub did not emit replacement workflows after its initial failed run.
-- Replacement exact-head CI and deployment verification are pending.
+- Repaired code head `a1dad751cbb45a87fe5f1b758f781127d0cce807`: 13,355 tests, 13,346 passed, 0 failed, 9 skipped; React-server 18/18; research 7 passed, 0 failed, 13 production-fixture placeholders skipped.
+- CI, Build Check, Secret Scan, Route Budget, typecheck, lint, architecture, safety, schema select, report-only drift, Never-500, polling guard, and public Playwright passed.
+- Exact-head Vercel preview `dpl_p5ftVc3wxJJREDNWGYDP43VcgTqn` was READY and HTTP 200; `x-buddy-build` matched the full head SHA and no error/fatal runtime logs were present.
+- The branch was zero commits behind `main`; the complete 12-file diff was inspected.
