@@ -112,7 +112,7 @@ test("client reports mutation failures and launches generation only after confir
   const confirmEnd = client.indexOf("const handleReopen = async");
   const confirm = client.slice(confirmStart, confirmEnd);
   const serverProofIndex = confirm.indexOf('result.status !== "confirmed"');
-  const stateChangeIndex = confirm.indexOf('status: "confirmed"');
+  const stateChangeIndex = confirm.indexOf("setAssumptions((previous)");
   const generationIndex = confirm.indexOf("await runStreamingGenerate()");
 
   assert.ok(confirmStart > 0 && confirmEnd > confirmStart);
