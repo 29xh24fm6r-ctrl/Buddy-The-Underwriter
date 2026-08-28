@@ -78,18 +78,19 @@ test("model-not-found (404) error: falls through to the next candidate model", a
   assert.match(result.text, /recovered text/);
 });
 
-test("known retired model pinned in the environment is bypassed without a wasted request", async () => {
+test("known-retired configured model is skipped before any provider request", async () => {
   process.env.GEMINI_OCR_MODEL = "gemini-2.0-flash";
   const calls: string[] = [];
   __setProviderImplForTests("google", async (req: any) => {
     calls.push(req.model);
-    return okResult("used current registry model");
+    return okResult("supported model text");
   });
 
   const result = await runGeminiOcrJob(ARGS);
+  assert.equal(calls.includes("gemini-2.0-flash"), false);
   assert.equal(calls.length, 1);
-  assert.notEqual(calls[0], "gemini-2.0-flash");
-  assert.match(result.text, /used current registry model/);
+  assert.equal(result.model, calls[0]);
+  assert.match(result.text, /supported model text/);
 });
 
 test("SDK_HTML_RESPONSE: wraps and throws immediately, does not try the next model", async () => {

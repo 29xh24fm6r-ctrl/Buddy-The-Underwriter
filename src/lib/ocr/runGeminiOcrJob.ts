@@ -35,25 +35,38 @@ function normalizeMimeType(mimeType: string): string {
   return normalized;
 }
 
-const RETIRED_GEMINI_MODELS = new Set(["gemini-2.0-flash"]);
-
 function getGeminiModelFromEnv(): string | null {
   const raw = process.env.GEMINI_OCR_MODEL || process.env.GEMINI_MODEL;
   const normalized = typeof raw === "string" ? raw.trim() : "";
-  if (!normalized || RETIRED_GEMINI_MODELS.has(normalized)) return null;
-  return normalized;
+  return normalized ? normalized : null;
+}
+
+/**
+ * Reject only the provider generations Google has retired from this OCR lane.
+ * Keep unknown/new overrides eligible so an operator can still commission a
+ * future model without a code release. The central MODEL_OCR registry remains
+ * the guaranteed supported fallback.
+ */
+function isKnownRetiredGeminiOverride(model: string): boolean {
+  return /^gemini-(?:1\.5|2\.0)(?:-|$)/.test(model);
 }
 
 function getGeminiModelCandidates(): string[] {
   const envModel = getGeminiModelFromEnv();
+  const supportedEnvModel =
+    envModel && !isKnownRetiredGeminiOverride(envModel) ? envModel : null;
 
-  // Phase 93: model strings sourced from the central registry. The historical
-  // Vertex fallback chain (gemini-2.0-flash / gemini-1.5-*) has been retired
-  // by Google; MODEL_OCR points at the current supported flash model.
-  const candidates = [
-    envModel,
-    MODEL_OCR,
-  ].filter(Boolean) as string[];
+  if (envModel && !supportedEnvModel) {
+    console.warn("[GeminiOCR] Ignoring retired configured model", {
+      configuredModel: envModel,
+      fallbackModel: MODEL_OCR,
+    });
+  }
+
+  // Phase 93: model strings sourced from the central registry. Known-retired
+  // overrides are excluded before admission, so every OCR job avoids a
+  // guaranteed 404 while MODEL_OCR remains the supported recovery path.
+  const candidates = [supportedEnvModel, MODEL_OCR].filter(Boolean) as string[];
 
   return Array.from(new Set(candidates));
 }

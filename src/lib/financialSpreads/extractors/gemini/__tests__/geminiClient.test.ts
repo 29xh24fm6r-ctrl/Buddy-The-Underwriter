@@ -57,6 +57,15 @@ test("happy path (OCR text): threads authMode:vertex, no inlineData", async () =
   assert.equal(result.ok, true);
   assert.equal(captured.authMode, "vertex");
   assert.equal(captured.inlineData, undefined);
+  assert.deepEqual(captured.responseSchema, {
+    type: "object",
+    properties: {
+      facts: { type: "object" },
+      metadata: { type: "object" },
+      evidence: { type: "object" },
+    },
+    required: ["facts", "metadata"],
+  });
   assert.deepEqual((result.rawJson as any).facts, { revenue: 100000 });
 });
 

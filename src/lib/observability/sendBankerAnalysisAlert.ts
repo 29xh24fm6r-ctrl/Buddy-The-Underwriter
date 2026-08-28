@@ -34,7 +34,7 @@ assertServerOnly();
 
 export const COOLDOWN_MINUTES = 30;
 export const ALERT_SENT_KIND = "banker_analysis.sla_alert_sent";
-const SYSTEM_EVENT_TYPE = "info"; // AegisEventType (existing enum)
+const SYSTEM_EVENT_TYPE = "success"; // buddy_system_events persisted enum
 const SYSTEM_EVENT_SOURCE = "observer"; // AegisSourceSystem (existing enum)
 
 export type SendAlertReason =
