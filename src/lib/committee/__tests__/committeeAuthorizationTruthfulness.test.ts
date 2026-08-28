@@ -21,6 +21,9 @@ const DECISION_ROUTE = read(
 const DECISION_WRITER = read(
   "src/lib/creditMemo/underwriter/recordUnderwriterDecision.ts",
 );
+const SUBMISSION_WRITER = read(
+  "src/lib/creditMemo/submission/submitCreditMemoToUnderwriting.ts",
+);
 
 test("[committee-auth-1] every interrogation route requires deal access", () => {
   for (const source of [ANSWER_ROUTE, BLENDED_ROUTE, EVALUATE_ROUTE]) {
@@ -72,20 +75,18 @@ test("[decision-truth-1] decision finalization enforces provenance and separatio
   assert.match(DECISION_WRITER, /\.neq\("submitted_by", args\.underwriterId\)/);
 });
 
-test("[decision-truth-2] decision finalization preserves a retryable snapshot", () => {
-  const statusMirrorIndex = DECISION_WRITER.indexOf(
-    "const { error: statusError }",
-  );
-  const snapshotUpdateIndex = DECISION_WRITER.indexOf(
-    "const { error: snapshotError",
-  );
+test("[decision-truth-2] mirror failures roll back through the lifecycle owner", () => {
+  const restoreHelper = "restoreBankerSubmittedSnapshotAfterFailedDecision";
+  const submittedState = ["banker", "submitted"].join("_");
 
-  assert.ok(statusMirrorIndex >= 0, "deal status mirror must be explicit");
+  assert.ok(DECISION_WRITER.includes(restoreHelper));
+  assert.ok(SUBMISSION_WRITER.includes(`export async function ${restoreHelper}`));
   assert.ok(
-    snapshotUpdateIndex > statusMirrorIndex,
-    "deal status must be persisted before the snapshot becomes terminal",
+    SUBMISSION_WRITER.includes(`status: "${submittedState}"`),
+    "only the canonical submission owner may restore the submitted state",
   );
-  assert.match(DECISION_WRITER, /decision_status_compensation_failed/);
+  assert.match(SUBMISSION_WRITER, /\.eq\("status", args\.expectedStatus\)/);
+  assert.match(DECISION_WRITER, /decision_status_sync_failed/);
   assert.match(DECISION_WRITER, /decision_reconciliation_required/);
   assert.match(DECISION_WRITER, /level:\s*"fatal"/);
 });
