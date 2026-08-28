@@ -11,6 +11,7 @@ Scope: Buddy The Underwriter only (`29xh24fm6r-ctrl/Buddy-The-Underwriter` and `
 - An exact-deployment runtime scan covering 2026-08-28 17:04–21:04 UTC found no warning, error, or fatal entries.
 - Direct source inspection found that the authenticated brokerage dispatcher and borrower portal dispatcher ignored bundle, lender-access, and deal-ownership read errors; the assembled-SBA-package lookup also discarded its query error. Database outages could therefore be reported as ordinary 404 package absence.
 - All Golden Trident download routes generated or rendered an artifact before attempting audit persistence, but the audit helper discarded insert failures and callers still returned the deliverable.
+- The lender package-manifest route disclosed the sealed manifest without calling the otherwise-unused `auditPackageView` helper, leaving lender package views without canonical evidence.
 
 ## Root cause
 
@@ -20,6 +21,7 @@ The delivery boundary treated audit writes as best-effort telemetry and destruct
 
 - Make package view/download audit helpers return explicit success or failure, including thrown database failures.
 - Withhold signed URLs and rendered committee artifacts unless the required download audit persists.
+- Require a canonical lender package-view audit before disclosing the sealed manifest.
 - Return HTTP 503 for authoritative-state and audit-persistence failures while preserving non-enumerating 404 responses for genuine authorization denial or package absence.
 - Check lender access, deal ownership, preview/final bundle, and assembled-package reads; preserve the manifest builder's existing fail-closed sealed-package and supporting-record checks.
 - Preserve preview-tier confinement and the existing five-minute signed-URL TTL.
@@ -32,7 +34,8 @@ The authenticated brokerage and borrower-portal authorization suites now prove t
 - database read failures return 503 instead of 404;
 - audit persistence failure prevents a signed URL from being returned;
 - ordinary missing or unauthorized resources remain 404;
-- successful preview and final downloads retain their existing access rules.
+- successful preview and final downloads retain their existing access rules;
+- lender manifest disclosure is wired to the fail-closed package-view audit helper.
 
 Broad CI and exact-head preview evidence are recorded on the focused pull request.
 
@@ -52,4 +55,4 @@ This repair is independent of PRs 964–967. It must not be merged by the commis
 
 ## Next independent commissioning target
 
-Continue the access-evidence rotation across remaining package-view and storage delivery surfaces, checking that authenticated manifest disclosure, signed URL issuance, and view-audit persistence fail closed without overlapping this branch.
+Audit sealed-artifact storage reconciliation and object-lifecycle handling, including missing-object, supersession, and retention behavior, without overlapping this branch.
