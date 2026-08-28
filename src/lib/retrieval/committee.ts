@@ -2,9 +2,10 @@ import { z } from "zod";
 import { getOpenAI, getModel } from "@/lib/ai/openaiClient";
 import type { RetrievedChunk, CommitteeAnswer, Citation } from "@/lib/retrieval/types";
 import { lookupBestSpanForChunk } from "@/lib/retrieval/spans";
+import { assertGroundedCommitteeCitations } from "@/lib/committee/grounding";
 
 const RerankSchema = z.object({
-  selected_chunk_ids: z.array(z.string()).min(1).max(10),
+  selected_chunk_ids: z.array(z.string()).min(1).max(8),
   rationale: z.string().optional(),
 });
 
@@ -113,27 +114,52 @@ export async function committeeAnswer(opts: {
   }
 
   const reranked = await rerankChunks(question, retrieved);
-  const selectedIds = new Set(reranked.selected_chunk_ids);
+  const availableIds = new Set(retrieved.map((chunk) => chunk.chunk_id));
+  if (
+    reranked.selected_chunk_ids.some((chunkId) => !availableIds.has(chunkId))
+  ) {
+    throw new Error("committee_rerank_invalid_chunk");
+  }
 
-  const selected = retrieved.filter((c) => selectedIds.has(c.chunk_id)).slice(0, 10);
-  if (!selected.length) {
-    // fallback: top 3 by similarity
-    selected.push(...retrieved.slice(0, 3));
+  const selectedIds = new Set(reranked.selected_chunk_ids);
+  const selected = retrieved
+    .filter((chunk) => selectedIds.has(chunk.chunk_id))
+    .slice(0, 8);
+  if (selected.length === 0) {
+    throw new Error("committee_evidence_selection_failed");
   }
 
   const answered = await answerWithCitations(question, selected);
+  assertGroundedCommitteeCitations(
+    answered.citations.map((citation) => ({
+      source_kind: "deal_doc_chunk" as const,
+      chunk_id: citation.chunk_id,
+      quote: citation.quote,
+    })),
+    selected.map((chunk) => ({
+      source_kind: "deal_doc_chunk" as const,
+      chunk_id: chunk.chunk_id,
+      content: chunk.content,
+    })),
+  );
 
-  const byId = new Map(retrieved.map((c) => [c.chunk_id, c]));
+  const byId = new Map(selected.map((chunk) => [chunk.chunk_id, chunk]));
   
   // Build citations with OCR span lookups (for real doc/page/bbox)
   const citations: Citation[] = [];
   for (const c of answered.citations) {
     const src = byId.get(c.chunk_id);
-    const span = await lookupBestSpanForChunk({ dealId: opts.dealId, chunkId: c.chunk_id }).catch(() => null);
-    
+    if (!src) {
+      throw new Error("committee_citation_source_invalid");
+    }
+    const span = await lookupBestSpanForChunk({
+      dealId: opts.dealId,
+      chunkId: c.chunk_id,
+    }).catch(() => null);
+
     citations.push({
       chunk_id: c.chunk_id,
-      upload_id: span?.upload_id || src?.upload_id || "unknown",
+      upload_id: span?.upload_id || src.upload_id || "unknown",
       page_start: src?.page_start ?? null,
       page_end: src?.page_end ?? null,
       page_number: span?.page_number ?? null,
