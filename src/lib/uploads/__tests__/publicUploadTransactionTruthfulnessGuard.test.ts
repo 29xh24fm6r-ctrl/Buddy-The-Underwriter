@@ -115,7 +115,10 @@ describe("public upload link lifecycle truthfulness", () => {
 
   test("link creation fails closed when deal stage is unavailable", () => {
     const errorCheck = linkRoute.indexOf("if (dealErr)");
-    const lifecycleCheck = linkRoute.indexOf("isBorrowerUploadAllowed");
+    const lifecycleCheck = linkRoute.indexOf(
+      "if (!isBorrowerUploadAllowed",
+      errorCheck,
+    );
     assert.ok(errorCheck >= 0 && lifecycleCheck >= 0);
     assert.ok(
       errorCheck < lifecycleCheck,
