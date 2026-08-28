@@ -5,6 +5,7 @@ import "server-only";
 // Pure function. No DB, no LLM. Quantifies whether sufficient demand
 // exists for the proposed business at the proposed location.
 
+import { computeDimensionCompleteness } from "./dimensionCompleteness";
 import type {
   DimensionScore,
   MarketDemandInput,
@@ -12,29 +13,40 @@ import type {
   MarketFlag,
 } from "./types";
 
+// Consumer trade-area metrics — population density, competitors per capita,
+// walk-in reach — measure demand for a business whose customers live near it.
+// For a manufacturer they measure nothing: the customers are other firms,
+// often out of state. Excluding these from the evidence denominator is not
+// the same as claiming coverage for them; the metric still scores neutrally
+// and still says so in the PDF, it just stops counting as a gap the lender
+// could close.
+const B2B_MANUFACTURING_SECTORS = ["31", "32", "33"];
+const CONSUMER_TRADE_AREA_NOT_APPLICABLE =
+  "Consumer trade-area demand metrics do not measure demand for a B2B manufacturer.";
+
 export function analyzeMarketDemand(
   input: MarketDemandInput,
 ): MarketDemandScore {
   const flags: MarketFlag[] = [];
-  let dataPoints = 0;
-  let dataAvailable = 0;
 
   // ── Population Adequacy ────────────────────────────────────────────
 
-  dataPoints++;
   let populationScore: DimensionScore;
 
-  const naicsSector = input.naicsCode?.replace(/\\D/g, "").slice(0, 2) ?? "";
-  const consumerPopulationMetricApplicable = !["31", "32", "33"].includes(naicsSector);
+  // `\D` — one backslash. The previous `/\\D/` matched a literal backslash
+  // followed by "D", so a NAICS code with any non-digit in it (a hyphenated
+  // or spaced code) kept those characters and mis-sliced the sector.
+  const naicsSector = input.naicsCode?.replace(/\D/g, "").slice(0, 2) ?? "";
+  const consumerTradeAreaApplicable = !B2B_MANUFACTURING_SECTORS.includes(naicsSector);
 
-  if (!consumerPopulationMetricApplicable) {
-    // Not applicable is neither evidence nor a missing-data gap.
-    dataPoints--;
+  if (!consumerTradeAreaApplicable) {
     populationScore = {
       score: 50,
       weight: 0.3,
       dataSource: "Not applicable — manufacturing demand is B2B",
       dataAvailable: false,
+      notApplicable: true,
+      notApplicableReason: CONSUMER_TRADE_AREA_NOT_APPLICABLE,
       detail:
         `NAICS ${input.naicsCode} is manufacturing. Consumer trade-area population and revenue-per-capita are not decision-useful demand measures for this B2B borrower.`,
     };
@@ -45,7 +57,6 @@ export function analyzeMarketDemand(
         "Consumer population adequacy excluded from decision evidence for this manufacturing borrower.",
     });
   } else if (input.tradeArea?.populationRadius5mi != null) {
-    dataAvailable++;
     const pop = input.tradeArea.populationRadius5mi;
 
     if (input.franchise?.minimumPopulationRequired) {
@@ -117,11 +128,9 @@ export function analyzeMarketDemand(
 
   // ── Income Alignment ───────────────────────────────────────────────
 
-  dataPoints++;
   let incomeScore: DimensionScore;
 
   if (input.tradeArea?.medianHouseholdIncome != null) {
-    dataAvailable++;
     const mhi = input.tradeArea.medianHouseholdIncome;
     const nationalMedian = 75_000;
 
@@ -159,11 +168,9 @@ export function analyzeMarketDemand(
 
   // ── Competitive Density ────────────────────────────────────────────
 
-  dataPoints++;
   let competitiveScore: DimensionScore;
 
   if (input.tradeArea?.competitorCount != null) {
-    dataAvailable++;
     const competitors = input.tradeArea.competitorCount;
     const pop = input.tradeArea.populationRadius5mi ?? 50_000;
     const competitorsPerCapita = competitors / (pop / 10_000);
@@ -199,36 +206,37 @@ export function analyzeMarketDemand(
           : ""
       }`,
     };
-  } else {
-    // Fall back to BIE competitive landscape text analysis
-    let score = 50;
-    let detail = "Competitor count not available.";
-
-    if (input.research.competitiveLandscape) {
-      score = 55;
-      detail =
-        "Competitive landscape assessed from research intelligence (no quantitative competitor count available).";
-      dataAvailable++;
-    }
-
+  } else if (input.research.competitiveLandscape) {
     competitiveScore = {
-      score,
+      score: 55,
       weight: 0.3,
-      dataSource: input.research.competitiveLandscape
-        ? "BIE research (qualitative)"
-        : "Insufficient data",
-      dataAvailable: !!input.research.competitiveLandscape,
-      detail,
+      dataSource: "BIE research (qualitative)",
+      dataAvailable: true,
+      detail:
+        "Competitive landscape assessed from research intelligence (no quantitative competitor count available).",
+    };
+  } else {
+    // The quantitative branch above is a consumer per-capita measure and does
+    // not apply to a B2B manufacturer — but the qualitative research fallback
+    // just above applies to every borrower, so having neither is a real gap
+    // for every borrower too. Deliberately NOT marked notApplicable: an
+    // absent Competitive Landscape research section is evidence a lender can
+    // still go and get, and hiding it would make the gate look satisfied when
+    // the research mission had actually come back empty.
+    competitiveScore = {
+      score: 50,
+      weight: 0.3,
+      dataSource: "Insufficient data",
+      dataAvailable: false,
+      detail: "Competitor count not available.",
     };
   }
 
   // ── Demand Trend ───────────────────────────────────────────────────
 
-  dataPoints++;
   let trendScore: DimensionScore;
 
-  if (!consumerPopulationMetricApplicable && input.industryGrowthRate != null) {
-    dataAvailable++;
+  if (!consumerTradeAreaApplicable && input.industryGrowthRate != null) {
     const growthRate = input.industryGrowthRate;
     let score = 60;
     if (growthRate > 0.02) score = 85;
@@ -243,7 +251,6 @@ export function analyzeMarketDemand(
       detail: `Industry market growth: ${(growthRate * 100).toFixed(1)}%.`,
     };
   } else if (input.tradeArea?.populationGrowthRate5yr != null) {
-    dataAvailable++;
     const growthRate = input.tradeArea.populationGrowthRate5yr;
     const annualized = Math.pow(1 + growthRate, 1 / 5) - 1;
 
@@ -282,18 +289,20 @@ export function analyzeMarketDemand(
 
   // ── Composite ──────────────────────────────────────────────────────
 
-  const dimensions = [
-    populationScore,
-    incomeScore,
-    competitiveScore,
-    trendScore,
+  const entries = [
+    { key: "populationAdequacy", score: populationScore },
+    { key: "incomeAlignment", score: incomeScore },
+    { key: "competitiveDensity", score: competitiveScore },
+    { key: "demandTrend", score: trendScore },
   ];
+  const dimensions = entries.map((e) => e.score);
   const totalWeight = dimensions.reduce((s, d) => s + d.weight, 0);
   const weightedSum = dimensions.reduce(
     (s, d) => s + d.score * d.weight,
     0,
   );
   const overallScore = Math.round(weightedSum / totalWeight);
+  const coverage = computeDimensionCompleteness(entries);
 
   return {
     overallScore,
@@ -301,7 +310,8 @@ export function analyzeMarketDemand(
     incomeAlignment: incomeScore,
     competitiveDensity: competitiveScore,
     demandTrend: trendScore,
-    dataCompleteness: dataAvailable / dataPoints,
+    dataCompleteness: coverage.completeness,
+    coverage,
     flags,
   };
 }
