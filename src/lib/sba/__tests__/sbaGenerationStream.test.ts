@@ -63,7 +63,6 @@ test("extracts safe JSON failure evidence without exposing HTML", async () => {
   );
 });
 
-
 const client = readFileSync(
   "src/components/sba/AssumptionInterview.tsx",
   "utf8",
