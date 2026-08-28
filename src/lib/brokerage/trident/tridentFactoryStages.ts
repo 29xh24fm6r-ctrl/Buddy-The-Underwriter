@@ -4,7 +4,7 @@ import { FatalError } from "workflow";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateCanonicalMemoArtifact } from "@/lib/creditMemo/canonical/generateCanonicalMemoArtifact";
 import { renderClassicPdfSpread } from "@/lib/classicSpread/classicPdfWorker";
-import { assertTridentInputSnapshot } from "./tridentInputSnapshot";
+import { assertTridentInputSnapshot, TridentSnapshotSchemaChanged } from "./tridentInputSnapshot";
 import type { TridentBundleMode, TridentSbaCheckpoint } from "./generateTridentBundle";
 
 export type TridentFactoryArgs = {
@@ -93,6 +93,11 @@ export async function prepareTridentFactory(args: TridentFactoryArgs) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await writeStage(args, "input_snapshot", "failed", { message });
+    // A schema-generation change is not transient and not the borrower's
+    // doing. Retrying re-reads the same superseded manifest and fails
+    // identically, so surface it as terminal on the first attempt instead of
+    // spending three and reporting it as input drift.
+    if (error instanceof TridentSnapshotSchemaChanged) throw new FatalError(message);
     throw error;
   }
 }
@@ -210,7 +215,7 @@ export async function runArtifactFactory(args: TridentFactoryExecutionArgs, sbaC
     const { generateTridentBundle } = await import("./generateTridentBundle");
     const result = await generateTridentBundle({ ...args, sbaCheckpoint });
     if (!result.ok) {
-      const permanent = /institutional review|release blocked|acceptance failed|not ready|input_snapshot_changed/i.test(result.error);
+      const permanent = /institutional review|release blocked|acceptance failed|not ready|input_snapshot_changed|snapshot_schema_superseded/i.test(result.error);
       if (permanent) throw new FatalError(result.error);
       throw new Error(result.error);
     }
