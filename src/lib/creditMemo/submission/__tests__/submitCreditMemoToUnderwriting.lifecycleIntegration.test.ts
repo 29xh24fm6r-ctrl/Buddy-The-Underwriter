@@ -140,20 +140,16 @@ test("[lifecycle-integration-5] submit returns ok:true even when lifecycle fails
   // the final success return contains a return-with-ok-false that
   // references the lifecycle helper's outcome.
   //
-  // Anchored on the "Supersede any prior..." comment (rather than the
-  // literal text "insertRes.error") because that comment marks the point
-  // right after the persist_failed if-block closes — i.e. exactly where
-  // the lifecycle + refresh + success-return region begins. Anchoring on
-  // "insertRes.error" is fragile: any legitimate addition inside the
-  // persist_failed block that references insertRes.error (e.g. rejection
-  // instrumentation) shifts the split point and produces a false failure
-  // here without touching the lifecycle branches this test actually cares
-  // about.
-  const afterInsert = body.split("Supersede any prior")[1] ?? "";
-  // The body after that comment contains the supersede block + the
-  // lifecycle block + the refresh block + the success return. There
-  // should be ONE `return {` statement in that region: the success return.
-  const returns = afterInsert.match(/\breturn\s*\{/g) ?? [];
+  // Anchor on the lifecycle block itself. Persistence reconciliation may
+  // legitimately fail closed after the insert (for example when a prior live
+  // snapshot cannot be superseded), but lifecycle failure must still preserve
+  // the already-committed canonical snapshot.
+  const lifecycleRegion =
+    body.split("// SPEC-FLOW-V1 PR3 — emit canonical lifecycle event")[1] ?? "";
+  const beforeHelpers = lifecycleRegion.split("// ─── Helpers")[0] ?? "";
+  // The lifecycle + refresh region should contain exactly one return: the
+  // final successful submission acknowledgement.
+  const returns = beforeHelpers.match(/\breturn\s*\{/g) ?? [];
   assert.equal(
     returns.length,
     1,
