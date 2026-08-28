@@ -19,6 +19,7 @@ import { suggestPolicyUpdates } from "@/lib/nightly/livingPolicy";
 import { runTelemetryRetentionPurge } from "@/lib/nightly/telemetryRetention";
 import { runFranchiseSyncJanitor } from "@/lib/nightly/franchiseSyncJanitor";
 import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
+import { getCronOutcome } from "@/lib/workers/cronOutcome";
 
 /**
  * Vercel cron issues GET, so GET is the scheduled entry point and POST is kept
@@ -78,10 +79,28 @@ async function runNightly(req: NextRequest) {
   }
 
   // Fetch all banks
-  const { data: banks } = await sb.from("banks").select("id");
+  const { data: banks, error: banksError } = await sb.from("banks").select("id");
+
+  if (banksError) {
+    console.error("Nightly bank discovery failed:", banksError);
+    return NextResponse.json(
+      { ok: false, error: "banks_query_failed", retention, franchiseSync },
+      { status: 500 },
+    );
+  }
 
   if (!banks || banks.length === 0) {
-    return NextResponse.json({ ok: true, message: "No banks to process", retention, franchiseSync });
+    const outcome = getCronOutcome(Number(!retention.ok) + Number(!franchiseSync.ok));
+    return NextResponse.json(
+      {
+        ok: outcome.ok,
+        message: "No banks to process",
+        failed: outcome.failures,
+        retention,
+        franchiseSync,
+      },
+      { status: outcome.status },
+    );
   }
 
   const results = [];
@@ -123,11 +142,20 @@ async function runNightly(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({
-    ok: true,
-    processed: results.length,
-    results,
-    retention,
-    franchiseSync,
-  });
+  const failedBanks = results.filter((result) => result.status === "error").length;
+  const outcome = getCronOutcome(
+    failedBanks + Number(!retention.ok) + Number(!franchiseSync.ok),
+  );
+
+  return NextResponse.json(
+    {
+      ok: outcome.ok,
+      processed: results.length,
+      failed: outcome.failures,
+      results,
+      retention,
+      franchiseSync,
+    },
+    { status: outcome.status },
+  );
 }
