@@ -58,8 +58,9 @@ test("runTelemetryRetentionPurge: commits batches until each table is drained", 
   }
 
   assert.equal(inserts.length, 1);
+  assert.equal(inserts[0].event_type, "success");
   assert.equal(
-    inserts[0].event_type,
+    inserts[0].payload.kind,
     "telemetry_retention_purge_completed",
   );
   assert.deepEqual(inserts[0].payload.failures, []);
@@ -120,7 +121,32 @@ test("runTelemetryRetentionPurge: one failure does not starve other tables", asy
     "purge_buddy_workers",
   ]);
   assert.equal(inserts.length, 1);
-  assert.equal(inserts[0].event_type, "telemetry_retention_purge_failed");
+  assert.equal(inserts[0].event_type, "error");
+  assert.equal(
+    inserts[0].payload.kind,
+    "telemetry_retention_purge_failed",
+  );
+});
+
+test("runTelemetryRetentionPurge: evidence persistence failure remains loud", async () => {
+  const { sb } = fakeSb(
+    () => ({ data: 0, error: null }),
+    { message: "event insert denied" },
+  );
+
+  await assert.rejects(
+    () => m.runTelemetryRetentionPurge(sb),
+    (error: unknown) => {
+      assert.ok(error instanceof m.TelemetryRetentionPurgeError);
+      assert.equal(error.failures.length, 1);
+      assert.deepEqual(error.failures[0], {
+        table: "buddy_system_events",
+        rpcName: "retention_result_event",
+        error: "event insert denied",
+      });
+      return true;
+    },
+  );
 });
 
 test("runTelemetryRetentionPurge: coerces bounded bigint counts", async () => {
