@@ -155,6 +155,26 @@ describe("SPEC-04 — runCockpitAction executor", () => {
     assert.equal(result.ok, true);
   });
 
+  it("HTTP 200 with ok:false remains an action failure", async () => {
+    const action: CockpitRunnableAction = {
+      intent: "runnable",
+      label: "Generate Packet",
+      actionType: "generate_packet",
+    };
+    const result = await runCockpitAction(
+      action,
+      "deal-1",
+      makeFetch(async () =>
+        jsonResponse({ ok: false, error: "packet_ready_event_persist_failed" }),
+      ),
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, "error");
+    assert.equal(result.httpStatus, 200);
+    assert.equal(result.errorMessage, "packet_ready_event_persist_failed");
+  });
+
   it("non-2xx response surfaces an error result with errorMessage", async () => {
     const action: CockpitRunnableAction = {
       intent: "runnable",
