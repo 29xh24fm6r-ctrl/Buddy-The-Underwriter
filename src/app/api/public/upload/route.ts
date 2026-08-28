@@ -85,7 +85,15 @@ export async function POST(req: Request) {
     .eq("token_hash", tokenHash)
     .maybeSingle();
 
-  if (linkErr || !link)
+  if (linkErr) {
+    console.error("Public upload link lookup failed", { code: linkErr.code });
+    return NextResponse.json(
+      { ok: false, error: "Upload service unavailable." },
+      { status: 503 },
+    );
+  }
+
+  if (!link)
     return NextResponse.json(
       { ok: false, error: "Invalid link." },
       { status: 404 },
