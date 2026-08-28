@@ -24,13 +24,8 @@ export interface PortfolioSnapshot {
 
 type PortfolioClient = ReturnType<typeof supabaseAdmin>;
 
-const PORTFOLIO_DECISION_COLUMNS = [
-  "inputs_json",
-  "model_json",
-  "exceptions_json",
-  "committee_required",
-  "decision",
-].join(",");
+const PORTFOLIO_DECISION_COLUMNS =
+  "inputs_json,model_json,exceptions_json,committee_required,decision" as const;
 
 /**
  * Returns null when a bank has not produced a final decision yet. That is a
