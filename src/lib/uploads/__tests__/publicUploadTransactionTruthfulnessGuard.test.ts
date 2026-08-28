@@ -88,6 +88,15 @@ describe("public upload transaction truthfulness", () => {
     assert.match(route.slice(preflight, claim), /MAX_UPLOAD_BYTES/);
   });
 
+  test("primary link lookup outages are not reported as invalid links", () => {
+    const outage = route.indexOf("if (linkErr)");
+    const missing = route.indexOf("if (!link)");
+    assert.ok(outage >= 0 && missing >= 0);
+    assert.ok(outage < missing);
+    assert.match(route.slice(outage, missing), /status: 503/);
+    assert.match(route.slice(missing), /status: 404/);
+  });
+
   test("chaos probes are unique", () => {
     for (const point of [
       "pre_link_lookup",
