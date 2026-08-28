@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createRequire } from "node:module";
 import { mockServerOnly } from "../../../../../test/utils/mockServerOnly";
 
 mockServerOnly();
 
+const require = createRequire(import.meta.url);
 const { persistRowWithStorageRollback } =
-  await import("../artifactPersistence");
+  require("../artifactPersistence") as typeof import("../artifactPersistence");
 
 function client(args: {
   row?: Record<string, unknown> | null;
