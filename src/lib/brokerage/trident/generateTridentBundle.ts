@@ -220,9 +220,10 @@ export async function generateTridentBundle(args: {
   if (dealError) return { ok: false, bundleId: null, error: `Deal state unavailable: ${dealError.message}` };
   if (!deal) return { ok: false, bundleId: null, error: "Deal not found" };
 
-  const bundleId = args.bundleId;
-  const admittedBankId = args.bankId;
-  const admittedInputHash = args.inputHash;
+  const bundleId = args.bundleId!;
+  const admittedBankId = args.bankId!;
+  const admittedInputHash = args.inputHash!;
+  const admittedLeaseToken = args.leaseToken!;
   const { data: existing, error: existingError } = await sb
     .from("buddy_trident_bundles")
     .select("id,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_sba_package_id,source_feasibility_id")
@@ -377,7 +378,7 @@ export async function generateTridentBundle(args: {
       if (!businessPlanPath) throw new Error("Business-plan artifact persistence failed");
       await persistRowWithStorageRollback(sb, {
         table: "buddy_trident_bundles",
-        filters: { id: bundleId, lease_token: args.leaseToken },
+        filters: { id: bundleId, lease_token: admittedLeaseToken },
         values: {
           business_plan_pdf_path: businessPlanPath,
           source_sba_package_id: sbaResult.packageId,
@@ -558,7 +559,7 @@ export async function generateTridentBundle(args: {
     };
     await persistRowWithStorageRollback(sb, {
       table: "buddy_trident_bundles",
-      filters: { id: bundleId, lease_token: args.leaseToken },
+      filters: { id: bundleId, lease_token: admittedLeaseToken },
       values: projectionManifestValues,
       expected: {
         projections_pdf_path: projectionsPdfPath,
@@ -597,7 +598,7 @@ export async function generateTridentBundle(args: {
             table: "buddy_trident_bundles",
             filters: {
               id: bundleId,
-              lease_token: args.leaseToken,
+              lease_token: admittedLeaseToken,
               input_hash: admittedInputHash,
             },
             values: {
@@ -698,7 +699,7 @@ export async function generateTridentBundle(args: {
 
     await persistRowWithStorageRollback(sb, {
       table: "buddy_trident_bundles",
-      filters: { id: bundleId, lease_token: args.leaseToken },
+      filters: { id: bundleId, lease_token: admittedLeaseToken },
       values: {
         feasibility_pdf_path: feasibilityPdfPath,
         source_feasibility_id: sourceFeasibilityId,
