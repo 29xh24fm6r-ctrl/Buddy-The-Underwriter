@@ -14,6 +14,7 @@ import {
   normalizeDocIntelDocTypeToCanonicalBucket,
   isDocValidForChecklistKey,
 } from "./docValidity";
+import type { DealBankAccessGrant } from "@/lib/tenant/ensureDealBankAccess";
 
 /** @deprecated Filename matching fallback — disable with FILENAME_MATCH_ENABLED=false */
 const FILENAME_MATCH_ENABLED = process.env.FILENAME_MATCH_ENABLED !== "false";
@@ -904,7 +905,16 @@ export async function matchAndStampDealDocument(opts: {
  * Reconcile checklist for a deal (wrapper for reconcileDealChecklist).
  * Called after document stamping to update satisfaction + status.
  */
-export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string }) {
+export type ReconcileChecklistForDealOptions = {
+  sb: any;
+  dealId: string;
+  actorId?: string;
+  accessGrant?: DealBankAccessGrant;
+};
+
+export async function reconcileChecklistForDeal(
+  opts: ReconcileChecklistForDealOptions,
+) {
   const { dealId, sb: sbOverride } = opts;
   const result = await reconcileDealChecklist(dealId);
 
@@ -1169,7 +1179,12 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
       const { scheduleReadinessRefresh } = await import(
         "@/lib/deals/readiness/refreshDealReadiness"
       );
-      scheduleReadinessRefresh({ dealId, trigger: "document_finalized" });
+      scheduleReadinessRefresh({
+        dealId,
+        trigger: "document_finalized",
+        actorId: opts.actorId,
+        accessGrant: opts.accessGrant,
+      });
     } catch {
       // non-fatal — best-effort readiness recompute
     }
