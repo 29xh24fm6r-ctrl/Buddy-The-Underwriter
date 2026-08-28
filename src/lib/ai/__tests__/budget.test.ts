@@ -72,6 +72,23 @@ describe("durable AI budget estimation", () => {
     );
     assert.equal(estimate, textEstimate + 1_000 * 258 + 10);
   });
+
+  it("does not reject an ordinary inline borrower file as a full daily budget", async () => {
+    const base64Length = 2_189_097;
+    const estimate = await estimateGatewayReservation({
+      prompt: "hi",
+      inlineData: [{ mimeType: "image/jpeg", data: "A".repeat(base64Length) }],
+      maxOutputTokens: 10,
+    });
+    const textEstimate = estimateTextTokenUpperBound(
+      "hi",
+      undefined,
+      JSON.stringify({}),
+    );
+
+    assert.equal(estimate, textEstimate + Math.ceil(base64Length / 4) + 10);
+    assert.ok(estimate < 2_000_000);
+  });
 });
 
 describe("durable AI budget RPC contract", () => {
@@ -122,6 +139,30 @@ describe("durable AI budget RPC contract", () => {
     await assert.rejects(
       () => reserveGatewayBudget("generator", 100, 10, client),
       GatewayBudgetExceededError,
+    );
+  });
+
+  it("reports the requested reservation amount when admission is refused", async () => {
+    const client = reservationClient(
+      {
+        data: {
+          allowed: false,
+          reservation_id: null,
+          tokens_consumed: 80,
+          tokens_reserved: 20,
+        },
+        error: null,
+      },
+      [],
+    );
+
+    await assert.rejects(
+      () => reserveGatewayBudget("generator", 100, 10, client),
+      (error: unknown) => {
+        assert.ok(error instanceof GatewayBudgetExceededError);
+        assert.match(error.message, /80 consumed \+ 20 reserved \+ 10 requested \/ 100/);
+        return true;
+      },
     );
   });
 
