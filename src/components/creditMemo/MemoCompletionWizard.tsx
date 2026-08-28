@@ -17,6 +17,7 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
   const [overrides, setOverrides] = useState<Overrides>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [docGapsOpen, setDocGapsOpen] = useState(false);
 
   // Always show at least one management bio entry.
@@ -39,19 +40,30 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
 
   const save = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
       const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind: "from-wizard", overrides }),
       });
-      if (res.ok) {
-        setSaved(true);
-        setTimeout(() => {
-          setOpen(false);
-          window.location.reload();
-        }, 800);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setSaveError(
+          typeof data?.message === "string"
+            ? data.message
+            : `Save failed (HTTP ${res.status}). Please review and retry.`,
+        );
+        return;
       }
+
+      setSaved(true);
+      setTimeout(() => {
+        setOpen(false);
+        window.location.reload();
+      }, 800);
+    } catch {
+      setSaveError("Save failed. Check your connection and retry.");
     } finally {
       setSaving(false);
     }
@@ -129,7 +141,12 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
 
             {/* Footer */}
             <div className="flex items-center justify-between border-t border-gray-200 px-6 py-4 flex-shrink-0">
-              <div className="text-xs text-gray-400">Changes reload the memo automatically</div>
+              <div
+                className={`text-xs ${saveError ? "text-rose-700" : "text-gray-400"}`}
+                role={saveError ? "alert" : undefined}
+              >
+                {saveError ?? "Changes reload the memo automatically"}
+              </div>
               <div className="flex gap-3">
                 <button
                   onClick={() => setOpen(false)}
