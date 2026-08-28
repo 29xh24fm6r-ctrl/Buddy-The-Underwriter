@@ -456,11 +456,13 @@ export default function SBAPackageViewer({
       <div className="flex items-center gap-3 pt-2">
         <button
           onClick={() => {
-            if (pkg.pdfUrl) {
-              window.open(`/api/storage/${pkg.pdfUrl}`, "_blank");
+            if (pkg.pdfUrl && pkg.id) {
+              const url =
+                `/api/deals/${dealId}/sba/package-pdf?packageId=${encodeURIComponent(pkg.id)}`;
+              window.open(url, "_blank", "noopener,noreferrer");
             }
           }}
-          disabled={!pkg.pdfUrl}
+          disabled={!pkg.pdfUrl || !pkg.id}
           className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Download PDF
