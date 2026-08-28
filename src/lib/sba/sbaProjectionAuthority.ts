@@ -15,7 +15,11 @@ import {
  * calculators. The lower-level builders remain pure implementation details;
  * artifact and UI code must consume this model.
  */
-export const SBA_PROJECTION_ENGINE_VERSION = "sba_projection_v3" as const;
+// v4: monthlyProjections[].cumulativeCash is now a CASH BALANCE seeded from
+// the borrower's opening cash, not a cumulative net change from zero. The
+// version is part of artifact provenance, so a semantic change to a published
+// series has to move it.
+export const SBA_PROJECTION_ENGINE_VERSION = "sba_projection_v4" as const;
 
 export type SBAProjectionModel = {
   engineVersion: typeof SBA_PROJECTION_ENGINE_VERSION;
@@ -33,8 +37,10 @@ export function computeSBAProjectionModel(args: {
   baseYear: AnnualProjectionYear;
   projectedDscrThreshold?: number;
   useOfProceeds?: UseOfProceedsLine[];
+  /** Governed CASH fact. Seeds the monthly cash balance; see buildMonthlyProjections. */
+  openingCash?: number;
 }): SBAProjectionModel {
-  const { assumptions, baseYear, projectedDscrThreshold, useOfProceeds = [] } = args;
+  const { assumptions, baseYear, projectedDscrThreshold, useOfProceeds = [], openingCash = 0 } = args;
   const annualProjections = buildAnnualProjections(assumptions, baseYear);
   const year1 = annualProjections[0];
 
@@ -47,7 +53,7 @@ export function computeSBAProjectionModel(args: {
     generatedFrom: "borrower_confirmed_assumptions",
     baseYear,
     annualProjections,
-    monthlyProjections: buildMonthlyProjections(assumptions, year1, useOfProceeds),
+    monthlyProjections: buildMonthlyProjections(assumptions, year1, useOfProceeds, openingCash),
     revenueStreamProjections: buildRevenueStreamProjections(assumptions),
     breakEven: computeBreakEven(assumptions, year1),
     sensitivityScenarios: buildSensitivityScenarios(
