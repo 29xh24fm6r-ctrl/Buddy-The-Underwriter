@@ -17,6 +17,7 @@ type BudgetableRequest = {
 const DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 const GEMINI_PDF_TOKENS_PER_PAGE = 258;
 const GEMINI_PDF_MAX_PAGES = 1000;
+const INLINE_BASE64_CHARS_PER_TOKEN = 4;
 
 export type GatewayBudgetReservation = {
   id: string;
@@ -57,7 +58,11 @@ export function estimateTextTokenUpperBound(...values: Array<string | undefined>
 async function estimateInlinePart(part: { mimeType: string; data: string }): Promise<number> {
   const mimeType = part.mimeType.split(";", 1)[0]?.trim().toLowerCase();
   if (mimeType !== "application/pdf") {
-    return boundedTokenEstimate(part.data.length);
+    // Inline binary reaches Gemini as base64 transport text, but reserving one
+    // token per encoded character overstates real model input by roughly 4x.
+    // Keep the estimate conservative while preventing ordinary borrower files
+    // from being rejected as larger than an entire role's daily budget.
+    return boundedTokenEstimate(part.data.length / INLINE_BASE64_CHARS_PER_TOKEN);
   }
 
   try {
@@ -120,7 +125,7 @@ export async function reserveGatewayBudget(
     throw new GatewayBudgetExceededError(
       `daily token budget exceeded for role "${role}" (${Number(
         data?.tokens_consumed ?? 0,
-      )} consumed + ${Number(data?.tokens_reserved ?? 0)} reserved / ${dailyBudget})`,
+      )} consumed + ${Number(data?.tokens_reserved ?? 0)} reserved + ${requestedTokens} requested / ${dailyBudget})`,
     );
   }
   return {
