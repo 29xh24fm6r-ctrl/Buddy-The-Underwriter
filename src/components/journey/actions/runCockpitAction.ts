@@ -87,20 +87,36 @@ export async function runCockpitAction(
       }),
     });
 
-    if (!res.ok) {
-      let errorMessage = `HTTP ${res.status}`;
-      try {
-        const body = await res.json();
-        if (body && typeof body === "object" && "error" in body) {
-          const err = (body as { error?: unknown }).error;
-          if (typeof err === "string") errorMessage = err;
-          else if (err && typeof err === "object" && "message" in err) {
-            errorMessage = String((err as { message?: unknown }).message ?? errorMessage);
-          }
-        }
-      } catch {
-        // body wasn't JSON; keep HTTP status text
+    let responseBody: Record<string, unknown> | null = null;
+    try {
+      const parsed: unknown = await res.json();
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        responseBody = parsed as Record<string, unknown>;
       }
+    } catch {
+      // Some successful endpoints intentionally return no JSON body.
+    }
+
+    // Transport success is not business-operation success. Several Buddy
+    // action routes return a structured { ok: false } contract, so the shared
+    // executor must honor that acknowledgement before refreshing the cockpit
+    // or showing an optimistic success state.
+    if (!res.ok || responseBody?.ok === false) {
+      let errorMessage = `HTTP ${res.status}`;
+      const candidate =
+        responseBody?.error ?? responseBody?.reason ?? responseBody?.message;
+      if (typeof candidate === "string" && candidate.trim().length > 0) {
+        errorMessage = candidate;
+      } else if (
+        candidate &&
+        typeof candidate === "object" &&
+        "message" in candidate
+      ) {
+        errorMessage = String(
+          (candidate as { message?: unknown }).message ?? errorMessage,
+        );
+      }
+
       return {
         ok: false,
         status: "error",

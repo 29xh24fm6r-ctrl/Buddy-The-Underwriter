@@ -87,7 +87,7 @@ export async function POST(
 
     // ── Canonical memo reference ──────────────────────────────────────────
     // Packet must reference the same canonical memo that feeds the decision.
-    const { data: memoNarrative } = await sb
+    const { data: memoNarrative, error: memoNarrativeError } = await sb
       .from("canonical_memo_narratives")
       .select("id, input_hash, generated_at")
       .eq("deal_id", dealId)
@@ -95,26 +95,53 @@ export async function POST(
       .limit(1)
       .maybeSingle();
 
+    if (memoNarrativeError) {
+      console.error("[committee/packet/generate] Canonical memo query failed", {
+        dealId,
+        code: memoNarrativeError.code,
+      });
+      return NextResponse.json(
+        { ok: false, error: "memo_narrative_load_failed" },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    if (!memoNarrative) {
+      return NextResponse.json(
+        { ok: false, error: "canonical_memo_required" },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     // ── Financial validation preflight ────────────────────────────────────
-    // Committee packet must include financial validation state.
-    let financialValidation: Awaited<ReturnType<typeof buildCommitteeFinancialValidationSummary>> | null = null;
+    // A committee packet is a decision artifact. Missing, stale, or unsafe
+    // validation is therefore a hard gate rather than an informational warning.
+    let financialValidation: Awaited<ReturnType<typeof buildCommitteeFinancialValidationSummary>>;
     try {
       financialValidation = await buildCommitteeFinancialValidationSummary(dealId);
     } catch (err) {
-      console.warn("[committee/packet/generate] Financial validation summary failed (non-fatal):", err);
+      console.error("[committee/packet/generate] Financial validation summary failed", {
+        dealId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return NextResponse.json(
+        { ok: false, error: "financial_validation_load_failed" },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
     }
 
-    // Warn (but don't block) if financial validation is not decision-safe
+    if (!financialValidation.decisionSafe || financialValidation.status === "stale") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "financial_validation_not_decision_safe",
+          financialValidationStatus: financialValidation.status,
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     const preflightWarnings: string[] = [];
-    if (financialValidation && !financialValidation.decisionSafe) {
-      preflightWarnings.push("Financial validation is not decision-safe");
-    }
-    if (financialValidation?.status === "stale") {
-      preflightWarnings.push("Financial validation summary is stale");
-    }
-    if (!memoNarrative) {
-      preflightWarnings.push("No canonical memo narrative found — packet may lack narrative context");
-    }
 
     // Fetch bank letterhead
     let letterheadBuffer: Buffer | null = null;
@@ -133,6 +160,7 @@ export async function POST(
     // Try to add pricing appendix
     let finalPdfBuffer = pdfBuffer;
     let appendixQuoteId: string | null = null;
+    let appendixAttached = false;
 
     try {
       appendixQuoteId = await getLatestLockedQuoteId(sb, dealId);
@@ -144,28 +172,39 @@ export async function POST(
           quoteId: appendixQuoteId,
         });
 
-        if (appendixBytes) {
-          const baseDoc = await PdfLibDocument.load(pdfBuffer);
-          const appendixDoc = await PdfLibDocument.load(appendixBytes);
-          const merged = await PdfLibDocument.create();
-
-          const basePages = await merged.copyPages(baseDoc, baseDoc.getPageIndices());
-          basePages.forEach((page) => merged.addPage(page));
-
-          const appendixPages = await merged.copyPages(appendixDoc, appendixDoc.getPageIndices());
-          appendixPages.forEach((page) => merged.addPage(page));
-
-          const mergedBytes = await merged.save();
-          finalPdfBuffer = Buffer.from(mergedBytes);
+        if (!appendixBytes) {
+          throw new Error("pricing_appendix_empty");
         }
+
+        const baseDoc = await PdfLibDocument.load(pdfBuffer);
+        const appendixDoc = await PdfLibDocument.load(appendixBytes);
+        const merged = await PdfLibDocument.create();
+
+        const basePages = await merged.copyPages(baseDoc, baseDoc.getPageIndices());
+        basePages.forEach((page) => merged.addPage(page));
+
+        const appendixPages = await merged.copyPages(appendixDoc, appendixDoc.getPageIndices());
+        appendixPages.forEach((page) => merged.addPage(page));
+
+        const mergedBytes = await merged.save();
+        finalPdfBuffer = Buffer.from(mergedBytes);
+        appendixAttached = true;
       }
     } catch (err) {
-      console.warn("[committee/packet/generate] Appendix generation failed, continuing without:", err);
+      console.error("[committee/packet/generate] Pricing appendix generation failed", {
+        dealId,
+        quoteId: appendixQuoteId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return NextResponse.json(
+        { ok: false, error: "pricing_appendix_generation_failed" },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
     }
 
     // Log the event to mark packet as generated
     // This makes committeePacketReady = true in lifecycle state
-    await writeEvent({
+    const readyEvent = await writeEvent({
       dealId,
       kind: "deal.committee.packet.generated",
       actorUserId: userId,
@@ -188,6 +227,18 @@ export async function POST(
       },
     });
 
+    if (!readyEvent.ok) {
+      console.error("[committee/packet/generate] Ready event persistence failed", {
+        dealId,
+        snapshotId: snapshot.id,
+        error: readyEvent.error,
+      });
+      return NextResponse.json(
+        { ok: false, error: "packet_ready_event_persist_failed" },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     // Observability: packet generation completed
     void writeEvent({
       dealId,
@@ -203,7 +254,7 @@ export async function POST(
         financial_validation_decision_safe: financialValidation?.decisionSafe ?? null,
         preflight_warnings: preflightWarnings,
         pdf_size_bytes: finalPdfBuffer.length,
-        has_appendix: !!appendixQuoteId,
+        has_appendix: appendixAttached,
       },
     });
 
@@ -211,10 +262,12 @@ export async function POST(
       ok: true,
       snapshotId: snapshot.id,
       pdfSizeBytes: finalPdfBuffer.length,
-      hasAppendix: !!appendixQuoteId,
+      hasAppendix: appendixAttached,
       memoInputHash: memoNarrative?.input_hash ?? null,
       financialValidationStatus: financialValidation?.status ?? null,
       preflightWarnings: preflightWarnings.length > 0 ? preflightWarnings : undefined,
+    }, {
+      headers: { "Cache-Control": "no-store" },
     });
   } catch (error: any) {
     rethrowNextErrors(error);
@@ -236,8 +289,8 @@ export async function POST(
     }
 
     return NextResponse.json(
-      { ok: false, error: error?.message ?? "unexpected_error" },
-      { status: 500 }
+      { ok: false, error: "packet_generation_failed" },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 }

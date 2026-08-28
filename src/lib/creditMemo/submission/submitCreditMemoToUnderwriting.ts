@@ -266,22 +266,28 @@ export async function submitCreditMemoToUnderwriting(
         output: { error: dbError },
       }).catch(() => {});
     }
+    if (!isTriggerRejection) {
+      console.error("[submitCreditMemoToUnderwriting] snapshot insert failed", {
+        dealId: args.dealId,
+        snapshotId,
+        code: insertRes.error?.code,
+      });
+    }
     return {
       ok: false,
       reason: "persist_failed",
       readiness,
-      error: dbError,
+      error: isTriggerRejection
+        ? "snapshot_certification_rejected"
+        : "snapshot_persist_failed",
     };
   }
 
-  // Supersede any prior not-yet-decided snapshot for this deal. Without this,
-  // resubmitting before an underwriter decides leaves two rows both "live"
-  // (e.g. two banker_submitted rows) — an underwriter acting on a stale
-  // snapshotId reference could approve/decline the superseded version while
-  // the new one sits untouched. 'finalized' (already decided) and
-  // 'superseded' rows are left alone; only the still-in-flight statuses are
-  // superseded by the version that was just inserted. Best-effort: a failure
-  // here must not orphan/fail the submission that already succeeded above.
+  // Supersede every prior in-flight snapshot before acknowledging the new
+  // submission. Leaving two live versions is not a recoverable warning: an
+  // underwriter could decide the stale one. If superseding fails, remove the
+  // new row as compensation and report a retryable persistence failure.
+  let supersedeFailure: string | null = null;
   try {
     const { error: supersedeErr } = await sb
       .from("credit_memo_snapshots")
@@ -295,16 +301,80 @@ export async function submitCreditMemoToUnderwriting(
       .in("status", ["banker_submitted", "underwriter_review", "returned"]);
 
     if (supersedeErr) {
-      console.warn(
+      supersedeFailure = supersedeErr.message;
+      console.error(
         "[submitCreditMemoToUnderwriting] failed to supersede prior snapshot(s)",
-        { dealId: args.dealId, snapshotId, error: supersedeErr.message },
+        {
+          dealId: args.dealId,
+          snapshotId,
+          code: supersedeErr.code,
+        },
       );
     }
   } catch (e) {
-    console.warn(
+    supersedeFailure = e instanceof Error ? e.message : String(e);
+    console.error(
       "[submitCreditMemoToUnderwriting] supersede prior snapshot(s) threw",
-      { dealId: args.dealId, snapshotId, error: String(e) },
+      { dealId: args.dealId, snapshotId, error: supersedeFailure },
     );
+  }
+
+  if (supersedeFailure) {
+    let rollbackFailed = false;
+    try {
+      const { error: rollbackErr } = await sb
+        .from("credit_memo_snapshots")
+        .delete()
+        .eq("id", snapshotId);
+
+      if (rollbackErr) {
+        rollbackFailed = true;
+        console.error(
+          "[submitCreditMemoToUnderwriting] failed to compensate new snapshot",
+          {
+            dealId: args.dealId,
+            snapshotId,
+            code: rollbackErr.code,
+          },
+        );
+      }
+    } catch (rollbackErr) {
+      rollbackFailed = true;
+      console.error(
+        "[submitCreditMemoToUnderwriting] snapshot compensation threw",
+        {
+          dealId: args.dealId,
+          snapshotId,
+          error:
+            rollbackErr instanceof Error
+              ? rollbackErr.message
+              : String(rollbackErr),
+        },
+      );
+    }
+
+    if (rollbackFailed) {
+      Sentry.captureMessage(
+        "credit memo submission requires snapshot reconciliation",
+        {
+          level: "fatal",
+          tags: {
+            route: "submitCreditMemoToUnderwriting",
+            failure: "supersede_and_compensation_failed",
+          },
+          extra: { dealId: args.dealId, bankerId: args.bankerId, snapshotId },
+        },
+      );
+    }
+
+    return {
+      ok: false,
+      reason: "persist_failed",
+      readiness,
+      error: rollbackFailed
+        ? "submission_reconciliation_required"
+        : "prior_snapshot_supersede_failed",
+    };
   }
 
   // SPEC-FLOW-V1 PR3 — emit canonical lifecycle event for the submission.
@@ -429,12 +499,22 @@ async function loadOverrides(
   dealId: string,
   bankId: string,
 ): Promise<Record<string, unknown>> {
-  const { data } = await sb
+  const { data, error } = await sb
     .from("deal_memo_overrides")
     .select("overrides")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .maybeSingle();
+
+  if (error) {
+    console.error("[submitCreditMemoToUnderwriting] override query failed", {
+      dealId,
+      bankId,
+      code: error.code,
+    });
+    throw new Error("memo_overrides_load_failed");
+  }
+
   const raw = (data as { overrides?: unknown } | null)?.overrides;
   return raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
 }
@@ -443,13 +523,22 @@ async function nextMemoVersion(
   sb: ReturnType<typeof supabaseAdmin>,
   dealId: string,
 ): Promise<number> {
-  const { data } = await sb
+  const { data, error } = await sb
     .from("credit_memo_snapshots")
     .select("memo_version")
     .eq("deal_id", dealId)
     .order("memo_version", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (error) {
+    console.error("[submitCreditMemoToUnderwriting] version query failed", {
+      dealId,
+      code: error.code,
+    });
+    throw new Error("memo_version_load_failed");
+  }
+
   const current = (data as { memo_version?: number } | null)?.memo_version;
   return typeof current === "number" && current >= 1 ? current + 1 : 1;
 }
