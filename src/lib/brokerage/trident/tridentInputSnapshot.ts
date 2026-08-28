@@ -85,6 +85,42 @@ function canonicalize(value: unknown): unknown {
   return value;
 }
 
+/**
+ * The snapshot schema this build produces and can verify.
+ *
+ * hashTridentManifest hashes a DIFFERENT DOMAIN depending on this number:
+ * v5/v6 digest only `sources`, earlier shapes digest the whole manifest. So a
+ * hash produced by one schema generation is not comparable to one produced by
+ * another — not "different", incomparable.
+ *
+ * That matters because admission and verification happen in different
+ * invocations. Production carried six schema generations in twelve days
+ * (unversioned, 2, 3, 4, 5, 6); when a deploy landed between a run's admission
+ * and its first workflow step, the step recomputed the digest under the new
+ * schema, compared it against a hash the old schema produced, and could never
+ * match. The run then died as `input_snapshot_changed` — after three pointless
+ * retries — telling the operator the borrower had edited the deal. Nobody had.
+ * Five production runs failed exactly this way, and none of them carried a
+ * `changed_sources` list, because there was no source drift to report.
+ */
+export const TRIDENT_SNAPSHOT_VERSION = 6;
+
+/** A schema-generation change, not borrower drift. Callers must not retry. */
+export class TridentSnapshotSchemaChanged extends Error {
+  readonly admittedVersion: unknown;
+  readonly currentVersion: number;
+  constructor(admittedVersion: unknown) {
+    super(
+      `snapshot_schema_superseded: admitted under snapshot schema v${String(admittedVersion ?? "unversioned")}, ` +
+        `this build produces v${TRIDENT_SNAPSHOT_VERSION}. The borrower's inputs did not change; ` +
+        `a deploy replaced the snapshot schema mid-run. Start a new run.`,
+    );
+    this.name = "TridentSnapshotSchemaChanged";
+    this.admittedVersion = admittedVersion;
+    this.currentVersion = TRIDENT_SNAPSHOT_VERSION;
+  }
+}
+
 export function hashTridentManifest(manifest: Record<string, unknown>): string {
   // V6 separates borrower/underwriting inputs from asynchronously governed
   // evidence and factory-produced derivatives. Research remains in the audit
@@ -177,7 +213,7 @@ export async function computeTridentInputSnapshot(
   ]);
 
   const manifest = canonicalize({
-    version: 6,
+    version: TRIDENT_SNAPSHOT_VERSION,
     // Freeze only borrower and underwriting source-of-truth rows. Governed
     // research is retained below for provenance and independently required by
     // readiness/release, while asynchronous lifecycle convergence cannot make
@@ -244,12 +280,25 @@ export async function assertTridentInputSnapshot(args: {
   expectedHash: string;
   expectedManifest?: Record<string, unknown> | null;
 }): Promise<void> {
+  // Schema generation first. A hash mismatch across schema versions says
+  // nothing about the borrower's data, and reporting it as input drift sends
+  // whoever is debugging to look for an edit that never happened.
+  if (args.expectedManifest) {
+    const admittedVersion = (args.expectedManifest as JsonRecord).version;
+    if (admittedVersion !== TRIDENT_SNAPSHOT_VERSION) {
+      throw new TridentSnapshotSchemaChanged(admittedVersion);
+    }
+  }
+
   const current = await computeTridentInputSnapshot(args.sb, args.dealId);
   if (current.inputHash !== args.expectedHash) {
     const changedSources = summarizeTridentSourceDrift(args.expectedManifest, current.manifest);
     throw new Error(
       `input_snapshot_changed: admitted=${args.expectedHash} current=${current.inputHash}` +
-        (changedSources.length > 0 ? ` changed_sources=${changedSources.join(",")}` : ""),
+        (changedSources.length > 0
+          ? ` changed_sources=${changedSources.join(",")}`
+          : " changed_sources=(none identified — if this persists with no drift listed," +
+            " suspect a non-semantic field leaking into the hashed domain)"),
     );
   }
 }
