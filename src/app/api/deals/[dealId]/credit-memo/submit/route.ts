@@ -36,8 +36,13 @@ export async function POST(
         enforceMemoSubmission(pkg.validation, { cutoverEnabled: true });
       } catch (e) {
         return NextResponse.json(
-          { ok: false, reason: "finengine_cutover_blocked", gate: pkg.gate, error: String(e) },
-          { status: 409 },
+          {
+            ok: false,
+            reason: "finengine_cutover_blocked",
+            gate: pkg.gate,
+            error: "finengine_submission_gate_failed",
+          },
+          { status: 409, headers: { "Cache-Control": "no-store" } },
         );
       }
     }
@@ -84,13 +89,19 @@ export async function POST(
       inputHash: result.inputHash,
       readiness: result.readiness,
       inputReadiness: result.inputReadiness,
+    }, {
+      headers: { "Cache-Control": "no-store" },
     });
   } catch (e: unknown) {
     rethrowNextErrors(e);
     console.error("[credit-memo/submit POST]", e);
     return NextResponse.json(
-      { ok: false, reason: "persist_failed", error: String(e) },
-      { status: 500 },
+      {
+        ok: false,
+        reason: "persist_failed",
+        error: "memo_submission_unavailable",
+      },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
 }
