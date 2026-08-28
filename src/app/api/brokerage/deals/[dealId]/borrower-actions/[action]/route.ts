@@ -310,7 +310,10 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
   const submissionId = req.nextUrl.searchParams.get("submissionId");
   if (!submissionId) {
     const sb = supabaseAdmin();
-    const [{ data: signedDocuments }, { data: pendingRequests }] = await Promise.all([
+    const [
+      { data: signedDocuments, error: signedDocumentsError },
+      { data: pendingRequests, error: pendingRequestsError },
+    ] = await Promise.all([
       sb
         .from("signed_documents")
         .select("form_code, signer_ownership_entity_id, esign_document_id, signature_completed_at")
@@ -321,7 +324,19 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
         .eq("deal_id", dealId),
     ]);
 
-    const activeRequests = (pendingRequests ?? []).filter(
+    if (
+      signedDocumentsError ||
+      pendingRequestsError ||
+      !Array.isArray(signedDocuments) ||
+      !Array.isArray(pendingRequests)
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "signing_state_unavailable" },
+        { status: 503 },
+      );
+    }
+
+    const activeRequests = pendingRequests.filter(
       (row) => !isTerminalSigningRequestStatus(row.status),
     );
 
@@ -333,12 +348,18 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
   }
 
   const sb = supabaseAdmin();
-  const { data: signedDoc } = await sb
+  const { data: signedDoc, error: signedDocError } = await sb
     .from("signed_documents")
     .select("*")
     .eq("deal_id", dealId)
     .eq("esign_document_id", submissionId)
     .maybeSingle();
+  if (signedDocError) {
+    return NextResponse.json(
+      { ok: false, error: "signing_state_unavailable", detail: "signed_documents_read_failed" },
+      { status: 503 },
+    );
+  }
 
   if (signedDoc) {
     return NextResponse.json({ ok: true, status: "completed", signedDocument: signedDoc });
@@ -347,12 +368,18 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
   // The borrower session is deal-scoped, so the provider document must be
   // deal-scoped before it can be fetched. This prevents cross-deal document
   // probing with a guessed SignWell id.
-  const { data: signingRequest } = await sb
+  const { data: signingRequest, error: signingRequestError } = await sb
     .from("signing_requests")
     .select("id")
     .eq("deal_id", dealId)
     .eq("signwell_document_id", submissionId)
     .maybeSingle();
+  if (signingRequestError) {
+    return NextResponse.json(
+      { ok: false, error: "signing_state_unavailable", detail: "signing_requests_read_failed" },
+      { status: 503 },
+    );
+  }
   if (!signingRequest) {
     return NextResponse.json({ ok: false, error: "submission_not_found" }, { status: 404 });
   }

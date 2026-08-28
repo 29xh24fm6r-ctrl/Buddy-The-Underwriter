@@ -219,7 +219,13 @@ test("requestSignature: tracking failure cancels the provider document before re
   const sb = {
     storage: db.storage,
     from: (table: string) => table === "signing_requests"
-      ? { insert: async () => ({ error: { message: "database_unavailable" } }) }
+      ? {
+          insert: () => ({
+            select: () => ({
+              maybeSingle: async () => ({ data: null, error: { message: "database_unavailable" } }),
+            }),
+          }),
+        }
       : db.from(table),
   };
   const r = await requestSignature(
@@ -650,5 +656,83 @@ test("handleSignwellWebhook: terminal state write failure remains retryable", as
     detail: "write_rejected",
   });
   assert.equal(db.tables.signing_requests[0].status, "pending");
+  assert.equal(db.tables.deal_events.length, 0);
+});
+
+
+test("requestSignature: zero-row tracking response cancels the provider document", async () => {
+  const deleted: string[] = [];
+  const db = new FakeDb({ borrower_identity_verifications: withIal2() });
+  const sb = {
+    storage: db.storage,
+    from: (table: string) => table === "signing_requests"
+      ? {
+          insert: () => ({
+            select: () => ({
+              maybeSingle: async () => ({ data: null, error: null }),
+            }),
+          }),
+        }
+      : db.from(table),
+  };
+
+  const r = await requestSignature(
+    { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
+    {
+      sb: sb as any,
+      signwell: fakeSignwell({
+        deleteSignwellDocument: async (documentId) => { deleted.push(documentId); },
+      }),
+      renderFilledPdf: fakeRenderFilledPdf,
+    },
+  );
+
+  assert.deepEqual(r, {
+    ok: false,
+    reason: "SUBMISSION_FAILED",
+    detail: "signing_request_tracking_failed:row_not_returned",
+  });
+  assert.deepEqual(deleted, ["12345"]);
+  assert.equal(db.tables.deal_events.length, 0);
+});
+
+test("handleSignwellWebhook: signed-document lookup errors stop before provider and storage side effects", async () => {
+  let fetches = 0;
+  const db = new FakeDb({
+    borrower_identity_verifications: withIal2(),
+    deals: [{ id: DEAL_ID, bank_id: "b1" }],
+    signing_requests: withSigningRequest(),
+  });
+  const sb = {
+    storage: db.storage,
+    from: (table: string) => {
+      const query = db.from(table);
+      if (table === "signed_documents") {
+        query.maybeSingle = async () => ({ data: null, error: { message: "database_unavailable" } });
+      }
+      return query;
+    },
+  };
+
+  const r = await handleSignwellWebhook(
+    { event: { type: "document_completed" }, data: { object: { id: 1, metadata: { external_id: canonicalExternalId } } } },
+    {
+      sb: sb as any,
+      signwell: fakeSignwell({
+        fetchSignwellDocument: async (documentId) => {
+          fetches += 1;
+          return fakeSignwell().fetchSignwellDocument(documentId);
+        },
+      }),
+    },
+  );
+
+  assert.deepEqual(r, {
+    ok: false,
+    reason: "SIGNING_STATE_READ_FAILED",
+    detail: "signed_document_lookup_failed:database_unavailable",
+  });
+  assert.equal(fetches, 0);
+  assert.equal(db.storage.uploads.length, 0);
   assert.equal(db.tables.deal_events.length, 0);
 });

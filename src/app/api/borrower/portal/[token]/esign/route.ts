@@ -102,16 +102,23 @@ export async function GET(
 
   const sb = supabaseAdmin();
 
-  const { data: docs } = await sb
+  const { data: docs, error: docsError } = await sb
     .from("signed_documents")
     .select("id, form_code, signer_ownership_entity_id, signer_role, signature_completed_at, expires_at")
     .eq("deal_id", ctx.dealId)
     .order("signature_completed_at", { ascending: false });
 
-  const { data: pending } = await sb
+  const { data: pending, error: pendingError } = await sb
     .from("signing_requests")
     .select("id, form_code, signer_ownership_entity_id, signer_role, status, signing_url, created_at")
     .eq("deal_id", ctx.dealId);
+
+  if (docsError || pendingError || !Array.isArray(docs) || !Array.isArray(pending)) {
+    return NextResponse.json(
+      { ok: false, error: "signing_state_unavailable" },
+      { status: 503 },
+    );
+  }
 
   const activeRequests = (pending ?? []).filter(
     (row) => !isTerminalSigningRequestStatus(row.status),

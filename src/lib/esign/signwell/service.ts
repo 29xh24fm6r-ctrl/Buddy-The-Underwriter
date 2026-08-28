@@ -192,7 +192,7 @@ export async function requestSignature(
     return { ok: false, reason: "SUBMISSION_FAILED", detail: err?.message ?? String(err) };
   }
 
-  const { data: verification } = await sb
+  const { data: verification, error: verificationError } = await sb
     .from("borrower_identity_verifications")
     .select("id")
     .eq("deal_id", args.dealId)
@@ -201,6 +201,13 @@ export async function requestSignature(
     .order("completed_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (verificationError || !verification) {
+    return cancelUntrackedSignwellDocument(
+      signwell,
+      String(document.id),
+      `identity_provenance_lookup_failed:${verificationError?.message ?? "verification_not_found"}`,
+    );
+  }
 
   const recipient = document.recipients.find((r) => String(r.id) === "1");
   const embedUrl = recipient?.embedded_signing_url ?? recipient?.signing_url;
@@ -216,7 +223,7 @@ export async function requestSignature(
   // this record as the trusted signer/template provenance rather than
   // accepting those compliance facts from webhook metadata.
   try {
-    const { error: signingRequestError } = await sb.from("signing_requests").insert({
+    const { data: trackedRequest, error: signingRequestError } = await sb.from("signing_requests").insert({
       deal_id: args.dealId,
       bank_id: args.bankId,
       form_code: args.formCode,
@@ -232,12 +239,14 @@ export async function requestSignature(
         template_version: args.templateVersion,
         identity_verification_id: verification?.id ?? null,
       },
-    });
-    if (signingRequestError) {
+    })
+      .select("id")
+      .maybeSingle();
+    if (signingRequestError || !trackedRequest) {
       return cancelUntrackedSignwellDocument(
         signwell,
         String(document.id),
-        `signing_request_tracking_failed:${signingRequestError.message}`,
+        `signing_request_tracking_failed:${signingRequestError?.message ?? "row_not_returned"}`,
       );
     }
   } catch (err: any) {
@@ -274,6 +283,7 @@ export type HandleSignwellWebhookResult =
         | "SIGNING_REQUEST_NOT_FOUND"
         | "SIGNING_REQUEST_MISMATCH"
         | "SIGNING_REQUEST_STATUS_UPDATE_FAILED"
+        | "SIGNING_STATE_READ_FAILED"
         | "PROVIDER_DOCUMENT_MISMATCH"
         | "SIGNER_MISMATCH"
         | "IAL2_GATE_FAILED_AT_COMPLETION"
@@ -417,11 +427,14 @@ export async function handleSignwellWebhook(
   }
 
   if (terminalStatus) {
-    const { data: terminalRequest } = await sb
+    const { data: terminalRequest, error: terminalRequestError } = await sb
       .from("signing_requests")
       .select("deal_id, form_code, signer_ownership_entity_id")
       .eq("signwell_document_id", documentId)
       .maybeSingle();
+    if (terminalRequestError) {
+      return { ok: false, reason: "SIGNING_STATE_READ_FAILED", detail: `signing_request_lookup_failed:${terminalRequestError.message}` };
+    }
     if (!terminalRequest) {
       return { ok: false, reason: "SIGNING_REQUEST_NOT_FOUND" };
     }
@@ -483,21 +496,27 @@ export async function handleSignwellWebhook(
 
   // SignWell redelivers webhooks. Treat an already-persisted provider
   // document as success before any download, storage, or event side effect.
-  const { data: existingSignedDocument } = await sb
+  const { data: existingSignedDocument, error: existingSignedDocumentError } = await sb
     .from("signed_documents")
     .select("id")
     .eq("esign_document_id", documentId)
     .limit(1)
     .maybeSingle();
+  if (existingSignedDocumentError) {
+    return { ok: false, reason: "SIGNING_STATE_READ_FAILED", detail: `signed_document_lookup_failed:${existingSignedDocumentError.message}` };
+  }
   if (existingSignedDocument?.id) {
     return { ok: true, signedDocumentId: String(existingSignedDocument.id), reused: true };
   }
 
-  const { data: signingRequest } = await sb
+  const { data: signingRequest, error: signingRequestError } = await sb
     .from("signing_requests")
     .select("deal_id, bank_id, form_code, signer_ownership_entity_id, signer_role, recipient_email, metadata, created_at")
     .eq("signwell_document_id", documentId)
     .maybeSingle();
+  if (signingRequestError) {
+    return { ok: false, reason: "SIGNING_STATE_READ_FAILED", detail: `signing_request_lookup_failed:${signingRequestError.message}` };
+  }
   if (!signingRequest) {
     return { ok: false, reason: "SIGNING_REQUEST_NOT_FOUND" };
   }
@@ -547,7 +566,10 @@ export async function handleSignwellWebhook(
     };
   }
 
-  const { data: deal } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
+  const { data: deal, error: dealError } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
+  if (dealError) {
+    return { ok: false, reason: "SIGNING_STATE_READ_FAILED", detail: `deal_lookup_failed:${dealError.message}` };
+  }
   if (!deal) {
     return { ok: false, reason: "DEAL_NOT_FOUND" };
   }
@@ -555,7 +577,7 @@ export async function handleSignwellWebhook(
     return { ok: false, reason: "SIGNING_REQUEST_MISMATCH", detail: "bank_id_mismatch" };
   }
 
-  const { data: verification } = await sb
+  const { data: verification, error: verificationError } = await sb
     .from("borrower_identity_verifications")
     .select("id")
     .eq("deal_id", dealId)
@@ -564,6 +586,13 @@ export async function handleSignwellWebhook(
     .order("completed_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (verificationError || !verification) {
+    return {
+      ok: false,
+      reason: "SIGNING_STATE_READ_FAILED",
+      detail: `identity_provenance_lookup_failed:${verificationError?.message ?? "verification_not_found"}`,
+    };
+  }
 
   let pdfBytes: Buffer;
   try {
@@ -625,12 +654,19 @@ export async function handleSignwellWebhook(
 
   if (error || !signedDoc) {
     // A concurrent delivery may have won the unique provider-document race.
-    const { data: racedSignedDocument } = await sb
+    const { data: racedSignedDocument, error: racedSignedDocumentError } = await sb
       .from("signed_documents")
       .select("id")
       .eq("esign_document_id", documentId)
       .limit(1)
       .maybeSingle();
+    if (racedSignedDocumentError) {
+      return {
+        ok: false,
+        reason: "PDF_UPLOAD_FAILED",
+        detail: `${error?.message ?? "insert_failed"}:race_lookup_failed:${racedSignedDocumentError.message}`,
+      };
+    }
     if (racedSignedDocument?.id) {
       return { ok: true, signedDocumentId: String(racedSignedDocument.id), reused: true };
     }

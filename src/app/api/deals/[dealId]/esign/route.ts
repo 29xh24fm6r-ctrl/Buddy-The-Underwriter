@@ -109,12 +109,18 @@ export async function GET(req: Request, ctx: Ctx) {
     }
 
     const sb = supabaseAdmin();
-    const { data: signedDoc } = await sb
+    const { data: signedDoc, error: signedDocError } = await sb
       .from("signed_documents")
       .select("*")
       .eq("deal_id", dealId)
       .eq("esign_document_id", submissionId)
       .maybeSingle();
+    if (signedDocError) {
+      return NextResponse.json(
+        { ok: false, error: "signing_state_unavailable", detail: "signed_documents_read_failed" },
+        { status: 503 },
+      );
+    }
 
     if (signedDoc) {
       return NextResponse.json({ ok: true, status: "completed", signedDocument: signedDoc });
@@ -123,12 +129,18 @@ export async function GET(req: Request, ctx: Ctx) {
     // Bind every provider lookup to a request owned by this deal. Without
     // this check, a user with access to deal A could probe a guessed
     // SignWell document id belonging to deal B.
-    const { data: signingRequest } = await sb
+    const { data: signingRequest, error: signingRequestError } = await sb
       .from("signing_requests")
       .select("id")
       .eq("deal_id", dealId)
       .eq("signwell_document_id", submissionId)
       .maybeSingle();
+    if (signingRequestError) {
+      return NextResponse.json(
+        { ok: false, error: "signing_state_unavailable", detail: "signing_requests_read_failed" },
+        { status: 503 },
+      );
+    }
     if (!signingRequest) {
       return NextResponse.json({ ok: false, error: "submission_not_found" }, { status: 404 });
     }
