@@ -189,6 +189,7 @@ export interface UseOfProceedsLine {
 }
 
 export interface SBAPackageData {
+  id?: string;
   dealId: string;
   assumptionsId: string;
   generatedAt: string;
