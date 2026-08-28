@@ -90,8 +90,8 @@ export async function GET(
 
   // This route wrote no audit entry at all, so borrower-portal artifact
   // pulls left no trace while the cookie-scoped route recorded credit-memo
-  // pulls (audit F-21). Best-effort: an audit-write failure must not deny
-  // the borrower their own preview.
+  // pulls (audit F-21). Evidence persistence is part of the delivery boundary:
+  // do not release a signed URL when the canonical audit row is unavailable.
   const audit = await auditPackageDownload(
     {
       actor: dealId,
