@@ -20,6 +20,14 @@ const recorder = readFileSync(
   join(ROOT, "src/lib/uploads/recordBorrowerUploadAndMaterialize.ts"),
   "utf8",
 );
+const metadataRoute = readFileSync(
+  join(ROOT, "src/app/api/public/upload-link/meta/route.ts"),
+  "utf8",
+);
+const linkRoute = readFileSync(
+  join(ROOT, "src/app/api/deals/[dealId]/upload-links/route.ts"),
+  "utf8",
+);
 
 function occurrences(source: string, pattern: RegExp): number {
   return source.match(pattern)?.length ?? 0;
@@ -92,6 +100,28 @@ describe("public upload transaction truthfulness", () => {
         `${point} must be invoked exactly once`,
       );
     }
+  });
+});
+
+describe("public upload link lifecycle truthfulness", () => {
+  test("metadata outages are not reported as invalid links", () => {
+    const outage = metadataRoute.indexOf("if (error)");
+    const missing = metadataRoute.indexOf("if (!data)");
+    assert.ok(outage >= 0 && missing >= 0);
+    assert.ok(outage < missing);
+    assert.match(metadataRoute.slice(outage, missing), /status: 503/);
+    assert.match(metadataRoute.slice(missing), /status: 404/);
+  });
+
+  test("link creation fails closed when deal stage is unavailable", () => {
+    const errorCheck = linkRoute.indexOf("if (dealErr)");
+    const lifecycleCheck = linkRoute.indexOf("isBorrowerUploadAllowed");
+    assert.ok(errorCheck >= 0 && lifecycleCheck >= 0);
+    assert.ok(
+      errorCheck < lifecycleCheck,
+      "database errors must be handled before lifecycle authorization",
+    );
+    assert.match(linkRoute.slice(errorCheck, lifecycleCheck), /status: 503/);
   });
 });
 
