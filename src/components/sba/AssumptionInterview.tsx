@@ -12,7 +12,10 @@ import type {
   CoachingTip,
   PrefillMeta,
 } from "@/lib/sba/sbaReadinessTypes";
-import { computeAssumptionsCompletionPct } from "@/lib/sba/sbaAssumptionsValidator";
+import {
+  computeAssumptionsCompletionPct,
+  validateSBAAssumptions,
+} from "@/lib/sba/sbaAssumptionsValidator";
 import { getAssumptionCoachingTips } from "@/lib/sba/sbaAssumptionCoach";
 import { getConceptExplanation } from "@/lib/sba/sbaConceptExplainer";
 import type { DraftedAssumptions } from "@/lib/sba/sbaAssumptionDrafter";
@@ -289,7 +292,7 @@ function GuidedReview({
   openForEdit,
   onGenerate,
   generating,
-  completionPct,
+  canConfirm,
 }: {
   dealId: string;
   assumptions: SBAAssumptions;
@@ -302,7 +305,7 @@ function GuidedReview({
   openForEdit: (key: ReviewCardKey) => void;
   onGenerate: () => void;
   generating: boolean;
-  completionPct: number;
+  canConfirm: boolean;
 }) {
   if (loading) {
     return (
@@ -514,7 +517,7 @@ function GuidedReview({
           <button
             type="button"
             onClick={onGenerate}
-            disabled={generating || completionPct < 100}
+            disabled={generating || !canConfirm}
             className="w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {generating ? "Generating…" : "Generate My Business Plan"}
@@ -597,7 +600,12 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
     mergeAssumptions(initial, prefilled, dealId),
   );
   const [saving, setSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [assumptionActionError, setAssumptionActionError] = useState<string | null>(
+    null,
+  );
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     revenue: true,
     costs: false,
@@ -758,6 +766,10 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const completionPct = computeAssumptionsCompletionPct(assumptions);
+  const confirmationValidation = useMemo(
+    () => validateSBAAssumptions(assumptions),
+    [assumptions],
+  );
   const isConfirmed = assumptions.status === "confirmed";
 
   const toggleSection = (key: string) =>
@@ -770,15 +782,19 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
       saveTimer.current = setTimeout(async () => {
         try {
           setSaving(true);
-          await fetch(`/api/deals/${dealId}/sba`, {
+          const response = await fetch(`/api/deals/${dealId}/sba`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "patch-assumptions", patch: updated }),
           });
+          const result = await response.json().catch(() => null);
+          if (!response.ok || !result?.ok) {
+            throw new Error(result?.error ?? "assumptions_save_failed");
+          }
           setSaveStatus("saved");
           setTimeout(() => setSaveStatus("idle"), 2000);
         } catch {
-          setSaveStatus("idle");
+          setSaveStatus("error");
         } finally {
           setSaving(false);
         }
@@ -868,31 +884,72 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
   }
 
   const handleConfirm = async () => {
-    const next = { ...assumptions, status: "confirmed" as const };
-    setAssumptions(next);
+    setAssumptionActionError(null);
+    const validation = validateSBAAssumptions(assumptions);
+    if (!validation.ok) {
+      setAssumptionActionError(validation.blockers.join(" "));
+      return;
+    }
+
     try {
-      await fetch(`/api/deals/${dealId}/sba`, {
+      const response = await fetch(`/api/deals/${dealId}/sba`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "patch-assumptions", patch: { status: "confirmed" } }),
+        body: JSON.stringify({
+          action: "patch-assumptions",
+          patch: { status: "confirmed" },
+        }),
       });
-      // Phase 2 — fire generation immediately; onConfirmed fires after
-      // streaming completes (or the error callback clears the overlay).
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.ok || result.status !== "confirmed") {
+        const blockers = Array.isArray(result?.blockers)
+          ? result.blockers.join(" ")
+          : "";
+        throw new Error(
+          blockers || result?.error || "assumptions_confirmation_failed",
+        );
+      }
+
+      setAssumptions((previous) => ({
+        ...previous,
+        status: "confirmed",
+        confirmedAt: result.confirmedAt ?? undefined,
+      }));
+      // Fire generation only after the server proves canonical confirmation.
+      // onConfirmed fires after streaming completes.
       await runStreamingGenerate();
-    } catch {
-      // revert
-      setAssumptions((prev) => ({ ...prev, status: "complete" }));
+    } catch (error) {
+      setAssumptionActionError(
+        error instanceof Error ? error.message : "Could not confirm assumptions.",
+      );
     }
   };
 
   const handleReopen = async () => {
-    const next = { ...assumptions, status: "draft" as const };
-    setAssumptions(next);
-    await fetch(`/api/deals/${dealId}/sba`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "patch-assumptions", patch: { status: "draft" } }),
-    });
+    setAssumptionActionError(null);
+    try {
+      const response = await fetch(`/api/deals/${dealId}/sba`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "patch-assumptions",
+          patch: { status: "draft" },
+        }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.ok || result.status !== "draft") {
+        throw new Error(result?.error ?? "assumptions_reopen_failed");
+      }
+      setAssumptions((previous) => ({
+        ...previous,
+        status: "draft",
+        confirmedAt: undefined,
+      }));
+    } catch (error) {
+      setAssumptionActionError(
+        error instanceof Error ? error.message : "Could not reopen assumptions.",
+      );
+    }
   };
 
   // --- Revenue Streams ---
@@ -1006,6 +1063,12 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
         </div>
       )}
 
+      {assumptionActionError && (
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+          Assumptions were not changed: {assumptionActionError}
+        </div>
+      )}
+
       {/* Phase 3 — mode switcher: Guided | Form | Chat */}
       <ModeSwitcher mode={mode} onChange={setMode} includeChat />
 
@@ -1039,7 +1102,7 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
             await handleConfirm();
           }}
           generating={generating}
-          completionPct={completionPct}
+          canConfirm={confirmationValidation.ok}
         />
       )}
 
@@ -1076,6 +1139,9 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
         )}
         {saveStatus === "saved" && (
           <span className="text-xs text-emerald-400">Saved</span>
+        )}
+        {saveStatus === "error" && (
+          <span className="text-xs text-red-300">Save failed — retrying on next change</span>
         )}
       </div>
 
@@ -2136,7 +2202,7 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
           </button>
         ) : (
           <button
-            disabled={completionPct < 100}
+            disabled={!confirmationValidation.ok}
             onClick={async () => {
               await saveGuarantors();
               await handleConfirm();
