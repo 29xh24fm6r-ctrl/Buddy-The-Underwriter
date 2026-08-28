@@ -32,6 +32,8 @@ test("seal-status keeps database reads bounded and concurrent", () => {
     /const \[b, \{ data: f \}, \{ data: memoSnapshot \}, assembledRun\] = await Promise\.all/,
     "picked-package resources must not serialize the polling response",
   );
+  assert.match(packageDelivery, /form159Result\\.error/);
+  assert.match(packageDelivery, /memoResult\\.error/);
   assert.match(
     sealStatus,
     /gate,[\s\S]*score,[\s\S]*= await Promise\.all\(\[[\s\S]*canSeal\(dealId, sb\)[\s\S]*loadScoreForResponse/,
