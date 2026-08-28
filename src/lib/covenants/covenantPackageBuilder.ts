@@ -17,7 +17,7 @@ import crypto from "node:crypto";
 export type BuildPackageInput = {
   dealId: string;
   riskGrade: string;
-  governedDscrFloor: number;
+  governedDscrFloor?: number | null;
   dealType: DealType;
   actualDscr: number | null;
   actualLeverage: number | null;
