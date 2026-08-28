@@ -34,15 +34,23 @@ cold serverless instance had no last-known-good value.
   rather than an opaque HTTP 500.
 - Remove the AI gateway from benchmark-rate truth.
 
-## Evidence plan
+## Verification
 
-- Focused tests cover each primary feed, provider fallback, range validation,
-  freshness validation, and bounded stale service.
-- Required CI, build, security/schema guards, and public browser smoke must pass
-  on the exact PR head.
-- The exact preview must be READY, SHA-matched, HTTP 200, and runtime-clean.
-- After merge, reverify `/api/rates/latest` in production and confirm pricing
-  scenarios no longer depend on an AI-provider call.
+- PR 941 head `bc67b371e35e1f367d5848644c0eb481d0d82ae8` was mergeable and
+  zero commits behind `main`.
+- CI ran 13,341 tests: 13,332 passed, 0 failed, and 9 skipped.
+- React-server tests passed 18/18. Research evaluation passed 7/7; the 13 known
+  production-data placeholders remain explicitly skipped.
+- Typecheck, lint, architecture, safety, legacy-write, Never-500, schema-select,
+  drift, Build Check, Secret Scan, Route Budget, and public Playwright passed.
+- Exact-head Vercel deployment `dpl_4HsNe7yJjQwetiyYZdcXAQQGgt43` is READY.
+  The root returned HTTP 200 with matching `x-buddy-build`.
+- A live exact-head call to `/api/rates/latest` returned HTTP 200 with SOFR
+  3.64% (NY Fed, 2026-08-26), five-year Treasury 4.38% (Treasury,
+  2026-08-27), and prime 6.75% (H.15/FRED, 2026-08-26), each with its source URL.
+- No error, fatal, or warning runtime logs were recorded after the live probe.
+- Post-merge closure still requires the same production call and absence of new
+  rate-feed HTTP 500 events.
 
 ## Remaining boundaries
 
