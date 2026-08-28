@@ -41,6 +41,7 @@ import {
 import { runWithAIExecutionContext } from "@/lib/ai/executionContext";
 import { evaluateTridentRelease } from "./tridentReleaseGate";
 import { assertTridentInputSnapshot, computeTridentInputSnapshot } from "./tridentInputSnapshot";
+import { persistRowWithStorageRollback, type NewlyUploadedObject } from "./artifactPersistence";
 
 export type TridentBundleMode = "preview" | "final";
 
@@ -209,7 +210,8 @@ export async function generateTridentBundle(args: {
 
   let dealQuery = sb.from("deals").select("id, bank_id, is_test").eq("id", dealId);
   if (args.bankId) dealQuery = dealQuery.eq("bank_id", args.bankId);
-  const { data: deal } = await dealQuery.single();
+  const { data: deal, error: dealError } = await dealQuery.single();
+  if (dealError) return { ok: false, bundleId: null, error: `Deal state unavailable: ${dealError.message}` };
   if (!deal) return { ok: false, bundleId: null, error: "Deal not found" };
 
   const bundleId = args.bundleId;
@@ -350,7 +352,14 @@ export async function generateTridentBundle(args: {
       reviewedBusinessPlanSource = await uploadReviewedPdf(sb, {
         dealId, artifact: "business_plan", buffer: reviewedBuffer,
       });
-      await sb.from("buddy_sba_packages").update({ pdf_url: reviewedBusinessPlanSource }).eq("id", sbaResult.packageId);
+      await persistRowWithStorageRollback(sb, {
+        table: "buddy_sba_packages",
+        filters: { id: sbaResult.packageId },
+        values: { pdf_url: reviewedBusinessPlanSource },
+        expected: { pdf_url: reviewedBusinessPlanSource },
+        uploaded: [{ bucket: "deal-documents", path: reviewedBusinessPlanSource }],
+        label: "Reviewed business-plan artifact",
+      });
     }
 
     let businessPlanPath = completedBusinessPlanPath;
@@ -360,13 +369,23 @@ export async function generateTridentBundle(args: {
         dealId, mode, artifact: "business_plan", ext: "pdf",
       });
       if (!businessPlanPath) throw new Error("Business-plan artifact persistence failed");
-      const { error: businessPlanPersistError } = await sb.from("buddy_trident_bundles").update({
-        business_plan_pdf_path: businessPlanPath,
-        source_sba_package_id: sbaResult.packageId,
-        current_stage: "business_plan",
-        last_heartbeat_at: new Date().toISOString(),
-      }).eq("id", bundleId).eq("lease_token", args.leaseToken);
-      if (businessPlanPersistError) throw new Error(`Business-plan manifest write failed: ${businessPlanPersistError.message}`);
+      await persistRowWithStorageRollback(sb, {
+        table: "buddy_trident_bundles",
+        filters: { id: bundleId, lease_token: args.leaseToken },
+        values: {
+          business_plan_pdf_path: businessPlanPath,
+          source_sba_package_id: sbaResult.packageId,
+          current_stage: "business_plan",
+          last_heartbeat_at: new Date().toISOString(),
+        },
+        expected: {
+          business_plan_pdf_path: businessPlanPath,
+          source_sba_package_id: sbaResult.packageId,
+          current_stage: "business_plan",
+        },
+        uploaded: [{ bucket: "trident-bundles", path: businessPlanPath }],
+        label: "Business-plan artifact",
+      });
     }
 
     // SPEC-M8 ARTIFACT-PIPELINE-1 — read-only attestation lookup. Never
@@ -397,16 +416,20 @@ export async function generateTridentBundle(args: {
 
     // 2. Projections XLSX — final mode only.
     let projectionsXlsxPath = (existing.projections_xlsx_path as string | null | undefined) ?? null;
+    const newProjectionObjects: NewlyUploadedObject[] = [];
     if (mode === "final" && !projectionsXlsxPath) {
-      const { data: pkgRow } = await sb
+      const { data: pkgRow, error: pkgRowError } = await sb
         .from("buddy_sba_packages")
         .select(
           "projections_annual, projections_monthly, sensitivity_scenarios, sources_and_uses, balance_sheet_projections, base_year_data",
         )
         .eq("id", sbaResult.packageId)
         .single();
+      if (pkgRowError || !pkgRow) {
+        throw new Error(`Projection source read failed: ${pkgRowError?.message ?? "missing package row"}`);
+      }
 
-      if (pkgRow) {
+      {
         const xlsxBuf = await renderProjectionsXlsx({
           dealName: "Deal",
           baseYear: (pkgRow.base_year_data as any) ?? {},
@@ -417,13 +440,16 @@ export async function generateTridentBundle(args: {
           balanceSheetProjections: pkgRow.balance_sheet_projections,
         });
         const path = `${dealId}/${mode}/${Date.now()}_projections.xlsx`;
-        const { error: uploadError } = await sb.storage.from("trident-bundles").upload(path, xlsxBuf, {
+        const { data: uploadedWorkbook, error: uploadError } = await sb.storage.from("trident-bundles").upload(path, xlsxBuf, {
           contentType:
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           upsert: true,
         });
-        if (uploadError) throw new Error(`Projection workbook upload failed: ${uploadError.message}`);
+        if (uploadError || uploadedWorkbook?.path !== path) {
+          throw new Error(`Projection workbook upload failed: ${uploadError?.message ?? "uploaded path not returned"}`);
+        }
         projectionsXlsxPath = path;
+        newProjectionObjects.push({ bucket: "trident-bundles", path });
       }
     }
     // Preview projections PDF — summary-only (Y1 revenue, Y1 DSCR, break-even
