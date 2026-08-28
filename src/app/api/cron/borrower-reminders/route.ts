@@ -1,7 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { selectReminderCandidates } from "@/lib/reminders/selectCandidates";
 import { getReminderStats, isAttemptsSatisfied, isCooldownSatisfied } from "@/lib/reminders/ledger";
 import { sendSmsWithConsent } from "@/lib/sms/send";
+import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
+import { getCronOutcome } from "@/lib/workers/cronOutcome";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,11 +34,8 @@ function unauthorized() {
  *   }]
  * }
  */
-export async function POST(req: Request) {
-  // Auth check
-  const auth = req.headers.get("authorization") || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
-  if (!process.env.CRON_SECRET || token !== process.env.CRON_SECRET) {
+export async function POST(req: NextRequest) {
+  if (!hasValidWorkerSecret(req)) {
     return unauthorized();
   }
 
@@ -124,14 +123,21 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({
-      ok: true,
-      timestamp: new Date().toISOString(),
-      candidates: candidates.length,
-      sent: results.filter((r) => r.action === "sent").length,
-      skipped: results.filter((r) => r.action === "skipped").length,
-      results,
-    });
+    const failed = results.filter((r) => r.reason === "error").length;
+    const outcome = getCronOutcome(failed);
+
+    return NextResponse.json(
+      {
+        ok: outcome.ok,
+        timestamp: new Date().toISOString(),
+        candidates: candidates.length,
+        sent: results.filter((r) => r.action === "sent").length,
+        skipped: results.filter((r) => r.action === "skipped").length,
+        failed: outcome.failures,
+        results,
+      },
+      { status: outcome.status },
+    );
   } catch (error: any) {
     console.error("Borrower reminders cron error:", error);
     return NextResponse.json(
@@ -145,6 +151,6 @@ export async function POST(req: Request) {
 }
 
 // Vercel Cron sends GET — delegate to POST (POST checks cron auth)
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   return POST(req);
 }

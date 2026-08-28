@@ -23,6 +23,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
+import { getCronOutcome } from "@/lib/workers/cronOutcome";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { pollAndReconcileIrsTranscripts } from "@/lib/jobs/pollIrsTranscripts";
 import { pollVendorTranscriptRequest } from "@/lib/integrations/irsTranscripts/client";
@@ -86,7 +87,11 @@ export async function GET(req: NextRequest) {
         if (result.failed > 0) {
           console.warn("[cron/sba-checks] kyc reconcile failures", { failed: result.failed });
         }
-        return NextResponse.json({ ok: true, check, result, durationMs: Date.now() - start });
+        const outcome = getCronOutcome(result.failed);
+        return NextResponse.json(
+          { ok: outcome.ok, check, result, failed: outcome.failures, durationMs: Date.now() - start },
+          { status: outcome.status },
+        );
       }
       case "irs-transcripts": {
         const result = await pollAndReconcileIrsTranscripts({
@@ -142,16 +147,20 @@ export async function GET(req: NextRequest) {
         if (failed.length > 0) {
           console.warn("[cron/sba-checks] template staleness check could not resolve some forms", { failed });
         }
-        return NextResponse.json({
-          ok: true,
-          check,
-          checked: findings.length,
-          stale: stale.length,
-          failed: failed.length,
-          rowsUpdated: written,
-          findings,
-          durationMs: Date.now() - start,
-        });
+        const outcome = getCronOutcome(failed.length);
+        return NextResponse.json(
+          {
+            ok: outcome.ok,
+            check,
+            checked: findings.length,
+            stale: stale.length,
+            failed: outcome.failures,
+            rowsUpdated: written,
+            findings,
+            durationMs: Date.now() - start,
+          },
+          { status: outcome.status },
+        );
       }
       default:
         return NextResponse.json({ ok: false, error: `unhandled check: ${check}` }, { status: 400 });
