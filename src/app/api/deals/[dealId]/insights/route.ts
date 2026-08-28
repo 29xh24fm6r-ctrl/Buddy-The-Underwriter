@@ -30,7 +30,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     intelligenceStepsRes,
     snapshotRes,
     riskPricingRes,
-    lenderMatchRes,
     lifecycleRes,
     blockerRes,
   ] = await Promise.all([
@@ -39,7 +38,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       .eq("deal_id", dealId).order("step_code"),
     sb.from("financial_snapshots").select("id, snapshot_json").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
     sb.from("deal_risk_pricing_model").select("finalized, risk_grade, risk_score").eq("deal_id", dealId).maybeSingle(),
-    sb.from("deal_lender_matches" as any).select("id").eq("deal_id", dealId),
     sb.from("deals").select("stage").eq("id", dealId).maybeSingle(),
     sb.from("deal_pipeline_ledger").select("event_key, ui_message").eq("deal_id", dealId).eq("event_key", "lifecycle.blocker").order("created_at", { ascending: false }).limit(10),
   ]);
@@ -49,7 +47,6 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     { source: "intelligence_steps", error: intelligenceStepsRes.error },
     { source: "financial_snapshot", error: snapshotRes.error },
     { source: "risk_pricing", error: riskPricingRes.error },
-    { source: "lender_matches", error: lenderMatchRes.error },
     { source: "lifecycle", error: lifecycleRes.error },
     { source: "lifecycle_blockers", error: blockerRes.error },
   ].filter(({ error }) => error);
@@ -104,8 +101,14 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     riskPricingFinalized: (riskPricingRes.data as any)?.finalized === true,
     riskGrade: (riskPricingRes.data as any)?.risk_grade ?? null,
     riskScore: (riskPricingRes.data as any)?.risk_score != null ? Number((riskPricingRes.data as any).risk_score) : null,
-    lenderMatchCount: (lenderMatchRes.data ?? []).length,
-    lenderMatchReady: (lenderMatchRes.data ?? []).length > 0,
+    // Lender matching is computed on demand by /api/deals/[dealId]/lenders/match
+    // against lender_programs and is never persisted per deal, so there is no
+    // stored match count to read here. This used to query a `deal_lender_matches`
+    // table that has never existed in any migration; because the route fails
+    // closed when ANY source query errors, that one phantom table returned a
+    // permanent 503 for every deal and the cockpit's insights panel never loaded.
+    lenderMatchCount: 0,
+    lenderMatchReady: false,
     lifecycleStage: (lifecycleRes.data as any)?.stage ?? null,
     lifecycleBlockers,
     lifecycleNextAction: null, // Will be populated from lifecycle derivation in future

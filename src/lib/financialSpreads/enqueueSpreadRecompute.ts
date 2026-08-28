@@ -247,10 +247,61 @@ export async function enqueueSpreadRecompute(args: {
   // ── Step 2: Upsert placeholders (only after job is confirmed) ───────────
   // If this fails, the job still exists and the worker will process it —
   // placeholders just won't show "queued" in the UI until the next tick.
+  //
+  // A row that already exists is UPDATED in place and its rendered_json /
+  // rendered_html / rendered_csv are left untouched. Blanket-upserting the
+  // "Generating…" stub over an existing row destroys the last good render:
+  // a recompute enqueued moments after GLOBAL_CASH_FLOW finished rendering
+  // wiped the rendered spread (and its DSCR) and reset the row to 'queued',
+  // leaving the deal with no cash-flow spread at all. A recompute must never
+  // be able to lose data that is already on disk — the worker overwrites
+  // rendered_* when the new render succeeds, and until then the previous
+  // render stays readable. Only a brand-new row gets the stub.
   try {
+    const placeholderKey = (t: string, version: number, owner: string) =>
+      `${t}::${version}::${owner}`;
+
+    const { data: existingSpreadRows } = await (sb as any)
+      .from("deal_spreads")
+      .select("id, spread_type, spread_version, owner_type, owner_entity_id")
+      .eq("deal_id", args.dealId)
+      .eq("bank_id", args.bankId)
+      .eq("owner_entity_id", args.ownerEntityId ?? SENTINEL_UUID)
+      .in("spread_type", readyTypes);
+
+    const existingById = new Map<string, string>();
+    for (const row of (existingSpreadRows ?? []) as any[]) {
+      existingById.set(
+        placeholderKey(String(row.spread_type), Number(row.spread_version), String(row.owner_type)),
+        String(row.id),
+      );
+    }
+
     await Promise.all(
       readyTypes.map((t) => {
         const tpl = getSpreadTemplate(t as SpreadType)!; // guaranteed non-null by filter above
+        const resolvedOwnerType = resolveOwnerType(t, args.ownerType);
+        const existingId = existingById.get(placeholderKey(t, tpl.version, resolvedOwnerType));
+
+        if (existingId) {
+          // Reset the run state so the worker's CAS can claim it, but keep the
+          // previously rendered output readable while the recompute runs.
+          return (sb as any)
+            .from("deal_spreads")
+            .update({
+              status: "queued",
+              inputs_hash: null,
+              error: null,
+              error_code: null,
+              error_details_json: null,
+              last_run_id: null,
+              started_at: null,
+              finished_at: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", existingId);
+        }
+
         return (sb as any)
           .from("deal_spreads")
           .upsert(

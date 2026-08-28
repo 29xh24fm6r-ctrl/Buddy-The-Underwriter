@@ -1227,6 +1227,126 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       });
     }
 
+    // ── Late-merge guard: never finalize a job that grew after we leased it ──
+    //
+    // enqueueSpreadRecompute merges newly requested spread types into the deal's
+    // ACTIVE job — and "active" includes RUNNING, because the partial unique index
+    // deal_spread_jobs_one_active_per_deal permits only one QUEUED/RUNNING job per
+    // (deal, bank), so a concurrent enqueue has nowhere else to put them.
+    //
+    // `requested` was snapshotted at lease time. Any type merged in afterwards is
+    // therefore never processed by this run — yet enqueueSpreadRecompute has
+    // already upserted its placeholder to 'queued'. Marking the job SUCCEEDED here
+    // strands those placeholders with no backing job: the observer resets them to
+    // 'queued' forever while cleanupOrphanSpreads stamps them
+    // ORPHANED_BY_FAILED_ORCHESTRATION, and the deal can never leave underwriting.
+    //
+    // Re-queue instead, so the next lease picks up the merged union.
+    const { data: jobNow } = await (sb as any)
+      .from("deal_spread_jobs")
+      .select("requested_spread_types, meta")
+      .eq("id", jobId)
+      .maybeSingle();
+
+    const freshMeta = (jobNow?.meta && typeof jobNow.meta === "object") ? jobNow.meta : jobMeta;
+    const requestedNow = uniq(
+      ((jobNow?.requested_spread_types ?? []) as string[]).map(String).filter(Boolean),
+    );
+    const leasedTypes = new Set<string>(requested.map(String));
+    const lateTypes = requestedNow.filter((t) => !leasedTypes.has(t));
+
+    const lateRequeues =
+      typeof freshMeta.late_merge_requeues === "number" ? freshMeta.late_merge_requeues : 0;
+    const MAX_LATE_MERGE_REQUEUES = 5;
+
+    if (lateTypes.length > 0 && lateRequeues < MAX_LATE_MERGE_REQUEUES) {
+      const { count: requeueCount } = await (sb as any)
+        .from("deal_spread_jobs")
+        .update({
+          status: "QUEUED",
+          next_run_at: new Date().toISOString(),
+          lease_owner: null,
+          leased_until: null,
+          error: null,
+          meta: { ...freshMeta, late_merge_requeues: lateRequeues + 1 },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", jobId)
+        .eq("status", "RUNNING")
+        .eq("lease_owner", leaseOwner)
+        .select("id", { count: "exact", head: true });
+
+      if ((requeueCount ?? 0) > 0) {
+        writeSystemEvent({
+          event_type: "info",
+          severity: "info",
+          source_system: "spreads_processor",
+          source_job_id: jobId,
+          source_job_table: "deal_spread_jobs",
+          deal_id: dealId,
+          bank_id: bankId,
+          error_code: "SPREAD_JOB_REQUEUED_LATE_MERGE",
+          error_message: `Re-queued: ${lateTypes.join(", ")} merged in after lease and were not processed`,
+          payload: {
+            jobId, dealId,
+            leasedTypes: requested,
+            requestedNow,
+            lateTypes,
+            completed: Array.from(completedTypes),
+            requeueAttempt: lateRequeues + 1,
+          },
+        }).catch(() => {});
+
+        void logLedgerEvent({
+          dealId, bankId,
+          eventKey: "spread.run.requeued",
+          uiState: "working",
+          uiMessage: `Additional spreads requested mid-run — re-queued: ${lateTypes.join(", ")}`,
+          meta: { jobId, lateTypes },
+        });
+
+        return { ok: true as const, jobId, requeuedForLateMerge: true as const, lateTypes };
+      }
+      // CAS rejected (lease lost / job already terminal) — fall through and
+      // finalize normally rather than returning as if we had re-queued.
+    } else if (lateTypes.length > 0) {
+      // Re-queue budget exhausted. Do NOT leave the late placeholders sitting in
+      // 'queued' with no job behind them — that is exactly the orphan state.
+      // Mark them explicitly so the failure is visible and attributable.
+      for (const lateType of lateTypes) {
+        await (sb as any)
+          .from("deal_spreads")
+          .update({
+            status: "error",
+            finished_at: new Date().toISOString(),
+            error: `Never processed: merged into job ${jobId} after it was leased, ${MAX_LATE_MERGE_REQUEUES} re-queues exhausted`,
+            error_code: "SPREAD_LATE_MERGE_ABANDONED",
+            error_details_json: { jobId, dealId, lateTypes, requeues: lateRequeues },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("deal_id", dealId)
+          .eq("bank_id", bankId)
+          .eq("spread_type", lateType)
+          .eq("owner_type", resolveOwnerType(lateType, ownerType))
+          .eq("owner_entity_id", ownerEntityId)
+          .in("status", ["queued", "generating"]);
+      }
+
+      writeSystemEvent({
+        event_type: "error",
+        severity: "error",
+        source_system: "spreads_processor",
+        source_job_id: jobId,
+        source_job_table: "deal_spread_jobs",
+        deal_id: dealId,
+        bank_id: bankId,
+        error_class: "permanent",
+        error_code: "SPREAD_LATE_MERGE_ABANDONED",
+        error_message: `Abandoned ${lateTypes.length} late-merged spread type(s) after ${MAX_LATE_MERGE_REQUEUES} re-queues`,
+        payload: { jobId, dealId, lateTypes, requeues: lateRequeues },
+      }).catch(() => {});
+    }
+
     // ── Job outcome: no silent "SUCCEEDED 0 work" ──────────────────────────
     const renderedCount = completedTypes.size;
     const attemptedCount = readyTypes.length;
