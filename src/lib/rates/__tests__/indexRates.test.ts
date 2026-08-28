@@ -5,65 +5,148 @@ import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
 
 mockServerOnly();
 const require = createRequire(import.meta.url);
-
-const { getLatestIndexRates, __resetIndexRatesCacheForTests } =
-  require("../indexRates") as typeof import("../indexRates");
 const {
-  __setProviderImplForTests,
-  __resetGatewayTestOverrides,
-  __resetGatewayBudgetForTests,
-} = require("../../ai/gateway") as typeof import("../../ai/gateway");
+  getLatestIndexRates,
+  __resetIndexRatesCacheForTests,
+  RateFeedUnavailableError,
+} = require("../indexRates") as typeof import("../indexRates");
 
-function okResult(text: string) {
-  return { text, tokensIn: 1, tokensOut: 1 };
+const originalFetch = globalThis.fetch;
+let now = Date.now();
+
+function today(offsetDays = 0): string {
+  return new Date(now + offsetDays * 24 * 60 * 60 * 1_000)
+    .toISOString()
+    .slice(0, 10);
 }
 
-const VALID_JSON = JSON.stringify({
-  SOFR: { rate: 5.31, asOf: "2026-07-29" },
-  UST_5Y: { rate: 4.12, asOf: "2026-07-29" },
-  PRIME: { rate: 7.5, asOf: "2026-07-29" },
-});
+function installOfficialFeedMock(options?: {
+  primaryStatus?: number;
+  ratePct?: number;
+}) {
+  const primaryStatus = options?.primaryStatus ?? 200;
+  const ratePct = options?.ratePct ?? 4.25;
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("markets.newyorkfed.org")) {
+      return new Response(
+        primaryStatus === 200
+          ? JSON.stringify({
+              refRates: [{ effectiveDate: today(), percentRate: ratePct }],
+            })
+          : "unavailable",
+        { status: primaryStatus },
+      );
+    }
+    if (url.includes("home.treasury.gov")) {
+      return new Response(
+        primaryStatus === 200
+          ? `<feed><entry><content><m:properties>
+              <d:NEW_DATE>${today()}T00:00:00</d:NEW_DATE>
+              <d:BC_5YEAR>${ratePct}</d:BC_5YEAR>
+            </m:properties></content></entry></feed>`
+          : "unavailable",
+        { status: primaryStatus },
+      );
+    }
+    if (url.includes("fredgraph.csv")) {
+      const series = new URL(url).searchParams.get("id");
+      const value =
+        series === "DPRIME" ? ratePct + 3 : series === "SOFR" ? ratePct + 1 : ratePct;
+      return new Response(`observation_date,${series}\n${today()},${value}\n`);
+    }
+    return new Response("unexpected URL", { status: 404 });
+  }) as typeof fetch;
+}
 
 beforeEach(() => {
   __resetIndexRatesCacheForTests();
-  __setProviderImplForTests("openai", async () => {
-    throw new Error("openai fallback not configured in this test");
-  });
+  now = Date.now();
+  installOfficialFeedMock();
 });
 
 after(() => {
-  __resetGatewayTestOverrides();
-  __resetGatewayBudgetForTests();
+  globalThis.fetch = originalFetch;
 });
 
-test("happy path: threads useSearchGrounding through and parses all three rates", async () => {
-  let captured: any = null;
-  __setProviderImplForTests("google", async (req: any) => {
-    captured = req;
-    return okResult(VALID_JSON);
-  });
-
+test("loads benchmark truth from the three official deterministic feeds", async () => {
   const rates = await getLatestIndexRates();
 
-  assert.equal(captured.useSearchGrounding, true);
-  assert.equal(rates.SOFR.ratePct, 5.31);
-  assert.equal(rates.UST_5Y.ratePct, 4.12);
-  assert.equal(rates.PRIME.ratePct, 7.5);
+  assert.equal(rates.SOFR.ratePct, 4.25);
   assert.equal(rates.SOFR.source, "nyfed");
+  assert.equal(rates.UST_5Y.ratePct, 4.25);
+  assert.equal(rates.UST_5Y.source, "treasury");
+  assert.equal(rates.PRIME.ratePct, 7.25);
+  assert.equal(rates.PRIME.source, "fred");
+  assert.match(rates.SOFR.sourceUrl ?? "", /markets\.newyorkfed\.org/);
+  assert.match(rates.UST_5Y.sourceUrl ?? "", /home\.treasury\.gov/);
 });
 
-test("strips markdown JSON fences before parsing", async () => {
-  __setProviderImplForTests("google", async () => okResult("```json\n" + VALID_JSON + "\n```"));
+test("falls back to Federal Reserve series when NY Fed or Treasury is unavailable", async () => {
+  installOfficialFeedMock({ primaryStatus: 503 });
+
   const rates = await getLatestIndexRates();
-  assert.equal(rates.PRIME.ratePct, 7.5);
+
+  assert.equal(rates.SOFR.ratePct, 5.25);
+  assert.equal(rates.SOFR.source, "fred");
+  assert.equal(rates.UST_5Y.ratePct, 4.25);
+  assert.equal(rates.UST_5Y.source, "fred");
+  assert.equal(rates.PRIME.ratePct, 7.25);
 });
 
-test("gateway failure (both chain steps down): rejects, does not throw a swallowed error", async () => {
-  __setProviderImplForTests("google", async () => {
-    throw new Error("HTTP 500: boom");
-  });
-  __setProviderImplForTests("openai", async () => {
-    throw new Error("HTTP 500: boom (openai fallback also down)");
-  });
-  await assert.rejects(() => getLatestIndexRates(), /HTTP 500/);
+test("rejects implausible observations instead of admitting bad pricing inputs", async () => {
+  installOfficialFeedMock({ ratePct: 99 });
+
+  await assert.rejects(
+    () => getLatestIndexRates(),
+    (error: unknown) => error instanceof RateFeedUnavailableError,
+  );
+});
+
+test("rejects stale observations from every provider", async () => {
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    const staleDate = today(-30);
+    if (url.includes("markets.newyorkfed.org")) {
+      return new Response(
+        JSON.stringify({
+          refRates: [{ effectiveDate: staleDate, percentRate: 4.25 }],
+        }),
+      );
+    }
+    if (url.includes("home.treasury.gov")) {
+      return new Response(
+        `<feed><entry><d:NEW_DATE>${staleDate}T00:00:00</d:NEW_DATE><d:BC_5YEAR>4.25</d:BC_5YEAR></entry></feed>`,
+      );
+    }
+    return new Response(`observation_date,value\n${staleDate},4.25\n`);
+  }) as typeof fetch;
+
+  await assert.rejects(
+    () => getLatestIndexRates(),
+    (error: unknown) => error instanceof RateFeedUnavailableError,
+  );
+});
+
+test("serves bounded last-known-good rates when a refresh fails", async () => {
+  const first = await getLatestIndexRates();
+  assert.equal(first.SOFR.raw, undefined);
+
+  now += 16 * 60 * 1_000;
+  const originalDateNow = Date.now;
+  Date.now = () => now;
+  globalThis.fetch = (async () => new Response("down", { status: 503 })) as typeof fetch;
+
+  try {
+    const stale = await getLatestIndexRates();
+    assert.equal(stale.SOFR.ratePct, first.SOFR.ratePct);
+    assert.deepEqual(stale.SOFR.raw, {
+      stale: true,
+      reason: "official_refresh_failed",
+      lastKnownSource: "nyfed",
+    });
+  } finally {
+    Date.now = originalDateNow;
+  }
 });
