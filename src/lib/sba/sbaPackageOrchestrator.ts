@@ -69,7 +69,7 @@ export async function generateSBAPackage(
       packageId: string;
       dscrBelowThreshold: boolean;
       dscrYear1Base: number;
-      pdfUrl: string | null;
+      pdfUrl: string;
       versionNumber: number;
       /** Exact deterministic input used for the initial render. */
       renderInput: SBAPackageRenderInput;
@@ -830,12 +830,11 @@ export async function generateSBAPackage(
     );
   }
 
-  // Render PDF.
-  // Sprint 3: for mode='preview' we redact at the data layer *before* calling
-  // renderSBAPackagePDF, then ask the renderer to stamp a cosmetic watermark
-  // overlay. The PDF contains no precise borrower numbers regardless of the
-  // watermark — if someone removes it, the document is still preview-shaped.
+  // Render and persist the PDF before creating the canonical package row.
+  // A package without its PDF is not a successful SBA package: callers, version
+  // history, and lender delivery all treat pdf_url as the durable artifact pointer.
   let pdfUrl: string | null = null;
+  let pdfPath: string | null = null;
   let finalRenderInput: SBAPackageRenderInput | null = null;
   try {
     const redactionInput: SBAPackageInputs = {
@@ -882,11 +881,6 @@ export async function generateSBAPackage(
         ? redactSBAPackageForPreview(redactionInput)
         : redactionInput;
 
-    // Projection detail the scoped redactor above does not cover. The
-    // renderer prints all of it verbatim, so preview redaction has to happen
-    // here at the data layer — a watermark is a cosmetic overlay and does not
-    // satisfy the redactor's contract (audit F-13). Buckets match the annual
-    // projections, so trend and DSCR survive and precision does not.
     const previewMonthly =
       mode === "preview" ? redactMonthlyProjectionsForPreview(monthlyProjections) : monthlyProjections;
     const previewBreakEven = mode === "preview" ? redactBreakEvenForPreview(breakEven) : breakEven;
@@ -897,9 +891,6 @@ export async function generateSBAPackage(
         ? redactRevenueStreamProjectionsForPreview(revenueStreamProjections)
         : revenueStreamProjections;
 
-    // Build renderer input: use redacted fields where the redactor produced
-    // them, keep orchestrator-only fields (managementTeam, franchiseSection)
-    // as-is — those carry no precise borrower figures.
     finalRenderInput = {
       dealName: redacted.dealName,
       loanType: redacted.loanType,
@@ -940,31 +931,34 @@ export async function generateSBAPackage(
       globalCashFlow: mode === "preview" ? undefined : globalCashFlow,
       previewWatermark: mode === "preview",
     };
-    const pdfBuffer = await renderSBAPackagePDF(finalRenderInput);
 
+    const pdfBuffer = await renderSBAPackagePDF(finalRenderInput);
     const previewSuffix = mode === "preview" ? "_preview" : "";
-    const pdfPath = `sba-packages/${dealId}/${Date.now()}${previewSuffix}.pdf`;
+    pdfPath = `sba-packages/${dealId}/${Date.now()}${previewSuffix}.pdf`;
     const { error: uploadError } = await sb.storage
       .from("deal-documents")
       .upload(pdfPath, pdfBuffer, {
         contentType: "application/pdf",
-        upsert: true,
+        upsert: false,
       });
 
-    if (!uploadError) {
-      pdfUrl = pdfPath;
-    } else {
-      console.error("[sbaPackageOrchestrator] PDF upload error:", uploadError);
+    if (uploadError) {
+      console.error("[sbaPackageOrchestrator] PDF upload failed");
+      return { ok: false, error: "SBA package PDF upload failed." };
     }
+    pdfUrl = pdfPath;
   } catch (pdfErr) {
-    console.error("[sbaPackageOrchestrator] PDF render error:", pdfErr);
-    // Non-fatal: proceed without PDF
+    console.error(
+      "[sbaPackageOrchestrator] PDF render failed:",
+      pdfErr instanceof Error ? pdfErr.message : "unknown_error",
+    );
+    return { ok: false, error: "SBA package PDF rendering failed." };
   }
 
-  if (!finalRenderInput) {
+  if (!finalRenderInput || !pdfUrl || !pdfPath) {
     return {
       ok: false,
-      error: "SBA package renderer input could not be assembled.",
+      error: "SBA package PDF persistence could not be proven.",
     };
   }
 
@@ -976,12 +970,21 @@ export async function generateSBAPackage(
   );
 
   // Phase BPG — versioning (parent_package_id = previous latest)
-  const { data: priorRows } = await sb
+  const { data: priorRows, error: priorRowsError } = await sb
     .from("buddy_sba_packages")
     .select("id, version_number")
     .eq("deal_id", dealId)
     .order("version_number", { ascending: false })
     .limit(1);
+  if (priorRowsError) {
+    const { error: cleanupError } = await sb.storage
+      .from("deal-documents")
+      .remove([pdfPath]);
+    if (cleanupError) {
+      console.error("[sbaPackageOrchestrator] orphan PDF cleanup failed");
+    }
+    return { ok: false, error: "SBA package version lookup failed." };
+  }
   const priorLatest = priorRows?.[0] as
     | { id: string; version_number: number | null }
     | undefined;
@@ -989,7 +992,7 @@ export async function generateSBAPackage(
   const parentPackageId = priorLatest?.id ?? null;
 
   // Store package record (now with all BPG fields)
-  const { data: pkg } = await sb
+  const { data: pkg, error: packageInsertError } = await sb
     .from("buddy_sba_packages")
     .insert({
       deal_id: dealId,
@@ -1041,8 +1044,19 @@ export async function generateSBAPackage(
       kpi_dashboard: kpiDashboard,
       risk_contingency_matrix: riskContingencyMatrix,
     })
-    .select("id")
+    .select("id, pdf_url")
     .single();
+
+  if (packageInsertError || !pkg?.id || pkg.pdf_url !== pdfUrl) {
+    console.error("[sbaPackageOrchestrator] package row persistence failed");
+    const { error: cleanupError } = await sb.storage
+      .from("deal-documents")
+      .remove([pdfPath]);
+    if (cleanupError) {
+      console.error("[sbaPackageOrchestrator] orphan PDF cleanup failed");
+    }
+    return { ok: false, error: "SBA package persistence failed." };
+  }
 
   // Phase BPG — Cross-fill SBA forms (after INSERT so we have context)
   try {
@@ -1074,7 +1088,7 @@ export async function generateSBAPackage(
 
   return {
     ok: true,
-    packageId: pkg?.id ?? "",
+    packageId: pkg.id,
     dscrBelowThreshold,
     dscrYear1Base,
     pdfUrl,
