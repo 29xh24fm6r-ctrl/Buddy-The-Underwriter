@@ -26,6 +26,20 @@ describe("research mission actor identity compatibility", () => {
   });
 });
 
+describe("research mission rollout compatibility", () => {
+  const runMission = read("src/lib/research/runMission.ts");
+
+  it("retries a Clerk actor only when the legacy UUID column rejects it", () => {
+    assert.match(runMission, /error\?\.code === "22P02" && !actorIsLegacyUuid/);
+    assert.match(runMission, /insert\(\{ \.\.\.missionInsert, created_by: null \}\)/);
+  });
+
+  it("keeps Clerk attribution on the primary insert after the migration", () => {
+    assert.match(runMission, /created_by: userId \?\? null/);
+    assert.match(runMission, /Once the created_by TEXT migration is live/);
+  });
+});
+
 describe("research launch failure UX", () => {
   const workbench = read("src/components/underwrite/AnalystWorkbench.tsx");
 
