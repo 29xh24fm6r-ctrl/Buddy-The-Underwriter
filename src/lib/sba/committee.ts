@@ -13,6 +13,7 @@
  * - Bank policies
  */
 
+import { z } from "zod";
 import { getOpenAI } from "@/lib/ai/openaiClient";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { retrieveEvidence, type Citation } from "@/lib/retrieval/retrievalCore";
@@ -42,6 +43,21 @@ export type CommitteeResult = {
   };
 };
 
+const PersonaResponseSchema = z.object({
+  stance: z.enum(["APPROVE", "APPROVE_WITH_CONDITIONS", "DECLINE"]),
+  concerns: z.array(z.string().trim().min(1).max(1_000)).max(20),
+  required_fixes: z.array(z.string().trim().min(1).max(1_000)).max(20),
+  citations: z
+    .array(
+      z.object({
+        i: z.number().int().min(1),
+        reason: z.string().trim().min(1).max(1_000),
+      }),
+    )
+    .min(1)
+    .max(20),
+});
+
 /**
  * Run full committee evaluation
  */
@@ -67,17 +83,36 @@ export async function runCommittee({
     topK: 20,
   });
 
-  const formattedContext = evidence.citations.map((c: any) => c.quote || "").join("\n\n");
-  const citations = evidence.citations;
+  const citations = evidence.citations.filter(
+    (citation: Citation) =>
+      typeof citation.quote === "string" && citation.quote.trim().length > 0,
+  );
+  if (citations.length === 0) {
+    throw new Error("committee_evidence_required");
+  }
+  const formattedContext = citations
+    .map((citation: Citation) => citation.quote.trim())
+    .join("\n\n");
 
-  // 2. Fetch persona configurations
-  const { data: personaConfigs } = await sb
+  // 2. Fetch every requested persona configuration and fail closed if the
+  // configuration query is incomplete.
+  const requestedPersonas = Array.from(new Set(personas));
+  const { data: personaConfigs, error: personaConfigError } = await sb
     .from("committee_personas")
     .select("*")
-    .in("persona_key", personas);
+    .in("persona_key", requestedPersonas);
 
-  if (!personaConfigs || personaConfigs.length === 0) {
-    throw new Error("No committee personas found");
+  if (personaConfigError) {
+    console.error("[runCommittee] persona query failed", {
+      code: personaConfigError.code,
+    });
+    throw new Error("committee_persona_load_failed");
+  }
+  if (
+    !personaConfigs ||
+    personaConfigs.length !== requestedPersonas.length
+  ) {
+    throw new Error("committee_persona_configuration_incomplete");
   }
 
   // 3. Run each persona evaluation in parallel
@@ -90,6 +125,7 @@ export async function runCommittee({
         evaluationTemplate: config.evaluation_template,
         question,
         context: formattedContext,
+        citationCount: citations.length,
         openai,
       });
 
@@ -101,7 +137,7 @@ export async function runCommittee({
   const consensus = calculateConsensus(evaluations);
 
   // 5. Store AI event
-  const { data: aiEvent } = await sb
+  const { data: aiEvent, error: aiEventError } = await sb
     .from("ai_events")
     .insert({
       deal_id: dealId,
@@ -122,16 +158,29 @@ export async function runCommittee({
     .select("id")
     .single();
 
-  const eventId = aiEvent?.id ?? "unknown";
+  if (aiEventError || !aiEvent?.id) {
+    console.error("[runCommittee] AI event persistence failed", {
+      code: aiEventError?.code,
+    });
+    throw new Error("committee_event_persist_failed");
+  }
+  const eventId = aiEvent.id;
 
-  // 6. Store citations
-  if (citations.length > 0) {
-    await sb.from("ai_event_citations").insert(
-      citations.map((c) => ({
+  // 6. Store citations before acknowledging the evaluation.
+  const { error: citationError } = await sb
+    .from("ai_event_citations")
+    .insert(
+      citations.map((citation) => ({
         event_id: eventId,
-        ...c,
-      }))
+        ...citation,
+      })),
     );
+  if (citationError) {
+    console.error("[runCommittee] citation persistence failed", {
+      eventId,
+      code: citationError.code,
+    });
+    throw new Error("committee_citations_persist_failed");
   }
 
   return {
@@ -151,6 +200,7 @@ async function evaluateAsPersona({
   evaluationTemplate,
   question,
   context,
+  citationCount,
   openai,
 }: {
   persona: PersonaKey;
@@ -159,6 +209,7 @@ async function evaluateAsPersona({
   evaluationTemplate: string;
   question: string;
   context: string;
+  citationCount: number;
   openai: ReturnType<typeof getOpenAI>;
 }): Promise<PersonaEvaluation> {
   const userPrompt = `${evaluationTemplate}
@@ -186,15 +237,20 @@ Respond in JSON format:
     temperature: 0.3,
   });
 
-  const result = JSON.parse(completion.choices[0].message.content || "{}");
+  const result = PersonaResponseSchema.parse(
+    JSON.parse(completion.choices[0].message.content || "{}"),
+  );
+  if (result.citations.some((citation) => citation.i > citationCount)) {
+    throw new Error("committee_evaluation_citation_invalid");
+  }
 
   return {
     persona,
     display_name: displayName,
-    stance: result.stance ?? "DECLINE",
-    concerns: result.concerns ?? [],
-    required_fixes: result.required_fixes ?? [],
-    citations: result.citations ?? [],
+    stance: result.stance,
+    concerns: result.concerns,
+    required_fixes: result.required_fixes,
+    citations: result.citations,
   };
 }
 
