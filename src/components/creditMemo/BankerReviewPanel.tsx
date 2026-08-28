@@ -180,7 +180,7 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
         if (requests.length === 0) {
           // Nothing to write — no-op success.
           setSavedAt(new Date().toISOString());
-          return;
+          return true;
         }
 
         const responses = await Promise.all(requests);
@@ -194,8 +194,10 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
         // setOverrides call. Reflect persistence by stamping savedAt.
         setOverrides((prev) => ({ ...prev, ...patch }));
         setSavedAt(new Date().toISOString());
+        return true;
       } catch (err: any) {
         setSaveError(String(err?.message ?? err));
+        return false;
       } finally {
         setSavingTab(null);
       }
@@ -209,7 +211,7 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
   // Tracks the in-flight save promise once the debounce timer fires, so a
   // submit that lands in the narrow window between "timer fired" and "fetch
   // resolved" can still be awaited (see flushPendingTextSave below).
-  const inFlightTextSaveRef = useRef<Promise<void> | null>(null);
+  const inFlightTextSaveRef = useRef<Promise<boolean> | null>(null);
   const scheduleTextSave = useCallback(
     (key: string, value: string) => {
       textPatchBuffer.current[key] = value;
@@ -235,15 +237,28 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
+
+    let attemptedFreshSave = false;
     if (Object.keys(textPatchBuffer.current).length > 0) {
+      attemptedFreshSave = true;
       const patch = { ...textPatchBuffer.current } as Partial<OverridesBag>;
       textPatchBuffer.current = {};
-      await saveOverrides(patch, "profile");
+      const saved = await saveOverrides(patch, "profile");
+      if (!saved) {
+        throw new Error("Unsaved memo changes blocked submission.");
+      }
     }
     if (inFlightTextSaveRef.current) {
-      await inFlightTextSaveRef.current;
+      attemptedFreshSave = true;
+      const saved = await inFlightTextSaveRef.current;
+      if (!saved) {
+        throw new Error("Unsaved memo changes blocked submission.");
+      }
     }
-  }, [saveOverrides]);
+    if (!attemptedFreshSave && saveError) {
+      throw new Error("Unsaved memo changes blocked submission.");
+    }
+  }, [saveError, saveOverrides]);
 
   // Mark a tab as viewed (used by checklist "Recommended" items)
   useEffect(() => {
