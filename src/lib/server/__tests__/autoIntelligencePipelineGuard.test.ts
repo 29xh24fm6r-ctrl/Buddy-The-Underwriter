@@ -135,6 +135,39 @@ describe("Intelligence API — contract", () => {
     const content = readFile("app/api/deals/[dealId]/intelligence/auto/retry/route.ts");
     assert.ok(content.includes("already_running"), "must handle duplicate");
   });
+
+  it("fails closed when intelligence-state queries fail", () => {
+    const content = readFile("app/api/deals/[dealId]/intelligence/auto/route.ts");
+    assert.ok(content.includes("runError"), "must inspect the run query error");
+    assert.ok(content.includes("stepsError"), "must inspect the steps query error");
+    assert.ok(
+      content.includes("intelligence_state_unavailable"),
+      "must publish a stable retryable error contract",
+    );
+    assert.ok(content.includes("status: 503"), "must return retryable HTTP 503");
+    assert.ok(content.includes('"Retry-After": "10"'), "must bound client retry");
+  });
+
+  it("fails closed when any synthesized-insight source query fails", () => {
+    const content = readFile("app/api/deals/[dealId]/insights/route.ts");
+    for (const source of [
+      "intelligence_run",
+      "intelligence_steps",
+      "financial_snapshot",
+      "risk_pricing",
+      "lender_matches",
+      "lifecycle",
+      "lifecycle_blockers",
+    ]) {
+      assert.ok(content.includes(source), `must inspect ${source} failures`);
+    }
+    assert.ok(
+      content.includes("intelligence_sources_unavailable"),
+      "must not synthesize partial sources as healthy insight",
+    );
+    assert.ok(content.includes("status: 503"), "must return retryable HTTP 503");
+    assert.ok(content.includes('"Retry-After": "10"'), "must bound client retry");
+  });
 });
 
 // ---------------------------------------------------------------------------

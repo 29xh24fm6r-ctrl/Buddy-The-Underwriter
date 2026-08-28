@@ -44,6 +44,34 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     sb.from("deal_pipeline_ledger").select("event_key, ui_message").eq("deal_id", dealId).eq("event_key", "lifecycle.blocker").order("created_at", { ascending: false }).limit(10),
   ]);
 
+  const queryFailures = [
+    { source: "intelligence_run", error: intelligenceRunRes.error },
+    { source: "intelligence_steps", error: intelligenceStepsRes.error },
+    { source: "financial_snapshot", error: snapshotRes.error },
+    { source: "risk_pricing", error: riskPricingRes.error },
+    { source: "lender_matches", error: lenderMatchRes.error },
+    { source: "lifecycle", error: lifecycleRes.error },
+    { source: "lifecycle_blockers", error: blockerRes.error },
+  ].filter(({ error }) => error);
+
+  if (queryFailures.length > 0) {
+    console.error("[deal/insights] source queries failed", {
+      dealId,
+      failures: queryFailures.map(({ source, error }) => ({
+        source,
+        code: error?.code ?? null,
+        message: error?.message ?? "unknown database error",
+      })),
+    });
+    return NextResponse.json(
+      { ok: false, error: "intelligence_sources_unavailable", retryable: true },
+      {
+        status: 503,
+        headers: { "Cache-Control": "no-store", "Retry-After": "10" },
+      },
+    );
+  }
+
   // Derive intelligence state
   const intelState = deriveAutoIntelligenceState(
     intelligenceRunRes.data,

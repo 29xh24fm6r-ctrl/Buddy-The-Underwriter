@@ -9,6 +9,27 @@ export const maxDuration = 8;
 
 type Ctx = { params: Promise<{ dealId: string }> };
 
+function unavailable(
+  dealId: string,
+  source: "run" | "steps",
+  error: { code?: string; message?: string },
+) {
+  console.error("[intelligence/auto] state query failed", {
+    dealId,
+    source,
+    code: error.code ?? null,
+    message: error.message ?? "unknown database error",
+  });
+
+  return NextResponse.json(
+    { ok: false, error: "intelligence_state_unavailable", retryable: true },
+    {
+      status: 503,
+      headers: { "Cache-Control": "no-store", "Retry-After": "10" },
+    },
+  );
+}
+
 /**
  * GET /api/deals/[dealId]/intelligence/auto
  * Returns current auto-intelligence pipeline state.
@@ -20,7 +41,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
   const sb = supabaseAdmin();
 
-  const { data: run } = await sb
+  const { data: run, error: runError } = await sb
     .from("deal_intelligence_runs")
     .select("id, status, source, requested_at, started_at, completed_at, error_code, error_detail")
     .eq("deal_id", dealId)
@@ -28,13 +49,16 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     .limit(1)
     .maybeSingle();
 
+  if (runError) return unavailable(dealId, "run", runError);
+
   let steps: any[] = [];
   if (run) {
-    const { data } = await sb
+    const { data, error: stepsError } = await sb
       .from("deal_intelligence_steps")
       .select("step_code, status, started_at, completed_at, summary, error_code, error_detail")
       .eq("intelligence_run_id", run.id)
       .order("step_code");
+    if (stepsError) return unavailable(dealId, "steps", stepsError);
     steps = data ?? [];
   }
 
