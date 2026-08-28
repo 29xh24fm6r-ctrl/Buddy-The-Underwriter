@@ -151,19 +151,25 @@ export async function generateTridentSbaCheckpoint(args: {
   );
   if (!result.ok) throw new Error(`SBA package generation failed: ${result.error}`);
 
-  const { error: checkpointError } = await sb
-    .from("buddy_trident_bundles")
-    .update({
+  await persistRowWithStorageRollback(sb, {
+    table: "buddy_trident_bundles",
+    filters: {
+      id: args.bundleId,
+      lease_token: args.leaseToken,
+      input_hash: args.inputHash,
+    },
+    values: {
       source_sba_package_id: result.packageId,
       current_stage: "business_plan_review",
       last_heartbeat_at: new Date().toISOString(),
-    })
-    .eq("id", args.bundleId)
-    .eq("lease_token", args.leaseToken)
-    .eq("input_hash", args.inputHash);
-  if (checkpointError) {
-    throw new Error(`SBA package checkpoint write failed: ${checkpointError.message}`);
-  }
+    },
+    expected: {
+      source_sba_package_id: result.packageId,
+      current_stage: "business_plan_review",
+    },
+    uploaded: [],
+    label: "SBA package checkpoint",
+  });
   return result;
 }
 
@@ -587,14 +593,25 @@ export async function generateTridentBundle(args: {
         // a transient provider timeout can resume from the same study instead
         // of orphaning the study and regenerating upstream artifacts.
         if (sourceFeasibilityId) {
-          const { error: checkpointError } = await sb.from("buddy_trident_bundles").update({
-            source_feasibility_id: sourceFeasibilityId,
-            current_stage: "feasibility_review",
-            last_heartbeat_at: new Date().toISOString(),
-          }).eq("id", bundleId).eq("lease_token", args.leaseToken);
-          if (checkpointError) {
-            throw new Error(`Feasibility checkpoint write failed: ${checkpointError.message}`);
-          }
+          await persistRowWithStorageRollback(sb, {
+            table: "buddy_trident_bundles",
+            filters: {
+              id: bundleId,
+              lease_token: args.leaseToken,
+              input_hash: admittedInputHash,
+            },
+            values: {
+              source_feasibility_id: sourceFeasibilityId,
+              current_stage: "feasibility_review",
+              last_heartbeat_at: new Date().toISOString(),
+            },
+            expected: {
+              source_feasibility_id: sourceFeasibilityId,
+              current_stage: "feasibility_review",
+            },
+            uploaded: [],
+            label: "Feasibility checkpoint",
+          });
         }
         if (mode === "final" && sourceFeasibilityId && feasResult.composite) {
           const feasibilityVerification = await reviewFeasibilityWithRetry({
