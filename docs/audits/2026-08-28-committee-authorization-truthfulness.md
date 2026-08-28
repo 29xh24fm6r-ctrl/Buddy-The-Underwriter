@@ -67,4 +67,5 @@ The connected Supabase resource identifies as a different product and was not ac
 - Initial broad CI exposed one brittle bank-scope contract and two lifecycle-ownership guard failures.
 - The bank-scope contract now accepts the route's authoritative local binding.
 - Failed decision mirroring now restores the retryable snapshot through the canonical submission owner, preserving the single-writer lifecycle invariant.
+- Active repair PR: #947. PR #946 was superseded only because GitHub did not emit replacement workflows after its initial failed run.
 - Replacement exact-head CI and deployment verification are pending.
