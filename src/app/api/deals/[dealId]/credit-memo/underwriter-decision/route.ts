@@ -12,17 +12,20 @@ import type {
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
+const NO_STORE = { "Cache-Control": "no-store" };
+const MAX_SUMMARY_LENGTH = 8_000;
+const MAX_FEEDBACK_ITEMS = 50;
+const MAX_FEEDBACK_TEXT_LENGTH = 2_000;
+
 const ALLOWED_DECISIONS: ReadonlySet<UnderwriterDecision> = new Set([
   "approved",
   "declined",
   "returned_for_revision",
 ]);
 
-const ALLOWED_SEVERITIES: ReadonlySet<UnderwriterRequestedChange["severity"]> = new Set([
-  "minor",
-  "material",
-  "blocker",
-]);
+const ALLOWED_SEVERITIES: ReadonlySet<
+  UnderwriterRequestedChange["severity"]
+> = new Set(["minor", "material", "blocker"]);
 
 const ALLOWED_OWNERS: ReadonlySet<UnderwriterCondition["owner"]> = new Set([
   "banker",
@@ -44,8 +47,6 @@ export async function POST(
     const { dealId } = await props.params;
     const access = await requireDealAccess(dealId);
 
-    // Separation of duties: the banker who assembled/submitted the memo must
-    // not be able to record their own underwriter decision on it.
     await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
 
     const body = (await req.json().catch(() => ({}))) as {
@@ -56,81 +57,183 @@ export async function POST(
       conditions?: unknown;
     };
 
-    const snapshotId = typeof body.snapshotId === "string" ? body.snapshotId : null;
+    const snapshotId =
+      typeof body.snapshotId === "string" ? body.snapshotId.trim() : "";
     const decision =
-      typeof body.decision === "string" && ALLOWED_DECISIONS.has(body.decision as UnderwriterDecision)
+      typeof body.decision === "string" &&
+      ALLOWED_DECISIONS.has(body.decision as UnderwriterDecision)
         ? (body.decision as UnderwriterDecision)
         : null;
-    const summary = typeof body.summary === "string" ? body.summary.trim() : "";
+    const summary =
+      typeof body.summary === "string" ? body.summary.trim() : "";
 
-    if (!snapshotId || !decision || summary.length === 0) {
+    if (
+      !snapshotId ||
+      !decision ||
+      !summary ||
+      summary.length > MAX_SUMMARY_LENGTH
+    ) {
       return NextResponse.json(
-        { ok: false, error: "missing_required_fields" },
-        { status: 400 },
+        { ok: false, error: "missing_or_invalid_required_fields" },
+        { status: 400, headers: NO_STORE },
       );
     }
 
-    const requested_changes = filterRequestedChanges(body.requested_changes);
-    const conditions = filterConditions(body.conditions);
+    const requestedChanges = parseRequestedChanges(body.requested_changes);
+    const conditions = parseConditions(body.conditions);
+    if (requestedChanges === null || conditions === null) {
+      return NextResponse.json(
+        { ok: false, error: "invalid_underwriter_feedback" },
+        { status: 400, headers: NO_STORE },
+      );
+    }
 
     const result = await recordUnderwriterDecision({
       dealId,
       snapshotId,
       underwriterId: access.userId,
-      feedback: { decision, summary, requested_changes, conditions },
+      feedback: {
+        decision,
+        summary,
+        requested_changes: requestedChanges,
+        conditions,
+      },
     });
 
-    return NextResponse.json({ ok: true, ...result });
-  } catch (e: unknown) {
-    rethrowNextErrors(e);
-    if (e instanceof AuthorizationError) {
+    return NextResponse.json(
+      { ok: true, ...result },
+      { headers: NO_STORE },
+    );
+  } catch (error: unknown) {
+    rethrowNextErrors(error);
+    if (error instanceof AuthorizationError) {
       return NextResponse.json(
-        { ok: false, error: e.code },
-        { status: e.code === "not_authenticated" ? 401 : 403 },
+        { ok: false, error: error.code },
+        {
+          status: error.code === "not_authenticated" ? 401 : 403,
+          headers: NO_STORE,
+        },
       );
     }
-    const message = e instanceof Error ? e.message : String(e);
-    const status = message.includes("snapshot_not_in_banker_submitted_state") ? 409 : 500;
-    console.error("[credit-memo/underwriter-decision POST]", e);
-    return NextResponse.json({ ok: false, error: message }, { status });
+
+    const code = error instanceof Error ? error.message : "";
+    console.error("[credit-memo/underwriter-decision POST]", error);
+
+    if (code === "underwriter_separation_of_duties") {
+      return NextResponse.json(
+        { ok: false, error: code },
+        { status: 403, headers: NO_STORE },
+      );
+    }
+    if (
+      code === "snapshot_not_in_banker_submitted_state" ||
+      code === "snapshot_submitter_provenance_missing"
+    ) {
+      return NextResponse.json(
+        { ok: false, error: code },
+        { status: 409, headers: NO_STORE },
+      );
+    }
+    if (code === "decision_status_sync_failed") {
+      return NextResponse.json(
+        { ok: false, error: code },
+        { status: 503, headers: NO_STORE },
+      );
+    }
+    if (code === "decision_reconciliation_required") {
+      return NextResponse.json(
+        { ok: false, error: code },
+        { status: 500, headers: NO_STORE },
+      );
+    }
+
+    return NextResponse.json(
+      { ok: false, error: "underwriter_decision_unavailable" },
+      { status: 500, headers: NO_STORE },
+    );
   }
 }
 
-function filterRequestedChanges(value: unknown): UnderwriterRequestedChange[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((v): UnderwriterRequestedChange | null => {
-      if (!v || typeof v !== "object") return null;
-      const r = v as Record<string, unknown>;
-      const section_key = typeof r.section_key === "string" ? r.section_key : null;
-      const comment = typeof r.comment === "string" ? r.comment : null;
-      const severity =
-        typeof r.severity === "string" && ALLOWED_SEVERITIES.has(r.severity as UnderwriterRequestedChange["severity"])
-          ? (r.severity as UnderwriterRequestedChange["severity"])
-          : null;
-      if (!section_key || !comment || !severity) return null;
-      return { section_key, comment, severity };
-    })
-    .filter((x): x is UnderwriterRequestedChange => x !== null);
+function parseRequestedChanges(
+  value: unknown,
+): UnderwriterRequestedChange[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_FEEDBACK_ITEMS) return null;
+
+  const items: UnderwriterRequestedChange[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") return null;
+    const record = entry as Record<string, unknown>;
+    const sectionKey =
+      typeof record.section_key === "string"
+        ? record.section_key.trim()
+        : "";
+    const comment =
+      typeof record.comment === "string" ? record.comment.trim() : "";
+    const severity =
+      typeof record.severity === "string" &&
+      ALLOWED_SEVERITIES.has(
+        record.severity as UnderwriterRequestedChange["severity"],
+      )
+        ? (record.severity as UnderwriterRequestedChange["severity"])
+        : null;
+
+    if (
+      !sectionKey ||
+      sectionKey.length > 200 ||
+      !comment ||
+      comment.length > MAX_FEEDBACK_TEXT_LENGTH ||
+      !severity
+    ) {
+      return null;
+    }
+    items.push({
+      section_key: sectionKey,
+      comment,
+      severity,
+    });
+  }
+
+  return items;
 }
 
-function filterConditions(value: unknown): UnderwriterCondition[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((v): UnderwriterCondition | null => {
-      if (!v || typeof v !== "object") return null;
-      const c = v as Record<string, unknown>;
-      const label = typeof c.label === "string" ? c.label : null;
-      const owner =
-        typeof c.owner === "string" && ALLOWED_OWNERS.has(c.owner as UnderwriterCondition["owner"])
-          ? (c.owner as UnderwriterCondition["owner"])
-          : null;
-      const due_before =
-        typeof c.due_before === "string" && ALLOWED_DUE.has(c.due_before as UnderwriterCondition["due_before"])
-          ? (c.due_before as UnderwriterCondition["due_before"])
-          : null;
-      if (!label || !owner || !due_before) return null;
-      return { label, owner, due_before };
-    })
-    .filter((x): x is UnderwriterCondition => x !== null);
+function parseConditions(value: unknown): UnderwriterCondition[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_FEEDBACK_ITEMS) return null;
+
+  const items: UnderwriterCondition[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") return null;
+    const record = entry as Record<string, unknown>;
+    const label =
+      typeof record.label === "string" ? record.label.trim() : "";
+    const owner =
+      typeof record.owner === "string" &&
+      ALLOWED_OWNERS.has(record.owner as UnderwriterCondition["owner"])
+        ? (record.owner as UnderwriterCondition["owner"])
+        : null;
+    const dueBefore =
+      typeof record.due_before === "string" &&
+      ALLOWED_DUE.has(
+        record.due_before as UnderwriterCondition["due_before"],
+      )
+        ? (record.due_before as UnderwriterCondition["due_before"])
+        : null;
+
+    if (
+      !label ||
+      label.length > MAX_FEEDBACK_TEXT_LENGTH ||
+      !owner ||
+      !dueBefore
+    ) {
+      return null;
+    }
+    items.push({
+      label,
+      owner,
+      due_before: dueBefore,
+    });
+  }
+
+  return items;
 }
