@@ -22,17 +22,24 @@ interface LogLedgerEventInput {
   provider_metrics?: ProviderMetrics;
 }
 
-export async function logLedgerEvent(input: LogLedgerEventInput) {
+export type LogLedgerEventResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+async function persistLedgerEvent(
+  input: LogLedgerEventInput,
+): Promise<LogLedgerEventResult> {
   const sb = supabaseAdmin();
 
-  // Ledger writes should never block business logic.
+  // Most callers treat this ledger as best-effort. Returning an explicit result
+  // lets truth-critical callers require durable evidence without changing the
+  // behavior of existing fire-and-forget call sites.
   try {
-    // Extract provider_metrics from meta if present (for backwards compat)
     const providerMetrics =
       input.provider_metrics ??
       (input.meta?.provider_metrics as ProviderMetrics | undefined);
 
-    await sb.from("deal_pipeline_ledger").insert({
+    const { error } = await sb.from("deal_pipeline_ledger").insert({
       deal_id: input.dealId,
       bank_id: input.bankId,
       event_key: input.eventKey,
@@ -50,13 +57,38 @@ export async function logLedgerEvent(input: LogLedgerEventInput) {
       meta: input.meta ?? {},
       provider_metrics: providerMetrics ?? null,
     } as any);
+
+    if (error) {
+      console.warn("[logLedgerEvent] insert failed (non-fatal)", {
+        dealId: input.dealId,
+        bankId: input.bankId,
+        eventKey: input.eventKey,
+        uiState: input.uiState,
+        error: String(error.message ?? error),
+      });
+      return { ok: false, error: String(error.message ?? error) };
+    }
+
+    return { ok: true };
   } catch (e) {
+    const error = String((e as any)?.message ?? e);
     console.warn("[logLedgerEvent] insert failed (non-fatal)", {
       dealId: input.dealId,
       bankId: input.bankId,
       eventKey: input.eventKey,
       uiState: input.uiState,
-      error: String((e as any)?.message ?? e),
+      error,
     });
+    return { ok: false, error };
   }
+}
+
+export async function logLedgerEvent(input: LogLedgerEventInput): Promise<void> {
+  await persistLedgerEvent(input);
+}
+
+export async function logLedgerEventRequired(
+  input: LogLedgerEventInput,
+): Promise<LogLedgerEventResult> {
+  return persistLedgerEvent(input);
 }

@@ -2,7 +2,9 @@ import { LedgerEventType } from "@/buddy/lifecycle/events";
 
 type SupabaseAdminFn = () => any;
 type WriteEventFn = (args: any) => Promise<{ ok: boolean; error?: string }>;
-type LogLedgerEventFn = (args: any) => Promise<void>;
+type LogLedgerEventFn = (
+  args: any,
+) => Promise<void | { ok: boolean; error?: string }>;
 
 export type DealLifecycleStage =
   | "created"
@@ -48,11 +50,13 @@ export async function advanceDealLifecycle(params: {
     return {
       supabaseAdmin: sbMod.supabaseAdmin as SupabaseAdminFn,
       writeEvent: ledgerMod.writeEvent as WriteEventFn,
-      logLedgerEvent: pipelineMod.logLedgerEvent as LogLedgerEventFn,
+      logLedgerEvent: pipelineMod.logLedgerEventRequired as LogLedgerEventFn,
     };
   };
 
-  const defaultDeps = deps?.sb && deps?.writeEvent && deps?.logLedgerEvent ? null : await defaults();
+  const defaultDeps = deps?.sb && deps?.writeEvent && deps?.logLedgerEvent
+    ? null
+    : await defaults();
   const sb = deps?.sb ?? defaultDeps?.supabaseAdmin();
   const ledgerWrite = deps?.writeEvent ?? defaultDeps?.writeEvent;
   const pipelineLog = deps?.logLedgerEvent ?? defaultDeps?.logLedgerEvent;
@@ -71,8 +75,14 @@ export async function advanceDealLifecycle(params: {
     .eq("id", dealId)
     .maybeSingle();
 
-  if (dealErr || !deal) {
-    return { ok: false, error: "Deal not found" } as const;
+  if (dealErr) {
+    return { ok: false, error: "deal_lookup_failed" } as const;
+  }
+  if (!deal) {
+    return { ok: false, error: "deal_not_found" } as const;
+  }
+  if (!deal.bank_id) {
+    return { ok: false, error: "deal_bank_missing" } as const;
   }
 
   const current = (deal.stage as DealLifecycleStage) || "created";
@@ -96,10 +106,28 @@ export async function advanceDealLifecycle(params: {
     .eq("id", dealId);
 
   if (updateErr) {
-    return { ok: false, error: "Failed to update lifecycle" } as const;
+    return { ok: false, error: "lifecycle_update_failed" } as const;
   }
 
-  await ledgerWrite({
+  // Supabase UPDATE can succeed with zero affected rows. Read the authoritative
+  // row back before recording completion so RLS, filters, and concurrent writes
+  // cannot produce a false successful transition.
+  const { data: persisted, error: verifyErr } = await sb
+    .from("deals")
+    .select("id, stage")
+    .eq("id", dealId)
+    .maybeSingle();
+
+  if (verifyErr || persisted?.stage !== toStage) {
+    return {
+      ok: false,
+      error: "lifecycle_persistence_unproven",
+      from: current,
+      to: toStage,
+    } as const;
+  }
+
+  const ledgerResult = await ledgerWrite({
     dealId,
     kind: LedgerEventType.lifecycle_advanced,
     actorUserId: actor.userId ?? null,
@@ -112,7 +140,17 @@ export async function advanceDealLifecycle(params: {
     },
   });
 
-  await pipelineLog({
+  if (!ledgerResult.ok) {
+    return {
+      ok: false,
+      error: "lifecycle_event_write_failed",
+      from: current,
+      to: toStage,
+      stage_persisted: true,
+    } as const;
+  }
+
+  const pipelineResult = await pipelineLog({
     dealId,
     bankId: deal.bank_id,
     eventKey: LedgerEventType.lifecycle_advanced,
@@ -126,6 +164,17 @@ export async function advanceDealLifecycle(params: {
       actor,
     },
   });
+
+  if (pipelineResult && !pipelineResult.ok) {
+    return {
+      ok: false,
+      error: "pipeline_event_write_failed",
+      from: current,
+      to: toStage,
+      stage_persisted: true,
+      event_persisted: true,
+    } as const;
+  }
 
   return { ok: true, from: current, to: toStage } as const;
 }
