@@ -125,5 +125,55 @@ export async function createSignedPackageDownload(dealId: string, resourceType: 
   return { ok: true, url: `/api/brokerage/deals/${encodeURIComponent(dealId)}/trident/download/${encodeURIComponent(resourceType)}` };
 }
 
-export async function auditPackageView(entry: PackageAuditEntry, sb: SB): Promise<void> { await sb.from("marketplace_audit_log").insert({ deal_id: entry.dealId, actor_bank_id: entry.actor, actor_scope: entry.actorScope, action: "package_view", metadata: entry.metadata ?? {}, created_at: new Date().toISOString() }); }
-export async function auditPackageDownload(entry: PackageAuditEntry & { resourceType: string }, sb: SB): Promise<void> { await sb.from("marketplace_audit_log").insert({ deal_id: entry.dealId, actor_bank_id: entry.actor, actor_scope: entry.actorScope, action: "package_download", metadata: { resourceType: entry.resourceType, ...entry.metadata }, created_at: new Date().toISOString() }); }
+export type PackageAuditResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+async function persistPackageAudit(
+  row: Record<string, unknown>,
+  sb: SB,
+): Promise<PackageAuditResult> {
+  try {
+    const { error } = await sb.from("marketplace_audit_log").insert(row);
+    if (error) {
+      return {
+        ok: false,
+        error: typeof error.message === "string" ? error.message : "audit_insert_failed",
+      };
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "audit_insert_failed",
+    };
+  }
+}
+
+export async function auditPackageView(
+  entry: PackageAuditEntry,
+  sb: SB,
+): Promise<PackageAuditResult> {
+  return persistPackageAudit({
+    deal_id: entry.dealId,
+    actor_bank_id: entry.actor,
+    actor_scope: entry.actorScope,
+    action: "package_view",
+    metadata: entry.metadata ?? {},
+    created_at: new Date().toISOString(),
+  }, sb);
+}
+
+export async function auditPackageDownload(
+  entry: PackageAuditEntry & { resourceType: string },
+  sb: SB,
+): Promise<PackageAuditResult> {
+  return persistPackageAudit({
+    deal_id: entry.dealId,
+    actor_bank_id: entry.actor,
+    actor_scope: entry.actorScope,
+    action: "package_download",
+    metadata: { resourceType: entry.resourceType, ...entry.metadata },
+    created_at: new Date().toISOString(),
+  }, sb);
+}
