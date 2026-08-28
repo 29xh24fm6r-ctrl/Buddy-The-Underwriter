@@ -97,9 +97,12 @@ export default async function BrokeragePipelinePage() {
 
   return (
     <div style={{ padding: "18px 24px 40px" }}>
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <Link href="/admin/brokerage/pipeline/queues" style={{ fontSize: 11.5, color: c.brassBright, textDecoration: "none" }}>
           Management queues →
+        </Link>
+        <Link href="/admin/brokerage/pipeline/new" style={{ fontSize: 11.5, color: c.brassOnBrass, background: c.brass, padding: "8px 12px", borderRadius: 5, fontWeight: 700, textDecoration: "none" }}>
+          + Load self-sourced deal
         </Link>
       </div>
       <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
@@ -137,7 +140,7 @@ export default async function BrokeragePipelinePage() {
           rows.map((d) => (
             <Link
               key={d.id}
-              href={`/deals/${d.id}/cockpit`}
+              href={`/admin/brokerage/pipeline/${d.id}`}
               style={{
                 display: "grid",
                 gridTemplateColumns: GRID,
