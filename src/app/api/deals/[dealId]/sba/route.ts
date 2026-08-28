@@ -28,6 +28,8 @@ import {
 import { calculateDifficultyScore, formatDifficultyScore } from "@/lib/sba/difficulty";
 import { draftAssumptionsFromContext } from "@/lib/sba/sbaAssumptionDrafter";
 import { loadSBAAssumptionsPrefill } from "@/lib/sba/sbaAssumptionsPrefill";
+import { validateSBAAssumptions } from "@/lib/sba/sbaAssumptionsValidator";
+import type { SBAAssumptions } from "@/lib/sba/sbaReadinessTypes";
 import { generateSBAPackage } from "@/lib/sba/sbaPackageOrchestrator";
 import { enrichBusinessPlanPackage } from "@/lib/sba/enrichBusinessPlanPackage";
 import { callGeminiJSON } from "@/lib/sba/sbaPackageNarrative";
@@ -1311,10 +1313,27 @@ async function patchAssumptionsAction(
 
   const patch = (body.patch as Record<string, unknown>) ?? {};
   const sb = supabaseAdmin();
+  const allowedStatuses = new Set<SBAAssumptions["status"]>([
+    "draft",
+    "complete",
+    "confirmed",
+  ]);
 
+  if (
+    patch.status !== undefined &&
+    (typeof patch.status !== "string" ||
+      !allowedStatuses.has(patch.status as SBAAssumptions["status"]))
+  ) {
+    return NextResponse.json(
+      { ok: false, error: "invalid_assumptions_status" },
+      { status: 400 },
+    );
+  }
+
+  const now = new Date().toISOString();
   const upsertData: Record<string, unknown> = {
     deal_id: dealId,
-    updated_at: new Date().toISOString(),
+    updated_at: now,
   };
 
   if (patch.revenueStreams !== undefined) upsertData.revenue_streams = patch.revenueStreams;
@@ -1322,21 +1341,89 @@ async function patchAssumptionsAction(
   if (patch.workingCapital !== undefined) upsertData.working_capital = patch.workingCapital;
   if (patch.loanImpact !== undefined) upsertData.loan_impact = patch.loanImpact;
   if (patch.managementTeam !== undefined) upsertData.management_team = patch.managementTeam;
+
   if (patch.status !== undefined) {
     upsertData.status = patch.status;
-    if (patch.status === "confirmed") {
-      upsertData.confirmed_at = new Date().toISOString();
+    upsertData.confirmed_at = patch.status === "confirmed" ? now : null;
+  }
+
+  if (patch.status === "confirmed") {
+    const { data: current, error: loadError } = await sb
+      .from("buddy_sba_assumptions")
+      .select(
+        "id, status, revenue_streams, cost_assumptions, working_capital, loan_impact, management_team, confirmed_at",
+      )
+      .eq("deal_id", dealId)
+      .maybeSingle();
+
+    if (loadError) {
+      return NextResponse.json(
+        { ok: false, error: "assumptions_load_failed" },
+        { status: 500 },
+      );
+    }
+    if (!current) {
+      return NextResponse.json(
+        { ok: false, error: "assumptions_missing" },
+        { status: 409 },
+      );
+    }
+
+    const candidate: SBAAssumptions = {
+      dealId,
+      status: "confirmed",
+      confirmedAt: now,
+      revenueStreams: (patch.revenueStreams !== undefined
+        ? patch.revenueStreams
+        : current.revenue_streams) as SBAAssumptions["revenueStreams"],
+      costAssumptions: (patch.costAssumptions !== undefined
+        ? patch.costAssumptions
+        : current.cost_assumptions) as SBAAssumptions["costAssumptions"],
+      workingCapital: (patch.workingCapital !== undefined
+        ? patch.workingCapital
+        : current.working_capital) as SBAAssumptions["workingCapital"],
+      loanImpact: (patch.loanImpact !== undefined
+        ? patch.loanImpact
+        : current.loan_impact) as SBAAssumptions["loanImpact"],
+      managementTeam: (patch.managementTeam !== undefined
+        ? patch.managementTeam
+        : current.management_team) as SBAAssumptions["managementTeam"],
+    };
+    const validation = validateSBAAssumptions(candidate);
+    if (!validation.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "assumptions_invalid",
+          blockers: validation.blockers,
+        },
+        { status: 422 },
+      );
     }
   }
 
-  const { error } = await sb
+  const { data: saved, error: saveError } = await sb
     .from("buddy_sba_assumptions")
-    .upsert(upsertData, { onConflict: "deal_id" });
+    .upsert(upsertData, { onConflict: "deal_id" })
+    .select("id, status, confirmed_at")
+    .maybeSingle();
 
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (
+    saveError ||
+    !saved?.id ||
+    (patch.status !== undefined && saved.status !== patch.status)
+  ) {
+    return NextResponse.json(
+      { ok: false, error: "assumptions_persistence_failed" },
+      { status: 500 },
+    );
   }
-  return NextResponse.json({ ok: true });
+
+  return NextResponse.json({
+    ok: true,
+    status: saved.status,
+    confirmedAt: saved.confirmed_at ?? null,
+  });
 }
 
 async function updateBorrowerStoryAction(
