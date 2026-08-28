@@ -41,7 +41,13 @@ Buddy The Underwriter only: the public document-link upload route, canonical bor
 
 ## Verification status
 
-Pending exact-head CI, complete diff inspection, and Vercel preview verification.
+- Repair head `570ffb52d7400eae9f33da336d2375843de7cfe3` was zero commits behind `main`.
+- The complete six-file diff was inspected; it contains no schema, dependency, production-data, conflict-marker, or secret changes.
+- CI run `33189939827` passed: 13,467 tests, 13,458 passed, 0 failed, 9 skipped.
+- React-server passed 18/18; research passed 7/7 with 13 production placeholders still skipped.
+- Never-500 passed all 8 critical routes; schema-select, report-only drift, safety, architecture, and public Playwright passed.
+- Build Check, Secret Scan, Upload Architecture Guard, and Route Budget passed.
+- Exact-head Vercel preview `dpl_CHwmGKjUnqMjZJ8b8Bq9vnB9nciC` was READY, returned HTTP 200, emitted the exact `x-buddy-build` SHA, and had no warning/error/fatal logs.
 
 ## Known limitations and next evidence
 
