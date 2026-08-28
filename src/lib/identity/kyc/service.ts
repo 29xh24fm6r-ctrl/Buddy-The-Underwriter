@@ -50,7 +50,7 @@ export type InitiateKycArgs = {
 
 export type InitiateKycResult =
   | { ok: true; verification: Record<string, any>; sessionUrl: string | null; reused: boolean }
-  | { ok: false; reason: "OWNER_NOT_FOUND" | "DB_INSERT_FAILED"; detail?: string };
+  | { ok: false; reason: "OWNER_NOT_FOUND" | "STATE_READ_FAILED" | "DB_INSERT_FAILED"; detail?: string };
 
 const PENDING_STATUSES = ["created", "pending"];
 /**
@@ -115,7 +115,7 @@ export async function initiateKyc(
 ): Promise<InitiateKycResult> {
   const { sb, didit, workflowId } = deps;
 
-  const { data: existing } = await sb
+  const { data: existing, error: existingError } = await sb
     .from("borrower_identity_verifications")
     .select("*")
     .eq("deal_id", args.dealId)
@@ -125,15 +125,23 @@ export async function initiateKyc(
     .limit(1)
     .maybeSingle();
 
+  if (existingError) {
+    return { ok: false, reason: "STATE_READ_FAILED", detail: `existing_verification_lookup_failed:${existingError.message}` };
+  }
+
   if (existing) {
     return { ok: true, verification: existing, sessionUrl: existing.vendor_artifacts_url ?? null, reused: true };
   }
 
-  const { data: owner } = await sb
+  const { data: owner, error: ownerError } = await sb
     .from("ownership_entities")
     .select("id, display_name")
     .eq("id", args.ownershipEntityId)
     .maybeSingle();
+
+  if (ownerError) {
+    return { ok: false, reason: "STATE_READ_FAILED", detail: `owner_lookup_failed:${ownerError.message}` };
+  }
 
   if (!owner) {
     return { ok: false, reason: "OWNER_NOT_FOUND" };
@@ -356,6 +364,7 @@ export type ReconcileBatchResult = {
   examined: number;
   changed: number;
   failed: number;
+  readError?: string;
   results: Array<{ verificationId: string; previousStatus: string; status: string; changed: boolean }>;
 };
 
@@ -386,8 +395,17 @@ export async function reconcilePendingVerifications(
 
   if (args.dealId) query = query.eq("deal_id", args.dealId);
 
-  const { data: rows } = await query;
-  const candidates = (rows ?? []) as Array<{ id: string }>;
+  const { data: rows, error: rowsError } = await query;
+  if (rowsError || !Array.isArray(rows)) {
+    return {
+      examined: 0,
+      changed: 0,
+      failed: 1,
+      readError: rowsError?.message ?? "rows_not_returned",
+      results: [],
+    };
+  }
+  const candidates = rows as Array<{ id: string }>;
 
   const out: ReconcileBatchResult = { examined: candidates.length, changed: 0, failed: 0, results: [] };
 
