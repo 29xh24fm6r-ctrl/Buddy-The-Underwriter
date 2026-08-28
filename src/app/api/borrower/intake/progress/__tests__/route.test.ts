@@ -254,7 +254,7 @@ test("GET blocks rather than fabricating facts when hydration fails", async () =
   assert.equal(body.progress, undefined, "failed fact reads must not look like empty answers");
 });
 
-test("GET returns a clean first-run shape when there is genuinely no progress", async () => {test("GET returns a clean first-run shape when there is genuinely no progress", async () => {
+test("GET returns a clean first-run shape when there is genuinely no progress", async () => {
   const tables = productionFixture();
   tables.borrower_intake_progress = [];
   tables.borrower_concierge_sessions = [];
@@ -324,7 +324,7 @@ test("POST refuses to advance when completion proof is degraded", async () => {
   );
 });
 
-test("POST rejects an out-of-range chapter", async () => {test("POST rejects an out-of-range chapter", async () => {
+test("POST rejects an out-of-range chapter", async () => {
   db = makeDb(productionFixture());
   sessionDealId = DEAL;
 
