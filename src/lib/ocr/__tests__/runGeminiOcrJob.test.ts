@@ -78,35 +78,18 @@ test("model-not-found (404) error: falls through to the next candidate model", a
   assert.match(result.text, /recovered text/);
 });
 
-test("404 from the real provider payload (pretty-printed) falls through to the next model", async () => {
-  // Verbatim production error text. The gateway pretty-prints the upstream
-  // body, so the JSON carries a space after each colon. The previous matcher
-  // only looked for the compact `"code":404`, so this fell straight through to
-  // "extraction failed" in production while the compact fixture above passed.
-  const PROD_ERROR =
-    'HTTP 404: {\n' +
-    '  "error": {\n' +
-    '    "code": 404,\n' +
-    '    "message": "Publisher model `projects/buddy-the-underwriter/locations/us-central1/publishers/google/models/gemini-2.0-flash` was not found or your project does not have access to it.",\n' +
-    '    "status": "NOT_FOUND"\n' +
-    '  }\n' +
-    '}\n';
-
+test("known retired model pinned in the environment is bypassed without a wasted request", async () => {
   process.env.GEMINI_OCR_MODEL = "gemini-2.0-flash";
   const calls: string[] = [];
   __setProviderImplForTests("google", async (req: any) => {
     calls.push(req.model);
-    if (req.model === "gemini-2.0-flash") throw new Error(PROD_ERROR);
-    return okResult("recovered after retired model");
+    return okResult("used current registry model");
   });
 
   const result = await runGeminiOcrJob(ARGS);
-  assert.equal(calls[0], "gemini-2.0-flash");
-  assert.ok(
-    calls.length >= 2,
-    `expected fallback to a second model, only tried: ${calls.join(", ")}`,
-  );
-  assert.match(result.text, /recovered after retired model/);
+  assert.equal(calls.length, 1);
+  assert.notEqual(calls[0], "gemini-2.0-flash");
+  assert.match(result.text, /used current registry model/);
 });
 
 test("SDK_HTML_RESPONSE: wraps and throws immediately, does not try the next model", async () => {
