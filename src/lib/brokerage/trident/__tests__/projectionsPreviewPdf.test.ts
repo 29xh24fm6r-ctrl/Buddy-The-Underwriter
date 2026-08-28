@@ -72,7 +72,7 @@ test("renders a non-empty PDF buffer", async () => {
     dealName: "Test Deal",
     year1Revenue: 5_500_000,
     year1Dscr: 1.42,
-    breakEvenMonth: 9,
+    breakEvenRevenue: 1_750_000,
   });
   assert.ok(buf.length > 1000, `pdf buffer suspiciously small: ${buf.length}`);
   // PDF magic: %PDF-
@@ -84,7 +84,7 @@ test("contains the unlock note (data-layer redaction signal)", async () => {
     dealName: "Test Deal",
     year1Revenue: 5_500_000,
     year1Dscr: 1.42,
-    breakEvenMonth: 9,
+    breakEvenRevenue: 1_750_000,
   });
   assert.ok(
     s.includes("Unlocks when you pick a lender on Buddy"),
@@ -97,7 +97,7 @@ test("contains the PREVIEW watermark", async () => {
     dealName: "Test Deal",
     year1Revenue: 5_500_000,
     year1Dscr: 1.42,
-    breakEvenMonth: 9,
+    breakEvenRevenue: 1_750_000,
   });
   assert.ok(
     s.includes("PREVIEW") && s.includes("NOT FOR DISTRIBUTION"),
@@ -110,7 +110,7 @@ test("does NOT include any raw monthly cell labels", async () => {
     dealName: "Test Deal",
     year1Revenue: 5_500_000,
     year1Dscr: 1.42,
-    breakEvenMonth: 9,
+    breakEvenRevenue: 1_750_000,
   });
   // The detailed-tables view would surface section labels like these.
   // Their absence is the data-layer redaction we're enforcing.
@@ -130,34 +130,40 @@ test("does NOT include any raw monthly cell labels", async () => {
 });
 
 test("never fabricates numbers when inputs are null", async () => {
-  // When all metric inputs are null, the formatted money / ratio /
-  // month strings must NOT appear in the output. The renderer
+  // When all metric inputs are null, the formatted money / ratio
+  // strings must NOT appear in the output. The renderer
   // substitutes a placeholder dash glyph for missing values; here we
   // simply assert that no concrete value strings leaked through.
   const s = await renderText({
     dealName: "Test Deal",
     year1Revenue: null,
     year1Dscr: null,
-    breakEvenMonth: null,
+    breakEvenRevenue: null,
   });
   // Match formatted money patterns ($X.XXM, $XK, $X,XXX) — not bare $0
   // from PDF internal binary content appended by renderText.
   assert.equal(s.match(/\$\d[\d,.]+[KM]?\b/g), null, "must not render any $-amount");
   assert.equal(s.match(/\d\.\d{2}x/g), null, "must not render any ratio");
+  // Break-even is a revenue figure, never a month. Guards the regression
+  // where the callout read `breakEvenMonth` — a key no producer emits — and
+  // so rendered "—" on every preview ever generated.
   assert.equal(s.includes("Month "), false, "must not render any month label");
 });
 
-test("formats money + ratio + month sensibly", async () => {
+test("formats money + ratio + break-even revenue sensibly", async () => {
   const s = await renderText({
     dealName: "Test Deal",
     year1Revenue: 5_500_000,
     year1Dscr: 1.42,
-    breakEvenMonth: 9,
+    breakEvenRevenue: 1_750_000,
   });
   // Money: 5_500_000 → "$5.50M"
   assert.ok(s.includes("$5.50M"));
   // Ratio: 1.42 → "1.42x"
   assert.ok(s.includes("1.42x"));
-  // Month: 9 → "Month 9"
-  assert.ok(s.includes("Month 9"));
+  // Break-even revenue: 1_750_000 → "$1.75M", under the "Break-Even
+  // Revenue" label. Asserting the rendered figure is what fails if the
+  // callout ever goes back to reading a key the engine does not emit.
+  assert.ok(s.includes("$1.75M"), "break-even revenue must render");
+  assert.ok(s.includes("BREAK-EVEN REVENUE"), "callout label must render");
 });

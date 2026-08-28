@@ -30,7 +30,15 @@ export type ProjectionsPreviewInput = {
   dealName: string;
   year1Revenue: number | null;
   year1Dscr: number | null;
-  breakEvenMonth: number | null; // 1–36, or null if not computed
+  /**
+   * Break-even REVENUE, not a month. The projections engine emits
+   * `break_even.breakEvenRevenue` (fixed costs / contribution margin) and
+   * never emits a month; feasibility scores `breakEvenMargin` off the same
+   * revenue figure. This field previously read `breakEvenMonth`, a key no
+   * producer in the codebase has ever written, so the callout rendered "—"
+   * on every preview ever generated.
+   */
+  breakEvenRevenue: number | null;
   generatedAt?: string;
 };
 
@@ -72,7 +80,7 @@ export async function renderProjectionsPreviewPdf(
     doc.moveDown(0.75);
     drawMetric(doc, "Year 1 DSCR", formatRatio(input.year1Dscr));
     doc.moveDown(0.75);
-    drawMetric(doc, "Break-Even Month", formatMonth(input.breakEvenMonth));
+    drawMetric(doc, "Break-Even Revenue", formatMoney(input.breakEvenRevenue));
     doc.moveDown(2);
 
     // Unlock note in lieu of detailed tables.
@@ -145,12 +153,6 @@ function formatRatio(v: number | null): string {
   return `${v.toFixed(2)}x`;
 }
 
-function formatMonth(v: number | null): string {
-  if (v == null || !Number.isFinite(v)) return "—";
-  const m = Math.round(v);
-  if (m <= 0) return "—";
-  return `Month ${m}`;
-}
 
 /**
  * Diagonal translucent "PREVIEW — NOT FOR DISTRIBUTION" watermark on every

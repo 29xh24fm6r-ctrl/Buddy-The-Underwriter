@@ -458,10 +458,16 @@ export async function generateTridentBundle(args: {
           year1Dscr: bucketPreviewDscr(
             typeof dscrYear1Base === "number" ? dscrYear1Base : null,
           ),
-          breakEvenMonth:
-            breakEven && typeof breakEven.breakEvenMonth === "number"
-              ? breakEven.breakEvenMonth
+          // The engine emits breakEvenRevenue (fixed costs / contribution
+          // margin); it has never emitted a breakEvenMonth, so reading that
+          // key rendered "—" on every preview. Bucketed to the same $25K
+          // scale as year1Revenue so the summary cannot disclose a finer
+          // figure than the artifacts it summarises (audit F-16).
+          breakEvenRevenue: bucketPreviewRevenue(
+            breakEven && typeof breakEven.breakEvenRevenue === "number"
+              ? breakEven.breakEvenRevenue
               : null,
+          ),
           generatedAt: new Date().toISOString(),
         });
         const previewPath = `${dealId}/${mode}/${Date.now()}_projections.pdf`;
