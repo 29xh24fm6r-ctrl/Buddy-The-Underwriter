@@ -125,15 +125,17 @@ test("[postFromWizard.audit-3] event payload includes spec-required fields", () 
   );
 });
 
-test("[postFromWizard.audit-4] event fires AFTER both upserts", () => {
+test("[postFromWizard.audit-4] completion event fires AFTER both upserts", () => {
   const body = postFromWizardBody();
   const lastUpsertIdx = Math.max(
     body.lastIndexOf("upsertBorrowerStory("),
     body.lastIndexOf("upsertManagementProfile("),
   );
-  const writeEventIdx = body.indexOf('"memo_input.wizard_save"');
+  // Owner-lookup failures emit an early failure event because no upsert can
+  // run. The normal completion event must still follow both writer calls.
+  const completionEventIdx = body.lastIndexOf('"memo_input.wizard_save"');
   assert.ok(
-    writeEventIdx > lastUpsertIdx,
-    "memo_input.wizard_save must fire after the upsert calls so the event payload reflects actual outcomes",
+    completionEventIdx > lastUpsertIdx,
+    "the completion memo_input.wizard_save event must fire after the upsert calls so its payload reflects actual outcomes",
   );
 });
