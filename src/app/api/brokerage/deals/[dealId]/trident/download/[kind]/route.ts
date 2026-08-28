@@ -9,8 +9,10 @@ import "server-only";
  * valid `marketplace_package_access` grant (passed as `?accessId=`) may also
  * download — same check as /api/lender/marketplace/package/[accessId].
  *
- * Failure modes all return 404 — never 403 — so we don't leak the existence
- * of other deals to a probing caller.
+ * Authorization denials return 404 — never 403 — so we don't leak the
+ * existence of other deals to a probing caller. Authoritative-state and
+ * required audit-persistence failures return 503 so outages are not
+ * misreported as missing packages.
  *
  * For business_plan/projections_pdf/projections_xlsx/feasibility: returns a
  * signed Storage URL for the current succeeded trident bundle (prefers
