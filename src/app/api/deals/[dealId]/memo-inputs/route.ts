@@ -428,6 +428,86 @@ async function postFromWizard(
 ) {
   const overrides = body?.overrides ?? {};
 
+  // Resolve management inputs before any writes. An ownership lookup failure
+  // must not be mistaken for an empty owner list after borrower-story data has
+  // already been committed.
+  const managementInputs = Object.entries(overrides)
+    .filter(([key]) => key.startsWith(PRINCIPAL_BIO_PREFIX))
+    .map(([key, raw]) => ({
+      ownerId: key.slice(PRINCIPAL_BIO_PREFIX.length),
+      summary: asTrimmedString(raw),
+    }))
+    .filter(
+      (
+        input,
+      ): input is {
+        ownerId: string;
+        summary: string;
+      } => input.summary !== null,
+    );
+
+  let owners: Record<string, string> = {};
+  if (managementInputs.length > 0) {
+    const sb = supabaseAdmin();
+    const { data: ownersRaw, error: ownersError } = await (sb as any)
+      .from("ownership_entities")
+      .select("id, display_name")
+      .eq("deal_id", dealId);
+
+    if (ownersError) {
+      console.error("[memo-inputs from-wizard] owner lookup failed", {
+        dealId,
+        code: ownersError.code ?? null,
+      });
+      const lookupFailures = ["management_owner_lookup"];
+      const lookupAudit = await writeEvent({
+        dealId,
+        kind: "memo_input.wizard_save",
+        meta: {
+          bank_id: bankId,
+          payload_keys: Object.keys(overrides),
+          borrower_story_written: false,
+          management_writes: 0,
+          requested_management_writes: managementInputs.length,
+          failed_operations: lookupFailures,
+          save_ok: false,
+        },
+      });
+      if (!lookupAudit.ok) {
+        lookupFailures.push("audit_event");
+        console.error("[memo-inputs from-wizard] lookup audit failed", {
+          dealId,
+          error: lookupAudit.error ?? null,
+        });
+      }
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "memo_input_persistence_failed",
+          message: "Memo fields could not be saved.",
+          borrowerStoryWritten: false,
+          managementWrites: 0,
+          requestedManagementWrites: managementInputs.length,
+          failedOperations: lookupFailures,
+        },
+        {
+          status: 500,
+          headers: { "Cache-Control": "no-store" },
+        },
+      );
+    }
+
+    owners = (
+      (ownersRaw ?? []) as Array<{
+        id: string;
+        display_name: string | null;
+      }>
+    ).reduce<Record<string, string>>((acc, row) => {
+      acc[row.id] = (row.display_name ?? "").trim() || "Unknown";
+      return acc;
+    }, {});
+  }
+
   // ── Borrower-story patch ─────────────────────────────────────────
   const businessDescription = asTrimmedString(overrides.business_description);
   const revenueModel = asTrimmedString(overrides.revenue_mix);
@@ -446,6 +526,7 @@ async function postFromWizard(
     storyPatch.key_risks = competitiveAdvantages;
   if (bankerSummary !== null) storyPatch.banker_notes = bankerSummary;
 
+  const failedOperations: string[] = [];
   let borrowerStoryWritten = false;
   if (Object.keys(storyPatch).length > 0) {
     const out = await upsertBorrowerStory({
@@ -455,44 +536,45 @@ async function postFromWizard(
       source: "banker",
       confidence: 1,
     });
-    borrowerStoryWritten = out.ok;
+    if (out.ok) {
+      borrowerStoryWritten = true;
+    } else {
+      failedOperations.push("borrower_story");
+      console.error("[memo-inputs from-wizard] borrower story write failed", {
+        dealId,
+        reason: out.reason,
+        error: out.error ?? null,
+      });
+    }
   }
 
   // ── Management-profile patches ───────────────────────────────────
-  const sb = supabaseAdmin();
-  const { data: ownersRaw } = await (sb as any)
-    .from("ownership_entities")
-    .select("id, display_name")
-    .eq("deal_id", dealId);
-  const owners = (
-    (ownersRaw ?? []) as Array<{ id: string; display_name: string | null }>
-  ).reduce<Record<string, string>>((acc, row) => {
-    acc[row.id] = (row.display_name ?? "").trim() || "Unknown";
-    return acc;
-  }, {});
-
   let managementWrites = 0;
-  for (const [key, raw] of Object.entries(overrides)) {
-    if (!key.startsWith(PRINCIPAL_BIO_PREFIX)) continue;
-    const ownerId = key.slice(PRINCIPAL_BIO_PREFIX.length);
-    const summary = asTrimmedString(raw);
-    if (summary === null) continue;
-    const personName = owners[ownerId] ?? "Unknown";
+  for (const input of managementInputs) {
+    const personName = owners[input.ownerId] ?? "Unknown";
     const out = await upsertManagementProfile({
       dealId,
       trustedBankId: bankId,
-      patch: { person_name: personName, resume_summary: summary },
+      patch: { person_name: personName, resume_summary: input.summary },
       source: "banker",
       confidence: 1,
     });
-    if (out.ok) managementWrites += 1;
+    if (out.ok) {
+      managementWrites += 1;
+    } else {
+      failedOperations.push("management_profile");
+      console.error("[memo-inputs from-wizard] management write failed", {
+        dealId,
+        ownerId: input.ownerId,
+        reason: out.reason,
+        error: out.error ?? null,
+      });
+    }
   }
 
-  // SPEC-13.5 PR-B Commit 1: emit audit event on every wizard write.
-  // Pairs with memo_input.legacy_migration (PR-A) and
-  // memo_input.deprecated_endpoint_hit (PR-B B-4) for full visibility
-  // into canonical writes vs. stale-client hits.
-  await writeEvent({
+  // The audit record is part of the write contract. A canonical save is not
+  // reported successful unless its outcome is durably observable.
+  const auditResult = await writeEvent({
     dealId,
     kind: "memo_input.wizard_save",
     meta: {
@@ -500,15 +582,47 @@ async function postFromWizard(
       payload_keys: Object.keys(overrides),
       borrower_story_written: borrowerStoryWritten,
       management_writes: managementWrites,
+      requested_management_writes: managementInputs.length,
+      failed_operations: failedOperations,
+      save_ok: failedOperations.length === 0,
     },
   });
+  if (!auditResult.ok) {
+    failedOperations.push("audit_event");
+    console.error("[memo-inputs from-wizard] audit write failed", {
+      dealId,
+      error: auditResult.error ?? null,
+    });
+  }
 
-  return NextResponse.json({
-    ok: true,
-    borrowerStoryWritten,
-    managementWrites,
-    bankId,
-  });
+  if (failedOperations.length > 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "memo_input_persistence_failed",
+        message: "One or more memo fields could not be saved.",
+        borrowerStoryWritten,
+        managementWrites,
+        requestedManagementWrites: managementInputs.length,
+        failedOperations,
+      },
+      {
+        status: 500,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      ok: true,
+      borrowerStoryWritten,
+      managementWrites,
+      requestedManagementWrites: managementInputs.length,
+      bankId,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 // ── Verb dispatchers ─────────────────────────────────────────────────────
