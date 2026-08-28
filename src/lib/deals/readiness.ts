@@ -7,6 +7,7 @@ import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { LedgerEventType } from "@/buddy/lifecycle/events";
 import { getSatisfiedRequired, getMissingRequired } from "@/lib/deals/checklistSatisfaction";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DealBankAccessGrant } from "@/lib/tenant/ensureDealBankAccess";
 
 /**
  * 🧠 CANONICAL DEAL READINESS
@@ -220,7 +221,15 @@ export async function computeDealReadiness(
  * 
  * 🔔 Fires webhooks on readiness transition (null → set)
  */
-export async function recomputeDealReady(dealId: string): Promise<void> {
+export type RecomputeDealReadyContext = {
+  actorId?: string;
+  accessGrant?: DealBankAccessGrant;
+};
+
+export async function recomputeDealReady(
+  dealId: string,
+  context: RecomputeDealReadyContext = {},
+): Promise<void> {
   const sb = supabaseAdmin();
   
   // Fetch current state (for transition detection)
@@ -238,7 +247,12 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
   try {
     const { reconcileChecklistForDeal } = await import("@/lib/checklist/engine");
     const sb2 = supabaseAdmin();
-    await reconcileChecklistForDeal({ sb: sb2, dealId });
+    await reconcileChecklistForDeal({
+      sb: sb2,
+      dealId,
+      actorId: context.actorId,
+      accessGrant: context.accessGrant,
+    });
   } catch (reconcileErr: any) {
     console.warn("[recomputeDealReady] checklist reconcile failed (non-fatal)", reconcileErr?.message);
   }
@@ -337,7 +351,12 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
     // System A's gate result. System B (refreshDealReadiness) runs checklist
     // reconciliation before evaluating readiness — it may find the deal IS
     // ready after reconciliation even when System A sees stale checklist state.
-    scheduleReadinessRefresh({ dealId, trigger: "financial_facts_written" });
+    scheduleReadinessRefresh({
+      dealId,
+      trigger: "financial_facts_written",
+      actorId: context.actorId,
+      accessGrant: context.accessGrant,
+    });
 
     // Write reverted event if deal was previously ready
     if (wasReady) {

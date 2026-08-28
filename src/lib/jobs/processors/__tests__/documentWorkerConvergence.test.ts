@@ -10,6 +10,9 @@ const access = read("src/lib/tenant/ensureDealBankAccess.ts");
 const spreads = read("src/lib/jobs/processors/spreadsProcessor.ts");
 const refresh = read("src/lib/deals/readiness/refreshDealReadiness.ts");
 const readiness = read("src/lib/deals/readiness/buildUnifiedDealReadiness.ts");
+const persistedReadiness = read("src/lib/deals/readiness.ts");
+const checklist = read("src/lib/checklist/engine.ts");
+const intake = read("src/lib/intake/processing/processConfirmedIntake.ts");
 const aegisWriter = read("src/lib/aegis/writeSystemEvent.ts");
 const alertSender = read("src/lib/observability/sendBankerAnalysisAlert.ts");
 
@@ -30,9 +33,30 @@ test("spreads worker uses a verified deal-bank grant instead of browser-session 
 
   assert.match(spreads, /ensureDealBankAccessForService\(dealId, bankId\)/);
   assert.match(spreads, /accessGrant:\s*serviceAccess\.grant/);
+  assert.match(spreads, /readinessAccessGrant\s*=\s*serviceAccess\.grant/);
+  assert.match(
+    spreads,
+    /recomputeDealReady\(dealId,\s*\{[\s\S]*?accessGrant:\s*readinessAccessGrant/,
+  );
+  assert.doesNotMatch(spreads, /await recomputeDealReady\(dealId\);/);
   assert.match(refresh, /accessGrant:\s*args\.accessGrant/);
   assert.match(readiness, /isDealBankAccessGrantFor/);
   assert.match(readiness, /accessGrant:\s*access\.grant/);
+  assert.match(persistedReadiness, /accessGrant:\s*context\.accessGrant/);
+  assert.match(persistedReadiness, /actorId:\s*context\.actorId/);
+  assert.match(
+    persistedReadiness,
+    /reconcileChecklistForDeal\(\{[\s\S]*?accessGrant:\s*context\.accessGrant/,
+  );
+  assert.match(checklist, /accessGrant\?:\s*DealBankAccessGrant/);
+  assert.match(checklist, /accessGrant:\s*opts\.accessGrant/);
+  assert.match(intake, /ensureDealBankAccessForService\(dealId, bankId\)/);
+  assert.match(intake, /service_access:\$\{serviceAccess\.error\}/);
+  assert.match(intake, /accessGrant:\s*serviceAccess\.grant/);
+  assert.match(
+    intake,
+    /scheduleReadinessRefresh\(\{[\s\S]*?\.\.\.opts\.readinessContext/,
+  );
 });
 
 test("browser readiness callers still retain canonical session authorization", () => {

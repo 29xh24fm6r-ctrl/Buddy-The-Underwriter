@@ -25,6 +25,10 @@ import { updateDealIfRunOwner } from "./updateDealIfRunOwner";
 import { summarizeProcessingErrors } from "./summarizeProcessingError";
 import { computeDealPhasePatch } from "./computeDealPhasePatch";
 import type { TerminalPhase } from "./computeDealPhasePatch";
+import {
+  ensureDealBankAccessForService,
+  type DealBankAccessGrant,
+} from "@/lib/tenant/ensureDealBankAccess";
 
 // ── Extract-eligible canonical types (mirrors processArtifact routing) ──
 
@@ -82,6 +86,24 @@ export async function processConfirmedIntake(
   const matchResults: Array<{ documentId: string; decision: string }> = [];
   const extractResults: Array<{ documentId: string; ok: boolean }> = [];
   const startMs = Date.now();
+
+  // This orchestrator may run after the initiating browser request has ended.
+  // Prove the supplied bank owns the deal once, then reuse the opaque grant for
+  // every readiness trigger instead of falling through to Clerk session auth.
+  const serviceAccess = await ensureDealBankAccessForService(dealId, bankId);
+  if (!serviceAccess.ok) {
+    return {
+      ok: false,
+      docsProcessed: 0,
+      matchResults,
+      extractResults,
+      errors: [`service_access:${serviceAccess.error}`],
+    };
+  }
+  const readinessContext = {
+    actorId: "system:intake_processor",
+    accessGrant: serviceAccess.grant,
+  };
 
   // ── Stamp started_at + initial heartbeat ───────────────────────────
   if (runId) {
@@ -586,7 +608,7 @@ export async function processConfirmedIntake(
     const { reconcileChecklistForDeal } = await import(
       "@/lib/checklist/engine"
     );
-    await reconcileChecklistForDeal({ sb, dealId });
+    await reconcileChecklistForDeal({ sb, dealId, ...readinessContext });
   } catch (err: any) {
     errors.push(`reconcile:${err?.message}`);
   }
@@ -748,6 +770,7 @@ export async function processConfirmedIntake(
     errorCount: errors.length,
     runId,
     errors: errors.length > 0 ? errors : undefined,
+    readinessContext,
   });
 
   return {
@@ -779,6 +802,7 @@ export async function processConfirmedIntake(
       fatal: true,
       runId,
       errors,
+      readinessContext,
     });
 
     return {
@@ -790,6 +814,7 @@ export async function processConfirmedIntake(
     };
   }
 }
+
 
 // ── Phase transition + completion event helper ─────────────────────────
 
@@ -806,6 +831,10 @@ async function transitionPhaseAndEmit(
     fatal?: boolean;
     runId?: string;
     errors?: string[];
+    readinessContext: {
+      actorId: string;
+      accessGrant: DealBankAccessGrant;
+    };
   },
 ): Promise<void> {
   const durationMs = Date.now() - opts.startMs;
@@ -866,7 +895,11 @@ async function transitionPhaseAndEmit(
     const { scheduleReadinessRefresh } = await import(
       "@/lib/deals/readiness/refreshDealReadiness"
     );
-    scheduleReadinessRefresh({ dealId, trigger: "document_finalized" });
+    scheduleReadinessRefresh({
+      dealId,
+      trigger: "document_finalized",
+      ...opts.readinessContext,
+    });
   } catch {
     // Hook is best-effort — never block intake finalization on it.
   }

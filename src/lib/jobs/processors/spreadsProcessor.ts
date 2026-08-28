@@ -15,6 +15,7 @@ import { getVisibleFacts } from "@/lib/financialFacts/getVisibleFacts";
 import { evaluatePrereq } from "@/lib/financialSpreads/evaluatePrereq";
 import { resolveOwnerType } from "@/lib/financialSpreads/resolveOwnerType";
 import { detectMachineReadabilitySignals } from "@/lib/extraction/detectMachineReadabilitySignals";
+import type { DealBankAccessGrant } from "@/lib/tenant/ensureDealBankAccess";
 
 const LEASE_MS = 3 * 60 * 1000;
 
@@ -96,6 +97,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
 
   const dealId = String(job.deal_id);
   const bankId = String(job.bank_id);
+  let readinessAccessGrant: DealBankAccessGrant | undefined;
 
   // Hoisted for catch block visibility
   const requested = uniq((job.requested_spread_types ?? []) as string[])
@@ -936,6 +938,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         ]);
       const serviceAccess = await ensureDealBankAccessForService(dealId, bankId);
       if (serviceAccess.ok) {
+        readinessAccessGrant = serviceAccess.grant;
         scheduleReadinessRefresh({
           dealId,
           trigger: "spreads_completed",
@@ -1184,16 +1187,30 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       }
     }
 
-    // Recompute deal readiness after facts + snapshot are materialized (non-fatal)
-    try {
-      const { recomputeDealReady } = await import("@/lib/deals/readiness");
-      await recomputeDealReady(dealId);
-    } catch (readinessErr: any) {
-      console.warn("[spreadsProcessor] readiness recompute failed (non-fatal)", {
-        dealId,
-        jobId,
-        error: readinessErr?.message,
-      });
+    // Recompute the legacy persisted readiness projection after facts + snapshot
+    // are materialized. This writer still owns ready_at transition webhooks and
+    // regression events, so it cannot be replaced by the unified refresh above.
+    // Never invoke it from this sessionless worker without the deal/bank-bound
+    // grant already issued for the leased job.
+    if (!readinessAccessGrant) {
+      console.warn(
+        "[spreadsProcessor] persisted readiness recompute skipped: no verified service grant",
+        { dealId, bankId, jobId },
+      );
+    } else {
+      try {
+        const { recomputeDealReady } = await import("@/lib/deals/readiness");
+        await recomputeDealReady(dealId, {
+          actorId: "system:spreads_processor",
+          accessGrant: readinessAccessGrant,
+        });
+      } catch (readinessErr: any) {
+        console.warn("[spreadsProcessor] readiness recompute failed (non-fatal)", {
+          dealId,
+          jobId,
+          error: readinessErr?.message,
+        });
+      }
     }
 
     // Generate risk flags after spread facts materialized (non-fatal)
