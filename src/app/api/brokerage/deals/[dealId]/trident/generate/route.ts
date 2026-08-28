@@ -98,12 +98,20 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "invalid_bundle_id" }, { status: 400 });
   }
 
+  // `?mode=` selects which run to report on; final stays the default so
+  // existing callers are unaffected. This used to be hard-wired to final,
+  // which was tolerable while preview generation returned its result inline.
+  // Preview is now admitted and run by the durable workflow, so the only way
+  // to see a preview's progress or its failure reason was to query the tables
+  // directly — no staff surface could observe the borrower-facing path at all.
+  const requestedMode = _req.nextUrl.searchParams.get("mode") === "preview" ? "preview" : "final";
+
   const bundleQuery = sb
     .from("buddy_trident_bundles")
-    .select("id,status,current_stage,workflow_run_id,generation_error,stage_error_json,generation_started_at,generation_completed_at,last_heartbeat_at,release_gate_json,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path")
+    .select("id,mode,status,current_stage,workflow_run_id,generation_error,stage_error_json,generation_started_at,generation_completed_at,last_heartbeat_at,release_gate_json,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path")
     .eq("deal_id", dealId)
     .eq("bank_id", brokerageBankId)
-    .eq("mode", "final");
+    .eq("mode", requestedMode);
 
   const { data: bundle, error } = requestedBundleId
     ? await bundleQuery.eq("id", requestedBundleId).maybeSingle()
@@ -122,5 +130,5 @@ export async function GET(
         .eq("bundle_id", bundle.id).order("started_at", { ascending: true })
     : { data: [], error: null };
   if (stagesError) return NextResponse.json({ ok: false, error: stagesError.message }, { status: 500 });
-  return NextResponse.json({ ok: true, bundle, stages: stages ?? [] });
+  return NextResponse.json({ ok: true, mode: requestedMode, bundle, stages: stages ?? [] });
 }
