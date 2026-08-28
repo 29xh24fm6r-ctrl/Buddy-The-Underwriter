@@ -1,6 +1,10 @@
 import "server-only";
 
-import { runRole } from "@/lib/ai/gateway";
+import {
+  fetchFredSeries,
+  fetchNyFedSofr,
+  fetchTreasuryFiveYear,
+} from "./officialRateSources";
 
 export type IndexCode = "UST_5Y" | "SOFR" | "PRIME";
 
@@ -14,70 +18,88 @@ export type IndexRate = {
   raw?: unknown;
 };
 
-type CacheEntry = { expiresAt: number; value: Record<IndexCode, IndexRate> };
+type RateSet = Record<IndexCode, IndexRate>;
+type CacheEntry = {
+  expiresAt: number;
+  staleUntil: number;
+  value: RateSet;
+};
+
 let cache: CacheEntry | null = null;
-const TTL_MS = 15 * 60 * 1000; // 15 min cache
+const TTL_MS = 15 * 60 * 1_000;
+const STALE_IF_ERROR_MS = 7 * 24 * 60 * 60 * 1_000;
 
-async function fetchRatesViaGemini(): Promise<Record<IndexCode, IndexRate>> {
-  const today = new Date().toISOString().split("T")[0];
-
-  // SPEC-M1.1: routed through the AI gateway (runRole, "generator" role,
-  // useSearchGrounding — Gemini's google_search tool, needed to look up
-  // live rate benchmarks rather than rely on training data).
-  const result = await runRole("generator", {
-    purpose: "index_rates_lookup",
-    prompt: `Today is ${today}. Please look up the current values for these three US interest rate benchmarks and return ONLY a JSON object, no markdown, no explanation:
-{
-  "SOFR": { "rate": <number>, "asOf": "<YYYY-MM-DD>" },
-  "UST_5Y": { "rate": <number>, "asOf": "<YYYY-MM-DD>" },
-  "PRIME": { "rate": <number>, "asOf": "<YYYY-MM-DD>" }
-}
-SOFR = Secured Overnight Financing Rate (NY Fed)
-UST_5Y = 5-Year US Treasury yield (daily, from Treasury.gov)
-PRIME = Bank Prime Loan Rate (from Federal Reserve / FRED DPRIME)
-All rates should be in percent (e.g. 5.33 not 0.0533).`,
-    temperature: 0,
-    useSearchGrounding: true,
-    timeoutMs: 20_000,
-  });
-
-  const clean = result.text.replace(/```json|```/g, "").trim();
-  const parsed = JSON.parse(clean);
-
-  const now = new Date().toISOString().split("T")[0];
-
-  return {
-    SOFR: {
-      code: "SOFR",
-      label: "SOFR (NY Fed)",
-      ratePct: Number(parsed.SOFR.rate),
-      asOf: parsed.SOFR.asOf ?? now,
-      source: "nyfed",
-    },
-    UST_5Y: {
-      code: "UST_5Y",
-      label: "5Y Treasury",
-      ratePct: Number(parsed.UST_5Y.rate),
-      asOf: parsed.UST_5Y.asOf ?? now,
-      source: "treasury",
-    },
-    PRIME: {
-      code: "PRIME",
-      label: "Prime Rate",
-      ratePct: Number(parsed.PRIME.rate),
-      asOf: parsed.PRIME.asOf ?? now,
-      source: "fred",
-    },
-  };
+export class RateFeedUnavailableError extends Error {
+  constructor() {
+    super("benchmark rate feed is temporarily unavailable");
+    this.name = "RateFeedUnavailableError";
+  }
 }
 
-export async function getLatestIndexRates(): Promise<Record<IndexCode, IndexRate>> {
-  const t = Date.now();
-  if (cache && cache.expiresAt > t) return cache.value;
+async function withFallback(
+  primary: () => Promise<IndexRate>,
+  fallback: () => Promise<IndexRate>,
+): Promise<IndexRate> {
+  try {
+    return await primary();
+  } catch {
+    return await fallback();
+  }
+}
 
-  const value = await fetchRatesViaGemini();
-  cache = { expiresAt: t + TTL_MS, value };
-  return value;
+async function fetchOfficialRates(): Promise<RateSet> {
+  const [sofr, treasury, prime] = await Promise.all([
+    withFallback(
+      () => fetchNyFedSofr(),
+      () => fetchFredSeries("SOFR", "SOFR", "SOFR (NY Fed)"),
+    ),
+    withFallback(
+      () => fetchTreasuryFiveYear(),
+      () => fetchFredSeries("DGS5", "UST_5Y", "5Y Treasury"),
+    ),
+    fetchFredSeries("DPRIME", "PRIME", "Prime Rate"),
+  ]);
+
+  return { SOFR: sofr, UST_5Y: treasury, PRIME: prime };
+}
+
+function staleCopy(value: RateSet): RateSet {
+  return Object.fromEntries(
+    Object.entries(value).map(([code, rate]) => [
+      code,
+      {
+        ...rate,
+        raw: {
+          stale: true,
+          reason: "official_refresh_failed",
+          lastKnownSource: rate.source,
+        },
+      },
+    ]),
+  ) as RateSet;
+}
+
+export async function getLatestIndexRates(): Promise<RateSet> {
+  const now = Date.now();
+  if (cache && cache.expiresAt > now) return cache.value;
+
+  try {
+    const value = await fetchOfficialRates();
+    cache = {
+      expiresAt: now + TTL_MS,
+      staleUntil: now + STALE_IF_ERROR_MS,
+      value,
+    };
+    return value;
+  } catch (error) {
+    if (cache && cache.staleUntil > now) {
+      console.warn("[rates] official refresh failed; serving last-known-good rates", {
+        error: error instanceof Error ? error.message : "unknown error",
+      });
+      return staleCopy(cache.value);
+    }
+    throw new RateFeedUnavailableError();
+  }
 }
 
 /** Test-only: clears the in-process rate cache between test cases. */
