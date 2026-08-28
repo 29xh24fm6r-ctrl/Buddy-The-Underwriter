@@ -5,6 +5,7 @@ import "server-only";
 // Pure function. Scores management experience, industry knowledge, staffing,
 // and (for franchise deals) franchise support.
 
+import { computeDimensionCompleteness } from "./dimensionCompleteness";
 import type {
   DimensionScore,
   MarketFlag,
@@ -146,18 +147,22 @@ export function analyzeOperationalReadiness(
 
   // ── Composite ──────────────────────────────────────────────────────
 
-  const dimensions = [
-    managementExperience,
-    industryKnowledge,
-    staffingReadiness,
-    ...(input.isFranchise ? [franchiseScore] : []),
+  const entries = [
+    { key: "managementExperience", score: managementExperience },
+    { key: "industryKnowledge", score: industryKnowledge },
+    { key: "staffingReadiness", score: staffingReadiness },
+    // Franchise support is not a gap for a non-franchise borrower — it is
+    // simply not part of that deal's evidence base.
+    ...(input.isFranchise ? [{ key: "franchiseSupport", score: franchiseScore }] : []),
   ];
+  const dimensions = entries.map((e) => e.score);
   const totalWeight = dimensions.reduce((s, d) => s + d.weight, 0);
   const weightedSum = dimensions.reduce(
     (s, d) => s + d.score * d.weight,
     0,
   );
   const overallScore = Math.round(weightedSum / totalWeight);
+  const coverage = computeDimensionCompleteness(entries);
 
   return {
     overallScore,
@@ -165,8 +170,8 @@ export function analyzeOperationalReadiness(
     industryKnowledge,
     staffingReadiness,
     franchiseSupport: franchiseScore,
-    dataCompleteness:
-      dimensions.filter((d) => d.dataAvailable).length / dimensions.length,
+    dataCompleteness: coverage.completeness,
+    coverage,
     flags,
   };
 }
