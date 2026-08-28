@@ -59,12 +59,20 @@ export async function POST(req: Request) {
       .eq("idempotency_key", idempotencyKey)
       .maybeSingle();
 
+    if (prior.error) {
+      console.error("Public upload idempotency lookup failed", {
+        code: prior.error.code,
+      });
+      return NextResponse.json(
+        { ok: false, error: "Upload service unavailable." },
+        { status: 503 },
+      );
+    }
+
     if (prior.data?.response) {
       return NextResponse.json(prior.data.response);
     }
   }
-
-  chaosPoint(req, "pre_link_lookup");
 
   chaosPoint(req, "pre_link_lookup");
 
@@ -102,8 +110,6 @@ export async function POST(req: Request) {
 
   chaosPoint(req, "post_link_validation");
 
-  chaosPoint(req, "post_link_validation");
-
   // 2) Validate password if required (constant-time compare)
   if (link.require_password) {
     if (!password)
@@ -134,22 +140,81 @@ export async function POST(req: Request) {
       { status: 400 },
     );
 
+  // Validate the complete request before consuming a single-use link or
+  // starting any storage/database side effects.
+  for (const file of files) {
+    if (file.type && !ALLOWED_MIME_TYPES.has(file.type)) {
+      return NextResponse.json(
+        { ok: false, error: `Unsupported file type: ${file.type}` },
+        { status: 415 },
+      );
+    }
+    if (typeof file.size === "number" && file.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { ok: false, error: "File too large (max 50MB)" },
+        { status: 413 },
+      );
+    }
+  }
+
   const dealId = String(link.deal_id);
   const bucket = documentUploadBucket();
   const docStore = String(process.env.DOC_STORE || "").toLowerCase();
 
-  // Fetch deal to get bank_id (required for ingestion)
-  const { data: deal } = await supabaseAdmin()
+  // Fetch every authoritative deal field needed by the transaction before
+  // storage begins. Database unavailability must not masquerade as a missing
+  // deal or an unfrozen intake phase.
+  const { data: deal, error: dealErr } = await supabaseAdmin()
     .from("deals")
-    .select("bank_id")
+    .select("bank_id, intake_phase")
     .eq("id", dealId)
     .maybeSingle();
+
+  if (dealErr) {
+    console.error("Public upload deal lookup failed", { code: dealErr.code });
+    return NextResponse.json(
+      { ok: false, error: "Upload service unavailable." },
+      { status: 503 },
+    );
+  }
 
   if (!deal)
     return NextResponse.json(
       { ok: false, error: "Deal not found." },
       { status: 404 },
     );
+
+  // Atomically claim a single-use link before the first side effect. The
+  // returned-row proof distinguishes this request from a concurrent replay.
+  if (link.single_use) {
+    const claimedAt = new Date().toISOString();
+    const claim = await supabaseAdmin()
+      .from("deal_upload_links")
+      .update({ used_at: claimedAt })
+      .eq("id", link.id)
+      .is("used_at", null)
+      .is("revoked_at", null)
+      .gt("expires_at", claimedAt)
+      .select("id")
+      .maybeSingle();
+
+    if (claim.error) {
+      console.error("Public upload link claim failed", {
+        code: claim.error.code,
+      });
+      return NextResponse.json(
+        { ok: false, error: "Upload service unavailable." },
+        { status: 503 },
+      );
+    }
+
+    if (!claim.data) {
+      return NextResponse.json(
+        { ok: false, error: "Link already used or unavailable." },
+        { status: 403 },
+      );
+    }
+  }
 
   const ip = getClientIp(req);
   const ua = req.headers.get("user-agent");
@@ -158,22 +223,6 @@ export async function POST(req: Request) {
 
   for (const f of files) {
     chaosPoint(req, "before_storage_upload");
-    chaosPoint(req, "before_storage_upload");
-
-    // Bank-safe guardrails (same allowlist/cap used by every other upload path —
-    // see src/lib/uploads/signDealUpload.ts). Reject before buffering the body.
-    if (f.type && !ALLOWED_MIME_TYPES.has(f.type)) {
-      return NextResponse.json(
-        { ok: false, error: `Unsupported file type: ${f.type}` },
-        { status: 415 },
-      );
-    }
-    if (typeof f.size === "number" && f.size > MAX_UPLOAD_BYTES) {
-      return NextResponse.json(
-        { ok: false, error: "File too large (max 50MB)" },
-        { status: 413 },
-      );
-    }
 
     const arrayBuffer = await f.arrayBuffer();
     const bytes = Buffer.from(arrayBuffer);
@@ -291,13 +340,8 @@ export async function POST(req: Request) {
 
     // Phase E1: Invalidate snapshot if deal was already confirmed — but NEVER unseal a frozen deal.
     {
-      const { data: phaseCheck } = await supabaseAdmin()
-        .from("deals")
-        .select("intake_phase")
-        .eq("id", dealId)
-        .maybeSingle();
-
-      const uploadPhase = (phaseCheck as any)?.intake_phase as string | null;
+      const uploadPhase =
+        typeof deal.intake_phase === "string" ? deal.intake_phase : null;
 
       if (
         uploadPhase &&
@@ -399,26 +443,27 @@ export async function POST(req: Request) {
     }
   }
 
-  // 7) Mark link used if single_use
-  if (link.single_use) {
-    await supabaseAdmin()
-      .from("deal_upload_links")
-      .update({ used_at: new Date().toISOString() })
-      .eq("id", link.id);
-  }
-
   const response = { ok: true, count: successCount };
 
   // 8) Persist idempotent response
   if (idempotencyKey) {
-    await supabaseAdmin()
+    const persisted = await supabaseAdmin()
       .from("upload_idempotency_keys")
       .insert({
         token_hash: tokenHash,
         idempotency_key: idempotencyKey,
         response,
-      })
-      .throwOnError();
+      });
+
+    if (persisted.error) {
+      console.error("Public upload idempotency persistence failed", {
+        code: persisted.error.code,
+      });
+      return NextResponse.json(
+        { ok: false, error: "Upload completed but response persistence failed." },
+        { status: 503 },
+      );
+    }
   }
 
   return NextResponse.json(response);
