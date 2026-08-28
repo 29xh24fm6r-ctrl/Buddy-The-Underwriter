@@ -25,7 +25,10 @@ import { updateDealIfRunOwner } from "./updateDealIfRunOwner";
 import { summarizeProcessingErrors } from "./summarizeProcessingError";
 import { computeDealPhasePatch } from "./computeDealPhasePatch";
 import type { TerminalPhase } from "./computeDealPhasePatch";
-import { ensureDealBankAccessForService } from "@/lib/tenant/ensureDealBankAccess";
+import {
+  ensureDealBankAccessForService,
+  type DealBankAccessGrant,
+} from "@/lib/tenant/ensureDealBankAccess";
 
 // ── Extract-eligible canonical types (mirrors processArtifact routing) ──
 
@@ -767,6 +770,7 @@ export async function processConfirmedIntake(
     errorCount: errors.length,
     runId,
     errors: errors.length > 0 ? errors : undefined,
+    readinessContext,
   });
 
   return {
@@ -798,6 +802,7 @@ export async function processConfirmedIntake(
       fatal: true,
       runId,
       errors,
+      readinessContext,
     });
 
     return {
@@ -826,6 +831,10 @@ async function transitionPhaseAndEmit(
     fatal?: boolean;
     runId?: string;
     errors?: string[];
+    readinessContext: {
+      actorId: string;
+      accessGrant: DealBankAccessGrant;
+    };
   },
 ): Promise<void> {
   const durationMs = Date.now() - opts.startMs;
@@ -889,7 +898,7 @@ async function transitionPhaseAndEmit(
     scheduleReadinessRefresh({
       dealId,
       trigger: "document_finalized",
-      ...readinessContext,
+      ...opts.readinessContext,
     });
   } catch {
     // Hook is best-effort — never block intake finalization on it.

@@ -55,7 +55,7 @@ test("spreads worker uses a verified deal-bank grant instead of browser-session 
   assert.match(intake, /accessGrant:\s*serviceAccess\.grant/);
   assert.match(
     intake,
-    /scheduleReadinessRefresh\(\{[\s\S]*?\.\.\.readinessContext/,
+    /scheduleReadinessRefresh\(\{[\s\S]*?\.\.\.opts\.readinessContext/,
   );
 });
 
