@@ -64,20 +64,6 @@ function deriveVerifications(counts: {
   };
 }
 
-function chapterFromFieldProgress(
-  fieldProgress: FieldProgress | null,
-  sealed: boolean,
-): 1 | 2 | 3 | 4 | 5 {
-  if (sealed) return 5;
-  if (!fieldProgress || !fieldProgress.determinable) return 1;
-  const bc = fieldProgress.byChapter;
-  for (const ch of [1, 2, 3, 4, 5] as const) {
-    const c = bc[ch];
-    if (c.total > 0 && c.complete < c.total) return ch;
-  }
-  return 5;
-}
-
 type BorrowerScoreData = {
   score: number;
   band: string;
@@ -462,52 +448,53 @@ export function StartConciergeClient({
 
   // ── SPEC-BORROWER-RESUME-PERSISTENCE-V3 ──
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [hydrationError, setHydrationError] = useState<string | null>(null);
   const [progressHydrated, setProgressHydrated] = useState(false);
 
   // Hydrate progress + chapter facts from server on mount / deal change
   const hydrateProgress = useCallback(async (id: string) => {
+    setHydrationError(null);
     try {
-      const res = await fetch("/api/borrower/intake/progress", { credentials: "include" });
-      const json = await res.json();
-      if (json?.ok && json.progress) {
-        const p = json.progress;
-        console.log(
-          "[start] hydrated deal=" + id +
-          " ch=" + p.currentChapter +
-          " completed=" + (p.completedChapters ?? []).join(",") +
-          " lastValid=" + (p.lastValidChapter ?? "none") +
-          " v=" + p.progressVersion,
-        );
-        // Resolve chapter: use persisted, but don't exceed what facts justify
-        const validatedChapter = Math.min(
-          p.currentChapter ?? 1,
-          (p.completedChapters ?? []).length + 1,
-        ) as 1 | 2 | 3 | 4 | 5;
-        setChapter(Math.max(1, Math.min(5, validatedChapter)) as 1 | 2 | 3 | 4 | 5);
-        // Hydrate facts into local state
-        if (p.facts) {
-          setPurposes(p.facts.purposes ?? []);
-          setTotalAmount(p.facts.totalAmount ?? 0);
-        }
-      } else {
-        // No progress row — start fresh, but don't overwrite with blanks
-        // if the user is on a deal with existing facts
-        if (journeyStatus.hasDealId && journeyStatus.fieldProgress?.determinable) {
-          const fallbackChapter = chapterFromFieldProgress(
-            journeyStatus.fieldProgress,
-            journeyStatus.sealed,
-          );
-          console.log("[start] fieldProgress fallback deal=" + id + " ch=" + fallbackChapter);
-          setChapter(fallbackChapter);
-        }
+      const res = await fetch("/api/borrower/intake/progress", {
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.ok || !json.progress || !json.progress.facts) {
+        throw new Error(json?.error ?? `progress_load_${res.status}`);
       }
+      if (json.dealId && json.dealId !== id) {
+        throw new Error("progress_deal_mismatch");
+      }
+
+      const p = json.progress;
+      console.log(
+        "[start] hydrated deal=" + id +
+        " ch=" + p.currentChapter +
+        " completed=" + (p.completedChapters ?? []).join(",") +
+        " lastValid=" + (p.lastValidChapter ?? "none") +
+        " v=" + p.progressVersion,
+      );
+
+      const validatedChapter = Math.min(
+        p.currentChapter ?? 1,
+        (p.completedChapters ?? []).length + 1,
+      ) as 1 | 2 | 3 | 4 | 5;
+      setChapter(Math.max(1, Math.min(5, validatedChapter)) as 1 | 2 | 3 | 4 | 5);
+
+      setPurposes(p.facts.purposes ?? []);
+      setTotalAmount(p.facts.totalAmount ?? 0);
+
+      setSaveError(null);
+      setProgressHydrated(true);
     } catch (err) {
       console.warn("[start] hydrateProgress failed", err);
-    } finally {
-      setProgressHydrated(true);
-      setSaveError(null);
+      setProgressHydrated(false);
+      setHydrationError(
+        "We could not safely load your saved application. Your work is still protected. Retry when the connection is restored.",
+      );
     }
-  }, [journeyStatus.hasDealId, journeyStatus.fieldProgress, journeyStatus.sealed]);
+  }, []);
 
   useEffect(() => {
     if (!dealId || progressHydrated) return;
@@ -520,6 +507,7 @@ export function StartConciergeClient({
     if (dealId && dealId !== prevDealIdRef.current) {
       prevDealIdRef.current = dealId;
       setProgressHydrated(false);
+      setHydrationError(null);
       setSaveError(null);
       setChapter(1);
       setPurposes([]);
@@ -606,6 +594,7 @@ export function StartConciergeClient({
     if (json.ok) {
       setShowQAPanel(false);
       setProgressHydrated(false);
+      setHydrationError(null);
       setSaveError(null);
       setChapter(1);
       setPurposes([]);
@@ -629,6 +618,7 @@ export function StartConciergeClient({
     if (json.ok) {
       setShowQAPanel(false);
       setProgressHydrated(false);
+      setHydrationError(null);
       setSaveError(null);
       setChapter(1);
       setPurposes([]);
@@ -780,10 +770,25 @@ export function StartConciergeClient({
       >
         {!progressHydrated ? (
           <div className="flex items-center justify-center py-20">
-            <div className="space-y-4 text-center">
-              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-brand-blue-200 border-t-brand-blue-600" />
-              <p className="text-sm text-slate-400">Loading your application…</p>
-            </div>
+            {hydrationError ? (
+              <div className="max-w-md space-y-4 text-center">
+                <p role="alert" className="text-sm text-red-700">
+                  {hydrationError}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void hydrateProgress(nonNullDealId)}
+                  className="rounded-lg bg-brand-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-blue-700"
+                >
+                  Retry loading
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4 text-center">
+                <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-brand-blue-200 border-t-brand-blue-600" />
+                <p className="text-sm text-slate-400">Loading your application…</p>
+              </div>
+            )}
           </div>
         ) : (
           <>
