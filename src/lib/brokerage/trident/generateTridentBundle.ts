@@ -497,14 +497,17 @@ export async function generateTridentBundle(args: {
           generatedAt: new Date().toISOString(),
         });
         const previewPath = `${dealId}/${mode}/${Date.now()}_projections.pdf`;
-        const { error: uploadErr } = await sb.storage
+        const { data: uploadedPreview, error: uploadErr } = await sb.storage
           .from("trident-bundles")
           .upload(previewPath, previewBuf, {
             contentType: "application/pdf",
             upsert: true,
           });
-        if (uploadErr) throw new Error(`upload failed: ${uploadErr.message}`);
+        if (uploadErr || uploadedPreview?.path !== previewPath) {
+          throw new Error(`upload failed: ${uploadErr?.message ?? "uploaded path not returned"}`);
+        }
         projectionsPdfPath = previewPath;
+        newProjectionObjects.push({ bucket: "trident-bundles", path: previewPath });
       } catch (e) {
         // Non-fatal by design — a preview must still deliver the business
         // plan and feasibility study if the projections summary cannot be
@@ -520,7 +523,7 @@ export async function generateTridentBundle(args: {
       }
     }
 
-    const { error: projectionsPersistError } = await sb.from("buddy_trident_bundles").update({
+    const projectionManifestValues = {
       projections_pdf_path: projectionsPdfPath,
       projections_xlsx_path: projectionsXlsxPath,
       current_stage: "projections",
@@ -546,8 +549,20 @@ export async function generateTridentBundle(args: {
       // what the column is for after a redaction fix. Final mode applies no
       // redaction, so it stays null.
       redactor_version: mode === "preview" ? REDACTOR_VERSION : null,
-    }).eq("id", bundleId).eq("lease_token", args.leaseToken);
-    if (projectionsPersistError) throw new Error(`Projection manifest write failed: ${projectionsPersistError.message}`);
+    };
+    await persistRowWithStorageRollback(sb, {
+      table: "buddy_trident_bundles",
+      filters: { id: bundleId, lease_token: args.leaseToken },
+      values: projectionManifestValues,
+      expected: {
+        projections_pdf_path: projectionsPdfPath,
+        projections_xlsx_path: projectionsXlsxPath,
+        current_stage: "projections",
+        redactor_version: mode === "preview" ? REDACTOR_VERSION : null,
+      },
+      uploaded: newProjectionObjects,
+      label: "Projection artifact",
+    });
 
     // 3. Feasibility — call engine; for preview, re-render with redaction.
     let feasibilityPdfPath: string | null = null;
@@ -664,13 +679,25 @@ export async function generateTridentBundle(args: {
       console.warn("[trident] feasibility render failed (non-fatal):", feasErr);
     }
 
-    const { error: feasibilityPersistError } = await sb.from("buddy_trident_bundles").update({
-      feasibility_pdf_path: feasibilityPdfPath,
-      source_feasibility_id: sourceFeasibilityId,
-      current_stage: "feasibility",
-      last_heartbeat_at: new Date().toISOString(),
-    }).eq("id", bundleId).eq("lease_token", args.leaseToken);
-    if (feasibilityPersistError) throw new Error(`Feasibility manifest write failed: ${feasibilityPersistError.message}`);
+    await persistRowWithStorageRollback(sb, {
+      table: "buddy_trident_bundles",
+      filters: { id: bundleId, lease_token: args.leaseToken },
+      values: {
+        feasibility_pdf_path: feasibilityPdfPath,
+        source_feasibility_id: sourceFeasibilityId,
+        current_stage: "feasibility",
+        last_heartbeat_at: new Date().toISOString(),
+      },
+      expected: {
+        feasibility_pdf_path: feasibilityPdfPath,
+        source_feasibility_id: sourceFeasibilityId,
+        current_stage: "feasibility",
+      },
+      uploaded: feasibilityPdfPath
+        ? [{ bucket: "trident-bundles", path: feasibilityPdfPath }]
+        : [],
+      label: "Feasibility artifact",
+    });
 
     // 4. Bind a final release to the exact memo, spread, and reviewed
     // artifacts from this run. Preview remains intentionally non-release.
