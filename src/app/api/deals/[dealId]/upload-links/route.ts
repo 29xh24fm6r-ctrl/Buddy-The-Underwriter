@@ -107,12 +107,24 @@ export async function POST(
     return NextResponse.json({ ok: false, error: access.error }, { status });
   }
 
-  const { data: deal } = await supabaseAdmin()
+  const { data: deal, error: dealErr } = await supabaseAdmin()
     .from("deals")
     .select("stage")
     .eq("id", dealId)
     .eq("bank_id", access.bankId)
     .maybeSingle();
+
+  if (dealErr) {
+    console.error("Upload link deal-stage lookup failed", {
+      dealId,
+      bankId: access.bankId,
+      code: dealErr.code,
+    });
+    return NextResponse.json(
+      { ok: false, error: "Upload service unavailable." },
+      { status: 503 },
+    );
+  }
 
   if (!isBorrowerUploadAllowed(deal?.stage ?? null)) {
     return NextResponse.json(

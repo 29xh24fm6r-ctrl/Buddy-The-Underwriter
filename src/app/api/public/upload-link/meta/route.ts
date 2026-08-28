@@ -27,7 +27,17 @@ export async function GET(req: Request) {
     .eq("token_hash", tokenHash)
     .maybeSingle();
 
-  if (error || !data) {
+  if (error) {
+    console.error("Public upload link metadata lookup failed", {
+      code: error.code,
+    });
+    return NextResponse.json(
+      { ok: false, error: "Upload service unavailable." },
+      { status: 503 },
+    );
+  }
+
+  if (!data) {
     return NextResponse.json(
       { ok: false, error: "Invalid link." },
       { status: 404 },
