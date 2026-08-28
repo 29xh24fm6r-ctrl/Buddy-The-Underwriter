@@ -38,6 +38,24 @@ interface Props {
   dealId: string;
 }
 
+export async function readResearchRunFailure(response: Response): Promise<string | null> {
+  if (response.ok) return null;
+
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = await response.json();
+  } catch {
+    // Preserve an actionable HTTP fallback when an upstream returns no JSON.
+  }
+
+  const detail = [payload.detail, payload.error, payload.message]
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  const correlationId = response.headers.get("x-correlation-id")
+    ?? (typeof payload.correlationId === "string" ? payload.correlationId : null);
+  const base = detail ?? `Research request failed (HTTP ${response.status}).`;
+  return correlationId ? `${base} Reference: ${correlationId}` : base;
+}
+
 export default function AnalystWorkbench({ dealId }: Props) {
   const [state, setState] = useState<WorkbenchState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +65,7 @@ export default function AnalystWorkbench({ dealId }: Props) {
   // Research quality gate state (SPEC-UNDERWRITE-RESEARCH-GATE-END-TO-END-1)
   const [research, setResearch] = useState<ResearchGateSnapshot | null>(null);
   const [pending, setPending] = useState<ResearchGatePending>(null);
+  const [researchError, setResearchError] = useState<string | null>(null);
   const pendingRef = useRef<ResearchGatePending>(null);
   pendingRef.current = pending;
 
@@ -109,11 +128,14 @@ export default function AnalystWorkbench({ dealId }: Props) {
 
   const runResearch = useCallback(async () => {
     setPending("run");
+    setResearchError(null);
     try {
       // runMission completes synchronously server-side (up to ~5 min).
-      await fetch(`/api/deals/${dealId}/research/run`, { method: "POST" });
-    } catch {
-      // surfaced via refreshed research snapshot below
+      const response = await fetch(`/api/deals/${dealId}/research/run`, { method: "POST" });
+      const failure = await readResearchRunFailure(response);
+      if (failure) setResearchError(failure);
+    } catch (error) {
+      setResearchError(error instanceof Error ? error.message : "Research could not be started. Please retry.");
     } finally {
       await Promise.allSettled([fetchResearch(), fetchState()]);
       setPending(null);
@@ -189,14 +211,21 @@ export default function AnalystWorkbench({ dealId }: Props) {
     // instead of dead-ending at a bare "workspace not initialized" prompt.
     if (researchGateActive && research) {
       return (
-        <ResearchGateActionPanel
-          snapshot={research}
-          workspaceReady={false}
-          pending={pending}
-          onInitialize={initializeWorkbench}
-          onRunResearch={runResearch}
-          onReviewTask={reviewTask}
-        />
+        <div className="space-y-3">
+          <ResearchGateActionPanel
+            snapshot={research}
+            workspaceReady={false}
+            pending={pending}
+            onInitialize={initializeWorkbench}
+            onRunResearch={runResearch}
+            onReviewTask={reviewTask}
+          />
+          {researchError && (
+            <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+              <span className="font-semibold">Research could not start.</span> {researchError}
+            </div>
+          )}
+        </div>
       );
     }
 
@@ -254,6 +283,11 @@ export default function AnalystWorkbench({ dealId }: Props) {
           onRunResearch={runResearch}
           onReviewTask={reviewTask}
         />
+      )}
+      {researchError && (
+        <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+          <span className="font-semibold">Research could not start.</span> {researchError}
+        </div>
       )}
 
       {/* SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1:
