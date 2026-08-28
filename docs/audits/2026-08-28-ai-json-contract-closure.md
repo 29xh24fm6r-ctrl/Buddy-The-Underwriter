@@ -45,7 +45,16 @@ The gateway exposed only one JSON control: `responseSchema`. Some callers need s
 
 ## Verification state
 
-Focused and broad execution, required GitHub checks, exact-head Vercel preview, and production verification remain pending at branch creation. Do not merge until all required checks are green and the exact-head preview is READY and SHA-matched.
+Validation completed on code head `6e215996ec5644b4a8c5223206ed5df2de01a48d`:
+
+- 13,345 tests: 13,336 passed, 0 failed, 9 skipped.
+- React-server tests: 18 passed, 0 failed.
+- Research golden set: 7 passed, 0 failed, 13 known placeholders skipped.
+- CI, Build Check, Secret Scan, typecheck, lint, architecture, safety, schema-select, drift, polling, Never-500, and public Playwright passed.
+- Authenticated Playwright was explicitly skipped because credentials were unavailable.
+- Exact-head Vercel deployment `dpl_FriJaVwtWLZdp58MxfNdrhyRfpZR` reached READY, returned HTTP 200, served `x-buddy-build: 6e215996ec5644b4a8c5223206ed5df2de01a48d`, and had no error/fatal runtime logs.
+
+The final documentation-only evidence commit must retain the same code tree and complete GitHub/Vercel checks before merge.
 
 ## Remaining risks and next targets
 
