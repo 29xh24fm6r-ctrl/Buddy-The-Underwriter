@@ -34,7 +34,7 @@ export async function POST(
       const pkg = await loadFinengineMemo(dealId, { bankId });
       try {
         enforceMemoSubmission(pkg.validation, { cutoverEnabled: true });
-      } catch (e) {
+      } catch {
         return NextResponse.json(
           {
             ok: false,
