@@ -41,7 +41,9 @@ test("[memo-wizard.truth-1] owner lookup failures cannot collapse into an empty 
   );
   assert.match(body, /data:\s*ownersRaw,\s*error:\s*ownersError/);
   assert.match(body, /if\s*\(ownersError\)/);
-  assert.match(body, /failedOperations:\s*\["management_owner_lookup"\]/);
+  assert.match(body, /const lookupFailures = \["management_owner_lookup"\]/);
+  assert.match(body, /const lookupAudit = await writeEvent/);
+  assert.match(body, /failedOperations:\s*lookupFailures/);
   assert.match(body, /status:\s*500/);
 });
 
