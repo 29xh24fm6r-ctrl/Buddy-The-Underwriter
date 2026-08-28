@@ -422,6 +422,44 @@ export async function submitCreditMemoToUnderwriting(
   };
 }
 
+export type RestoreSubmittedSnapshotArgs = {
+  dealId: string;
+  snapshotId: string;
+  expectedStatus: "finalized" | "returned";
+};
+
+export type RestoreSubmittedSnapshotResult =
+  | { ok: true }
+  | { ok: false; code: string | null };
+
+/**
+ * Restore the submission state when decision finalization cannot durably
+ * mirror its deal-level status. Keeping this write in the canonical
+ * submission owner preserves the single-writer lifecycle invariant.
+ */
+export async function restoreBankerSubmittedSnapshotAfterFailedDecision(
+  args: RestoreSubmittedSnapshotArgs,
+): Promise<RestoreSubmittedSnapshotResult> {
+  const sb = supabaseAdmin();
+  const { data, error } = await sb
+    .from("credit_memo_snapshots")
+    .update({
+      status: "banker_submitted",
+      underwriter_feedback_json: {},
+    })
+    .eq("id", args.snapshotId)
+    .eq("deal_id", args.dealId)
+    .eq("status", args.expectedStatus)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !data) {
+    return { ok: false, code: error?.code ?? null };
+  }
+
+  return { ok: true };
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function loadOverrides(
