@@ -44,12 +44,21 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     sb.from("deal_pipeline_ledger").select("event_key, ui_message").eq("deal_id", dealId).eq("event_key", "lifecycle.blocker").order("created_at", { ascending: false }).limit(10),
   ]);
 
+  // Lender matching is an optional capability and its backing table is not
+  // installed in every bank deployment. PGRST205 for this one source means
+  // "capability unavailable", not "the underwriting read model is down".
+  // Keep the response truthful by publishing the degraded source while still
+  // failing closed for every required source and every other database error.
+  const lenderMatchesUnavailable =
+    lenderMatchRes.error?.code === "PGRST205" &&
+    lenderMatchRes.error.message.includes("deal_lender_matches");
+
   const queryFailures = [
     { source: "intelligence_run", error: intelligenceRunRes.error },
     { source: "intelligence_steps", error: intelligenceStepsRes.error },
     { source: "financial_snapshot", error: snapshotRes.error },
     { source: "risk_pricing", error: riskPricingRes.error },
-    { source: "lender_matches", error: lenderMatchRes.error },
+    { source: "lender_matches", error: lenderMatchesUnavailable ? null : lenderMatchRes.error },
     { source: "lifecycle", error: lifecycleRes.error },
     { source: "lifecycle_blockers", error: blockerRes.error },
   ].filter(({ error }) => error);
@@ -113,5 +122,10 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
   const insight = deriveDealInsights(insightInput);
 
-  return NextResponse.json({ ok: true, dealId, insight });
+  return NextResponse.json({
+    ok: true,
+    dealId,
+    insight,
+    degradedSources: lenderMatchesUnavailable ? ["lender_matches"] : [],
+  });
 }
