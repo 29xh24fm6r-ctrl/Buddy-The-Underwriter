@@ -129,15 +129,18 @@ export async function runTelemetryRetentionPurge(
     results.push({ table, rpcName, rowsPurged, batches, drained });
   }
 
-  const eventType =
+  const retentionKind =
     failures.length === 0
       ? "telemetry_retention_purge_completed"
       : "telemetry_retention_purge_failed";
   const insertResult = await sb.from("buddy_system_events").insert({
-    event_type: eventType,
+    // Production constrains event_type to a small operational vocabulary.
+    // Keep the detailed retention outcome in payload.kind instead of inventing
+    // an event_type that the database rejects.
+    event_type: failures.length === 0 ? "success" : "error",
     severity: failures.length === 0 ? "info" : "error",
     source_system: "nightly-cron",
-    payload: { results, failures },
+    payload: { kind: retentionKind, results, failures },
   });
 
   if (insertResult?.error) {
