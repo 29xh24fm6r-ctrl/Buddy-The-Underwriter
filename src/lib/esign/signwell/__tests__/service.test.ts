@@ -253,7 +253,7 @@ test("requestSignature: provider cleanup failure is explicit and keeps the docum
   const sb = {
     storage: db.storage,
     from: (table: string) => table === "signing_requests"
-      ? { insert: async () => { throw new Error("insert_threw"); } }
+      ? { insert: () => { throw new Error("insert_threw"); } }
       : db.from(table),
   };
   const originalConsoleError = console.error;
