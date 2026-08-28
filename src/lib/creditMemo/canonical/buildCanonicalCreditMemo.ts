@@ -1135,7 +1135,10 @@ export async function buildCanonicalCreditMemo(args: {
         // Only create on first render for deals with usable financial data.
         covenantPackage = await buildCovenantPackage({
           dealId: args.dealId,
-          riskGrade: recommendation.risk_grade || "B",
+          riskGrade: recommendation.risk_grade,
+          governedDscrFloor: resolvePolicy("dscr_floor", {
+            productId: policyProductId(loanReq?.product_type, loanAmount.value),
+          }).effective,
           dealType: toCovenantDealType(loanReq?.product_type),
           actualDscr: financial.dscrGlobal.value,
           actualLeverage: metricValueFromSnapshot({ snapshot, metric: "debt_to_equity", label: "Debt-to-Equity" }).value,

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { runCovenantRuleEngine, type RuleEngineInput } from "./covenantRuleEngine";
 
 const BASE: RuleEngineInput = {
-  riskGrade: "BB",
+  riskGrade: "5 — Watch",
   dealType: "operating_company",
   actualDscr: 1.35,
   actualLeverage: 2.5,
@@ -26,9 +26,9 @@ describe("covenantRuleEngine", () => {
     assert.ok(result.springing.length > 0);
   });
 
-  it("DSCR floor calibrates by risk grade", () => {
-    const bbResult = runCovenantRuleEngine({ ...BASE, riskGrade: "BB" });
-    const cccResult = runCovenantRuleEngine({ ...BASE, riskGrade: "CCC" });
+  it("production numeric grades calibrate covenant risk", () => {
+    const bbResult = runCovenantRuleEngine({ ...BASE, riskGrade: "5 — Watch" });
+    const cccResult = runCovenantRuleEngine({ ...BASE, riskGrade: "8 — Doubtful" });
     const bbDscr = bbResult.financial.find((c) => c.category === "dscr")!.threshold;
     const cccDscr = cccResult.financial.find((c) => c.category === "dscr")!.threshold;
     assert.ok(cccDscr > bbDscr, "CCC should have higher floor than BB");
@@ -82,5 +82,22 @@ describe("covenantRuleEngine", () => {
     const floor = result.financial.find((c) => c.category === "dscr")!.threshold;
     const trigger = result.springing.find((c) => c.triggerMetric === "DSCR")!.triggerThreshold;
     assert.ok(trigger < floor, "Springing trigger must be below the floor");
+  });
+});
+
+
+describe("production covenant boundaries", () => {
+  it("distinguishes exceptional and doubtful production grades", () => {
+    const exceptional = runCovenantRuleEngine({ ...BASE, riskGrade: "1 — Exceptional" });
+    const doubtful = runCovenantRuleEngine({ ...BASE, riskGrade: "8 — Doubtful" });
+    assert.ok(exceptional.financial.find(c => c.category === "leverage")!.threshold < doubtful.financial.find(c => c.category === "leverage")!.threshold);
+    assert.ok(exceptional.reporting.length < doubtful.reporting.length);
+  });
+  it("uses the governed product DSCR floor exactly", () => {
+    const result = runCovenantRuleEngine({ ...BASE, riskGrade: "5 — Watch", governedDscrFloor: 1.2, actualDscr: 1.21 });
+    assert.equal(result.financial.find(c => c.category === "dscr")!.threshold, 1.2);
+  });
+  it("rejects unknown grades instead of silently defaulting", () => {
+    assert.throws(() => runCovenantRuleEngine({ ...BASE, riskGrade: "unknown" }), /unsupported_covenant_risk_grade/);
   });
 });

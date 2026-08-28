@@ -17,6 +17,8 @@ import type {
 
 export type RuleEngineInput = {
   riskGrade: string;
+  /** Canonical product-policy floor. Required for production memo generation. */
+  governedDscrFloor?: number | null;
   dealType: DealType;
   actualDscr: number | null;
   actualLeverage: number | null;
@@ -39,10 +41,20 @@ function genId(): string {
   return `cov_${++nextId}_${Date.now().toString(36)}`;
 }
 
+export function normalizeCovenantRiskGrade(rawGrade: string): string {
+  const normalized = rawGrade.trim().toUpperCase();
+  const numeric = normalized.match(/^([1-8])(?:\s|—|-|$)/)?.[1];
+  if (numeric) {
+    return ({ "1": "AAA", "2": "AA", "3": "A", "4": "BBB", "5": "BB", "6": "B", "7": "CCC", "8": "CCC" } as const)[numeric as "1"|"2"|"3"|"4"|"5"|"6"|"7"|"8"];
+  }
+  if (Object.prototype.hasOwnProperty.call(COVENANT_RULE_CONFIG.dscrFloors, normalized)) return normalized;
+  throw new Error(`unsupported_covenant_risk_grade:${rawGrade}`);
+}
+
 export function runCovenantRuleEngine(input: RuleEngineInput): RawCovenantSet {
   nextId = 0;
   const cfg = COVENANT_RULE_CONFIG;
-  const grade = input.riskGrade.toUpperCase();
+  const grade = normalizeCovenantRiskGrade(input.riskGrade);
   const invGrade = isInvestmentGrade(grade);
   const gradeKey = invGrade ? "investment_grade" : "speculative";
 
@@ -54,11 +66,14 @@ export function runCovenantRuleEngine(input: RuleEngineInput): RawCovenantSet {
   // ── Financial Covenants ─────────────────────────────────────────────
 
   // DSCR Floor
-  const baseDscrFloor = cfg.dscrFloors[grade] ?? 1.20;
-  const dscrFloor =
-    input.actualDscr !== null && input.actualDscr < baseDscrFloor + 0.15
-      ? baseDscrFloor + 0.05
-      : baseDscrFloor;
+  const configuredFloor = cfg.dscrFloors[grade];
+  if (configuredFloor === undefined) {
+    throw new Error(`unsupported_covenant_risk_grade:${input.riskGrade}`);
+  }
+  const baseDscrFloor = input.governedDscrFloor ?? configuredFloor;
+  const dscrFloor = input.governedDscrFloor == null
+    ? (input.actualDscr !== null && input.actualDscr < baseDscrFloor + 0.15 ? baseDscrFloor + 0.05 : baseDscrFloor)
+    : baseDscrFloor;
 
   financial.push({
     id: genId(),
