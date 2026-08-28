@@ -27,29 +27,122 @@ const LOG_PREFIX = "[intake-progress]";
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-async function ensureConciergeSession(dealId: string, sb: ReturnType<typeof supabaseAdmin>) {
-  const { data: existing } = await sb
+async function ensureConciergeSession(
+  dealId: string,
+  sb: ReturnType<typeof supabaseAdmin>,
+) {
+  const existingResult = await sb
     .from("borrower_concierge_sessions")
     .select("id")
     .eq("deal_id", dealId)
     .maybeSingle();
 
-  if (!existing) {
-    const { data: deal } = await sb
-      .from("deals")
-      .select("bank_id")
-      .eq("id", dealId)
-      .maybeSingle();
+  if (existingResult.error) {
+    throw new Error(
+      `Failed to inspect concierge session: ${existingResult.error.message}`,
+    );
+  }
+  if (existingResult.data?.id) return;
 
-    await sb.from("borrower_concierge_sessions").insert({
+  const dealResult = await sb
+    .from("deals")
+    .select("bank_id")
+    .eq("id", dealId)
+    .maybeSingle();
+
+  if (dealResult.error) {
+    throw new Error(
+      `Failed to load concierge deal: ${dealResult.error.message}`,
+    );
+  }
+  if (!dealResult.data) {
+    throw new Error("Cannot create concierge session for a missing deal");
+  }
+
+  const inserted = await sb
+    .from("borrower_concierge_sessions")
+    .insert({
       deal_id: dealId,
-      bank_id: (deal as any)?.bank_id ?? null,
+      bank_id: (dealResult.data as { bank_id: string | null }).bank_id,
       extracted_facts: {},
-    });
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (inserted.error || !inserted.data?.id) {
+    throw new Error(
+      inserted.error?.message || "Concierge session insert returned no row",
+    );
+  }
+}
+
+type ConciergeFactsState = {
+  facts: Record<string, any>;
+  updatedAt: string | null;
+};
+
+async function loadConciergeFacts(
+  dealId: string,
+  sb: ReturnType<typeof supabaseAdmin>,
+): Promise<ConciergeFactsState> {
+  const result = await sb
+    .from("borrower_concierge_sessions")
+    .select("extracted_facts, updated_at")
+    .eq("deal_id", dealId)
+    .maybeSingle();
+
+  if (result.error || !result.data) {
+    throw new Error(
+      result.error?.message || "Concierge session disappeared during save",
+    );
+  }
+
+  return {
+    facts: (result.data.extracted_facts as Record<string, any> | null) ?? {},
+    updatedAt:
+      typeof result.data.updated_at === "string" ? result.data.updated_at : null,
+  };
+}
+
+async function persistConciergeFacts(
+  dealId: string,
+  facts: Record<string, any>,
+  expectedUpdatedAt: string | null,
+  sb: ReturnType<typeof supabaseAdmin>,
+): Promise<void> {
+  const updatedAt = new Date().toISOString();
+  const baseUpdate = sb
+    .from("borrower_concierge_sessions")
+    .update({
+      extracted_facts: facts,
+      updated_at: updatedAt,
+    })
+    .eq("deal_id", dealId);
+
+  const result = expectedUpdatedAt
+    ? await baseUpdate
+        .eq("updated_at", expectedUpdatedAt)
+        .select("id, updated_at")
+        .maybeSingle()
+    : await baseUpdate
+        .is("updated_at", null)
+        .select("id, updated_at")
+        .maybeSingle();
+
+  if (
+    result.error ||
+    !result.data?.id ||
+    result.data.updated_at !== updatedAt
+  ) {
+    throw new Error(
+      result.error?.message ||
+        "Concierge facts changed concurrently; reload before retrying",
+    );
   }
 }
 
 /**
+ * PostgREST envelope discipline/**
  * PostgREST envelope discipline — the cause of the "borrower starts over"
  * incident, and the reason this file spells it out.
  *
@@ -294,6 +387,19 @@ export async function GET() {
       );
     }
 
+    if (completion.degraded.length > 0 || !facts) {
+      console.error(
+        `${LOG_PREFIX} authoritative hydration failed deal=${dealId}` +
+          (completion.degraded.length > 0
+            ? ` tables=${completion.degraded.join(",")}`
+            : " facts=unavailable"),
+      );
+      return NextResponse.json(
+        { ok: false, error: "progress_load_failed", dealId },
+        { status: 503 },
+      );
+    }
+
     const p = progressRes.data as {
       current_chapter: number | null;
       last_valid_chapter: number | null;
@@ -304,17 +410,7 @@ export async function GET() {
     const currentChapter = p?.current_chapter ?? 1;
     const lastValid = p?.last_valid_chapter ?? null;
 
-    // The client resolves position as
-    //   Math.min(currentChapter, completedChapters.length + 1)
-    // so a completion set that is short by one rewinds the borrower a
-    // chapter. A failed count read does not mean a chapter is incomplete,
-    // only that we could not check — and last_valid_chapter was itself
-    // derived from a successful check at save time, so it is a safe floor.
-    let completedChapters = completion.completed;
-    if (completion.degraded.length > 0 && lastValid != null) {
-      const floor = Array.from({ length: lastValid }, (_, i) => i + 1);
-      completedChapters = [...new Set([...completedChapters, ...floor])].sort((a, b) => a - b);
-    }
+    const completedChapters = completion.completed;
 
     console.log(
       `${LOG_PREFIX} loaded deal=${dealId} ch=${currentChapter}` +
@@ -384,20 +480,26 @@ export async function POST(request: Request) {
       // Ch1 → 2: Financing — save purposes and amount to deals + concierge facts
       if (chapter === 2 && (data.purposes !== undefined || data.totalAmount !== undefined)) {
         if (typeof data.totalAmount === "number") {
-          await sb.from("deals").update({
-            loan_amount: data.totalAmount,
-            loan_type: "7a",
-          }).eq("id", dealId);
+          const savedDeal = await sb
+            .from("deals")
+            .update({
+              loan_amount: data.totalAmount,
+              loan_type: "7a",
+            })
+            .eq("id", dealId)
+            .select("id")
+            .maybeSingle();
+
+          if (savedDeal.error || !savedDeal.data?.id) {
+            throw new Error(
+              savedDeal.error?.message || "Financing update returned no deal",
+            );
+          }
         }
 
         if (Array.isArray(data.purposes)) {
-          const { data: existing } = await sb
-            .from("borrower_concierge_sessions")
-            .select("extracted_facts")
-            .eq("deal_id", dealId)
-            .maybeSingle();
-
-          const currentFacts = (existing?.extracted_facts as Record<string, any>) ?? {};
+          const conciergeState = await loadConciergeFacts(dealId, sb);
+          const currentFacts = conciergeState.facts;
           const updatedFacts = {
             ...currentFacts,
             loan: {
@@ -413,24 +515,19 @@ export async function POST(request: Request) {
             },
           };
 
-          await sb.from("borrower_concierge_sessions")
-            .update({
-              extracted_facts: updatedFacts,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("deal_id", dealId);
+          await persistConciergeFacts(
+            dealId,
+            updatedFacts,
+            conciergeState.updatedAt,
+            sb,
+          );
         }
       }
 
       // Ch2 → 3: Business — save entity type + NAICS to concierge facts
       if (chapter === 3 && (data.entityType !== undefined || data.naicsCode !== undefined)) {
-        const { data: existing } = await sb
-          .from("borrower_concierge_sessions")
-          .select("extracted_facts")
-          .eq("deal_id", dealId)
-          .maybeSingle();
-
-        const currentFacts = (existing?.extracted_facts as Record<string, any>) ?? {};
+        const conciergeState = await loadConciergeFacts(dealId, sb);
+        const currentFacts = conciergeState.facts;
         const updatedFacts = {
           ...currentFacts,
           business: {
@@ -447,23 +544,18 @@ export async function POST(request: Request) {
           },
         };
 
-        await sb.from("borrower_concierge_sessions")
-          .update({
-            extracted_facts: updatedFacts,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("deal_id", dealId);
+        await persistConciergeFacts(
+          dealId,
+          updatedFacts,
+          conciergeState.updatedAt,
+          sb,
+        );
       }
 
       // Ch3 → 4: Ownership — save structure to concierge facts
       if (chapter === 4 && data.structure !== undefined) {
-        const { data: existing } = await sb
-          .from("borrower_concierge_sessions")
-          .select("extracted_facts")
-          .eq("deal_id", dealId)
-          .maybeSingle();
-
-        const currentFacts = (existing?.extracted_facts as Record<string, any>) ?? {};
+        const conciergeState = await loadConciergeFacts(dealId, sb);
+        const currentFacts = conciergeState.facts;
         const updatedFacts = {
           ...currentFacts,
           ownership: {
@@ -472,12 +564,12 @@ export async function POST(request: Request) {
           },
         };
 
-        await sb.from("borrower_concierge_sessions")
-          .update({
-            extracted_facts: updatedFacts,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("deal_id", dealId);
+        await persistConciergeFacts(
+          dealId,
+          updatedFacts,
+          conciergeState.updatedAt,
+          sb,
+        );
       }
 
       // Ch4 → 5: Financials — save annual revenue to concierge facts
@@ -486,13 +578,8 @@ export async function POST(request: Request) {
       // changes underwriting. Absence of an answer and an answer of zero are
       // different states; only the former should skip the write.
       if (chapter === 5 && typeof data.annualRevenue === "number" && Number.isFinite(data.annualRevenue)) {
-        const { data: existing } = await sb
-          .from("borrower_concierge_sessions")
-          .select("extracted_facts")
-          .eq("deal_id", dealId)
-          .maybeSingle();
-
-        const currentFacts = (existing?.extracted_facts as Record<string, any>) ?? {};
+        const conciergeState = await loadConciergeFacts(dealId, sb);
+        const currentFacts = conciergeState.facts;
         const updatedFacts = {
           ...currentFacts,
           business: {
@@ -501,12 +588,12 @@ export async function POST(request: Request) {
           },
         };
 
-        await sb.from("borrower_concierge_sessions")
-          .update({
-            extracted_facts: updatedFacts,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("deal_id", dealId);
+        await persistConciergeFacts(
+          dealId,
+          updatedFacts,
+          conciergeState.updatedAt,
+          sb,
+        );
       }
     } catch (e) {
       console.error(`${LOG_PREFIX} ch${chapter - 1} save failed deal=${dealId}`, e);
@@ -516,12 +603,24 @@ export async function POST(request: Request) {
     // Step 3: Derive completion from canonical facts
     const completion = await deriveCompletedChapters(dealId, sb);
     const completedChapters = completion.completed;
+
+    // A failed completion read cannot authorize a new resume pointer. Chapter
+    // facts may already be durable, but the client must retry before advancing.
+    if (completion.degraded.length > 0) {
+      console.error(
+        `${LOG_PREFIX} completion proof failed deal=${dealId} tables=${completion.degraded.join(",")}`,
+      );
+      return NextResponse.json(
+        { ok: false, error: "progress_save_failed" },
+        { status: 503 },
+      );
+    }
     const derivedLastValid =
       completedChapters.length > 0
         ? Math.max(...completedChapters)
         : null;
 
-    // Step 4: Upsert progress position
+    // Step 4: Persist progress position with optimistic concurrency
     const { data: existingProgress, error: existingProgressErr } = await sb
       .from("borrower_intake_progress")
       .select("progress_version, last_valid_chapter")
@@ -541,37 +640,65 @@ export async function POST(request: Request) {
       last_valid_chapter: number | null;
     } | null;
 
-    // The resume pointer must never move backwards because a completion read
-    // failed. A degraded derive tells us what we could not check, not that
-    // the borrower undid work — so keep the highest chapter either source
-    // vouches for.
-    const lastValidChapter =
-      completion.degraded.length > 0
-        ? Math.max(derivedLastValid ?? 0, prior?.last_valid_chapter ?? 0) || null
-        : derivedLastValid;
+    const lastValidChapter = derivedLastValid;
 
     const nextVersion = (prior?.progress_version ?? 0) + 1;
     const now = new Date().toISOString();
 
-    const { error: upsertErr } = await sb
-      .from("borrower_intake_progress")
-      .upsert(
-        {
-          deal_id: dealId,
-          current_chapter: chapter,
-          last_valid_chapter: lastValidChapter,
-          progress_version: nextVersion,
-          last_saved_at: now,
-        },
-        { onConflict: "deal_id" },
-      );
+    const progressPayload = {
+      deal_id: dealId,
+      current_chapter: chapter,
+      last_valid_chapter: lastValidChapter,
+      progress_version: nextVersion,
+      last_saved_at: now,
+    };
 
-    if (upsertErr) {
-      console.error(`${LOG_PREFIX} upsert failed deal=${dealId}`, upsertErr);
-      return NextResponse.json({ ok: false, error: "progress_save_failed" }, { status: 500 });
+    // Optimistic concurrency prevents two tabs from silently overwriting the
+    // same resume pointer. Every mutation also returns the row it changed.
+    const progressWrite = prior
+      ? prior.progress_version == null
+        ? await sb
+            .from("borrower_intake_progress")
+            .update(progressPayload)
+            .eq("deal_id", dealId)
+            .is("progress_version", null)
+            .select("deal_id, progress_version")
+            .maybeSingle()
+        : await sb
+            .from("borrower_intake_progress")
+            .update(progressPayload)
+            .eq("deal_id", dealId)
+            .eq("progress_version", prior.progress_version)
+            .select("deal_id, progress_version")
+            .maybeSingle()
+      : await sb
+          .from("borrower_intake_progress")
+          .insert(progressPayload)
+          .select("deal_id, progress_version")
+          .maybeSingle();
+
+    if (progressWrite.error) {
+      console.error(`${LOG_PREFIX} progress write failed deal=${dealId}`, progressWrite.error);
+      return NextResponse.json(
+        { ok: false, error: "progress_save_failed" },
+        { status: 500 },
+      );
     }
 
-    console.log(
+    if (
+      !progressWrite.data ||
+      progressWrite.data.progress_version !== nextVersion
+    ) {
+      console.warn(
+        `${LOG_PREFIX} concurrent progress write rejected deal=${dealId} expected=${nextVersion}`,
+      );
+      return NextResponse.json(
+        { ok: false, error: "progress_conflict" },
+        { status: 409 },
+      );
+    }
+
+    console.log(    console.log(
       `${LOG_PREFIX} saved deal=${dealId} ch=${chapter}` +
       ` completed=${completedChapters.join(",") || "none"}` +
       ` lastValid=${lastValidChapter ?? "none"} v=${nextVersion}` +
