@@ -365,3 +365,19 @@ describe("callGoogle: prompt-safety block (non-streaming)", () => {
     }
   });
 });
+
+describe("callGoogle: JSON object mode", () => {
+  it("requests JSON MIME without attaching a strict response schema", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({ candidates: [{ content: { parts: [{ text: "{\"ok\":true}" }] } }] }),
+    );
+    try {
+      await callGoogle({ ...BASE_REQ, responseJsonObject: true });
+      const body = JSON.parse(calls[0].init.body);
+      assert.equal(body.generationConfig.responseMimeType, "application/json");
+      assert.equal("responseSchema" in body.generationConfig, false);
+    } finally {
+      restore();
+    }
+  });
+});
