@@ -24,6 +24,7 @@ Buddy The Underwriter only: the public document-link upload route, canonical bor
 8. Link creation mislabeled deal-stage lookup outages as intake-not-started authorization failures.
 9. Duplicate chaos probes made single injected failures execute twice.
 10. The optional `upload_idempotency_keys` table is referenced by code but has no migration in the repository; its production ownership/state cannot be verified without the Buddy Supabase connection.
+11. The primary upload endpoint mislabeled link-record database outages as invalid links.
 
 ## Repair
 
@@ -34,7 +35,7 @@ Buddy The Underwriter only: the public document-link upload route, canonical bor
 - Remove the unverified post-side-effect link update.
 - Fail closed if idempotent-response persistence fails.
 - Make borrower-upload dedupe/orphan reads explicit and require returned-row proof for orphan repair.
-- Return explicit service-unavailable responses for link metadata and creation state outages.
+- Return explicit service-unavailable responses for primary upload-link, metadata, and creation-state outages.
 - Remove duplicate chaos probes.
 - Add regression guards for ordering, error handling, conditional claim semantics, and audit persistence.
 
