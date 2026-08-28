@@ -87,7 +87,7 @@ describe("public upload transaction truthfulness", () => {
       "before_storage_upload",
     ]) {
       assert.equal(
-        occurrences(route, new RegExp(`chaosPoint\\\\\(req, "${point}"\\\\\)`, "g")),
+        occurrences(route, new RegExp(`chaosPoint\\(req, "${point}"\\)`, "g")),
         1,
         `${point} must be invoked exactly once`,
       );
