@@ -1041,7 +1041,17 @@ Repair:
 
 Verification:
 
-- Required GitHub Actions and the exact-head Vercel preview are pending.
+- PR 969 head `5b332c597e08b7def6cefb4d560faa1f5dbafb2b` passed CI,
+  Build Check, Secret Scan, typecheck, lint, architecture and safety guards,
+  schema-select, Never-500, research evaluation, and public Playwright.
+- The full unit suite passed 13,482 tests: 13,473 passed, zero failed, and nine
+  skipped. React-server passed 18/18; research passed 7/7 with 13 authorized
+  fixture placeholders skipped.
+- Exact-head Vercel deployment `dpl_F3S9psmRbaHodc4d7AkZaSWsK7qC` is READY,
+  returns HTTP 200 with matching `x-buddy-build`, and has no warning, error,
+  or fatal runtime logs.
+- The complete five-file diff was inspected; PR 969 is mergeable and zero
+  commits behind `main`.
 - Post-merge transactional closure requires an authorized Golden Trident
   generation fixture and the verified Buddy-owned Supabase connection.
 - The next independent audit target is sealed-artifact retention and
