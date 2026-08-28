@@ -1007,3 +1007,21 @@ Open checkpoints:
    and absence of rate-feed HTTP 500 events.
 4. Golden Trident transactional closure and direct database evidence remain
    blocked by the authorized fixture and verified Buddy-owned Supabase connection.
+
+
+PR 941 verification checkpoint:
+
+- Code head `bc67b371e35e1f367d5848644c0eb481d0d82ae8` was mergeable and zero
+  commits behind `main`.
+- CI: 13,341 tests; 13,332 passed, 0 failed, 9 skipped. React-server 18/18.
+  Research evaluation 7/7 with 13 production-data placeholders still skipped.
+- CI, Build Check, Secret Scan, Route Budget, architecture, safety, schema,
+  Never-500, drift, and public Playwright all passed.
+- Exact-head deployment `dpl_4HsNe7yJjQwetiyYZdcXAQQGgt43` was READY,
+  HTTP 200, and SHA-matched. No error/fatal/warning runtime logs followed the probe.
+- Live preview `/api/rates/latest` returned validated SOFR 3.64% (NY Fed,
+  2026-08-26), five-year Treasury 4.38% (Treasury, 2026-08-27), and prime
+  6.75% (H.15/FRED, 2026-08-26), with explicit source URLs.
+- The evidence-only ledger push must retain all required checks on its final head.
+- After Matt merges PR 941, repeat the live production rate probe and confirm no
+  new rate-feed HTTP 500 events before closing the finding.
