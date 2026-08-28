@@ -2,7 +2,10 @@ import "server-only";
 
 import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
 import { buildStructuredAssistPrompt, PROMPT_VERSION } from "./geminiFlashPrompts";
-import { validateStructuredOutput } from "./schemas/structuredOutput";
+import {
+  STRUCTURED_OUTPUT_RESPONSE_SCHEMA,
+  validateStructuredOutput,
+} from "./schemas/structuredOutput";
 import { computeStructuredOutputHash } from "./outputCanonicalization";
 import { runRole } from "@/lib/ai/gateway";
 
@@ -136,7 +139,7 @@ export async function extractStructuredAssist(args: {
           modelOverride: GEMINI_MODEL,
           temperature: isRetry ? 0.0 : GEMINI_TEMPERATURE,
           timeoutMs: STRUCTURED_ASSIST_TIMEOUT_MS,
-          responseSchema: { type: "object" },
+          responseSchema: STRUCTURED_OUTPUT_RESPONSE_SCHEMA,
         });
         rawText = result.text.trim();
       } catch (attemptErr: any) {
