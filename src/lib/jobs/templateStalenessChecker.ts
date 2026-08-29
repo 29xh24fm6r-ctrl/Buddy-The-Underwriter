@@ -34,12 +34,20 @@ export async function findTemplateStaleness(
   const findings: TemplateStalenessFinding[] = [];
 
   for (const source of OFFICIAL_TEMPLATE_SOURCES) {
-    const { data: row } = await sb
+    const { data: row, error: rowError } = await sb
       .from("bank_document_templates")
       .select("id, version, file_sha256, metadata")
       .is("bank_id", null)
       .eq("template_key", source.templateKey)
       .maybeSingle();
+
+    if (rowError) {
+      const message =
+        typeof rowError === "object" && "message" in rowError
+          ? String((rowError as { message: unknown }).message)
+          : String(rowError);
+      throw new Error(`template_staleness_read_failed:${source.templateKey}: ${message}`);
+    }
 
     const storedRevision = (row as { version?: string } | null)?.version ?? null;
     const storedSha256 = (row as { file_sha256?: string } | null)?.file_sha256 ?? null;
@@ -95,7 +103,17 @@ export async function writeTemplateStalenessFindings(
     const patch: Record<string, unknown> = { last_checked_at: now };
     if (f.ok) patch.is_stale = f.isStale;
 
-    await sb.from("bank_document_templates").update(patch).eq("id", f.templateRowId);
+    const { error } = await sb
+      .from("bank_document_templates")
+      .update(patch)
+      .eq("id", f.templateRowId);
+    if (error) {
+      const message =
+        typeof error === "object" && "message" in error
+          ? String((error as { message: unknown }).message)
+          : String(error);
+      throw new Error(`template_staleness_write_failed:${f.templateKey}: ${message}`);
+    }
     written++;
   }
 
