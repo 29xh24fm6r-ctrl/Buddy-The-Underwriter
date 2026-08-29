@@ -44,6 +44,9 @@ stop-sequence outcome and `MAX_TOKENS` as reaching the configured output cap.
   or downstream cancellation.
 - Preserve valid LF/CRLF chunk splitting, prompt-safety failures, and the
   existing no-midstream-failover policy.
+- Preserve research diagnostics across the stricter provider boundary:
+  no-candidate, empty-text, safety, and non-success finish reasons remain
+  distinct auditable outcomes rather than collapsing into network errors.
 
 ## Regression coverage
 
@@ -57,7 +60,9 @@ The provider suite proves:
 6. downstream cancellation closes the provider reader;
 7. non-streamed text without a reason fails closed;
 8. non-streamed and streamed `MAX_TOKENS` output fails closed; and
-9. a `STOP` response without non-thought reply text fails closed.
+9. a `STOP` response without non-thought reply text fails closed; and
+10. research callers retain accurate no-candidate, empty-text, safety, and
+    `MAX_TOKENS` diagnostics.
 
 ## Safety and production closure
 
