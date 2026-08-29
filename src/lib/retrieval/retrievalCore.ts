@@ -88,8 +88,10 @@ async function retrieveDealDocs(
   });
 
   if (error) {
-    console.error("Deal doc retrieval error:", error);
-    return [];
+    console.error("[retrieveEvidence] deal document retrieval failed", {
+      code: error.code,
+    });
+    throw new Error("committee_deal_evidence_retrieval_failed");
   }
 
   return data || [];
@@ -116,8 +118,10 @@ async function retrieveSBASOPs(
   });
 
   if (error) {
-    console.error("SBA SOP retrieval error:", error);
-    return [];
+    console.error("[retrieveEvidence] SBA SOP retrieval failed", {
+      code: error.code,
+    });
+    throw new Error("committee_sba_evidence_retrieval_failed");
   }
 
   return data || [];
@@ -141,8 +145,10 @@ async function retrieveBankPolicies(
   });
 
   if (error) {
-    console.error("Bank policy retrieval error:", error);
-    return [];
+    console.error("[retrieveEvidence] bank policy retrieval failed", {
+      code: error.code,
+    });
+    throw new Error("committee_bank_evidence_retrieval_failed");
   }
 
   return data || [];
