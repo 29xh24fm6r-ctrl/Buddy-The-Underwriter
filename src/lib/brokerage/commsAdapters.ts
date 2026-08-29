@@ -20,7 +20,7 @@ export type SendResult = {
 };
 
 export type CommsAdapters = {
-  email: (msg: { recipient: string; subject: string | null; body: string }) => Promise<SendResult>;
+  email: (msg: { recipient: string; subject: string | null; body: string; idempotencyKey?: string }) => Promise<SendResult>;
   sms: (msg: { recipient: string; body: string }) => Promise<SendResult>;
   slack: (msg: { body: string }) => Promise<SendResult>;
 };
@@ -107,7 +107,11 @@ export function createEmailAdapter(): CommsAdapters["email"] {
     try {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          ...(msg.idempotencyKey ? { "Idempotency-Key": msg.idempotencyKey } : {}),
+        },
         body: JSON.stringify({ from, to: [msg.recipient], subject: msg.subject ?? "Buddy SBA Notification", text: msg.body }),
       });
 
