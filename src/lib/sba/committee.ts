@@ -19,6 +19,10 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { retrieveEvidence, type Citation } from "@/lib/retrieval/retrievalCore";
 import { evaluateAllRules, getMissingFacts, getNextCriticalFact } from "@/lib/policy/ruleEngine";
 import { OPENAI_CHAT } from "@/lib/ai/models";
+import {
+  formatCommitteeEvidence,
+  selectCitedEvidence,
+} from "@/lib/committee/evidenceSelection";
 
 export type CommitteeStance = "APPROVE" | "APPROVE_WITH_CONDITIONS" | "DECLINE";
 
@@ -42,50 +46,6 @@ export type CommitteeResult = {
     critical_fixes: string[];
   };
 };
-
-function formatCommitteeEvidence(citations: Citation[]): string {
-  return citations
-    .map((citation, index) =>
-      [
-        `EVIDENCE [${index + 1}]`,
-        `source_kind: ${citation.source_kind}`,
-        `chunk_id: ${citation.chunk_id}`,
-        `label: ${citation.label}`,
-        `quote: ${citation.quote.trim()}`,
-      ].join("\n"),
-    )
-    .join("\n\n");
-}
-
-function selectCitedEvidence(
-  evaluations: PersonaEvaluation[],
-  evidence: Citation[],
-): Citation[] {
-  const citedIndices = new Set<number>();
-
-  for (const evaluation of evaluations) {
-    for (const citation of evaluation.citations) {
-      if (citation.i < 1 || citation.i > evidence.length) {
-        throw new Error("committee_evaluation_citation_invalid");
-      }
-      citedIndices.add(citation.i);
-    }
-  }
-
-  const selected = Array.from(citedIndices)
-    .sort((left, right) => left - right)
-    .map((index) => evidence[index - 1]);
-
-  if (selected.length === 0) {
-    throw new Error("committee_evidence_selection_failed");
-  }
-
-  return selected;
-}
-
-/** Test-only exports for evidence-identity and persistence regression coverage. */
-export const __formatCommitteeEvidenceForTests = formatCommitteeEvidence;
-export const __selectCitedEvidenceForTests = selectCitedEvidence;
 
 const PersonaResponseSchema = z.object({
   stance: z.enum(["APPROVE", "APPROVE_WITH_CONDITIONS", "DECLINE"]),
