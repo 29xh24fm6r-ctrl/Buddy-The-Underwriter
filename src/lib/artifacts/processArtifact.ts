@@ -2357,7 +2357,10 @@ export async function processNextArtifact(): Promise<ProcessArtifactResult | nul
 
   if (error) {
     console.error("[processNextArtifact] claim failed", error);
-    return null;
+    // A failed queue claim is authoritative worker failure, not an empty queue.
+    // Throw a deterministic error so the scheduled route cannot report an
+    // idle-success response while queued artifacts remain unclaimed.
+    throw new Error("artifact_claim_failed");
   }
 
   if (!artifacts || (Array.isArray(artifacts) && artifacts.length === 0)) {
