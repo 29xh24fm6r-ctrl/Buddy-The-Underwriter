@@ -1232,3 +1232,55 @@ Remaining closure:
   admission-before-seal publication refusal, historical reconciliation, exact
   frozen artifact retrieval, and seal/unseal rollback in the authorized fixture.
 
+
+
+## 2026-08-29 — marketplace lifecycle and lender delivery convergence
+
+Production checkpoint:
+
+- PR 970 merged as `e092dc49eeda429f25a9e611d76318792571a660`.
+- Vercel production deployment `dpl_6Gz3dBLifEN5XemqVR4HLbnYxNnk` is READY on
+  that exact commit; `www.buddysba.com` returns HTTP 200 with the matching
+  `x-buddy-build` header.
+- No warning, error, or fatal runtime logs appeared in the latest 30-minute
+  production window, and no grouped runtime-error cluster appeared in two hours.
+
+Evidence and root causes:
+
+- Marketplace cadence discarded candidate-read database errors and treated
+  unproven update success as a completed state transition.
+- Listings advanced from `pending_preview` to `claiming` before all matched
+  lender messages were durably queued. A queue failure therefore removed the
+  listing from the only retry path.
+- Lender delivery marked the first provider failure permanently `failed`, while
+  the worker selected only `pending` rows. Transient failures and historical
+  failed rows could never converge without manual intervention.
+- Exhausted delivery failures were hidden behind a successful cron response.
+
+Repair branch: `codex/commission-marketplace-delivery-convergence`.
+
+Repair:
+
+- Fail closed on cadence reads and require returned-row, compare-and-set proof for
+  listing open and expiration transitions.
+- Queue every matched lender notification before opening a listing. Existing
+  cooldown suppression makes a repeated cadence run idempotent.
+- Lease and retry pending or historical failed outbox rows up to five attempts,
+  then mark only the final failure terminal.
+- Return HTTP 503 when a cycle exhausts lender delivery, so Vercel cron and
+  observability retain truthful failure evidence.
+- Add regression coverage for retry recovery, terminal exhaustion, transaction
+  ordering, read-error handling, compare-and-set proof, and cron status.
+
+Validation:
+
+- Focused and broad CI, complete diff inspection, mergeability, and exact-head
+  Vercel preview verification are pending on the branch.
+- No schema, dependency, production-data, or destructive storage change is in
+  this repair.
+
+Remaining closure dependency:
+
+- PR 878 and the complete seal-to-marketplace-to-lender ceremony still require a
+  verified Buddy-owned Supabase connection and an authorized sealed transaction.
+  Unverified or non-Buddy connections remain untouched.
