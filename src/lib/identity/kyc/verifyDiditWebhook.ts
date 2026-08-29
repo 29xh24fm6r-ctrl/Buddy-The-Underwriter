@@ -4,41 +4,17 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 /**
  * Didit webhook verification.
  *
- * Didit sends THREE signature headers so an integrator can pick whichever
- * one survives their stack (https://docs.didit.me/integration/webhooks):
+ * Didit signs every delivery with three HMAC-SHA256 variants and always sends
+ * X-Timestamp. Verify the complete body with X-Signature-V2 first, then the
+ * exact raw request body, and use the envelope-only Simple signature only as a
+ * compatibility fallback. Every accepted scheme is bound to the five-minute
+ * timestamp window so an authentic delivery cannot be replayed indefinitely.
  *
- *   X-Signature         HMAC-SHA256(secret, RAW REQUEST BODY)  ← primary
- *   X-Signature-V2      HMAC-SHA256(secret, recursively key-sorted JSON)
- *   X-Signature-Simple  HMAC-SHA256(secret, "<ts>:<session_id>:<status>:<webhook_type>")
- *
- * This module previously accepted ONLY X-Signature-Simple, over a `data`
- * composition that had never been confirmed against a live account (the
- * old file said so in its own header comment). Any real delivery whose
- * Simple tuple differed by a single field — or that carried only
- * X-Signature — was rejected with a bare 401 and NO log line, so a
- * silently-dropped event was indistinguishable from an event that never
- * arrived. See the 2026-08-25 Didit completion incident.
- *
- * Two changes fix that class of failure:
- *
- *  1. X-Signature (raw-body HMAC) is accepted first. It is the
- *     unambiguous scheme — no canonicalization, no field ordering, no
- *     guessing which tuple Didit composed. X-Signature-Simple remains as
- *     a fallback so a v1/v2 destination keeps working.
- *  2. Failures return a STRUCTURED REASON instead of `false`, so the
- *     route can log exactly which headers were present and why the
- *     signature did not match. A dropped webhook must never again be
- *     invisible.
- *
- * Replay protection: when X-Timestamp is present it must be within 5
- * minutes. A missing timestamp does not by itself reject a request whose
- * raw-body HMAC is valid — the signature still proves authenticity, and
- * rejecting on a header Didit may not send is how completions get lost.
+ * Contract: https://docs.didit.me/integration/webhooks
  */
-
 const MAX_CLOCK_SKEW_SECONDS = 300;
 
-export type DiditSignatureScheme = "raw_body" | "simple";
+export type DiditSignatureScheme = "v2" | "raw_body" | "simple";
 
 export type DiditVerifyResult =
   | { ok: true; scheme: DiditSignatureScheme }
@@ -46,6 +22,7 @@ export type DiditVerifyResult =
       ok: false;
       reason:
         | "NO_SIGNATURE_HEADER"
+        | "TIMESTAMP_MISSING"
         | "TIMESTAMP_INVALID"
         | "TIMESTAMP_EXPIRED"
         | "SIGNATURE_MISMATCH";
@@ -67,12 +44,38 @@ function hexEquals(expectedHex: string, providedRaw: string): boolean {
   return timingSafeEqual(expectedBuf, providedBuf);
 }
 
+/**
+ * Reproduce Didit's V2 canonical JSON: object keys sorted recursively,
+ * arrays kept in order, compact JSON, and Unicode preserved. JSON.parse
+ * already normalizes whole-valued JSON floats before JSON.stringify.
+ */
+function canonicalizeV2(value: unknown): string {
+  function sortKeys(input: unknown): unknown {
+    if (Array.isArray(input)) return input.map(sortKeys);
+    if (input !== null && typeof input === "object") {
+      const record = input as Record<string, unknown>;
+      return Object.keys(record)
+        .sort()
+        .reduce<Record<string, unknown>>((out, key) => {
+          out[key] = sortKeys(record[key]);
+          return out;
+        }, {});
+    }
+    return input;
+  }
+
+  return JSON.stringify(sortKeys(value));
+}
+
 export function verifyDiditWebhook(params: {
   rawBody: string;
   sessionId: string | undefined;
   status: string | undefined;
   webhookType: string | undefined;
+  /** Didit's envelope timestamp, used by the Simple signature. */
+  payloadTimestamp: string | number | undefined;
   timestampHeader: string | null;
+  signatureV2Header: string | null;
   signatureHeader: string | null;
   simpleSignatureHeader: string | null;
   secret: string;
@@ -84,7 +87,9 @@ export function verifyDiditWebhook(params: {
     sessionId,
     status,
     webhookType,
+    payloadTimestamp,
     timestampHeader,
+    signatureV2Header,
     signatureHeader,
     simpleSignatureHeader,
     secret,
@@ -92,34 +97,53 @@ export function verifyDiditWebhook(params: {
   const now = params.nowMs ?? Date.now();
 
   const headersSeen: string[] = [];
+  if (signatureV2Header) headersSeen.push("x-signature-v2");
   if (signatureHeader) headersSeen.push("x-signature");
   if (simpleSignatureHeader) headersSeen.push("x-signature-simple");
   if (timestampHeader) headersSeen.push("x-timestamp");
 
-  if (!signatureHeader && !simpleSignatureHeader) {
+  if (!signatureV2Header && !signatureHeader && !simpleSignatureHeader) {
     return { ok: false, reason: "NO_SIGNATURE_HEADER", headersSeen };
   }
 
-  // Replay window — only enforced when Didit actually sent a timestamp.
-  if (timestampHeader) {
-    const timestamp = Number(timestampHeader);
-    if (!Number.isFinite(timestamp)) {
-      return { ok: false, reason: "TIMESTAMP_INVALID", headersSeen };
-    }
-    if (Math.abs(now / 1000 - timestamp) > MAX_CLOCK_SKEW_SECONDS) {
-      return { ok: false, reason: "TIMESTAMP_EXPIRED", headersSeen };
+  // Didit always sends X-Timestamp and requires every scheme to enforce it.
+  if (!timestampHeader) {
+    return { ok: false, reason: "TIMESTAMP_MISSING", headersSeen };
+  }
+  if (!/^-?\d+$/.test(timestampHeader.trim())) {
+    return { ok: false, reason: "TIMESTAMP_INVALID", headersSeen };
+  }
+  const timestamp = Number(timestampHeader);
+  if (!Number.isSafeInteger(timestamp)) {
+    return { ok: false, reason: "TIMESTAMP_INVALID", headersSeen };
+  }
+  if (Math.abs(now / 1000 - timestamp) > MAX_CLOCK_SKEW_SECONDS) {
+    return { ok: false, reason: "TIMESTAMP_EXPIRED", headersSeen };
+  }
+
+  // 1. Recommended V2 scheme: authenticates canonical JSON, including decision.
+  if (signatureV2Header) {
+    try {
+      const parsed = JSON.parse(rawBody) as unknown;
+      if (hexEquals(hmacHex(secret, canonicalizeV2(parsed)), signatureV2Header)) {
+        return { ok: true, scheme: "v2" };
+      }
+    } catch {
+      // The route returns invalid_json separately; verification still fails closed.
     }
   }
 
-  // 1. Raw-body HMAC — the scheme with no ambiguity.
+  // 2. Exact raw-body HMAC. Safe because the route has retained the original bytes.
   if (signatureHeader && hexEquals(hmacHex(secret, rawBody), signatureHeader)) {
     return { ok: true, scheme: "raw_body" };
   }
 
-  // 2. Simple tuple fallback. Requires the timestamp, since it is part of
-  //    the signed string.
-  if (simpleSignatureHeader && timestampHeader && sessionId && status && webhookType) {
-    const data = `${timestampHeader}:${sessionId}:${status}:${webhookType}`;
+  // 3. Envelope-only compatibility fallback. The downstream handler re-fetches
+  //    canonical session state from Didit and therefore never trusts decision data
+  //    authenticated only by this limited scheme.
+  if (simpleSignatureHeader && sessionId && status && webhookType) {
+    const signedTimestamp = payloadTimestamp ?? timestampHeader;
+    const data = `${signedTimestamp}:${sessionId}:${status}:${webhookType}`;
     if (hexEquals(hmacHex(secret, data), simpleSignatureHeader)) {
       return { ok: true, scheme: "simple" };
     }
