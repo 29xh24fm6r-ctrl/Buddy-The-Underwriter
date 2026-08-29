@@ -40,7 +40,9 @@ function canonicalize(value: unknown): string {
     }
     return input;
   }
-  return JSON.stringify(sort(value));
+  const encoded = JSON.stringify(sort(value));
+  if (encoded === undefined) throw new Error("didit_webhook_canonicalization_failed");
+  return encoded;
 }
 
 type VerifyParams = Parameters<typeof verifyDiditWebhook>[0];
