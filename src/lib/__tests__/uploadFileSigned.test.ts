@@ -166,3 +166,21 @@ test("non-precondition storage conflicts remain failures", async () => {
     restore();
   }
 });
+
+
+test("a 412 without the create-once precondition remains a failure", async () => {
+  const restore = installFakeXhr({ event: "load", status: 412 });
+  try {
+    const result = await uploadFileWithSignedUrl({
+      uploadUrl: "https://storage.googleapis.com/bucket/obj",
+      headers: {},
+      file: FILE,
+      context: "existing-deal",
+      maxAttempts: 1,
+    });
+    assert.equal(result.ok, false);
+    assert.equal((result as any).code, "HTTP_412");
+  } finally {
+    restore();
+  }
+});
