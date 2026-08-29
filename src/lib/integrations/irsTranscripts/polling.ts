@@ -38,18 +38,30 @@ export type IrsPollingVendorClient = {
 
 const RECEIVED_STATUSES = new Set(["completed", "received", "fulfilled"]);
 
+function persistenceError(operation: string): Error {
+  return new Error(`IRS transcript persistence failed: ${operation}`);
+}
+
+function requireReturnedRow(
+  operation: string,
+  error: unknown,
+  data: unknown,
+  predicate: (row: Record<string, unknown>) => boolean,
+): void {
+  if (error || !Array.isArray(data) || data.length !== 1 || !predicate(data[0] as Record<string, unknown>)) {
+    throw persistenceError(operation);
+  }
+}
+
 export type PollOutcome = { requestId: string; outcome: "received" | "still_pending" | "expired" };
 
 /**
- * Row-level update locking (spec D-4: "idempotent — same request handled
- * once per cron run via row-level update locking"): each row is claimed by
- * flipping `poll_attempt_count` forward as part of the same update that
- * sets the new `next_poll_at`, so a concurrent second cron invocation
- * re-reading the row before this one commits would see a `next_poll_at`
- * that's already in the future and skip it on its own query. This
- * function does not implement a second cron invocation's concurrency
- * itself — it's a library function, not the cron entry point (SPEC D-4 —
- * cron deployment is deferred, this function is the mandatory part).
+ * Compare-and-set request transitions implement the spec D-4 concurrency
+ * boundary. A concurrent invocation may observe the same submitted request,
+ * but only one can mutate it: every update requires the row to remain
+ * `submitted` and proves the exact returned id, state, attempt count, and
+ * cursor before reporting an outcome. A lost claim therefore fails closed
+ * instead of producing a second successful transition.
  */
 export async function pollPendingTranscripts(
   deps: { sb: IrsPollingSupabaseClient; vendor: IrsPollingVendorClient },
@@ -57,11 +69,15 @@ export async function pollPendingTranscripts(
 ): Promise<PollOutcome[]> {
   const { sb, vendor } = deps;
 
-  const { data } = await sb
+  const { data, error: pendingError } = await sb
     .from("borrower_irs_transcript_requests")
     .select("id, deal_id, bank_id, vendor_request_id, submitted_at, poll_attempt_count")
     .eq("status", "submitted")
     .lte("next_poll_at", now.toISOString());
+
+  if (pendingError) {
+    throw persistenceError("load pending requests");
+  }
 
   const pending = (data ?? []) as Array<{
     id: string;
@@ -75,18 +91,30 @@ export async function pollPendingTranscripts(
   const outcomes: PollOutcome[] = [];
 
   for (const row of pending) {
+    const nextAttemptCount = row.poll_attempt_count + 1;
     const response = await vendor.pollVendorTranscriptRequest(row.vendor_request_id);
 
     if (RECEIVED_STATUSES.has(response.status)) {
-      await sb
+      const receivedUpdate = await sb
         .from("borrower_irs_transcript_requests")
         .update({
           status: "received",
           received_at: now.toISOString(),
-          poll_attempt_count: row.poll_attempt_count + 1,
+          poll_attempt_count: nextAttemptCount,
           reconciliation_summary: { transcripts: response.transcripts ?? [] },
         })
-        .eq("id", row.id);
+        .eq("id", row.id)
+        .eq("status", "submitted")
+        .select("id, status, poll_attempt_count");
+      requireReturnedRow(
+        "mark request received",
+        receivedUpdate.error,
+        receivedUpdate.data,
+        (updated) =>
+          updated.id === row.id &&
+          updated.status === "received" &&
+          updated.poll_attempt_count === nextAttemptCount,
+      );
       outcomes.push({ requestId: row.id, outcome: "received" });
       continue;
     }
@@ -94,24 +122,64 @@ export async function pollPendingTranscripts(
     const { nextPollAt, expired } = computeNextPollAt(new Date(row.submitted_at), now);
 
     if (expired) {
-      await sb.from("borrower_irs_transcript_requests").update({ status: "expired", poll_attempt_count: row.poll_attempt_count + 1 }).eq("id", row.id);
-      await sb.from("deal_gap_queue").insert({
-        deal_id: row.deal_id,
-        bank_id: row.bank_id,
-        gap_type: "irs_transcript_delayed",
-        fact_type: "irs_transcript",
-        fact_key: `irs_transcript_request.${row.id}`,
-        owner_entity_id: null,
-        description: "IRS transcripts were not received within the expected 14-day window — banker may need to follow up directly with the IRS/vendor.",
-        resolution_prompt: "Contact the transcript vendor or IRS to check on this request's status.",
-        priority: 2,
-        status: "open",
-      });
+      const expiredUpdate = await sb
+        .from("borrower_irs_transcript_requests")
+        .update({ status: "expired", poll_attempt_count: nextAttemptCount })
+        .eq("id", row.id)
+        .eq("status", "submitted")
+        .select("id, status, poll_attempt_count");
+      requireReturnedRow(
+        "mark request expired",
+        expiredUpdate.error,
+        expiredUpdate.data,
+        (updated) =>
+          updated.id === row.id &&
+          updated.status === "expired" &&
+          updated.poll_attempt_count === nextAttemptCount,
+      );
+
+      const gapKey = `irs_transcript_request.${row.id}`;
+      const gapInsert = await sb
+        .from("deal_gap_queue")
+        .insert({
+          deal_id: row.deal_id,
+          bank_id: row.bank_id,
+          gap_type: "irs_transcript_delayed",
+          fact_type: "irs_transcript",
+          fact_key: gapKey,
+          owner_entity_id: null,
+          description: "IRS transcripts were not received within the expected 14-day window — banker may need to follow up directly with the IRS/vendor.",
+          resolution_prompt: "Contact the transcript vendor or IRS to check on this request's status.",
+          priority: 2,
+          status: "open",
+        })
+        .select("id, fact_key, status");
+      requireReturnedRow(
+        "persist delayed-transcript gap",
+        gapInsert.error,
+        gapInsert.data,
+        (inserted) => typeof inserted.id === "string" && inserted.fact_key === gapKey && inserted.status === "open",
+      );
       outcomes.push({ requestId: row.id, outcome: "expired" });
       continue;
     }
 
-    await sb.from("borrower_irs_transcript_requests").update({ next_poll_at: nextPollAt, poll_attempt_count: row.poll_attempt_count + 1 }).eq("id", row.id);
+    const pendingUpdate = await sb
+      .from("borrower_irs_transcript_requests")
+      .update({ next_poll_at: nextPollAt, poll_attempt_count: nextAttemptCount })
+      .eq("id", row.id)
+      .eq("status", "submitted")
+      .select("id, status, poll_attempt_count, next_poll_at");
+    requireReturnedRow(
+      "advance request polling cursor",
+      pendingUpdate.error,
+      pendingUpdate.data,
+      (updated) =>
+        updated.id === row.id &&
+        updated.status === "submitted" &&
+        updated.poll_attempt_count === nextAttemptCount &&
+        updated.next_poll_at === nextPollAt,
+    );
     outcomes.push({ requestId: row.id, outcome: "still_pending" });
   }
 
