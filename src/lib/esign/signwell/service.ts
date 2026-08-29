@@ -10,8 +10,8 @@
  */
 
 import { createHash } from "node:crypto";
-import { hasValidIal2, type KycSupabaseClient } from "@/lib/identity/kyc/service";
-import { hasCompletedLegalReview } from "@/lib/sba/legalReview/service";
+import { readIal2AdmissionState, type KycSupabaseClient } from "@/lib/identity/kyc/service";
+import { readLegalReviewAdmissionState } from "@/lib/sba/legalReview/service";
 
 export type EsignSupabaseClient = KycSupabaseClient & {
   storage?: {
@@ -123,7 +123,15 @@ export type RequestSignatureArgs = {
 
 export type RequestSignatureResult =
   | { ok: true; documentId: string; embedUrl: string }
-  | { ok: false; reason: "IAL2_NOT_COMPLETED" | "LEGAL_REVIEW_NOT_COMPLETED" | "SUBMISSION_FAILED"; detail?: string };
+  | {
+      ok: false;
+      reason:
+        | "IAL2_NOT_COMPLETED"
+        | "LEGAL_REVIEW_NOT_COMPLETED"
+        | "SIGNING_STATE_UNAVAILABLE"
+        | "SUBMISSION_FAILED";
+      detail?: string;
+    };
 
 async function cancelUntrackedSignwellDocument(
   signwell: SignwellClient,
@@ -153,8 +161,15 @@ export async function requestSignature(
   const { sb, signwell, renderFilledPdf } = deps;
 
   // IAL2 GATE — no exceptions (principle #17).
-  const ial2Valid = await hasValidIal2(args.dealId, args.signerOwnershipEntityId, sb);
-  if (!ial2Valid) {
+  const ial2State = await readIal2AdmissionState(args.dealId, args.signerOwnershipEntityId, sb);
+  if (!ial2State.ok) {
+    return {
+      ok: false,
+      reason: "SIGNING_STATE_UNAVAILABLE",
+      detail: `ial2_gate_read_failed:${ial2State.detail}`,
+    };
+  }
+  if (!ial2State.valid) {
     return { ok: false, reason: "IAL2_NOT_COMPLETED" };
   }
 
@@ -162,8 +177,15 @@ export async function requestSignature(
   // Authorization) may not be sent for signature until an attorney/
   // compliance reviewer has explicitly approved them for this deal. A
   // no-op for every other form code (see FORMS_REQUIRING_LEGAL_REVIEW).
-  const legalReviewComplete = await hasCompletedLegalReview(args.dealId, args.formCode, sb);
-  if (!legalReviewComplete) {
+  const legalReviewState = await readLegalReviewAdmissionState(args.dealId, args.formCode, sb);
+  if (!legalReviewState.ok) {
+    return {
+      ok: false,
+      reason: "SIGNING_STATE_UNAVAILABLE",
+      detail: `legal_review_gate_read_failed:${legalReviewState.detail}`,
+    };
+  }
+  if (!legalReviewState.complete) {
     return { ok: false, reason: "LEGAL_REVIEW_NOT_COMPLETED" };
   }
 
@@ -610,8 +632,15 @@ export async function handleSignwellWebhook(
   }
 
   // Defense in depth — re-confirm IAL2 still holds at completion time.
-  const ial2Valid = await hasValidIal2(dealId, signerOwnershipEntityId, sb);
-  if (!ial2Valid) {
+  const ial2State = await readIal2AdmissionState(dealId, signerOwnershipEntityId, sb);
+  if (!ial2State.ok) {
+    return {
+      ok: false,
+      reason: "SIGNING_STATE_READ_FAILED",
+      detail: `ial2_gate_read_failed:${ial2State.detail}`,
+    };
+  }
+  if (!ial2State.valid) {
     await sb.from("deal_events").insert({
       deal_id: dealId,
       kind: "esign.completed_without_ial2_anomaly",

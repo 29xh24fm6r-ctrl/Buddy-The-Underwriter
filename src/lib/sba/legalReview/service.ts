@@ -15,16 +15,20 @@ export type LegalReviewSupabaseClient = { from: (table: string) => any };
 /** Document types that require an explicit human review before they may be sent for signature. */
 export const FORMS_REQUIRING_LEGAL_REVIEW = new Set(["FORM_SBA_NOTE", "FORM_SBA_AUTHORIZATION"]);
 
-export async function hasCompletedLegalReview(
+export type LegalReviewAdmissionState =
+  | { ok: true; complete: boolean }
+  | { ok: false; detail: string };
+
+export async function readLegalReviewAdmissionState(
   dealId: string,
   formCode: string,
   sb: LegalReviewSupabaseClient,
-): Promise<boolean> {
+): Promise<LegalReviewAdmissionState> {
   if (!FORMS_REQUIRING_LEGAL_REVIEW.has(formCode)) {
-    return true;
+    return { ok: true, complete: true };
   }
 
-  const { data } = await sb
+  const { data, error } = await sb
     .from("sba_legal_document_reviews")
     .select("id")
     .eq("deal_id", dealId)
@@ -33,7 +37,24 @@ export async function hasCompletedLegalReview(
     .limit(1)
     .maybeSingle();
 
-  return Boolean(data);
+  if (error) {
+    return { ok: false, detail: error.message ?? "legal_review_read_failed" };
+  }
+  return { ok: true, complete: Boolean(data?.id) };
+}
+
+/**
+ * Compatibility boolean for display/readiness callers. Signature admission
+ * uses readLegalReviewAdmissionState so database failures stay distinct from
+ * an unapproved document.
+ */
+export async function hasCompletedLegalReview(
+  dealId: string,
+  formCode: string,
+  sb: LegalReviewSupabaseClient,
+): Promise<boolean> {
+  const state = await readLegalReviewAdmissionState(dealId, formCode, sb);
+  return state.ok && state.complete;
 }
 
 export type MarkLegalReviewArgs = {

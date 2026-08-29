@@ -85,7 +85,12 @@ export async function POST(req: Request, ctx: Ctx) {
     );
 
     if (!result.ok) {
-      const status = result.reason === "IAL2_NOT_COMPLETED" ? 403 : 502;
+      const status =
+        result.reason === "SIGNING_STATE_UNAVAILABLE"
+          ? 503
+          : result.reason === "IAL2_NOT_COMPLETED" || result.reason === "LEGAL_REVIEW_NOT_COMPLETED"
+            ? 403
+            : 502;
       return NextResponse.json({ ok: false, error: result.reason, detail: result.detail }, { status });
     }
 
