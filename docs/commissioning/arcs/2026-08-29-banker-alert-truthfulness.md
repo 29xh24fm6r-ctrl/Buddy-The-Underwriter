@@ -9,7 +9,7 @@ The Vercel-scheduled banker-analysis alert route reads Buddy's canonical
 `risk_runs`, `deal_pipeline_ledger`, and `deal_events` evidence before
 sending SLA alerts through the configured Slack incoming webhook.
 
-Source review on production main `9bc50528523de822d9f3bbf9d994f20193e87011`
+Source review on production main `69ff673b7d57fda700ed0539263d40fecdec0df8`
 proved four coupled integrity gaps:
 
 1. All three authoritative Supabase reads discarded `error` values and
@@ -40,6 +40,17 @@ proved four coupled integrity gaps:
 - Add behavioral regression coverage for source failure, multi-page evidence,
   cooldown failure, returned-row mismatch, persistence failure, proven success,
   and route status.
+
+## Verification
+
+- Broad unit suite: 13,625 tests; 13,616 passed, 0 failed, 9 skipped.
+- React-server suite: 18/18; research golden set: 7 passed, 0 failed.
+- CI, typecheck, lint, architecture, safety, schema gates, Never-500, Build
+  Check, Secret Scan, Route Budget, and public Playwright passed.
+- The exact-head Vercel preview is READY, HTTP 200, SHA-matched, and has no
+  warning/error/fatal logs or grouped runtime errors.
+- The complete seven-file diff was inspected: 498 additions, 60 deletions,
+  no conflict markers, and no unexpected scope.
 
 ## Safety and closure
 
