@@ -109,16 +109,24 @@ export async function syncTransactions(connectionId: string, supabase: SupabaseC
           iso_currency_code: a.balances.iso_currency_code ?? "USD",
           last_balance_at: new Date().toISOString(),
         }));
-        await supabase
+        const { error: accountUpsertError } = await supabase
           .from("borrower_bank_accounts")
           .upsert(accountRows, { onConflict: "connection_id,plaid_account_id" });
+        if (accountUpsertError) {
+          throw new Error(`accounts_upsert_failed: ${accountUpsertError.message}`);
+        }
       }
 
-      const { data: accountIdRows } = await supabase
+      const { data: accountIdRows, error: accountReadError } = await supabase
         .from("borrower_bank_accounts")
         .select("id, plaid_account_id")
         .eq("connection_id", connection.id);
-      const accountIdRowsTyped = (accountIdRows ?? []) as Array<{ id: string; plaid_account_id: string }>;
+      if (accountReadError || !Array.isArray(accountIdRows)) {
+        throw new Error(
+          `accounts_read_failed: ${accountReadError?.message ?? "rows_not_returned"}`,
+        );
+      }
+      const accountIdRowsTyped = accountIdRows as Array<{ id: string; plaid_account_id: string }>;
       const accountIdByPlaidId = new Map<string, string>(
         accountIdRowsTyped.map((r): [string, string] => [r.plaid_account_id, r.id]),
       );
@@ -139,6 +147,11 @@ export async function syncTransactions(connectionId: string, supabase: SupabaseC
 
         const txRows = addedAndModified.map((t) => {
           const accountId = accountIdByPlaidId.get(t.account_id);
+          if (!accountId) {
+            throw new Error(
+              `transaction_account_missing: ${t.transaction_id}:${t.account_id}`,
+            );
+          }
           const target: PlaidTransactionLike = {
             transaction_id: t.transaction_id,
             merchant_name: t.merchant_name ?? null,
@@ -166,19 +179,33 @@ export async function syncTransactions(connectionId: string, supabase: SupabaseC
             derived_recurrence: classification.derived_recurrence,
             raw_json: t,
           };
-        }).filter((r) => r.account_id != null);
+        });
 
         if (txRows.length > 0) {
-          await supabase
+          const { error: transactionUpsertError } = await supabase
             .from("borrower_bank_transactions")
             .upsert(txRows, { onConflict: "plaid_transaction_id" });
+          if (transactionUpsertError) {
+            throw new Error(
+              `transactions_upsert_failed: ${transactionUpsertError.message}`,
+            );
+          }
         }
       }
 
       if (removed.length > 0) {
         const removedIds = removed.map((r) => r.transaction_id).filter((id): id is string => Boolean(id));
-        if (removedIds.length > 0) {
-          await supabase.from("borrower_bank_transactions").delete().in("plaid_transaction_id", removedIds);
+        if (removedIds.length !== removed.length) {
+          throw new Error("transactions_remove_failed: transaction_id_missing");
+        }
+        const { error: transactionDeleteError } = await supabase
+          .from("borrower_bank_transactions")
+          .delete()
+          .in("plaid_transaction_id", removedIds);
+        if (transactionDeleteError) {
+          throw new Error(
+            `transactions_remove_failed: ${transactionDeleteError.message}`,
+          );
         }
       }
 
@@ -189,16 +216,34 @@ export async function syncTransactions(connectionId: string, supabase: SupabaseC
       hasMore = has_more;
     }
 
-    await supabase
+    const { data: cursorWrite, error: cursorWriteError } = await supabase
       .from("borrower_bank_connections")
       .update({ plaid_sync_cursor: cursor, last_sync_at: new Date().toISOString(), last_sync_error: null })
-      .eq("id", connection.id);
+      .eq("id", connection.id)
+      .select("id, plaid_sync_cursor")
+      .maybeSingle();
+    if (
+      cursorWriteError ||
+      cursorWrite?.id !== connection.id ||
+      cursorWrite?.plaid_sync_cursor !== cursor
+    ) {
+      throw new Error(
+        `cursor_persistence_failed: ${cursorWriteError?.message ?? "updated row not proven"}`,
+      );
+    }
   } catch (err: any) {
-    await supabase
+    const failure = err?.message ?? String(err);
+    const { error: evidenceError } = await supabase
       .from("borrower_bank_connections")
-      .update({ last_sync_error: err?.message ?? String(err) })
+      .update({ last_sync_error: failure })
       .eq("id", connection.id);
-    return { ok: false, error: `sync_failed: ${err?.message ?? String(err)}` };
+    if (evidenceError) {
+      console.error("[plaid/sync] failure evidence persistence failed", {
+        connectionId: connection.id,
+        error: evidenceError.message,
+      });
+    }
+    return { ok: false, error: `sync_failed: ${failure}` };
   }
 
   // SPEC S2 G-1: fire-and-forget eligibility re-eval after a successful
