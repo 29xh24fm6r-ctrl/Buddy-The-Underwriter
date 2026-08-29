@@ -1,20 +1,23 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { REMINDER_POLICY } from "./policy";
+import { reconcileReminderAttempts } from "./reconcileAttempts";
 
 // ⚠️ IMPORTANT: deal_events uses `payload` (jsonb), NOT metadata
 // All queries must use payload->>field syntax
 
 /**
- * Get reminder statistics for a deal+borrower combo
- * Checks outbound_messages table for reminder sends
+ * Get reminder statistics for a deal+borrower combo.
+ *
+ * A live SMS is persisted in both outbound_messages (delivery state) and
+ * deal_events (deal timeline). Reconcile both by provider SID so a partial
+ * post-dispatch persistence failure cannot erase the send from cooldown and
+ * max-attempt accounting.
  */
 export async function getReminderStats(args: { dealId: string; borrowerPhone: string }) {
   const sb = supabaseAdmin();
 
-  // All reminder sends are recorded in outbound_messages with body containing "reminder"
-  // We track this via deal_events with kind='sms_outbound' and payload.label='reminder'
-  const { data, error } = await sb
+  const { data: events, error: eventsError } = await sb
     .from("deal_events")
     .select("created_at, payload")
     .eq("deal_id", args.dealId)
@@ -22,15 +25,29 @@ export async function getReminderStats(args: { dealId: string; borrowerPhone: st
     .eq("payload->>label", "Upload reminder")
     .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("getReminderStats error:", error);
-    throw new Error(`getReminderStats failed: ${error.message}`);
+  if (eventsError) {
+    console.error("getReminderStats deal_events error:", eventsError);
+    throw new Error("Failed to load reminder event evidence");
   }
 
-  const attempts = data?.length ?? 0;
-  const lastAt = data?.[0]?.created_at ?? null;
+  const { data: outbound, error: outboundError } = await sb
+    .from("outbound_messages")
+    .select("created_at, provider_message_id")
+    .eq("deal_id", args.dealId)
+    .eq("channel", "sms")
+    .eq("to_value", args.borrowerPhone)
+    .ilike("body", "Friendly reminder from Buddy%")
+    .order("created_at", { ascending: false });
 
-  return { attempts, lastAt };
+  if (outboundError) {
+    console.error("getReminderStats outbound_messages error:", outboundError);
+    throw new Error("Failed to load reminder delivery evidence");
+  }
+
+  return reconcileReminderAttempts({
+    events: events ?? [],
+    outbound: outbound ?? [],
+  });
 }
 
 /**
