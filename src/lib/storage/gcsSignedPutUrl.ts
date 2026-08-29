@@ -41,6 +41,10 @@ export async function createGcsV4SignedPutUrl(opts: {
     action: "write",
     expires,
     contentType,
+    // The signed object key is a one-time admission slot. GCS must reject any
+    // later PUT after generation zero has been created, even while the URL is
+    // otherwise still valid.
+    queryParams: { ifGenerationMatch: "0" },
     ...(extensionHeaders ? { extensionHeaders } : {}),
   });
 
