@@ -36,6 +36,16 @@ acknowledged to the scheduler as a healthy idle tick.
   failed step identity.
 - Add behavioral and integration-contract regression coverage.
 
+## Verification
+
+- Code head `8b6d14d6ddf6ebef7efd9f4bb2dd07fc31c2898f`.
+- Broad unit suite: 13,624 tests; 13,615 passed, 0 failed, 9 skipped.
+- React-server suite: 18/18; research golden set: 7 passed, 0 failed.
+- CI, typecheck, lint, architecture, safety, schema gates, Never-500, Build
+  Check, Secret Scan, Route Budget, and public Playwright passed.
+- Exact-head preview `dpl_p8nbWdQZdZYmy5NMX1JEHv3RHYdj` is READY,
+  SHA-matched, HTTP 200, and runtime-clean.
+
 ## Safety and closure
 
 No schema, dependency, credential, provider configuration, production row, or
