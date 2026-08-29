@@ -55,6 +55,88 @@ describe("callOpenAI: §2 multimodal input guard", () => {
   });
 });
 
+describe("callOpenAI: terminal completion proof", () => {
+  it("accepts text only when the provider reports a terminal stop", async () => {
+    const { restore } = installFetch(async () =>
+      okResponse({
+        choices: [{ message: { content: "complete" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 4, completion_tokens: 2 },
+      }),
+    );
+    try {
+      const result = await callOpenAI({
+        model: "gpt-4o-mini",
+        prompt: "answer",
+        timeoutMs: 5000,
+      });
+      assert.deepEqual(result, { text: "complete", tokensIn: 4, tokensOut: 2 });
+    } finally {
+      restore();
+    }
+  });
+
+  for (const finishReason of ["length", "content_filter", "tool_calls", "function_call"]) {
+    it(`rejects nonterminal ${finishReason} output even when it contains text`, async () => {
+      const { restore } = installFetch(async () =>
+        okResponse({
+          choices: [{ message: { content: "partial" }, finish_reason: finishReason }],
+        }),
+      );
+      try {
+        await assert.rejects(
+          () =>
+            callOpenAI({
+              model: "gpt-4o-mini",
+              prompt: "answer",
+              timeoutMs: 5000,
+            }),
+          new RegExp(`incomplete response .*finish_reason: ${finishReason}`),
+        );
+      } finally {
+        restore();
+      }
+    });
+  }
+
+  it("rejects a response whose finish reason is missing", async () => {
+    const { restore } = installFetch(async () =>
+      okResponse({ choices: [{ message: { content: "unproven" } }] }),
+    );
+    try {
+      await assert.rejects(
+        () =>
+          callOpenAI({
+            model: "gpt-4o-mini",
+            prompt: "answer",
+            timeoutMs: 5000,
+          }),
+        /finish_reason missing/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects empty text even with a terminal stop", async () => {
+    const { restore } = installFetch(async () =>
+      okResponse({ choices: [{ message: { content: "" }, finish_reason: "stop" }] }),
+    );
+    try {
+      await assert.rejects(
+        () =>
+          callOpenAI({
+            model: "gpt-4o-mini",
+            prompt: "answer",
+            timeoutMs: 5000,
+          }),
+        /empty response .*finish_reason: stop/,
+      );
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("embedOpenAI: §4 embeddings", () => {
   it("posts to the embeddings endpoint and returns the vector + token count", async () => {
     const { restore, calls } = installFetch(async () =>
