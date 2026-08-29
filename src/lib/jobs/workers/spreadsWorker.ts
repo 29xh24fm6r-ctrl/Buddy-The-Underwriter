@@ -14,7 +14,7 @@ export async function runSpreadsWorkerTick(args?: {
   for (let i = 0; i < maxJobs; i++) {
     const r = await processNextSpreadJob(leaseOwner);
     if (!r.ok) {
-      if (r.idle === true) break;
+      if ((r as any).idle === true) break;
       return {
         ok: false as const,
         processed: results.length,
