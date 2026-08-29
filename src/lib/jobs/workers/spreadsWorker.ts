@@ -13,7 +13,15 @@ export async function runSpreadsWorkerTick(args?: {
 
   for (let i = 0; i < maxJobs; i++) {
     const r = await processNextSpreadJob(leaseOwner);
-    if (!r.ok) break;
+    if (!r.ok) {
+      if (r.idle === true) break;
+      return {
+        ok: false as const,
+        processed: results.length,
+        results,
+        error: "spread_processing_failed" as const,
+      };
+    }
     results.push(r);
   }
 
