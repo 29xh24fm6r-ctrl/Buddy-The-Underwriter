@@ -21,7 +21,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolveLenderIdentity } from "@/lib/brokerage/lenderAuth";
 import { auditPackageView, getLenderPackageAccess } from "@/lib/brokerage/packageDelivery";
-import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
+import { DealIsolationError, assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,10 +49,21 @@ export async function GET(
   // P0-9: Test applications cannot be distributed to real lenders.
   try {
     await assertNotTestDeal(result.access.dealId, sb as any);
-  } catch {
+  } catch (error) {
+    if (error instanceof DealIsolationError) {
+      if (error.code === "test_application") {
+        return NextResponse.json(
+          { ok: false, error: "test_application_distribution_blocked" },
+          { status: 403 },
+        );
+      }
+      if (error.code === "deal_not_found") {
+        return NextResponse.json({ ok: false }, { status: 404 });
+      }
+    }
     return NextResponse.json(
-      { ok: false, error: "test_application_distribution_blocked" },
-      { status: 403 },
+      { ok: false, error: "deal_isolation_state_unavailable" },
+      { status: 503 },
     );
   }
 
