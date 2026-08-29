@@ -12,7 +12,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
-import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
+import { DealIsolationError, assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,8 +54,16 @@ export async function POST(
 
   try {
     await assertNotTestDeal(dealId, sb);
-  } catch {
-    return failure("test_application_distribution_blocked", 403);
+  } catch (error) {
+    if (error instanceof DealIsolationError) {
+      if (error.code === "test_application") {
+        return failure("test_application_distribution_blocked", 403);
+      }
+      if (error.code === "deal_not_found") {
+        return NextResponse.json({ ok: false }, { status: 404 });
+      }
+    }
+    return failure("deal_isolation_state_unavailable", 503);
   }
 
   // Include `picked` so a request interrupted after one of the writes can
