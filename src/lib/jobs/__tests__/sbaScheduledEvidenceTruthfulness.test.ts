@@ -9,7 +9,7 @@ test("IRS polling does not emit successful outcomes after Supabase failures", ()
   const polling = read("src/lib/integrations/irsTranscripts/polling.ts");
 
   assert.match(polling, /pendingError/);
-  assert.match(polling, /irs_transcript_poll_pending_read_failed/);
+  assert.match(polling, /dbError\("pending_read"/);
   assert.match(polling, /received_update/);
   assert.match(polling, /expired_update/);
   assert.match(polling, /expiry_gap_insert/);
