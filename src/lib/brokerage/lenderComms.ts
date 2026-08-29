@@ -106,7 +106,7 @@ async function transitionClaimedMessage(outboxId: string, attempts: number, patc
   if (!data) throw new Error(`[lender-comms] ${operation}: claim_lost`);
 }
 
-export async function sendLenderMessage(outboxId: string, adapter: SendAdapter, sb: SB): Promise<{ ok: boolean; error?: string }> {
+export async function sendLenderMessage(outboxId: string, adapter: SendAdapter, sb: SB): Promise<{ ok: boolean; error?: string; retrying?: boolean }> {
   const claimed = await claimLenderMessage(outboxId, sb);
   if (!claimed) return { ok: false, error: "not_claimed" };
   const attempts = Number(claimed.attempts ?? 1);
