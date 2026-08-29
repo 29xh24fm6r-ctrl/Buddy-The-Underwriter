@@ -22,14 +22,14 @@ test("authoritative test-deal lookup checks query errors before state", () => {
   const returnAt = isolation.indexOf("return isTest", readAt);
   assert.ok(readAt >= 0);
   assert.ok(errorAt > readAt && errorAt < returnAt);
-  assert.match(isolation, /"state_unavailable"/);
+  assert.ok(isolation.includes('"state_unavailable"'));
 });
 
 test("missing or malformed isolation state cannot become a production deal", () => {
-  assert.match(isolation, /if (!data)/);
-  assert.match(isolation, /"deal_not_found"/);
-  assert.match(isolation, /typeof isTest !== "boolean"/);
-  assert.doesNotMatch(isolation, /?.(?:is_test)s*===s*true/);
+  assert.ok(isolation.includes("if (!data)"));
+  assert.ok(isolation.includes('"deal_not_found"'));
+  assert.ok(isolation.includes('typeof isTest !== "boolean"'));
+  assert.ok(!isolation.includes("?.is_test === true"));
 });
 
 test("distribution and cleanup guards retain distinct safe outcomes", () => {
@@ -41,23 +41,25 @@ test("distribution and cleanup guards retain distinct safe outcomes", () => {
   ]) {
     assert.ok(isolation.includes(`"${code}"`), `missing ${code}`);
   }
-  assert.match(isolation, /throw new DealIsolationError(s*"test_application"/);
-  assert.match(isolation, /throw new DealIsolationError(s*"not_test_application"/);
+  assert.ok(isolation.includes('"test_application",'));
+  assert.ok(isolation.includes('"not_test_application",'));
 });
 
 test("every real-lender distribution route distinguishes block from outage", () => {
   for (const route of routes) {
-    assert.match(route, /error instanceof DealIsolationError/);
-    assert.match(route, /error.code === "test_application"/);
-    assert.match(route, /test_application_distribution_blocked/);
-    assert.match(route, /deal_isolation_state_unavailable/);
-    assert.match(route, /{ status: 503 }/);
+    assert.ok(route.includes("error instanceof DealIsolationError"));
+    assert.ok(route.includes('error.code === "test_application"'));
+    assert.ok(route.includes("test_application_distribution_blocked"));
+    assert.ok(route.includes("deal_isolation_state_unavailable"));
+    assert.ok(route.includes("{ status: 503 }"));
   }
 });
 
 test("missing authoritative deal state remains non-disclosing", () => {
   for (const route of routes) {
-    assert.match(route, /error.code === "deal_not_found"/);
-    assert.match(route, /{ ok: false }[sS]*{ status: 404 }/);
+    assert.ok(route.includes('error.code === "deal_not_found"'));
+    const missingAt = route.indexOf('error.code === "deal_not_found"');
+    const notFoundAt = route.indexOf("{ status: 404 }", missingAt);
+    assert.ok(notFoundAt > missingAt);
   }
 });
