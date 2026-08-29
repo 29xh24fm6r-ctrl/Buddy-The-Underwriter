@@ -200,12 +200,18 @@ export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCall
   if (blockReason) {
     throw new Error(`Gemini blocked the prompt: ${blockReason}`);
   }
+  const finishReason = candidate?.finishReason;
+  if (finishReason !== "STOP") {
+    const reason =
+      typeof finishReason === "string" && finishReason.length > 0
+        ? finishReason
+        : "missing";
+    throw new Error(`Gemini response was not complete (finishReason: ${reason})`);
+  }
+
   const text = extractText(candidate?.content?.parts);
   if (!text) {
-    const finishReason = candidate?.finishReason;
-    throw new Error(
-      finishReason ? `empty response (finishReason: ${finishReason})` : "empty response",
-    );
+    throw new Error("Gemini response completed without reply text");
   }
 
   const usage = data?.usageMetadata ?? {};
@@ -295,6 +301,11 @@ export async function* streamGoogle(req: ProviderCallRequest): AsyncGenerator<st
     }
     if (!terminalFinishReason) {
       throw new Error("Gemini stream ended without a terminal finish reason");
+    }
+    if (terminalFinishReason !== "STOP") {
+      throw new Error(
+        `Gemini stream was not complete (finishReason: ${terminalFinishReason})`,
+      );
     }
     if (!sawText) {
       throw new Error(
