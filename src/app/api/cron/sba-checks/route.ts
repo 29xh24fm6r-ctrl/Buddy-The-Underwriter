@@ -98,7 +98,11 @@ export async function GET(req: NextRequest) {
           sb: sb as any,
           vendor: { pollVendorTranscriptRequest },
         });
-        return NextResponse.json({ ok: true, check, result, durationMs: Date.now() - start });
+        const outcome = getCronOutcome(result.failed);
+        return NextResponse.json(
+          { ok: outcome.ok, check, result, failed: outcome.failures, durationMs: Date.now() - start },
+          { status: outcome.status },
+        );
       }
       case "stale-signatures": {
         const result = await reconcileStaleSignatureGaps(sb as any);
