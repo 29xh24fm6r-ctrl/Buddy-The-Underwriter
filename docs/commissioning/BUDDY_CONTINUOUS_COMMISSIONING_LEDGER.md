@@ -1191,3 +1191,44 @@ Post-merge closure:
 - The next independent audit target is seal/unseal and listing rollback
   truthfulness, especially zero-row/error proof for compensation and deal-state
   transitions.
+
+## 2026-08-29 — sealed retention rebase after atomic seal deployment
+
+Checkpoint:
+
+- PR 971 merged externally as `38cdb8bc81f6a27d544e22a25bb152be1bb3e9f9`.
+  Production deployment `dpl_6521UYXXTnro6ymeXeu86TESxEwT` is READY,
+  `www.buddysba.com` returns HTTP 200 with the exact build SHA, and no
+  warning, error, or fatal runtime logs were found after deployment.
+- PR 970 was rebased onto that main commit and remains the dependent retention
+  repair. Because PR 971 deployed migration `20260829003000` first, the
+  retention migration was safely renumbered to `20260829010000`; its test and
+  schema-manifest provenance follow the same ordered filename.
+- The rebase preserves PR 971's atomic seal/unseal RPC manifest entries and
+  records all three function revisions from the retention migration.
+
+Exact-head evidence before this ledger-only checkpoint:
+
+- Code head `718b31919eb483b41a00b772955f4b51ec234aba` passed CI with 13,522
+  tests: 13,513 passed, 0 failed, and 9 skipped; react-server passed 18/18 and
+  research passed 7/7 with 13 controlled production-data placeholders skipped.
+- Typecheck, lint, architecture, safety, legacy-write, Never-500, schema-select,
+  Build Check, Secret Scan, and public Playwright passed.
+- Exact-head preview `dpl_BDhHZavUDRZ9mjYTz818UMxXJvZJ` is READY, returned
+  HTTP 200 with a matching `x-buddy-build`, and had no warning, error, fatal,
+  or grouped runtime-error evidence in the two-hour verification window.
+- The complete five-file diff contains only durable evidence, one schema
+  manifest, one six-case regression guard, and one forward non-destructive
+  migration; it changes no dependency, credential, provider, or other product.
+- PR 970 is mergeable and zero commits behind main. It must not be merged
+  automatically.
+
+Remaining closure:
+
+- Full transactional proof for PRs 878, 970, and 971 still requires a verified
+  Buddy-owned Supabase connection and an authorized sealed transaction. No
+  differently owned or ambiguously owned project was queried.
+- After merge and deployment, prove active-seal admission refusal,
+  admission-before-seal publication refusal, historical reconciliation, exact
+  frozen artifact retrieval, and seal/unseal rollback in the authorized fixture.
+
