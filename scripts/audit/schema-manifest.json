@@ -510,18 +510,18 @@
     "migration": "20260827180000_intake_ocr_health_honest_silence.sql"
   },
   {
+    "name": "create_buddy_seal_listing",
+    "type": "function",
+    "migration": "20260829003000_atomic_seal_listing_lifecycle.sql"
+  },
+  {
+    "name": "unseal_buddy_marketplace_listing",
+    "type": "function",
+    "migration": "20260829003000_atomic_seal_listing_lifecycle.sql"
+  },
+  {
     "name": "protect_active_sealed_trident_bundle",
     "type": "function",
-    "migration": "20260828230000_sealed_trident_supersession_retention.sql"
-  },
-  {
-    "name": "acquire_trident_bundle_run",
-    "type": "function",
-    "migration": "20260828230000_sealed_trident_supersession_retention.sql"
-  },
-  {
-    "name": "finalize_trident_bundle_run",
-    "type": "function",
-    "migration": "20260828230000_sealed_trident_supersession_retention.sql"
+    "migration": "20260829010000_sealed_trident_supersession_retention.sql"
   }
 ]
