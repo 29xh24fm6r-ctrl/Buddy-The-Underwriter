@@ -501,13 +501,21 @@ async function getLatestPackage(dealId: string): Promise<Response> {
   if (sbaGate) return sbaGate;
 
   const sb = supabaseAdmin();
-  const { data: row } = await sb
+  const { data: row, error: rowError } = await sb
     .from("buddy_sba_packages")
     .select("*")
     .eq("deal_id", dealId)
     .order("generated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (rowError) {
+    console.error("[sba/latest] package lookup failed");
+    return NextResponse.json(
+      { ok: false, error: "package_lookup_failed" },
+      { status: 500 },
+    );
+  }
 
   if (!row) {
     return NextResponse.json({ package: null });
