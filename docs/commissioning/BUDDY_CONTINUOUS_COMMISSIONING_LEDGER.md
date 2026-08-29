@@ -1325,9 +1325,21 @@ Repair:
 - Add unit and structural regression coverage plus the commissioning record at
   `docs/commissioning/2026-08-29-upload-content-identity.md`.
 
+Verification on code head `99a4afa2cebd6567e367981e77cd304d2c2a187c`:
+
+- 13,535 tests: 13,526 passed, 0 failed, 9 skipped.
+- React-server: 18/18; research evaluation: 7 passed, 0 failed.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only drift, Build Check, Secret Scan, Route Budget, and
+  public Playwright passed.
+- Public Playwright passed 1 public case and skipped 5 authenticated-fixture cases.
+- Exact-code-head preview `dpl_YwHymWV6xdP7a5XkwkxtkeTNCJgN` is READY,
+  SHA-matched, HTTP 200, and runtime-clean.
+- The complete six-file diff was inspected; no schema, dependency, credential,
+  infrastructure, production-data, or destructive storage change is present.
+
 Remaining closure:
 
-- CI and exact-head preview verification are pending for this branch.
 - Production transactional closure requires Matt's merge, an authorized banker-upload
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
