@@ -237,6 +237,8 @@ export async function POST(req: NextRequest, ctx: Context) {
     let pendingSessionFile: {
       id: string;
       expectedSizeBytes: number;
+      originalFilename: string;
+      contentType: string;
     } | null = null;
 
     if (resolvedSessionId) {
@@ -515,7 +517,7 @@ export async function POST(req: NextRequest, ctx: Context) {
 
       const fileRes = await sb
         .from("deal_upload_session_files")
-        .select("id, size_bytes, status, object_key, bucket")
+        .select("id, filename, content_type, size_bytes, status, object_key, bucket")
         .eq("session_id", resolvedSessionId)
         .eq("file_id", file_id)
         .maybeSingle();
@@ -610,6 +612,8 @@ export async function POST(req: NextRequest, ctx: Context) {
       pendingSessionFile = {
         id: String(fileRow.id),
         expectedSizeBytes: Number(fileRow.size_bytes || 0),
+        originalFilename: String(fileRow.filename || original_filename || "document"),
+        contentType: String(fileRow.content_type || mime_type || "application/octet-stream"),
       };
     }
 
@@ -707,8 +711,8 @@ export async function POST(req: NextRequest, ctx: Context) {
     const doc = {
       deal_id: dealId,
       bank_id: bankId,
-      original_filename,
-      mime_type: mime_type ?? "application/octet-stream",
+      original_filename: pendingSessionFile.originalFilename,
+      mime_type: pendingSessionFile.contentType,
       size_bytes: storedIdentity.sizeBytes,
       storage_bucket: resolvedBucket,
       storage_path: resolvedPath,
@@ -735,13 +739,32 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     let documentId: string | null = existing.data?.id ? String(existing.data.id) : null;
 
-    // If we already have a record but it doesn't have checklist_key yet,
-    // and the caller provided one, persist it deterministically.
-    if (documentId && checklist_key && !existing.data?.checklist_key) {
-      await sb
+    // A retry may encounter a row written by an older or interrupted request.
+    // Reconcile it only after the stored bytes have been verified and require
+    // returned-row proof for the canonical identity update.
+    if (documentId) {
+      const existingCommit = await sb
         .from("deal_documents")
-        .update({ checklist_key })
-        .eq("id", documentId);
+        .update({
+          size_bytes: storedIdentity.sizeBytes,
+          sha256: storedIdentity.sha256,
+          ...(checklist_key && !existing.data?.checklist_key ? { checklist_key } : {}),
+        })
+        .eq("id", documentId)
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .select("id, size_bytes, sha256")
+        .maybeSingle();
+      if (
+        existingCommit.error ||
+        String(existingCommit.data?.id || "") !== documentId ||
+        Number(existingCommit.data?.size_bytes) !== storedIdentity.sizeBytes ||
+        String(existingCommit.data?.sha256 || "") !== storedIdentity.sha256
+      ) {
+        throw new Error(
+          `deal_document_identity_commit_failed: ${existingCommit.error?.message || "returned_row_mismatch"}`,
+        );
+      }
     }
 
     if (!documentId) {
@@ -1097,13 +1120,13 @@ export async function POST(req: NextRequest, ctx: Context) {
       bankId,
       eventKey: "upload_commit",
       uiState: "done",
-      uiMessage: `Banker upload committed: ${original_filename}`,
+      uiMessage: `Banker upload committed: ${pendingSessionFile.originalFilename}`,
       meta: {
         document_id: documentId,
         storage_bucket: resolvedBucket,
         storage_path: resolvedPath,
-        original_filename,
-        mime_type: mime_type ?? null,
+        original_filename: pendingSessionFile.originalFilename,
+        mime_type: pendingSessionFile.contentType,
         size_bytes: storedIdentity.sizeBytes,
         sha256: storedIdentity.sha256,
       },
@@ -1135,8 +1158,9 @@ export async function POST(req: NextRequest, ctx: Context) {
       kind: "document.uploaded",
       input: {
         file_id,
-        original_filename,
-        size_bytes,
+        original_filename: pendingSessionFile.originalFilename,
+        size_bytes: storedIdentity.sizeBytes,
+        sha256: storedIdentity.sha256,
         checklist_key,
       },
     });
@@ -1151,7 +1175,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     console.log("[files/record] recorded file", {
       dealId,
       file_id,
-      original_filename,
+      original_filename: pendingSessionFile.originalFilename,
       checklist_key,
     });
 
