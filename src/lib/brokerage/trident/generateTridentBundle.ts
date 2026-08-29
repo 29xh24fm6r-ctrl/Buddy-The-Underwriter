@@ -41,6 +41,7 @@ import {
 import { runWithAIExecutionContext } from "@/lib/ai/executionContext";
 import { evaluateTridentRelease } from "./tridentReleaseGate";
 import { assertTridentInputSnapshot, computeTridentInputSnapshot } from "./tridentInputSnapshot";
+import { persistRowWithStorageRollback, type NewlyUploadedObject } from "./artifactPersistence";
 
 export type TridentBundleMode = "preview" | "final";
 
@@ -150,19 +151,25 @@ export async function generateTridentSbaCheckpoint(args: {
   );
   if (!result.ok) throw new Error(`SBA package generation failed: ${result.error}`);
 
-  const { error: checkpointError } = await sb
-    .from("buddy_trident_bundles")
-    .update({
+  await persistRowWithStorageRollback(sb, {
+    table: "buddy_trident_bundles",
+    filters: {
+      id: args.bundleId,
+      lease_token: args.leaseToken,
+      input_hash: args.inputHash,
+    },
+    values: {
       source_sba_package_id: result.packageId,
       current_stage: "business_plan_review",
       last_heartbeat_at: new Date().toISOString(),
-    })
-    .eq("id", args.bundleId)
-    .eq("lease_token", args.leaseToken)
-    .eq("input_hash", args.inputHash);
-  if (checkpointError) {
-    throw new Error(`SBA package checkpoint write failed: ${checkpointError.message}`);
-  }
+    },
+    expected: {
+      source_sba_package_id: result.packageId,
+      current_stage: "business_plan_review",
+    },
+    uploaded: [],
+    label: "SBA package checkpoint",
+  });
   return result;
 }
 
@@ -209,12 +216,14 @@ export async function generateTridentBundle(args: {
 
   let dealQuery = sb.from("deals").select("id, bank_id, is_test").eq("id", dealId);
   if (args.bankId) dealQuery = dealQuery.eq("bank_id", args.bankId);
-  const { data: deal } = await dealQuery.single();
+  const { data: deal, error: dealError } = await dealQuery.single();
+  if (dealError) return { ok: false, bundleId: null, error: `Deal state unavailable: ${dealError.message}` };
   if (!deal) return { ok: false, bundleId: null, error: "Deal not found" };
 
-  const bundleId = args.bundleId;
-  const admittedBankId = args.bankId;
-  const admittedInputHash = args.inputHash;
+  const bundleId = args.bundleId!;
+  const admittedBankId = args.bankId!;
+  const admittedInputHash = args.inputHash!;
+  const admittedLeaseToken = args.leaseToken!;
   const { data: existing, error: existingError } = await sb
     .from("buddy_trident_bundles")
     .select("id,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_sba_package_id,source_feasibility_id")
@@ -350,7 +359,14 @@ export async function generateTridentBundle(args: {
       reviewedBusinessPlanSource = await uploadReviewedPdf(sb, {
         dealId, artifact: "business_plan", buffer: reviewedBuffer,
       });
-      await sb.from("buddy_sba_packages").update({ pdf_url: reviewedBusinessPlanSource }).eq("id", sbaResult.packageId);
+      await persistRowWithStorageRollback(sb, {
+        table: "buddy_sba_packages",
+        filters: { id: sbaResult.packageId },
+        values: { pdf_url: reviewedBusinessPlanSource },
+        expected: { pdf_url: reviewedBusinessPlanSource },
+        uploaded: [{ bucket: "deal-documents", path: reviewedBusinessPlanSource }],
+        label: "Reviewed business-plan artifact",
+      });
     }
 
     let businessPlanPath = completedBusinessPlanPath;
@@ -360,13 +376,23 @@ export async function generateTridentBundle(args: {
         dealId, mode, artifact: "business_plan", ext: "pdf",
       });
       if (!businessPlanPath) throw new Error("Business-plan artifact persistence failed");
-      const { error: businessPlanPersistError } = await sb.from("buddy_trident_bundles").update({
-        business_plan_pdf_path: businessPlanPath,
-        source_sba_package_id: sbaResult.packageId,
-        current_stage: "business_plan",
-        last_heartbeat_at: new Date().toISOString(),
-      }).eq("id", bundleId).eq("lease_token", args.leaseToken);
-      if (businessPlanPersistError) throw new Error(`Business-plan manifest write failed: ${businessPlanPersistError.message}`);
+      await persistRowWithStorageRollback(sb, {
+        table: "buddy_trident_bundles",
+        filters: { id: bundleId, lease_token: admittedLeaseToken },
+        values: {
+          business_plan_pdf_path: businessPlanPath,
+          source_sba_package_id: sbaResult.packageId,
+          current_stage: "business_plan",
+          last_heartbeat_at: new Date().toISOString(),
+        },
+        expected: {
+          business_plan_pdf_path: businessPlanPath,
+          source_sba_package_id: sbaResult.packageId,
+          current_stage: "business_plan",
+        },
+        uploaded: [{ bucket: "trident-bundles", path: businessPlanPath }],
+        label: "Business-plan artifact",
+      });
     }
 
     // SPEC-M8 ARTIFACT-PIPELINE-1 — read-only attestation lookup. Never
@@ -397,16 +423,20 @@ export async function generateTridentBundle(args: {
 
     // 2. Projections XLSX — final mode only.
     let projectionsXlsxPath = (existing.projections_xlsx_path as string | null | undefined) ?? null;
+    const newProjectionObjects: NewlyUploadedObject[] = [];
     if (mode === "final" && !projectionsXlsxPath) {
-      const { data: pkgRow } = await sb
+      const { data: pkgRow, error: pkgRowError } = await sb
         .from("buddy_sba_packages")
         .select(
           "projections_annual, projections_monthly, sensitivity_scenarios, sources_and_uses, balance_sheet_projections, base_year_data",
         )
         .eq("id", sbaResult.packageId)
         .single();
+      if (pkgRowError || !pkgRow) {
+        throw new Error(`Projection source read failed: ${pkgRowError?.message ?? "missing package row"}`);
+      }
 
-      if (pkgRow) {
+      {
         const xlsxBuf = await renderProjectionsXlsx({
           dealName: "Deal",
           baseYear: (pkgRow.base_year_data as any) ?? {},
@@ -417,13 +447,16 @@ export async function generateTridentBundle(args: {
           balanceSheetProjections: pkgRow.balance_sheet_projections,
         });
         const path = `${dealId}/${mode}/${Date.now()}_projections.xlsx`;
-        const { error: uploadError } = await sb.storage.from("trident-bundles").upload(path, xlsxBuf, {
+        const { data: uploadedWorkbook, error: uploadError } = await sb.storage.from("trident-bundles").upload(path, xlsxBuf, {
           contentType:
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           upsert: true,
         });
-        if (uploadError) throw new Error(`Projection workbook upload failed: ${uploadError.message}`);
+        if (uploadError || uploadedWorkbook?.path !== path) {
+          throw new Error(`Projection workbook upload failed: ${uploadError?.message ?? "uploaded path not returned"}`);
+        }
         projectionsXlsxPath = path;
+        newProjectionObjects.push({ bucket: "trident-bundles", path });
       }
     }
     // Preview projections PDF — summary-only (Y1 revenue, Y1 DSCR, break-even
@@ -471,14 +504,17 @@ export async function generateTridentBundle(args: {
           generatedAt: new Date().toISOString(),
         });
         const previewPath = `${dealId}/${mode}/${Date.now()}_projections.pdf`;
-        const { error: uploadErr } = await sb.storage
+        const { data: uploadedPreview, error: uploadErr } = await sb.storage
           .from("trident-bundles")
           .upload(previewPath, previewBuf, {
             contentType: "application/pdf",
             upsert: true,
           });
-        if (uploadErr) throw new Error(`upload failed: ${uploadErr.message}`);
+        if (uploadErr || uploadedPreview?.path !== previewPath) {
+          throw new Error(`upload failed: ${uploadErr?.message ?? "uploaded path not returned"}`);
+        }
         projectionsPdfPath = previewPath;
+        newProjectionObjects.push({ bucket: "trident-bundles", path: previewPath });
       } catch (e) {
         // Non-fatal by design — a preview must still deliver the business
         // plan and feasibility study if the projections summary cannot be
@@ -494,7 +530,7 @@ export async function generateTridentBundle(args: {
       }
     }
 
-    const { error: projectionsPersistError } = await sb.from("buddy_trident_bundles").update({
+    const projectionManifestValues = {
       projections_pdf_path: projectionsPdfPath,
       projections_xlsx_path: projectionsXlsxPath,
       current_stage: "projections",
@@ -520,8 +556,20 @@ export async function generateTridentBundle(args: {
       // what the column is for after a redaction fix. Final mode applies no
       // redaction, so it stays null.
       redactor_version: mode === "preview" ? REDACTOR_VERSION : null,
-    }).eq("id", bundleId).eq("lease_token", args.leaseToken);
-    if (projectionsPersistError) throw new Error(`Projection manifest write failed: ${projectionsPersistError.message}`);
+    };
+    await persistRowWithStorageRollback(sb, {
+      table: "buddy_trident_bundles",
+      filters: { id: bundleId, lease_token: admittedLeaseToken },
+      values: projectionManifestValues,
+      expected: {
+        projections_pdf_path: projectionsPdfPath,
+        projections_xlsx_path: projectionsXlsxPath,
+        current_stage: "projections",
+        redactor_version: mode === "preview" ? REDACTOR_VERSION : null,
+      },
+      uploaded: newProjectionObjects,
+      label: "Projection artifact",
+    });
 
     // 3. Feasibility — call engine; for preview, re-render with redaction.
     let feasibilityPdfPath: string | null = null;
@@ -546,14 +594,25 @@ export async function generateTridentBundle(args: {
         // a transient provider timeout can resume from the same study instead
         // of orphaning the study and regenerating upstream artifacts.
         if (sourceFeasibilityId) {
-          const { error: checkpointError } = await sb.from("buddy_trident_bundles").update({
-            source_feasibility_id: sourceFeasibilityId,
-            current_stage: "feasibility_review",
-            last_heartbeat_at: new Date().toISOString(),
-          }).eq("id", bundleId).eq("lease_token", args.leaseToken);
-          if (checkpointError) {
-            throw new Error(`Feasibility checkpoint write failed: ${checkpointError.message}`);
-          }
+          await persistRowWithStorageRollback(sb, {
+            table: "buddy_trident_bundles",
+            filters: {
+              id: bundleId,
+              lease_token: admittedLeaseToken,
+              input_hash: admittedInputHash,
+            },
+            values: {
+              source_feasibility_id: sourceFeasibilityId,
+              current_stage: "feasibility_review",
+              last_heartbeat_at: new Date().toISOString(),
+            },
+            expected: {
+              source_feasibility_id: sourceFeasibilityId,
+              current_stage: "feasibility_review",
+            },
+            uploaded: [],
+            label: "Feasibility checkpoint",
+          });
         }
         if (mode === "final" && sourceFeasibilityId && feasResult.composite) {
           const feasibilityVerification = await reviewFeasibilityWithRetry({
@@ -638,13 +697,25 @@ export async function generateTridentBundle(args: {
       console.warn("[trident] feasibility render failed (non-fatal):", feasErr);
     }
 
-    const { error: feasibilityPersistError } = await sb.from("buddy_trident_bundles").update({
-      feasibility_pdf_path: feasibilityPdfPath,
-      source_feasibility_id: sourceFeasibilityId,
-      current_stage: "feasibility",
-      last_heartbeat_at: new Date().toISOString(),
-    }).eq("id", bundleId).eq("lease_token", args.leaseToken);
-    if (feasibilityPersistError) throw new Error(`Feasibility manifest write failed: ${feasibilityPersistError.message}`);
+    await persistRowWithStorageRollback(sb, {
+      table: "buddy_trident_bundles",
+      filters: { id: bundleId, lease_token: admittedLeaseToken },
+      values: {
+        feasibility_pdf_path: feasibilityPdfPath,
+        source_feasibility_id: sourceFeasibilityId,
+        current_stage: "feasibility",
+        last_heartbeat_at: new Date().toISOString(),
+      },
+      expected: {
+        feasibility_pdf_path: feasibilityPdfPath,
+        source_feasibility_id: sourceFeasibilityId,
+        current_stage: "feasibility",
+      },
+      uploaded: feasibilityPdfPath
+        ? [{ bucket: "trident-bundles", path: feasibilityPdfPath }]
+        : [],
+      label: "Feasibility artifact",
+    });
 
     // 4. Bind a final release to the exact memo, spread, and reviewed
     // artifacts from this run. Preview remains intentionally non-release.
@@ -804,11 +875,13 @@ async function uploadReviewedPdf(
   args: { dealId: string; artifact: string; buffer: Buffer },
 ): Promise<string> {
   const path = `${args.artifact === "business_plan" ? "sba-packages" : "feasibility-studies"}/${args.dealId}/${Date.now()}_reviewed.pdf`;
-  const { error } = await sb.storage.from("deal-documents").upload(path, args.buffer, {
+  const { data, error } = await sb.storage.from("deal-documents").upload(path, args.buffer, {
     contentType: "application/pdf",
     upsert: true,
   });
-  if (error) throw new Error(`Reviewed ${args.artifact} PDF upload failed: ${error.message}`);
+  if (error || data?.path !== path) {
+    throw new Error(`Reviewed ${args.artifact} PDF upload failed: ${error?.message ?? "uploaded path not returned"}`);
+  }
   return path;
 }
 
@@ -833,14 +906,16 @@ async function copyToTridentBucket(
 
   const buf = Buffer.from(await data.arrayBuffer());
   const targetPath = `${args.dealId}/${args.mode}/${Date.now()}_${args.artifact}.${args.ext}`;
-  const { error: uploadError } = await sb.storage.from("trident-bundles").upload(targetPath, buf, {
+  const { data: uploaded, error: uploadError } = await sb.storage.from("trident-bundles").upload(targetPath, buf, {
     contentType:
       args.ext === "pdf"
         ? "application/pdf"
         : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     upsert: true,
   });
-  if (uploadError) throw new Error(`Artifact target upload failed: ${uploadError.message}`);
+  if (uploadError || uploaded?.path !== targetPath) {
+    throw new Error(`Artifact target upload failed: ${uploadError?.message ?? "uploaded path not returned"}`);
+  }
   return targetPath;
 }
 
@@ -914,12 +989,12 @@ async function renderFeasibilityPreview(
   }
 
   const path = `${args.dealId}/preview/${Date.now()}_feasibility.pdf`;
-  const { error } = await sb.storage
+  const { data, error } = await sb.storage
     .from("trident-bundles")
     .upload(path, buf, {
       contentType: "application/pdf",
       upsert: true,
     });
-  if (error) return null;
+  if (error || data?.path !== path) return null;
   return path;
 }

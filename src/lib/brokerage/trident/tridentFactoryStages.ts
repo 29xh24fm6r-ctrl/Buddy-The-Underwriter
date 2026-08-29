@@ -6,6 +6,7 @@ import { generateCanonicalMemoArtifact } from "@/lib/creditMemo/canonical/genera
 import { renderClassicPdfSpread } from "@/lib/classicSpread/classicPdfWorker";
 import { assertTridentInputSnapshot, TridentSnapshotSchemaChanged } from "./tridentInputSnapshot";
 import type { TridentBundleMode, TridentSbaCheckpoint } from "./generateTridentBundle";
+import { persistRowWithStorageRollback } from "./artifactPersistence";
 
 export type TridentFactoryArgs = {
   dealId: string;
@@ -161,15 +162,29 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
     if (spreadReadError || !spreadRow?.id || !memo.memoId) {
       throw new Error(spreadReadError?.message ?? "Canonical credit artifacts were not durably persisted");
     }
-    const { error } = await sb.from("buddy_trident_bundles").update({
-      source_credit_memo_id: memo.memoId,
-      source_spread_id: spreadRow.id,
-      memo_input_hash: memo.inputHash,
-      canonical_memo_input_hash: memo.inputHash,
-    }).eq("id", args.bundleId)
-      .eq("bank_id", args.bankId)
-      .eq("input_hash", args.inputHash);
-    if (error) throw new Error(error.message);
+    await persistRowWithStorageRollback(sb, {
+      table: "buddy_trident_bundles",
+      filters: {
+        id: args.bundleId,
+        bank_id: args.bankId,
+        input_hash: args.inputHash,
+        lease_token: args.leaseToken,
+      },
+      values: {
+        source_credit_memo_id: memo.memoId,
+        source_spread_id: spreadRow.id,
+        memo_input_hash: memo.inputHash,
+        canonical_memo_input_hash: memo.inputHash,
+      },
+      expected: {
+        source_credit_memo_id: memo.memoId,
+        source_spread_id: spreadRow.id,
+        memo_input_hash: memo.inputHash,
+        canonical_memo_input_hash: memo.inputHash,
+      },
+      uploaded: [],
+      label: "Canonical credit artifact",
+    });
     await writeStage(args, "canonical_credit", "succeeded", {
       memoId: memo.memoId,
       spreadId: spreadRow.id,
