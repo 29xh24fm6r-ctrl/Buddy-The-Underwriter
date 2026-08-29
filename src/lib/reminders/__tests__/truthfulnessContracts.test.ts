@@ -28,7 +28,7 @@ test("cron distinguishes suppression and audit uncertainty without returning ful
   assert.match(src, /reason: "comms_suppressed"/);
   assert.match(src, /action: "uncertain"/);
   assert.match(src, /borrowerPhoneLast4/);
-  assert.doesNotMatch(src, /^\\s+borrowerPhone:\\s*c\\.borrowerPhone,/m);
+  assert.doesNotMatch(src, /^\s+borrowerPhone:\s*c\.borrowerPhone,/m);
   assert.match(src, /error: "Failed to process reminders"/);
   assert.doesNotMatch(src, /error\?: string/);
 });
