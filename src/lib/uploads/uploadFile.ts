@@ -77,8 +77,19 @@ export async function uploadViaSignedUrl(
     });
 
     xhr.addEventListener("load", () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve({ ok: true, file_id: "" }); // file_id filled by caller
+      if (
+        (xhr.status >= 200 && xhr.status < 300) ||
+        // Create-once GCS URLs return 412 when a retry arrives after the first
+        // PUT committed but its response was lost. Continue to the record
+        // endpoint: it verifies the server-recorded object's bytes and rejects
+        // any mismatch before canonical persistence.
+        xhr.status === 412
+      ) {
+        resolve({
+          ok: true,
+          file_id: "",
+          ...(xhr.status === 412 ? { meta: { storage_object_already_created: true } } : {}),
+        }); // file_id filled by caller
       } else {
         resolve({
           ok: false,
