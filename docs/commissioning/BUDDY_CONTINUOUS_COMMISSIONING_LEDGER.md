@@ -1272,12 +1272,18 @@ Repair:
 - Add regression coverage for retry recovery, terminal exhaustion, transaction
   ordering, read-error handling, compare-and-set proof, and cron status.
 
-Validation:
+Validation on code head `240748848a8adae4abd74b6ab04fb56dbc46afc9`:
 
-- Focused and broad CI, complete diff inspection, mergeability, and exact-head
-  Vercel preview verification are pending on the branch.
-- No schema, dependency, production-data, or destructive storage change is in
-  this repair.
+- 13,527 tests: 13,518 passed, 0 failed, 9 skipped.
+- React-server: 18/18; research evaluation: 7 passed, 0 failed.
+- Typecheck, lint, architecture, safety, schema-select, report-only drift,
+  Never-500, Build Check, Secret Scan, Route Budget, and public Playwright
+  passed.
+- The seven-file diff was inspected completely; no schema, dependency,
+  production-data, or destructive storage change is present.
+- Exact-head Vercel preview `dpl_FLokAmzMC6WBmr2XZfi1HiK37Gzt` is READY,
+  SHA-matched, HTTP 200, and has no warning/error/fatal logs or grouped runtime
+  errors in the two-hour verification window.
 
 Remaining closure dependency:
 
