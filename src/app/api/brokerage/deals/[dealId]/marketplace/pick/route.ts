@@ -3,27 +3,10 @@ import "server-only";
 /**
  * POST /api/brokerage/deals/[dealId]/marketplace/pick   body: { claimId }
  *
- * The borrower picks the lender they want. Cookie-authed via getBorrowerSession;
- * session.deal_id must match [dealId] or 404 (same invariant as other brokerage
- * routes). Records the pick, grants the winning lender full package access,
- * withdraws the other active claims, flips the listing to `picked`, and queues the
- * borrower_selected_lender + package_access_granted lender messages.
- *
- * Also generates the FINAL (unwatermarked, full-detail) trident bundle and
- * freezes its paths onto buddy_sealed_packages.final_* — this is the missing
- * half of the sealing/pick design (see specs/brokerage/sprint-05-sealing-and-kfs.md's
- * "Storage paths for final-mode PDFs (generated at pick, not seal)" comment on
- * those columns, and sprint-06's runAtomicUnlock). Without this, the package
- * manifest could only ever fall back to whatever the LIVE (possibly stale,
- * possibly still-preview) trident bundle happens to be, never a frozen
- * snapshot of what the winning lender was actually shown at pick time.
- *
- * Those columns are now frozen at SEAL time, not pick time: the seal route
- * writes them from the same certified bundle the sealed snapshot binds to
- * (sealedPackageArtifactColumns). This route therefore no longer generates
- * anything — it binds the picked lender to the already-certified set and
- * backfills only legacy sealed packages that predate that write. See the
- * artifact-binding block below for why generating here was wrong.
+ * The borrower selection is irreversible, so this route is deliberately
+ * retryable and fail-closed. A success response proves the pick, listing
+ * transition, losing-claim withdrawal, sealed artifact binding, lender access,
+ * canonical audit evidence, and lender notification outbox rows all exist.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -34,6 +17,21 @@ import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+type DbError = { message?: string } | null | undefined;
+
+function failure(
+  error: string,
+  status: number,
+  detail?: DbError | string,
+): NextResponse {
+  const message =
+    typeof detail === "string" ? detail : detail?.message;
+  return NextResponse.json(
+    { ok: false, error, ...(message ? { detail: message } : {}) },
+    { status },
+  );
+}
 
 export async function POST(
   req: NextRequest,
@@ -49,218 +47,298 @@ export async function POST(
   const body = await req.json().catch(() => ({}));
   const claimId = typeof body?.claimId === "string" ? body.claimId : null;
   if (!claimId) {
-    return NextResponse.json({ ok: false, error: "missing_claim" }, { status: 400 });
+    return failure("missing_claim", 400);
   }
 
   const sb = supabaseAdmin();
 
-  // P0-9: Test applications cannot be distributed to real lenders.
   try {
     await assertNotTestDeal(dealId, sb);
   } catch {
-    return NextResponse.json(
-      { ok: false, error: "test_application_distribution_blocked" },
-      { status: 403 },
-    );
+    return failure("test_application_distribution_blocked", 403);
   }
 
-  // The deal's listing must be open for a pick (a lender has claimed).
-  const { data: listing } = await sb
+  // Include `picked` so a request interrupted after one of the writes can
+  // safely resume and prove every remaining side effect.
+  const { data: listing, error: listingError } = await sb
     .from("marketplace_listings")
     .select("id, sealed_package_id, status")
     .eq("deal_id", dealId)
-    .in("status", ["awaiting_borrower_pick", "claiming"])
+    .in("status", ["awaiting_borrower_pick", "claiming", "picked"])
     .maybeSingle();
-  if (!listing) {
-    return NextResponse.json({ ok: false, error: "not_pickable" }, { status: 400 });
-  }
+  if (listingError) return failure("listing_read_failed", 503, listingError);
+  if (!listing) return failure("not_pickable", 400);
 
-  // The claim must belong to this listing and still be active.
-  const { data: claim } = await sb
+  const { data: claim, error: claimError } = await sb
     .from("marketplace_claims")
     .select("id, listing_id, lender_bank_id, status")
     .eq("id", claimId)
     .maybeSingle();
+  if (claimError) return failure("claim_read_failed", 503, claimError);
   if (
     !claim ||
-    (claim as any).listing_id !== (listing as any).id ||
-    (claim as any).status !== "active"
+    String(claim.listing_id) !== String(listing.id) ||
+    claim.status !== "active"
   ) {
-    return NextResponse.json({ ok: false, error: "invalid_claim" }, { status: 400 });
+    return failure("invalid_claim", 400);
   }
 
-  const listingId = (listing as any).id;
-  const lenderBankId = (claim as any).lender_bank_id;
-  const nowIso = new Date().toISOString();
+  const listingId = String(listing.id);
+  const lenderBankId = String(claim.lender_bank_id);
+  const sealedPackageId = listing.sealed_package_id
+    ? String(listing.sealed_package_id)
+    : null;
+  if (!sealedPackageId) {
+    return failure("sealed_package_required", 409);
+  }
 
-  const { data: pick, error: pickErr } = await sb
-    .from("marketplace_picks")
-    .insert({
-      listing_id: listingId,
-      deal_id: dealId,
-      claim_id: claimId,
-      picked_lender_bank_id: lenderBankId,
-      status: "picked",
-      borrower_selected_at: nowIso,
-    })
-    .select("id")
-    .single();
-  if (pickErr || !pick) {
+  // Bind and prove the immutable artifacts before recording an irreversible
+  // pick. Historical packages may be backfilled only from the snapshot they
+  // were sealed with; live bundle paths are never substituted here.
+  const { data: sealed, error: sealedError } = await sb
+    .from("buddy_sealed_packages")
+    .select(
+      "id, sealed_snapshot, final_business_plan_path, final_projections_path, final_feasibility_path",
+    )
+    .eq("id", sealedPackageId)
+    .eq("deal_id", dealId)
+    .is("unsealed_at", null)
+    .maybeSingle();
+  if (sealedError) return failure("sealed_package_read_failed", 503, sealedError);
+  if (!sealed) return failure("sealed_package_unavailable", 409);
+
+  const artifacts = (sealed.sealed_snapshot?.tridentFinal?.artifacts ?? null) as {
+    businessPlan?: string | null;
+    projectionsXlsx?: string | null;
+    feasibility?: string | null;
+  } | null;
+  const boundArtifacts = {
+    final_business_plan_path:
+      sealed.final_business_plan_path ?? artifacts?.businessPlan ?? null,
+    final_projections_path:
+      sealed.final_projections_path ?? artifacts?.projectionsXlsx ?? null,
+    final_feasibility_path:
+      sealed.final_feasibility_path ?? artifacts?.feasibility ?? null,
+  };
+  const missingArtifacts = Object.entries(boundArtifacts)
+    .filter(([, path]) => !path)
+    .map(([column]) => column);
+  if (missingArtifacts.length > 0) {
     return NextResponse.json(
-      { ok: false, error: "pick_insert_failed", detail: pickErr?.message },
-      { status: 500 },
+      { ok: false, error: "sealed_package_artifacts_incomplete", missing: missingArtifacts },
+      { status: 409 },
     );
   }
 
-  // Winning claim stays 'active'; the other active claims are withdrawn.
-  await sb
-    .from("marketplace_listings")
-    .update({ status: "picked", picked_at: nowIso, updated_at: nowIso })
-    .eq("id", listingId);
-  await sb
+  const needsArtifactBackfill =
+    !sealed.final_business_plan_path ||
+    !sealed.final_projections_path ||
+    !sealed.final_feasibility_path;
+  if (needsArtifactBackfill) {
+    const { data: rebound, error: backfillError } = await sb
+      .from("buddy_sealed_packages")
+      .update(boundArtifacts)
+      .eq("id", sealedPackageId)
+      .eq("deal_id", dealId)
+      .is("unsealed_at", null)
+      .select(
+        "id, final_business_plan_path, final_projections_path, final_feasibility_path",
+      )
+      .maybeSingle();
+    if (backfillError || !rebound) {
+      return failure("sealed_package_binding_failed", 503, backfillError);
+    }
+    if (
+      rebound.final_business_plan_path !== boundArtifacts.final_business_plan_path ||
+      rebound.final_projections_path !== boundArtifacts.final_projections_path ||
+      rebound.final_feasibility_path !== boundArtifacts.final_feasibility_path
+    ) {
+      return failure("sealed_package_binding_unproven", 503);
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+
+  // Unique(listing_id) makes the initial insert concurrency-safe. The read
+  // makes retries idempotent and rejects a different claim after selection.
+  const { data: existingPick, error: existingPickError } = await sb
+    .from("marketplace_picks")
+    .select("id, claim_id, picked_lender_bank_id, status, borrower_selected_at")
+    .eq("listing_id", listingId)
+    .eq("deal_id", dealId)
+    .in("status", ["pending", "picked"])
+    .maybeSingle();
+  if (existingPickError) return failure("pick_read_failed", 503, existingPickError);
+  if (existingPick && String(existingPick.claim_id) !== claimId) {
+    return failure("different_claim_already_picked", 409);
+  }
+
+  let pick = existingPick;
+  if (!pick) {
+    const { data: insertedPick, error: pickError } = await sb
+      .from("marketplace_picks")
+      .insert({
+        listing_id: listingId,
+        deal_id: dealId,
+        claim_id: claimId,
+        picked_lender_bank_id: lenderBankId,
+        status: "picked",
+        borrower_selected_at: nowIso,
+      })
+      .select("id, claim_id, picked_lender_bank_id, status, borrower_selected_at")
+      .single();
+    if (pickError || !insertedPick) {
+      return failure("pick_insert_failed", 503, pickError);
+    }
+    pick = insertedPick;
+  }
+  if (
+    pick.status !== "picked" ||
+    String(pick.picked_lender_bank_id) !== lenderBankId
+  ) {
+    return failure("pick_persistence_unproven", 503);
+  }
+
+  if (listing.status !== "picked") {
+    const { data: pickedListing, error: listingUpdateError } = await sb
+      .from("marketplace_listings")
+      .update({ status: "picked", picked_at: nowIso, updated_at: nowIso })
+      .eq("id", listingId)
+      .in("status", ["awaiting_borrower_pick", "claiming"])
+      .select("id, status")
+      .maybeSingle();
+    if (listingUpdateError || pickedListing?.status !== "picked") {
+      return failure("listing_pick_failed", 503, listingUpdateError);
+    }
+  }
+
+  const { data: withdrawnClaims, error: withdrawError } = await sb
     .from("marketplace_claims")
     .update({ status: "withdrawn" })
     .eq("listing_id", listingId)
     .eq("status", "active")
-    .neq("id", claimId);
+    .neq("id", claimId)
+    .select("id, status");
+  if (withdrawError) return failure("losing_claims_withdrawal_failed", 503, withdrawError);
+  if ((withdrawnClaims ?? []).some((row) => row.status !== "withdrawn")) {
+    return failure("losing_claims_withdrawal_unproven", 503);
+  }
 
-  // Grant the picked lender full package access.
-  const { data: access } = await sb
+  const { data: existingAccess, error: existingAccessError } = await sb
     .from("marketplace_package_access")
-    .insert({
-      listing_id: listingId,
-      claim_id: claimId,
-      deal_id: dealId,
-      lender_bank_id: lenderBankId,
-      sealed_package_id: (listing as any).sealed_package_id,
-      access_level: "full",
-      granted_at: nowIso,
-    })
+    .select(
+      "id, listing_id, claim_id, deal_id, lender_bank_id, sealed_package_id, access_level, revoked_at",
+    )
+    .eq("claim_id", claimId)
+    .eq("deal_id", dealId)
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (existingAccessError) {
+    return failure("package_access_read_failed", 503, existingAccessError);
+  }
+
+  let access = existingAccess;
+  if (!access) {
+    const { data: insertedAccess, error: accessError } = await sb
+      .from("marketplace_package_access")
+      .insert({
+        listing_id: listingId,
+        claim_id: claimId,
+        deal_id: dealId,
+        lender_bank_id: lenderBankId,
+        sealed_package_id: sealedPackageId,
+        access_level: "full",
+        granted_at: nowIso,
+      })
+      .select(
+        "id, listing_id, claim_id, deal_id, lender_bank_id, sealed_package_id, access_level, revoked_at",
+      )
+      .single();
+    if (accessError || !insertedAccess) {
+      return failure("package_access_grant_failed", 503, accessError);
+    }
+    access = insertedAccess;
+  }
+  if (
+    String(access.listing_id) !== listingId ||
+    String(access.claim_id) !== claimId ||
+    String(access.lender_bank_id) !== lenderBankId ||
+    String(access.sealed_package_id) !== sealedPackageId ||
+    access.access_level !== "full" ||
+    access.revoked_at
+  ) {
+    return failure("package_access_grant_unproven", 503);
+  }
+
+  const { data: existingAudit, error: auditReadError } = await sb
+    .from("marketplace_audit_log")
     .select("id")
-    .single();
-
-  // Bind the picked lender to the artifacts this deal was SEALED with.
-  //
-  // This used to invoke the final-mode trident generator inline and await
-  // it inside the request (audit F-04/F-06). Two problems: the final
-  // factory is minutes of LLM, review, and PDF work — the Classic Spread
-  // materializer, the canonical memo with its verification and repair passes,
-  // the SBA package, the business-plan verifier, and the feasibility engine
-  // with up to three review retries — against this route's 300s ceiling; and
-  // on success finalize_trident_bundle_run stamps superseded_at on the prior
-  // succeeded bundle, which is precisely the bundle the sealed snapshot's
-  // provenance is bound to.
-  //
-  // Neither is necessary. Sealing already requires a certified final bundle
-  // (canSeal + buildSealedSnapshot), and the seal route freezes that exact
-  // artifact set onto buddy_sealed_packages via sealedPackageArtifactColumns.
-  // By pick time the certified paths are already there. Legacy sealed packages
-  // written before the seal route populated those columns are backfilled from
-  // the immutable binding in sealed_snapshot.tridentFinal — never by producing
-  // a new bundle, which would break the seal's provenance.
-  const sealedPackageId = (listing as any).sealed_package_id;
-  if (sealedPackageId) {
-    try {
-      const { data: sealed } = await sb
-        .from("buddy_sealed_packages")
-        .select(
-          "id, sealed_snapshot, final_business_plan_path, final_projections_path, final_feasibility_path",
-        )
-        .eq("id", sealedPackageId)
-        .maybeSingle();
-
-      const artifacts = ((sealed as any)?.sealed_snapshot?.tridentFinal?.artifacts ?? null) as {
-        businessPlan?: string | null;
-        projectionsXlsx?: string | null;
-        feasibility?: string | null;
-      } | null;
-
-      const backfilled = {
-        final_business_plan_path:
-          (sealed as any)?.final_business_plan_path ?? artifacts?.businessPlan ?? null,
-        final_projections_path:
-          (sealed as any)?.final_projections_path ?? artifacts?.projectionsXlsx ?? null,
-        final_feasibility_path:
-          (sealed as any)?.final_feasibility_path ?? artifacts?.feasibility ?? null,
-      };
-
-      const wasIncomplete =
-        sealed &&
-        (!(sealed as any).final_business_plan_path ||
-          !(sealed as any).final_projections_path ||
-          !(sealed as any).final_feasibility_path);
-
-      if (wasIncomplete && Object.values(backfilled).some((path) => path)) {
-        const { error: backfillError } = await sb
-          .from("buddy_sealed_packages")
-          .update(backfilled)
-          .eq("id", sealedPackageId);
-        if (backfillError) throw new Error(backfillError.message);
-      }
-
-      if (Object.values(backfilled).some((path) => !path)) {
-        // Never fatal: the pick and the access grant above already succeeded
-        // and must stand. The package manifest falls back to the live trident
-        // bundle, and this row tells operators which deal needs attention.
-        await sb.from("marketplace_audit_log").insert({
-          deal_id: dealId,
-          listing_id: listingId,
-          actor_bank_id: null,
-          actor_scope: "system",
-          action: "sealed_package_artifacts_incomplete",
-          metadata: {
-            pickId: (pick as any).id,
-            sealedPackageId,
-            missing: Object.entries(backfilled)
-              .filter(([, path]) => !path)
-              .map(([column]) => column),
-          },
-          created_at: nowIso,
-        });
-      }
-    } catch (err) {
-      console.warn("[marketplace/pick] sealed-package artifact binding failed (non-fatal)", {
-        dealId,
-        listingId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+    .eq("listing_id", listingId)
+    .eq("deal_id", dealId)
+    .eq("action", "borrower_pick")
+    .limit(1)
+    .maybeSingle();
+  if (auditReadError) return failure("pick_audit_read_failed", 503, auditReadError);
+  if (!existingAudit) {
+    const { data: audit, error: auditError } = await sb
+      .from("marketplace_audit_log")
+      .insert({
+        listing_id: listingId,
+        deal_id: dealId,
+        actor_bank_id: null,
+        actor_scope: "borrower",
+        action: "borrower_pick",
+        metadata: {
+          claim_id: claimId,
+          pick_id: String(pick.id),
+          access_id: String(access.id),
+          sealed_package_id: sealedPackageId,
+        },
+        created_at: nowIso,
+      })
+      .select("id")
+      .single();
+    if (auditError || !audit) {
+      return failure("pick_audit_persistence_failed", 503, auditError);
     }
   }
 
-  // Notify the picked lender (best-effort, non-fatal).
-  try {
-    const { queueLenderMessage } = await import("@/lib/brokerage/lenderComms");
-    await queueLenderMessage(
-      "borrower_selected_lender",
-      { dealId, listingId, claimId, lenderBankId, stage: "picked" },
-      "email",
-      sb,
-    );
-    await queueLenderMessage(
-      "package_access_granted",
-      { dealId, listingId, claimId, lenderBankId, accessId: (access as any)?.id, stage: "picked" },
-      "email",
-      sb,
-    );
-  } catch (err) {
-    console.warn("[marketplace/pick] lender comms failed (non-fatal)", {
+  const { queueLenderMessage } = await import("@/lib/brokerage/lenderComms");
+  const selectedMessage = await queueLenderMessage(
+    "borrower_selected_lender",
+    { dealId, listingId, claimId, lenderBankId, stage: "picked" },
+    "email",
+    sb,
+  );
+  if (!selectedMessage.ok) {
+    return failure("lender_selection_notification_failed", 503, selectedMessage.error);
+  }
+  const accessMessage = await queueLenderMessage(
+    "package_access_granted",
+    {
       dealId,
       listingId,
-      error: err instanceof Error ? err.message : String(err),
-    });
+      claimId,
+      lenderBankId,
+      accessId: String(access.id),
+      stage: "picked",
+    },
+    "email",
+    sb,
+  );
+  if (!accessMessage.ok) {
+    return failure("package_access_notification_failed", 503, accessMessage.error);
   }
 
-  // Prepare (not generate — that needs official SBA templates ingested,
-  // a separate environmental blocker) the borrower's per-owner SBA form
-  // package now that a lender is chosen (best-effort, non-fatal). Ticket
-  // 2's default sequencing decision: e-signature happens after pick, so
-  // the forms it will need should already exist by then rather than being
-  // built lazily the first time someone opens a signing screen.
+  // Form preparation is independent of the already-sealed Trident release.
+  // Keep it retriable without misrepresenting the proven lender access above.
   try {
-    const { prepareBrokerageSbaForms } = await import("@/lib/brokerage/borrowerFormsOrchestration");
+    const { prepareBrokerageSbaForms } = await import(
+      "@/lib/brokerage/borrowerFormsOrchestration"
+    );
     await prepareBrokerageSbaForms(dealId, sb);
   } catch (err) {
-    console.warn("[marketplace/pick] sba form-package prepare failed (non-fatal)", {
+    console.warn("[marketplace/pick] sba form-package prepare failed", {
       dealId,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -268,8 +346,8 @@ export async function POST(
 
   return NextResponse.json({
     ok: true,
-    pickId: (pick as any).id,
-    accessId: (access as any)?.id ?? null,
+    pickId: String(pick.id),
+    accessId: String(access.id),
     pickedLenderBankId: lenderBankId,
   });
 }
