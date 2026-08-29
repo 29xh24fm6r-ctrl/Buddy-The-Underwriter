@@ -11,16 +11,22 @@ const state: {
   resolvedToken: { token: string; dealId: string } | null;
   bundles: any[];
   signedUrl: string | null;
+  bundleError: any;
+  auditError: boolean;
 } = {
   resolvedToken: null,
   bundles: [],
   signedUrl: "https://signed.example/path",
+  bundleError: null,
+  auditError: false,
 };
 
 function reset() {
   state.resolvedToken = null;
   state.bundles = [];
   state.signedUrl = "https://signed.example/path";
+  state.bundleError = null;
+  state.auditError = false;
 }
 
 require.cache[require.resolve("@/lib/brokerage/trident/portalTokenAuth")] = {
@@ -59,7 +65,10 @@ require.cache[require.resolve("@/lib/supabase/admin")] = {
                 Object.entries(this._filters).every(([k, v]) => b[k] === v) &&
                 this._isNull.every((col: string) => b[col] == null),
             );
-            return Promise.resolve({ data: match ?? null, error: null });
+            return Promise.resolve({
+              data: state.bundleError ? null : match ?? null,
+              error: state.bundleError,
+            });
           },
         };
         return q;
@@ -89,6 +98,9 @@ require.cache[require.resolve("@/lib/brokerage/packageDelivery")] = {
   exports: {
     auditPackageDownload: async (entry: any) => {
       auditWrites.push(entry);
+      return state.auditError
+        ? { ok: false, error: "audit unavailable" }
+        : { ok: true };
     },
   },
 } as any;
@@ -260,4 +272,30 @@ test("[F-21] a refused download writes no audit entry", async () => {
   state.bundles = [];
   await call("t", "business-plan");
   assert.equal(auditWrites.length, 0, "a 404 is not a download");
+});
+
+test("portal download: database outage is not misreported as a missing bundle", async () => {
+  reset();
+  state.resolvedToken = { token: "t", dealId: "deal-1" };
+  state.bundleError = { message: "database unavailable" };
+  const { status, body } = await call("t", "business-plan");
+  assert.equal(status, 503);
+  assert.equal(body.error, "package_state_unavailable");
+});
+
+test("portal download: refuses a signed URL when audit persistence fails", async () => {
+  reset();
+  state.resolvedToken = { token: "t", dealId: "deal-1" };
+  state.bundles = [{
+    deal_id: "deal-1",
+    mode: "preview",
+    status: "succeeded",
+    superseded_at: null,
+    business_plan_pdf_path: "deal-1/preview/bp.pdf",
+  }];
+  state.auditError = true;
+  const { status, body } = await call("t", "business-plan");
+  assert.equal(status, 503);
+  assert.equal(body.error, "download_audit_persistence_failed");
+  assert.equal(body.url, undefined);
 });

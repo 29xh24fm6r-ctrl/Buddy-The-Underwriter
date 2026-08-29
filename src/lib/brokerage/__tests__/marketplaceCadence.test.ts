@@ -123,6 +123,13 @@ describe("marketplace surface wiring", () => {
     }
   });
 
+  it("lender package manifest requires canonical view-audit persistence", () => {
+    const src = read("lender/marketplace/package/[accessId]/route.ts");
+    assert.ok(src.includes("auditPackageView"));
+    assert.ok(src.includes("package_view_audit_persistence_failed"));
+    assert.ok(src.includes("status: 503"));
+  });
+
   it("claim route delegates to the claim_marketplace_listing RPC", () => {
     const src = read("lender/marketplace/listings/[listingId]/claim/route.ts");
     assert.ok(src.includes('rpc("claim_marketplace_listing"'));

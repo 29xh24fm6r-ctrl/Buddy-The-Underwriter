@@ -19,7 +19,7 @@ export async function getLatestAssembledPackageRun(
   dealId: string,
   sb: { from: (t: string) => any },
 ): Promise<{ packageRunId: string; storagePath: string } | null> {
-  const { data } = await sb
+  const { data, error } = await sb
     .from("sba_package_runs")
     .select("id, assembled_package_storage_path, assembled_at")
     .eq("deal_id", dealId)
@@ -28,6 +28,9 @@ export async function getLatestAssembledPackageRun(
     .limit(1)
     .maybeSingle();
 
+  if (error) {
+    throw new Error(`assembled_package_state_unavailable:${error.message ?? "database_error"}`);
+  }
   if (!data?.assembled_package_storage_path) return null;
   return { packageRunId: data.id, storagePath: data.assembled_package_storage_path };
 }

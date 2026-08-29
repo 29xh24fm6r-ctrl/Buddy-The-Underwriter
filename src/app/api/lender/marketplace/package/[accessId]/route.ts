@@ -20,7 +20,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolveLenderIdentity } from "@/lib/brokerage/lenderAuth";
-import { getLenderPackageAccess } from "@/lib/brokerage/packageDelivery";
+import { auditPackageView, getLenderPackageAccess } from "@/lib/brokerage/packageDelivery";
 import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 
 export const runtime = "nodejs";
@@ -36,18 +36,40 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "not_a_lender" }, { status: 403 });
   }
 
-  const result = await getLenderPackageAccess(accessId, lender.lenderBankId, supabaseAdmin() as any);
+  const sb = supabaseAdmin();
+  const result = await getLenderPackageAccess(accessId, lender.lenderBankId, sb as any);
   if (!result.ok) {
-    return NextResponse.json({ ok: false }, { status: 404 });
+    const status = result.error === "package_state_unavailable" ? 503 : 404;
+    return NextResponse.json(
+      { ok: false, ...(status === 503 ? { error: result.error } : {}) },
+      { status },
+    );
   }
 
   // P0-9: Test applications cannot be distributed to real lenders.
   try {
-    await assertNotTestDeal(result.access.dealId, supabaseAdmin() as any);
+    await assertNotTestDeal(result.access.dealId, sb as any);
   } catch {
     return NextResponse.json(
       { ok: false, error: "test_application_distribution_blocked" },
       { status: 403 },
+    );
+  }
+
+  const audit = await auditPackageView(
+    {
+      actor: lender.userId,
+      actorScope: "lender",
+      dealId: result.access.dealId,
+      action: "package_view",
+      metadata: { accessId, accessLevel: result.access.accessLevel },
+    },
+    sb as any,
+  );
+  if (!audit.ok) {
+    return NextResponse.json(
+      { ok: false, error: "package_view_audit_persistence_failed" },
+      { status: 503 },
     );
   }
 

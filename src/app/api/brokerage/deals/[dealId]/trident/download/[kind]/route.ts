@@ -9,8 +9,10 @@ import "server-only";
  * valid `marketplace_package_access` grant (passed as `?accessId=`) may also
  * download — same check as /api/lender/marketplace/package/[accessId].
  *
- * Failure modes all return 404 — never 403 — so we don't leak the existence
- * of other deals to a probing caller.
+ * Authorization denials return 404 — never 403 — so we don't leak the
+ * existence of other deals to a probing caller. Authoritative-state and
+ * required audit-persistence failures return 503 so outages are not
+ * misreported as missing packages.
  *
  * For business_plan/projections_pdf/projections_xlsx/feasibility: returns a
  * signed Storage URL for the current succeeded trident bundle (prefers
@@ -75,6 +77,8 @@ const KIND_TO_PATH_COLUMN: Record<TridentKind, string> = {
   feasibility: "feasibility_pdf_path",
 };
 
+class PackageStateUnavailable extends Error {}
+
 type ResolvedActor = {
   bankId: string;
   actor: string;
@@ -114,11 +118,12 @@ async function resolveActor(
   if (!lender) return null;
 
   const sb = supabaseAdmin();
-  const { data: access } = await sb
+  const { data: access, error: accessError } = await sb
     .from("marketplace_package_access")
     .select("id, lender_bank_id, deal_id, revoked_at, access_level")
     .eq("id", accessId)
     .maybeSingle();
+  if (accessError) throw new PackageStateUnavailable("lender_access_read_failed");
 
   if (
     !access ||
@@ -129,11 +134,12 @@ async function resolveActor(
     return null;
   }
 
-  const { data: deal } = await sb
+  const { data: deal, error: dealError } = await sb
     .from("deals")
     .select("bank_id")
     .eq("id", dealId)
     .maybeSingle();
+  if (dealError) throw new PackageStateUnavailable("deal_ownership_read_failed");
   if (!deal?.bank_id) return null;
 
   return {
@@ -179,10 +185,16 @@ async function handleCreditMemoDownload(
   const memo = snapshotRes.snapshot.canonical_memo;
   const pdfBuffer = await buildCreditMemoPdf(memo);
 
-  await auditPackageDownload(
+  const audit = await auditPackageDownload(
     { actor, actorScope, dealId, action: "package_download", resourceType: "credit_memo" },
     supabaseAdmin() as any,
-  ).catch(() => {});
+  );
+  if (!audit.ok) {
+    return NextResponse.json(
+      { ok: false, error: "download_audit_persistence_failed" },
+      { status: 503 },
+    );
+  }
 
   const borrowerSlug = (memo.header.borrower_name ?? dealId)
     .toLowerCase()
@@ -216,10 +228,16 @@ async function handleSbaFormsDownload(
     return NextResponse.json({ ok: false }, { status: 500 });
   }
 
-  await auditPackageDownload(
+  const audit = await auditPackageDownload(
     { actor: actorInfo.actor, actorScope: actorInfo.actorScope, dealId, action: "package_download", resourceType: "sba_forms" },
     sb as any,
-  ).catch(() => {});
+  );
+  if (!audit.ok) {
+    return NextResponse.json(
+      { ok: false, error: "download_audit_persistence_failed" },
+      { status: 503 },
+    );
+  }
 
   return NextResponse.json({ ok: true, url: signed.signedUrl });
 }
@@ -238,7 +256,18 @@ export async function GET(
     return NextResponse.json({ ok: false }, { status: 404 });
   }
 
-  const actorInfo = await resolveActor(req, dealId);
+  let actorInfo: ResolvedActor | null;
+  try {
+    actorInfo = await resolveActor(req, dealId);
+  } catch (error) {
+    if (error instanceof PackageStateUnavailable) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 503 },
+      );
+    }
+    throw error;
+  }
   if (!actorInfo) {
     return NextResponse.json({ ok: false }, { status: 404 });
   }
@@ -253,7 +282,15 @@ export async function GET(
   }
 
   if (kind === "sba_forms") {
-    return handleSbaFormsDownload(dealId, actorInfo);
+    try {
+      return await handleSbaFormsDownload(dealId, actorInfo);
+    } catch (error) {
+      console.error("[trident-download] SBA package state unavailable", { dealId, error });
+      return NextResponse.json(
+        { ok: false, error: "package_state_unavailable" },
+        { status: 503 },
+      );
+    }
   }
 
   const sb = supabaseAdmin();
@@ -261,7 +298,7 @@ export async function GET(
   // Prefer final, fall back to preview. Two small queries are clearer than a
   // clever ORDER BY. A preview-tier grant skips the final lookup entirely so
   // it can only ever be served the redacted preview bundle.
-  const { data: finalBundle } =
+  const finalResult =
     actorInfo.accessLevel === "full"
       ? await sb
           .from("buddy_trident_bundles")
@@ -271,18 +308,32 @@ export async function GET(
           .eq("status", "succeeded")
           .is("superseded_at", null)
           .maybeSingle()
-      : { data: null };
+      : { data: null, error: null };
+  if (finalResult.error) {
+    return NextResponse.json(
+      { ok: false, error: "package_state_unavailable" },
+      { status: 503 },
+    );
+  }
 
-  const bundle =
-    finalBundle ??
-    (await sb
+  let bundle = finalResult.data;
+  if (!bundle) {
+    const previewResult = await sb
       .from("buddy_trident_bundles")
       .select("*")
       .eq("deal_id", dealId)
       .eq("mode", "preview")
       .eq("status", "succeeded")
       .is("superseded_at", null)
-      .maybeSingle()).data;
+      .maybeSingle();
+    if (previewResult.error) {
+      return NextResponse.json(
+        { ok: false, error: "package_state_unavailable" },
+        { status: 503 },
+      );
+    }
+    bundle = previewResult.data;
+  }
 
   if (!bundle) {
     return NextResponse.json({ ok: false }, { status: 404 });
@@ -308,7 +359,7 @@ export async function GET(
   // only downloads on this route that wrote no marketplace_audit_log entry —
   // pulling the credit memo was recorded, pulling the business plan,
   // projections workbook, and feasibility study was not (audit F-21).
-  await auditPackageDownload(
+  const audit = await auditPackageDownload(
     {
       actor: actorInfo.actor,
       actorScope: actorInfo.actorScope,
@@ -318,7 +369,13 @@ export async function GET(
       metadata: { mode: bundle.mode, accessLevel: actorInfo.accessLevel },
     },
     sb as any,
-  ).catch(() => {});
+  );
+  if (!audit.ok) {
+    return NextResponse.json(
+      { ok: false, error: "download_audit_persistence_failed" },
+      { status: 503 },
+    );
+  }
 
   return NextResponse.json({
     ok: true,

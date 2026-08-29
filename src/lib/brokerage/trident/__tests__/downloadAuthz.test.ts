@@ -12,16 +12,22 @@ const state: {
   session: any;
   bundles: any[];
   signedUrlReturns: { signedUrl?: string; error?: any };
+  queryError: any;
+  auditError: boolean;
 } = {
   session: null,
   bundles: [],
   signedUrlReturns: { signedUrl: "https://signed.example/path" },
+  queryError: null,
+  auditError: false,
 };
 
 function resetState() {
   state.session = null;
   state.bundles = [];
   state.signedUrlReturns = { signedUrl: "https://signed.example/path" };
+  state.queryError = null;
+  state.auditError = false;
 }
 
 // Stub next/server with a minimal NextResponse/NextRequest shim.
@@ -66,7 +72,10 @@ require.cache[require.resolve("@/lib/supabase/admin")] = {
                 Object.entries(this._filters).every(([k, v]) => b[k] === v) &&
                 this._isNull.every((col: string) => b[col] == null),
             );
-            return Promise.resolve({ data: match ?? null, error: null });
+            return Promise.resolve({
+              data: state.queryError ? null : match ?? null,
+              error: state.queryError,
+            });
           },
         };
         return q;
@@ -87,6 +96,21 @@ require.cache[require.resolve("@/lib/supabase/admin")] = {
         },
       },
     }),
+  },
+} as any;
+
+const auditWrites: any[] = [];
+require.cache[require.resolve("@/lib/brokerage/packageDelivery")] = {
+  id: "package-audit-stub",
+  filename: "package-audit-stub",
+  loaded: true,
+  exports: {
+    auditPackageDownload: async (entry: any) => {
+      auditWrites.push(entry);
+      return state.auditError
+        ? { ok: false, error: "audit unavailable" }
+        : { ok: true };
+    },
   },
 } as any;
 
@@ -183,4 +207,30 @@ test("bundle exists but artifact path missing → 404", async () => {
   });
   const { status } = await call("deal-1", "projections_xlsx");
   assert.equal(status, 404);
+});
+
+test("bundle database outage returns 503 rather than a misleading 404", async () => {
+  resetState();
+  state.session = { deal_id: "deal-1", bank_id: "bank-1", tokenHash: "h" };
+  state.queryError = { message: "database unavailable" };
+  const { status, body } = await call("deal-1", "business_plan");
+  assert.equal(status, 503);
+  assert.equal(body.error, "package_state_unavailable");
+});
+
+test("signed artifact is withheld when download audit persistence fails", async () => {
+  resetState();
+  state.session = { deal_id: "deal-1", bank_id: "bank-1", tokenHash: "h" };
+  state.bundles.push({
+    deal_id: "deal-1",
+    mode: "final",
+    status: "succeeded",
+    superseded_at: null,
+    business_plan_pdf_path: "deal-1/final/1_business_plan.pdf",
+  });
+  state.auditError = true;
+  const { status, body } = await call("deal-1", "business_plan");
+  assert.equal(status, 503);
+  assert.equal(body.error, "download_audit_persistence_failed");
+  assert.equal(body.url, undefined);
 });
