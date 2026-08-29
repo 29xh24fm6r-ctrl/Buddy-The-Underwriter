@@ -1057,3 +1057,63 @@ Verification:
 - The next independent audit target is sealed-artifact retention and
   supersession reconciliation. The QA-identity outage classification repair
   remains deferred while PRs 967-968 own overlapping delivery callers.
+
+## 2026-08-29 — atomic seal and marketplace-listing lifecycle
+
+Checkpoint:
+
+- PR 970 remains open, clean, mergeable, and current with `main`; this repair
+  does not modify its Golden Trident supersession migration or regression guard.
+- Production deployment `dpl_EQob5PMxWaA85DupqtdKcuaYEi49` is READY on exact
+  commit `fe428208311739a0147294d10c1e2d3d4d1ceb2b`, serves
+  `www.buddysba.com` with HTTP 200, and has no runtime-error cluster in the
+  latest two-hour observation window.
+- PR 878's Golden Trident code remains deployed. Complete seal-to-marketplace-
+  to-lender transactional proof remains blocked on the verified Buddy-owned
+  Supabase connection and an authorized sealed transaction.
+
+Evidence and root cause:
+
+- Seal creation independently inserted the sealed package, inserted the listing,
+  and updated the deal. Listing failure used best-effort compensation without
+  checking its error or affected row; the deal-status update was also unchecked.
+- Borrower unseal discarded the authoritative listing-read error and ignored the
+  package update, listing delete, and deal update results before returning
+  success.
+- Rate-card database errors were indistinguishable from a genuine missing card.
+
+Repair branch: `codex/commission-atomic-seal-lifecycle`.
+
+Repair:
+
+- Move seal creation and unseal into two service-role-only transactional RPCs.
+- Lock and prove the tenant deal, exact current certified Golden Trident bundle,
+  all three frozen artifact paths, eligible listing, active package, and every
+  deal-state transition.
+- Require returned package/listing ids before the route reports success.
+- Remove the route's partial-write compensation window.
+- Fail rate-card database unavailability closed with HTTP 503 while preserving a
+  genuine missing-card business/configuration response.
+- Preserve empty-search-path privileged functions and revoke execution from
+  `PUBLIC`, `anon`, and `authenticated`.
+
+Verification:
+
+- Focused atomic-lifecycle regression coverage passed 7/7 locally.
+- Initial CI passed typecheck, lint, architecture, safety, Build Check, Secret
+  Scan, Route Budget, and the exact-head preview. The broad unit run exposed two
+  stale source tripwires that still required direct route writes; both now prove
+  the atomic RPC ordering and pass 6/6 focused. Required CI is rerunning on the
+  repaired head.
+- Direct database verification remains blocked because no confirmed Buddy-owned
+  Supabase connection is available; no differently owned project was queried.
+
+Post-merge closure:
+
+- With the verified Buddy connection and authorized fixtures, force one failed
+  and one successful seal plus one failed and one successful pending-preview
+  unseal, proving rollback and returned-row evidence across package, listing,
+  and deal state.
+- The next independent audit target is seal-admission authority: query-error
+  truthfulness in `canSeal`, snapshot assembly, identity gating, and lender
+  matching.

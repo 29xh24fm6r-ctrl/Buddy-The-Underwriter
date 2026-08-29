@@ -1,10 +1,10 @@
 /**
  * SPEC-M6 ANTICIPATED-INTERROGATION-1 — structural tripwire confirming the
  * seal route calls the hostile-interrogation generator non-fatally, after
- * every write has already succeeded, never able to fail a seal that has
- * already gone through. Source-grep style, same convention as
+ * the atomic seal/listing/deal-state transition has already succeeded, never
+ * able to fail a seal that has already gone through. Source-grep style, same convention as
  * beatMetricsWiring.test.ts's "Structural Tripwires" section — this route
- * handles cookies/multi-table writes/compensation logic that isn't already
+ * handles cookies and a privileged transactional RPC that aren't already
  * covered by a mockable test harness in this repo.
  */
 import test from "node:test";
@@ -27,12 +27,23 @@ test("TRIPWIRE: seal route imports runHostileInterrogationForDeal", () => {
   );
 });
 
-test("TRIPWIRE: the interrogation call is wrapped in try/catch, after deals.status is set to sealed", () => {
+test("TRIPWIRE: the interrogation call is wrapped in try/catch, after the atomic seal transition is proven", () => {
   const src = readSrc();
-  const sealedStatusIdx = src.indexOf('.update({ status: "sealed" })');
+  const transitionIdx = src.indexOf('"create_buddy_seal_listing"');
+  const transitionProofIdx = src.indexOf(
+    "if (transitionError || !sealedPackageId || !listingId)",
+    transitionIdx,
+  );
   const interrogationIdx = src.indexOf("runHostileInterrogationForDeal(dealId, session.bank_id, sb)");
-  assert.ok(sealedStatusIdx > -1, "seal route must set deals.status to sealed");
-  assert.ok(interrogationIdx > sealedStatusIdx, "interrogation must run after the deal is marked sealed");
+  assert.ok(transitionIdx > -1, "seal route must invoke the atomic seal transition");
+  assert.ok(
+    transitionProofIdx > transitionIdx,
+    "seal route must prove both persisted ids before side effects",
+  );
+  assert.ok(
+    interrogationIdx > transitionProofIdx,
+    "interrogation must run after the atomic seal transition is proven",
+  );
 
   const tryIdx = src.lastIndexOf("try {", interrogationIdx);
   const catchIdx = src.indexOf("} catch", interrogationIdx);
