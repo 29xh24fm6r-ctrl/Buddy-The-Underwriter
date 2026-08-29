@@ -209,7 +209,11 @@ export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCall
     throw new Error(`Gemini response was not complete (finishReason: ${reason})`);
   }
 
-  const text = extractText(candidate?.content?.parts);
+  if (!candidate) {
+    throw new Error("Gemini response contained no candidate");
+  }
+
+  const text = extractText(candidate.content?.parts);
   if (!text) {
     throw new Error("Gemini response completed without reply text");
   }
