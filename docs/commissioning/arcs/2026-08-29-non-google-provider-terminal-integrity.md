@@ -31,11 +31,12 @@ Primary references:
 
 ## Verification ledger
 
-- Focused adapter tests: pending.
-- Broad repository tests: pending.
-- Required CI and browser checks: pending.
-- Exact-head preview and runtime logs: pending.
-- Production verification: requires merge and deployment; never performed from this branch.
+- Focused adapter regressions are included in the broad run.
+- Broad unit suite: 13,557 tests; 13,548 passed, 0 failed, 9 skipped.
+- React-server suite: 18 passed; research golden set: 7 passed.
+- Build Check, Secret Scan, CI, typecheck, lint, architecture, safety, schema gates, Never-500, and public browser smoke passed.
+- Exact-head preview `dpl_AhF2vopqHXepNHHYiAh6omzZF6qf`: READY, HTTP 200, SHA-matched to `127423d382101f7749c9e8f9f73e88e081608433`, with no warning/error/fatal logs or grouped runtime errors.
+- Production verification requires merge and deployment; never performed from this branch.
 
 ## Unresolved dependencies
 
