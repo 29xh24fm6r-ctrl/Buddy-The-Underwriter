@@ -533,5 +533,10 @@
     "name": "finalize_trident_bundle_run",
     "type": "function",
     "migration": "20260829010000_sealed_trident_supersession_retention.sql"
+  },
+  {
+    "name": "portfolio_risk_snapshots",
+    "type": "table",
+    "migration": "20260829100000_portfolio_risk_snapshots.sql"
   }
 ]
