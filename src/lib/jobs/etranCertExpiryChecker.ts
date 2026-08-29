@@ -37,11 +37,19 @@ export async function findExpiringEtranCredentials(
 ): Promise<ExpiringEtranCredential[]> {
   const cutoff = new Date(now.getTime() + WARNING_WINDOW_DAYS * MS_PER_DAY).toISOString();
 
-  const { data } = await sb
+  const { data, error } = await sb
     .from("bank_etran_credentials")
     .select("bank_id, sba_lender_id, cert_expires_at")
     .not("cert_expires_at", "is", null)
     .lte("cert_expires_at", cutoff);
+
+  if (error) {
+    const message =
+      typeof error === "object" && error && "message" in error
+        ? String((error as { message: unknown }).message)
+        : String(error);
+    throw new Error(`etran_cert_expiry_read_failed: ${message}`);
+  }
 
   const rows = (data ?? []) as Array<{ bank_id: string; sba_lender_id: string; cert_expires_at: string }>;
 
