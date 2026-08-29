@@ -35,11 +35,22 @@ function installFetch(impl: FetchImpl): { restore: () => void; calls: CapturedCa
   return { restore: () => { globalThis.fetch = original; }, calls };
 }
 
-function okResponse(body: Record<string, unknown>): Response {
+function rawOkResponse(body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+function okResponse(body: Record<string, unknown>): Response {
+  const candidates = Array.isArray(body.candidates)
+    ? body.candidates.map((candidate) =>
+        candidate && typeof candidate === "object" && !Array.isArray(candidate)
+          ? { finishReason: "STOP", ...candidate }
+          : candidate,
+      )
+    : body.candidates;
+  return rawOkResponse({ ...body, ...(candidates ? { candidates } : {}) });
 }
 
 function sseResponse(chunks: string[], onCancel?: () => void): Response {
@@ -94,6 +105,64 @@ describe("callGoogle: existing API-key REST path (regression)", () => {
       assert.match(calls[0].url, /^https:\/\/generativelanguage\.googleapis\.com/);
       assert.equal(calls[0].init.headers["x-goog-api-key"], "test-key");
       assert.equal(calls[0].init.headers.Authorization, undefined);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("callGoogle: terminal completion integrity", () => {
+  it("rejects reply text when the provider omits finishReason", async () => {
+    const { restore } = installFetch(async () =>
+      rawOkResponse({ candidates: [{ content: { parts: [{ text: "partial" }] } }] }),
+    );
+    try {
+      await assert.rejects(
+        () => callGoogle(BASE_REQ),
+        /not complete \(finishReason: missing\)/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects truncated reply text when the provider reports MAX_TOKENS", async () => {
+    const { restore } = installFetch(async () =>
+      rawOkResponse({
+        candidates: [
+          {
+            content: { parts: [{ text: "partial" }] },
+            finishReason: "MAX_TOKENS",
+          },
+        ],
+      }),
+    );
+    try {
+      await assert.rejects(
+        () => callGoogle(BASE_REQ),
+        /not complete \(finishReason: MAX_TOKENS\)/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects STOP responses that contain no non-thought reply text", async () => {
+    const { restore } = installFetch(async () =>
+      rawOkResponse({
+        candidates: [
+          {
+            content: { parts: [{ text: "reasoning", thought: true }] },
+            finishReason: "STOP",
+          },
+        ],
+      }),
+    );
+    try {
+      await assert.rejects(
+        () => callGoogle(BASE_REQ),
+        /completed without reply text/,
+      );
     } finally {
       restore();
     }
@@ -461,6 +530,22 @@ describe("streamGoogle: terminal stream integrity", () => {
       await assert.rejects(
         () => collectStream(streamGoogle(BASE_REQ)),
         /without a terminal finish reason/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("fails closed when a stream ends at MAX_TOKENS after yielding text", async () => {
+    const { restore } = installFetch(async () =>
+      sseResponse([
+        'data: {"candidates":[{"content":{"parts":[{"text":"partial"}]},"finishReason":"MAX_TOKENS"}]}\n\n',
+      ]),
+    );
+    try {
+      await assert.rejects(
+        () => collectStream(streamGoogle(BASE_REQ)),
+        /not complete \(finishReason: MAX_TOKENS\)/,
       );
     } finally {
       restore();
