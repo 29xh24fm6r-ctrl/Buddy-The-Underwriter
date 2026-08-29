@@ -6,12 +6,13 @@ export type LenderMessageContext = { dealId?: string; listingId?: string; claimI
 export type LenderMessage = { trigger: string; channel: LenderChannel; subject: string | null; body: string; recipient: string | null; lenderBankId: string };
 export type LenderQueueResult = { ok: true; outboxId: string; suppressed: boolean } | { ok: false; error: string };
 export type SendAdapter = (msg: { channel: LenderChannel; recipient: string; subject: string | null; body: string }) => Promise<{ ok: boolean; error?: string }>;
-export type LenderCommsCycleResult = { queued: number; sent: number; failed: number; skipped: number };
+export type LenderCommsCycleResult = { queued: number; sent: number; retrying: number; failed: number; skipped: number };
 type Row = Record<string, any>;
 type SB = { from: (t: string) => any };
 type QueryError = { message?: string } | null | undefined;
 const COOL = 4 * 3_600_000;
 const SEND_LEASE_MS = 5 * 60_000;
+const MAX_SEND_ATTEMPTS = 5;
 const PAGE_SIZE = 500;
 const SENS = /token_hash|rawToken|raw_token|service_role_key|password|secret/gi;
 const PII = /borrower_name|borrower_email|borrowerName|borrowerEmail|businessLegalName|streetAddress|phoneNumber|ssn|ein/gi;
@@ -86,11 +87,13 @@ export async function queueLenderMessage(trigger: string, ctx: LenderMessageCont
 async function claimLenderMessage(outboxId: string, sb: SB): Promise<Row | null> {
   const { data: current, error: readError } = await sb.from("brokerage_lender_message_outbox").select("id, channel, recipient, subject, body, status, attempts, last_attempt_at").eq("id", outboxId).maybeSingle();
   assertDbOk(readError, "claim_read");
-  if (!current || str(current.status) !== "pending") return null;
+  const observedStatus = str(current?.status);
+  if (!current || !observedStatus || !["pending", "failed"].includes(observedStatus)) return null;
+  const observedAttempts = Number(current.attempts ?? 0);
+  if (observedAttempts >= MAX_SEND_ATTEMPTS) return null;
   const observedLease = str(current.last_attempt_at);
   if (observedLease && Date.now() - new Date(observedLease).getTime() < SEND_LEASE_MS) return null;
-  const observedAttempts = Number(current.attempts ?? 0);
-  let claim = sb.from("brokerage_lender_message_outbox").update({ attempts: observedAttempts + 1, last_attempt_at: now(), error: null }).eq("id", outboxId).eq("status", "pending").eq("attempts", observedAttempts);
+  let claim = sb.from("brokerage_lender_message_outbox").update({ status: "pending", attempts: observedAttempts + 1, last_attempt_at: now(), error: null }).eq("id", outboxId).eq("status", observedStatus).eq("attempts", observedAttempts);
   claim = observedLease ? claim.eq("last_attempt_at", observedLease) : claim.is("last_attempt_at", null);
   const { data: claimed, error: claimError } = await claim.select("id, channel, recipient, subject, body, status, attempts, last_attempt_at").maybeSingle();
   assertDbOk(claimError, "claim_write");
@@ -103,7 +106,7 @@ async function transitionClaimedMessage(outboxId: string, attempts: number, patc
   if (!data) throw new Error(`[lender-comms] ${operation}: claim_lost`);
 }
 
-export async function sendLenderMessage(outboxId: string, adapter: SendAdapter, sb: SB): Promise<{ ok: boolean; error?: string }> {
+export async function sendLenderMessage(outboxId: string, adapter: SendAdapter, sb: SB): Promise<{ ok: boolean; error?: string; retrying?: boolean }> {
   const claimed = await claimLenderMessage(outboxId, sb);
   if (!claimed) return { ok: false, error: "not_claimed" };
   const attempts = Number(claimed.attempts ?? 1);
@@ -115,37 +118,44 @@ export async function sendLenderMessage(outboxId: string, adapter: SendAdapter, 
   }
   if (result.ok) {
     await transitionClaimedMessage(outboxId, attempts, { status: "sent", sent_at: now(), error: null }, sb, "mark_sent");
-  } else {
-    const failure = strip(str(result.error) ?? "send_failed");
-    await transitionClaimedMessage(outboxId, attempts, { status: "failed", error: failure }, sb, "mark_failed");
-    result = { ok: false, error: failure };
+    return result;
   }
-  return result;
+  const failure = strip(str(result.error) ?? "send_failed");
+  const retrying = attempts < MAX_SEND_ATTEMPTS;
+  await transitionClaimedMessage(
+    outboxId,
+    attempts,
+    { status: retrying ? "pending" : "failed", error: failure },
+    sb,
+    retrying ? "schedule_retry" : "mark_failed",
+  );
+  return { ok: false, error: failure, retrying };
 }
 
-async function listPendingLenderMessageIds(sb: SB): Promise<string[]> {
+async function listRetryableLenderMessageIds(sb: SB): Promise<string[]> {
   const ids: string[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await sb.from("brokerage_lender_message_outbox").select("id").eq("status", "pending").order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
+    const { data, error } = await sb.from("brokerage_lender_message_outbox").select("id, attempts").in("status", ["pending", "failed"]).order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
     assertDbOk(error, "cycle_read");
     const page = (data ?? []) as Row[];
-    ids.push(...page.map(row => String(row.id)));
+    ids.push(...page.filter(row => Number(row.attempts ?? 0) < MAX_SEND_ATTEMPTS).map(row => String(row.id)));
     if (page.length < PAGE_SIZE) break;
   }
   return ids;
 }
 
 export async function runLenderCommsCycle(sb: SB, adapter?: SendAdapter): Promise<LenderCommsCycleResult> {
-  const ids = await listPendingLenderMessageIds(sb);
-  let sent = 0, failed = 0, skipped = 0;
+  const ids = await listRetryableLenderMessageIds(sb);
+  let sent = 0, retrying = 0, failed = 0, skipped = 0;
   const defaultAdapter: SendAdapter = async () => ({ ok: true });
   for (const id of ids) {
     const result = await sendLenderMessage(id, adapter ?? defaultAdapter, sb);
     if (result.ok) sent++;
     else if (result.error === "not_claimed") skipped++;
+    else if (result.retrying) retrying++;
     else failed++;
   }
-  return { queued: ids.length, sent, failed, skipped };
+  return { queued: ids.length, sent, retrying, failed, skipped };
 }
 
 export function buildLenderPortalLink(ctx: LenderMessageContext): string { return ctx.accessId ? `/lender/marketplace/package/${ctx.accessId}` : "/lender/listings"; }

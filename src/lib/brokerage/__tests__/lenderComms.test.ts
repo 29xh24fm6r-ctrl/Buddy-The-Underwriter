@@ -99,7 +99,7 @@ test("package safe URL", async () => { const msg = await m.buildLenderMessage("p
 test("condition to lender", async () => { const db = mdb(); const r = await m.queueLenderMessage("condition_requested", { lenderBankId: "b1", stage: "closing", dealId: "d1" }, "dashboard", db as any); assert.equal(r.ok, true); assert.equal(db.tables.brokerage_lender_message_outbox[0]?.status, "sent"); });
 test("funding notice", async () => { const db = mdb(); const r = await m.queueLenderMessage("funding_verified", { lenderBankId: "b1", stage: "funded", dealId: "d1" }, "email", db as any); assert.equal(r.ok, true); });
 test("cooldown", async () => { const db = mdb(); const r1 = await m.queueLenderMessage("claim_window_open", { lenderBankId: "b1", listingId: "l1", stage: "claim" }, "email", db as any); const r2 = await m.queueLenderMessage("claim_window_open", { lenderBankId: "b1", listingId: "l1", stage: "claim" }, "email", db as any); if (r1.ok) assert.equal(r1.suppressed, false); if (r2.ok) assert.equal(r2.suppressed, true); });
-test("adapter fail", async () => { const db = mdb(); await m.queueLenderMessage("claim_window_open", { lenderBankId: "b1", listingId: "l1", stage: "claim" }, "email", db as any); const oid = db.tables.brokerage_lender_message_outbox[0].id; const r = await m.sendLenderMessage(oid, async () => ({ ok: false, error: "smtp" }), db as any); assert.equal(r.ok, false); assert.equal(db.tables.brokerage_lender_message_outbox[0].attempts, 1); assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "failed"); });
+test("adapter failure stays retryable before the bounded attempt limit", async () => { const db = mdb(); await m.queueLenderMessage("claim_window_open", { lenderBankId: "b1", listingId: "l1", stage: "claim" }, "email", db as any); const oid = db.tables.brokerage_lender_message_outbox[0].id; const r = await m.sendLenderMessage(oid, async () => ({ ok: false, error: "smtp" }), db as any); assert.equal(r.ok, false); assert.equal(r.retrying, true); assert.equal(db.tables.brokerage_lender_message_outbox[0].attempts, 1); assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "pending"); });
 test("strip secrets", async () => { const db = new S({ brokerage_lender_message_templates: [{ trigger_key: "test_s", channel: "email", status: "active", body_md: "token_hash rawToken password" }], lender_marketplace_agreements: [{ lender_bank_id: "b1", status: "active", signed_by_email: "x@y.com" }] }); const msg = await m.buildLenderMessage("test_s", { lenderBankId: "b1" }, db as any); assert.ok(!msg.body.includes("token_hash")); assert.ok(msg.body.includes("[REDACTED]")); });
 test("safety catches PII", () => { const r = m.assertLenderMessageSafe({ body: "borrower_email here" }, "preview"); assert.equal(r.safe, false); assert.ok(r.issues.some(i => i.includes("PII"))); const r2 = m.assertLenderMessageSafe({ body: "A deal is available" }, "preview"); assert.equal(r2.safe, true); });
 test("triggers complete", () => { assert.ok(m.LENDER_TRIGGER_KEYS.includes("marketplace_preview_open")); assert.ok(m.LENDER_TRIGGER_KEYS.includes("funding_verified")); assert.ok(m.LENDER_TRIGGER_KEYS.length >= 14); });
@@ -148,8 +148,8 @@ test("active claim lease prevents duplicate delivery", async () => {
 test("expired lease is recovered and provider exception is persisted", async () => {
   const db = mdb(); db.tables.brokerage_lender_message_outbox.push({ id: "expired", status: "pending", attempts: 1, last_attempt_at: new Date(Date.now() - 10 * 60_000).toISOString(), channel: "email", recipient: "x@y.com", body: "B" });
   const r = await m.sendLenderMessage("expired", async () => { throw new Error("smtp secret"); }, db as any);
-  assert.deepEqual(r, { ok: false, error: "provider_exception" });
-  assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "failed");
+  assert.deepEqual(r, { ok: false, error: "provider_exception", retrying: true });
+  assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "pending");
   assert.equal(db.tables.brokerage_lender_message_outbox[0].attempts, 2);
 });
 
@@ -170,5 +170,41 @@ test("cycle paginates beyond the Supabase default result window", async () => {
   const rows = Array.from({ length: 1005 }, (_, i) => ({ id: `n-${String(i).padStart(4, "0")}`, status: "pending", attempts: 0, last_attempt_at: null, channel: "email", recipient: "x@y.com", body: "B" }));
   const db = new S({ brokerage_lender_message_outbox: rows });
   const r = await m.runLenderCommsCycle(db as any, async () => ({ ok: true }));
-  assert.deepEqual(r, { queued: 1005, sent: 1005, failed: 0, skipped: 0 });
+  assert.deepEqual(r, { queued: 1005, sent: 1005, retrying: 0, failed: 0, skipped: 0 });
+});
+
+
+test("fifth failed delivery is terminal and truthfully reported", async () => {
+  const db = mdb();
+  db.tables.brokerage_lender_message_outbox.push({
+    id: "final-attempt",
+    status: "pending",
+    attempts: 4,
+    last_attempt_at: null,
+    channel: "email",
+    recipient: "x@y.com",
+    body: "B",
+  });
+  const r = await m.runLenderCommsCycle(db as any, async () => ({ ok: false, error: "smtp_down" }));
+  assert.deepEqual(r, { queued: 1, sent: 0, retrying: 0, failed: 1, skipped: 0 });
+  assert.equal(db.tables.brokerage_lender_message_outbox[0].attempts, 5);
+  assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "failed");
+  assert.equal(db.tables.brokerage_lender_message_outbox[0].error, "smtp_down");
+});
+
+test("historical failed delivery below the limit is recovered", async () => {
+  const db = mdb();
+  db.tables.brokerage_lender_message_outbox.push({
+    id: "historical-failed",
+    status: "failed",
+    attempts: 1,
+    last_attempt_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+    channel: "email",
+    recipient: "x@y.com",
+    body: "B",
+  });
+  const r = await m.runLenderCommsCycle(db as any, async () => ({ ok: true }));
+  assert.deepEqual(r, { queued: 1, sent: 1, retrying: 0, failed: 0, skipped: 0 });
+  assert.equal(db.tables.brokerage_lender_message_outbox[0].attempts, 2);
+  assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "sent");
 });
