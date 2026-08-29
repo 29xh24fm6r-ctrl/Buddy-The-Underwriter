@@ -5,9 +5,11 @@ import path from "node:path";
 
 import {
   defaultDocumentBucket,
+  documentContentIdentity,
   documentUploadBucket,
   gcsBucketNameOrNull,
   isGcsBucket,
+  verifyDocumentContentIdentity,
 } from "@/lib/storage/documentBytes";
 
 function withGcsBucket<T>(value: string | undefined, fn: () => T): T {
@@ -165,5 +167,64 @@ test("no code path names the bucket that does not exist", () => {
     offenders,
     [],
     `these files name a storage bucket that does not exist — use documentUploadBucket()/defaultDocumentBucket(): ${offenders.join(", ")}`,
+  );
+});
+
+
+test("stored document identity is derived from the actual bytes", () => {
+  const bytes = new TextEncoder().encode("buddy");
+  assert.deepEqual(documentContentIdentity(bytes), {
+    sizeBytes: 5,
+    sha256: "e2284dc3b5535645288cde2bad818404be728fb8c9f70b055c0b52023b0ff0a0",
+  });
+});
+
+test("stored document verification accepts the proven size and digest", () => {
+  const bytes = new TextEncoder().encode("buddy");
+  assert.deepEqual(
+    verifyDocumentContentIdentity({
+      bytes,
+      expectedSizeBytes: 5,
+      expectedSha256: "E2284DC3B5535645288CDE2BAD818404BE728FB8C9F70B055C0B52023B0FF0A0",
+    }),
+    {
+      sizeBytes: 5,
+      sha256: "e2284dc3b5535645288cde2bad818404be728fb8c9f70b055c0b52023b0ff0a0",
+    },
+  );
+});
+
+test("stored document verification rejects size drift", () => {
+  assert.throws(
+    () =>
+      verifyDocumentContentIdentity({
+        bytes: new TextEncoder().encode("buddy"),
+        expectedSizeBytes: 6,
+      }),
+    /storage_content_verification_failed: size_mismatch/,
+  );
+});
+
+test("stored document verification rejects digest drift", () => {
+  assert.throws(
+    () =>
+      verifyDocumentContentIdentity({
+        bytes: new TextEncoder().encode("buddy"),
+        expectedSizeBytes: 5,
+        expectedSha256: "0".repeat(64),
+      }),
+    /storage_content_verification_failed: sha256_mismatch/,
+  );
+});
+
+test("stored document verification rejects malformed digest claims", () => {
+  assert.throws(
+    () =>
+      verifyDocumentContentIdentity({
+        bytes: new TextEncoder().encode("buddy"),
+        expectedSizeBytes: 5,
+        expectedSha256: "not-a-digest",
+      }),
+    /storage_content_verification_failed: invalid_expected_sha256/,
   );
 });
