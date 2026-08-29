@@ -1,10 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  __formatCommitteeEvidenceForTests,
-  __selectCitedEvidenceForTests,
-  type PersonaEvaluation,
-} from "../../sba/committee";
+  formatCommitteeEvidence,
+  selectCitedEvidence,
+} from "../evidenceSelection";
 import type { Citation } from "../../retrieval/retrievalCore";
 
 const evidence: Citation[] = [
@@ -32,9 +31,9 @@ const evidence: Citation[] = [
 ];
 
 function evaluation(
-  persona: PersonaEvaluation["persona"],
-  citations: PersonaEvaluation["citations"],
-): PersonaEvaluation {
+  persona: "credit" | "sba_compliance" | "risk" | "relationship_manager",
+  citations: Array<{ i: number; reason: string }>,
+) {
   return {
     persona,
     display_name: persona,
@@ -46,7 +45,7 @@ function evaluation(
 }
 
 test("committee evidence prompt preserves stable citation identities", () => {
-  const formatted = __formatCommitteeEvidenceForTests(evidence);
+  const formatted = formatCommitteeEvidence(evidence);
 
   assert.match(formatted, /EVIDENCE \[1\]/);
   assert.match(formatted, /source_kind: DEAL_DOC/);
@@ -57,7 +56,7 @@ test("committee evidence prompt preserves stable citation identities", () => {
 });
 
 test("committee persistence selects only evidence actually cited", () => {
-  const selected = __selectCitedEvidenceForTests(
+  const selected = selectCitedEvidence(
     [
       evaluation("credit", [{ i: 2, reason: "policy threshold" }]),
       evaluation("risk", [
@@ -77,14 +76,14 @@ test("committee persistence selects only evidence actually cited", () => {
 test("committee evidence selection fails closed on invalid or empty references", () => {
   assert.throws(
     () =>
-      __selectCitedEvidenceForTests(
+      selectCitedEvidence(
         [evaluation("credit", [{ i: 4, reason: "out of range" }])],
         evidence,
       ),
     /committee_evaluation_citation_invalid/,
   );
   assert.throws(
-    () => __selectCitedEvidenceForTests([], evidence),
+    () => selectCitedEvidence([], evidence),
     /committee_evidence_selection_failed/,
   );
 });
