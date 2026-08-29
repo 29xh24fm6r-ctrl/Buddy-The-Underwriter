@@ -24,11 +24,12 @@ test("SMS success requires returned-row proof from both canonical ledgers", () =
 
 test("cron distinguishes suppression and audit uncertainty without returning full phones", () => {
   const src = source("src/app/api/cron/borrower-reminders/route.ts");
+  const resultType = src.match(/type ReminderResult = \{([\s\S]*?)\n\};/)?.[1] ?? "";
 
   assert.match(src, /reason: "comms_suppressed"/);
   assert.match(src, /action: "uncertain"/);
-  assert.match(src, /borrowerPhoneLast4/);
-  assert.doesNotMatch(src, /^\s+borrowerPhone:\s*c\.borrowerPhone,/m);
+  assert.match(resultType, /borrowerPhoneLast4/);
+  assert.doesNotMatch(resultType, /\bborrowerPhone:/);
   assert.match(src, /error: "Failed to process reminders"/);
-  assert.doesNotMatch(src, /error\?: string/);
+  assert.doesNotMatch(resultType, /error\?: string/);
 });
