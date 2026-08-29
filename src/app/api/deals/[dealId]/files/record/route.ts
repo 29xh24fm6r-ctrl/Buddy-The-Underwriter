@@ -746,18 +746,19 @@ export async function POST(req: NextRequest, ctx: Context) {
       const existingCommit = await sb
         .from("deal_documents")
         .update({
+          bank_id: bankId,
           size_bytes: storedIdentity.sizeBytes,
           sha256: storedIdentity.sha256,
           ...(checklist_key && !existing.data?.checklist_key ? { checklist_key } : {}),
         })
         .eq("id", documentId)
         .eq("deal_id", dealId)
-        .eq("bank_id", bankId)
-        .select("id, size_bytes, sha256")
+        .select("id, bank_id, size_bytes, sha256")
         .maybeSingle();
       if (
         existingCommit.error ||
         String(existingCommit.data?.id || "") !== documentId ||
+        String(existingCommit.data?.bank_id || "") !== bankId ||
         Number(existingCommit.data?.size_bytes) !== storedIdentity.sizeBytes ||
         String(existingCommit.data?.sha256 || "") !== storedIdentity.sha256
       ) {
