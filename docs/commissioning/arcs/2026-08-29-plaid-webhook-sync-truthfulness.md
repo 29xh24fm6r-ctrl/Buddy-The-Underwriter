@@ -48,5 +48,19 @@ errors.
 
 ## Verification
 
-Focused and broad validation, complete diff inspection, exact-head CI, and
-SHA-matched Vercel preview verification are pending.
+Validation on code head `c4dc18b0f70039c29867091486ff6ae7d8add5da`:
+
+- 13,532 tests: 13,523 passed, 0 failed, 9 skipped.
+- React-server: 18/18; research evaluation: 7 passed, 0 failed.
+- Typecheck, lint, architecture, safety, schema-select, report-only drift,
+  Never-500, Build Check, Secret Scan, Route Budget, and public Playwright
+  passed.
+- The complete five-file diff was inspected: +299/-18 with no schema,
+  dependency, credential, production-data, or cross-product change.
+- Exact-head Vercel preview `dpl_5uUPDjUwUTNHGtVnPgHwXEVVHVPr` is READY,
+  SHA-matched, HTTP 200, and has no warning/error/fatal logs or grouped runtime
+  errors in the two-hour verification window.
+
+This evidence-only documentation update changes no runtime code. Its final head
+must retain green required checks and a READY, SHA-matched preview before merge
+recommendation.
