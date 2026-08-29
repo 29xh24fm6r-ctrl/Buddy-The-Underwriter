@@ -1531,3 +1531,43 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+## 2026-08-29 — composite worker-tick truthfulness
+
+Checkpoint:
+
+- PR 994 remains the clean banker SLA alert merge checkpoint.
+- PR 878 remains deployed; its full Golden Trident transaction still requires
+  the verified Buddy-owned Supabase connection and an authorized sealed fixture.
+- Production is HTTP 200 and had no warning/error/fatal logs or grouped runtime
+  errors in the latest two-hour verification window.
+
+Evidence and root cause:
+
+- Four queue-discovery reads discarded Supabase errors and reported idle.
+- The spreads batch wrapper converted non-idle child failure to `ok: true`.
+- The composite route omitted processor, janitor, and stale-research failures
+  and returned HTTP 200.
+- Child database/provider detail could escape in worker responses.
+
+Repair branch: `codex/commission-worker-tick-truthfulness`.
+
+Repair:
+
+- Fail queue discovery closed while preserving true empty-queue idle behavior.
+- Propagate spread child failure and classify all critical child outcomes.
+- Return HTTP 503 for any incomplete composite or spreads-only tick.
+- Preserve step identity while redacting raw child detail.
+- Add behavioral and integration-contract regression coverage.
+
+Verification pending:
+
+- Run focused tests, typecheck, lint, architecture and safety guards, full unit
+  and evaluation suites, Build Check, Secret Scan, Never-500, schema gates,
+  public Playwright, and exact-head preview/log verification.
+- No schema, dependency, credential, provider configuration, production row,
+  destructive action, or cross-product change is included.
+- Post-merge closure requires verified Buddy-owned Supabase access and
+  authorized document/spreads worker fixtures.
+- Next independent rotation target: authenticated document download
+  authorization and immutable byte-delivery behavior.
