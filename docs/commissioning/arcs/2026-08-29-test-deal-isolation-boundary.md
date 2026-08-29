@@ -48,8 +48,18 @@ application files and uses a separate commissioning arc document.
 
 ## Verification
 
-Focused and broad CI, full diff inspection, mergeability, and exact-head Vercel
-preview verification are pending on the repair branch.
+Validation on code head `b4cda6459726b6202144803a97abeb25ffac7ce9`:
+
+- 13,527 tests: 13,518 passed, 0 failed, 9 skipped.
+- React-server: 18/18; research evaluation: 7 passed, 0 failed.
+- Typecheck, lint, architecture, safety, schema-select, report-only drift,
+  Never-500, Build Check, Secret Scan, Route Budget, and public Playwright
+  passed.
+- The complete six-file diff was inspected; no schema, dependency, or
+  production-data change is present.
+- Exact-head Vercel preview `dpl_3JpsSg1UWLusXBDzRPgrHtshGiqA` is READY,
+  SHA-matched, HTTP 200, and has no warning/error/fatal logs or grouped runtime
+  errors in the two-hour verification window.
 
 ## Remaining closure
 
