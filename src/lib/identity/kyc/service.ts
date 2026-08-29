@@ -428,12 +428,23 @@ export async function reconcilePendingVerifications(
   return out;
 }
 
-export async function hasValidIal2(
+export type Ial2AdmissionState =
+  | { ok: true; valid: true; verificationId: string }
+  | { ok: true; valid: false }
+  | { ok: false; detail: string };
+
+/**
+ * Reads the authoritative IAL2 gate without collapsing a database outage into
+ * an ordinary "not completed" result. Compliance-sensitive callers use this
+ * typed state so they can distinguish retryable infrastructure failures from
+ * a proven missing verification.
+ */
+export async function readIal2AdmissionState(
   dealId: string,
   ownershipEntityId: string,
   sb: KycSupabaseClient,
-): Promise<boolean> {
-  const { data } = await sb
+): Promise<Ial2AdmissionState> {
+  const { data, error } = await sb
     .from("borrower_identity_verifications")
     .select("id, completed_at")
     .eq("deal_id", dealId)
@@ -443,5 +454,23 @@ export async function hasValidIal2(
     .limit(1)
     .maybeSingle();
 
-  return Boolean(data);
+  if (error) {
+    return { ok: false, detail: error.message ?? "identity_verification_read_failed" };
+  }
+  if (!data?.id) return { ok: true, valid: false };
+  return { ok: true, valid: true, verificationId: String(data.id) };
+}
+
+/**
+ * Compatibility boolean for non-transactional display callers. New
+ * compliance gates must use readIal2AdmissionState so unavailable state is
+ * never mistaken for a negative business result.
+ */
+export async function hasValidIal2(
+  dealId: string,
+  ownershipEntityId: string,
+  sb: KycSupabaseClient,
+): Promise<boolean> {
+  const state = await readIal2AdmissionState(dealId, ownershipEntityId, sb);
+  return state.ok && state.valid;
 }
