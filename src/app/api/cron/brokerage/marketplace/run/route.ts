@@ -47,6 +47,18 @@ async function runMarketplaceCron(request: Request): Promise<NextResponse> {
       return adapters.email({ recipient: m.recipient, subject: m.subject, body: m.body });
     };
     const comms = await runLenderCommsCycle(sb, lenderAdapter);
+    if (comms.failed > 0) {
+      return NextResponse.json(
+        redactResponseSecrets({
+          ok: false,
+          error: "lender_delivery_exhausted",
+          mode,
+          cadence,
+          comms,
+        }),
+        { status: 503 },
+      );
+    }
 
     return NextResponse.json(
       redactResponseSecrets({ ok: true, mode, cadence, comms }),

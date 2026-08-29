@@ -149,3 +149,36 @@ describe("marketplace surface wiring", () => {
     assert.ok(src.includes("runLenderCommsCycle"));
   });
 });
+
+
+describe("marketplace lifecycle truthfulness guard", () => {
+  const CADENCE = fs.readFileSync(path.resolve(__dirname, "../marketplaceCadence.ts"), "utf8");
+  const COMMS = fs.readFileSync(path.resolve(__dirname, "../lenderComms.ts"), "utf8");
+  const CRON = fs.readFileSync(
+    path.resolve(__dirname, "../../../app/api/cron/brokerage/marketplace/run/route.ts"),
+    "utf8",
+  );
+
+  it("fails closed on candidate reads and proves compare-and-set writes", () => {
+    assert.ok(CADENCE.includes("assertDbOk(toOpenError"));
+    assert.ok(CADENCE.includes("assertDbOk(toExpireError"));
+    assert.ok(CADENCE.includes(".eq(\"status\", l.status)"));
+    assert.ok(CADENCE.match(/select\("id"\)\s*\.maybeSingle\(\)/g)?.length === 2);
+  });
+
+  it("admits every claim-window notification before opening the listing", () => {
+    const queueAt = CADENCE.indexOf("queueLenderMessage(");
+    const openAt = CADENCE.indexOf('.update({ status: "claiming"');
+    assert.ok(queueAt >= 0 && openAt > queueAt);
+    assert.ok(CADENCE.includes("claim_window_notification:"));
+    assert.ok(CADENCE.includes("if (!queued.ok)"));
+  });
+
+  it("retries provider failures and exposes exhausted delivery", () => {
+    assert.ok(COMMS.includes("MAX_SEND_ATTEMPTS = 5"));
+    assert.ok(COMMS.includes('status: retrying ? "pending" : "failed"'));
+    assert.ok(COMMS.includes('.in("status", ["pending", "failed"])'));
+    assert.ok(CRON.includes('error: "lender_delivery_exhausted"'));
+    assert.ok(CRON.includes("{ status: 503 }"));
+  });
+});
