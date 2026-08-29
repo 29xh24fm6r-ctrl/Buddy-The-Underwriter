@@ -92,6 +92,21 @@ function nonEmpty(value: string | null | undefined): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+/**
+ * Canonical memo generation may treat an empty result as absent evidence, but
+ * it must never treat a failed authoritative read as empty evidence.
+ * Source labels are fixed at the call site so returned failures stay
+ * deterministic and never expose database/provider details.
+ */
+function requireCanonicalMemoQuery(
+  source: string,
+  result: { error?: unknown } | null | undefined,
+): void {
+  if (result?.error) {
+    throw new Error(`canonical_memo_query_failed:${source}`);
+  }
+}
+
 function metricValueFromSnapshot(args: {
   snapshot: DealFinancialSnapshotV1;
   metric: SnapshotMetricName;
@@ -278,7 +293,8 @@ export async function buildCanonicalCreditMemo(args: {
       .order("updated_at", { ascending: false })
       .limit(25);
 
-    const spreads = spreadsRes.error ? [] : (spreadsRes.data ?? []);
+    requireCanonicalMemoQuery("deal_spreads", spreadsRes);
+    const spreads = spreadsRes.data ?? [];
 
     const dealAmount = typeof deal.loan_amount === "number" ? deal.loan_amount : deal.loan_amount ? Number(deal.loan_amount) : null;
 
@@ -336,6 +352,17 @@ export async function buildCanonicalCreditMemo(args: {
         .limit(1)
         .maybeSingle(),
     ]);
+
+    for (const [source, result] of [
+      ["deal_loan_requests", loanReqResult],
+      ["deal_pricing_quotes", pricingQuoteResult],
+      ["deal_documents", checklistResult],
+      ["pricing_decisions", pricingDecisionResult],
+      ["ar_aging_reports", arAgingResult],
+      ["borrowing_base_calculations", arBorrowingBaseResult],
+    ] as const) {
+      requireCanonicalMemoQuery(source, result);
+    }
 
     const loanReq = loanReqResult.data?.[0] as any | null;
     const pricingQuote = pricingQuoteResult.data?.[0] as any | null;
@@ -434,6 +461,23 @@ export async function buildCanonicalCreditMemo(args: {
         .eq("is_superseded", false)
         .in("fact_key", ["MONTHS_IN_BUSINESS", "YEARS_IN_BUSINESS", "BUSINESS_DATE_FORMED", "DATE_FORMED"]),
     ]);
+
+    for (const [source, result] of [
+      ["borrowers", borrowerResult],
+      ["ownership_entities", ownersResult],
+      ["ai_risk_runs", aiRiskResult],
+      ["deal_structural_pricing", structuralPricingResult],
+      ["period_financial_facts", periodFactsResult],
+      ["deal_memo_overrides", overridesResult],
+      ["qualitative_financial_facts", qualFactsResult],
+      ["deal_management_profiles", mgmtProfilesResult],
+      ["deal_borrower_story", borrowerStoryResult],
+      ["personal_income_facts", personalIncomeFactResult],
+      ["deal_existing_debt_schedule", existingDebtResult],
+      ["business_age_facts", businessAgeFactsResult],
+    ] as const) {
+      requireCanonicalMemoQuery(source, result);
+    }
 
     const overrides = (overridesResult?.data?.overrides ?? {}) as Record<string, any>;
 
