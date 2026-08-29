@@ -1560,11 +1560,15 @@ Repair:
 - Preserve step identity while redacting raw child detail.
 - Add behavioral and integration-contract regression coverage.
 
-Verification pending:
+Verification complete on code head `8b6d14d6ddf6ebef7efd9f4bb2dd07fc31c2898f`:
 
-- Run focused tests, typecheck, lint, architecture and safety guards, full unit
-  and evaluation suites, Build Check, Secret Scan, Never-500, schema gates,
-  public Playwright, and exact-head preview/log verification.
+- 13,624 tests: 13,615 passed, 0 failed, 9 skipped.
+- React-server suite: 18/18; research golden set: 7 passed, 0 failed.
+- CI, typecheck, lint, architecture, safety, schema gates, Never-500, Build
+  Check, Secret Scan, Route Budget, and public Playwright passed.
+- Exact-head preview `dpl_p8nbWdQZdZYmy5NMX1JEHv3RHYdj` is READY,
+  SHA-matched, HTTP 200, and has no warning/error/fatal logs or grouped runtime
+  errors.
 - No schema, dependency, credential, provider configuration, production row,
   destructive action, or cross-product change is included.
 - Post-merge closure requires verified Buddy-owned Supabase access and
