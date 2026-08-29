@@ -16,7 +16,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { canSeal } from "@/lib/brokerage/sealingGate";
 import { matchLendersToDeal } from "@/lib/brokerage/matchLenders";
-import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
+import { DealIsolationError, assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 import { buildKFS } from "@/lib/brokerage/buildKFS";
 import { computeListingCadence } from "@/lib/brokerage/cadence";
 import {
@@ -42,8 +42,27 @@ export async function POST(
 
   const sb = supabaseAdmin();
 
-  // SPEC-BORROWER-QA-IDENTITY-V1 §3 — test applications cannot be sealed/sent to marketplace
-  await assertNotTestDeal(dealId, sb);
+  // SPEC-BORROWER-QA-IDENTITY-V1 §3 — test applications cannot be sealed/sent to marketplace.
+  // Database unavailability is not proof that a deal is safe to distribute.
+  try {
+    await assertNotTestDeal(dealId, sb);
+  } catch (error) {
+    if (error instanceof DealIsolationError) {
+      if (error.code === "test_application") {
+        return NextResponse.json(
+          { ok: false, error: "test_application_distribution_blocked" },
+          { status: 403 },
+        );
+      }
+      if (error.code === "deal_not_found") {
+        return NextResponse.json({ ok: false }, { status: 404 });
+      }
+    }
+    return NextResponse.json(
+      { ok: false, error: "deal_isolation_state_unavailable" },
+      { status: 503 },
+    );
+  }
 
   const gate = await canSeal(dealId, sb);
   if (!gate.ok) {
