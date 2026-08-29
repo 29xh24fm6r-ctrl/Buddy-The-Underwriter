@@ -43,7 +43,7 @@ export async function findTemplateStaleness(
 
     if (rowError) {
       const message =
-        typeof rowError === "object" && "message" in rowError
+        rowError && typeof rowError === "object" && "message" in rowError
           ? String((rowError as { message: unknown }).message)
           : String(rowError);
       throw new Error(`template_staleness_read_failed:${source.templateKey}: ${message}`);
@@ -109,7 +109,7 @@ export async function writeTemplateStalenessFindings(
       .eq("id", f.templateRowId);
     if (error) {
       const message =
-        typeof error === "object" && "message" in error
+        error && typeof error === "object" && "message" in error
           ? String((error as { message: unknown }).message)
           : String(error);
       throw new Error(`template_staleness_write_failed:${f.templateKey}: ${message}`);
