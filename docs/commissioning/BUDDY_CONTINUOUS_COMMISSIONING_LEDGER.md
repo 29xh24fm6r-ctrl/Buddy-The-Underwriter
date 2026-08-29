@@ -1360,5 +1360,12 @@ Post-merge closure:
   fixture, prove a capped run records failure without findings, a complete run
   records exact scoped findings, and both completion/failure states retain
   returned-row evidence.
-- The next independent target is authenticated document download/storage
-  authorization and immutable byte-delivery integrity.
+- Production rotation at 2026-08-29T07:30:39Z found the nightly route
+  returning HTTP 500 because `public.portfolio_risk_snapshots` was absent from
+  the live schema cache. The source writes this table, but repository search
+  found no owning migration. This is the next factory arc: establish verified
+  Buddy schema provenance and add the non-destructive table contract only after
+  the Buddy-owned Supabase connection is confirmed. No database was queried or
+  changed in this run.
+- After the nightly schema path is reconciled, resume authenticated document
+  download/storage authorization and immutable byte-delivery integrity.
