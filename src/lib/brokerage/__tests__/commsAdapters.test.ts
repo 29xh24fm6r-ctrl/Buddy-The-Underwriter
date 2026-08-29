@@ -95,6 +95,43 @@ test("Resend stub returns ok", async () => {
   assert.ok(r.providerMessageId?.startsWith("stub-email-"));
 });
 
+test("Resend live requests carry the canonical delivery idempotency key", async () => {
+  const originalMode = process.env.BROKERAGE_COMMS_MODE;
+  const originalKey = process.env.RESEND_API_KEY;
+  const originalFrom = process.env.BROKERAGE_FROM_EMAIL;
+  const originalFetch = globalThis.fetch;
+  let requestHeaders: HeadersInit | undefined;
+
+  try {
+    process.env.BROKERAGE_COMMS_MODE = "live";
+    process.env.RESEND_API_KEY = "re_test_idempotency_key";
+    process.env.BROKERAGE_FROM_EMAIL = "noreply@buddysba.com";
+    globalThis.fetch = (async (_input, init) => {
+      requestHeaders = init?.headers;
+      return { ok: true, status: 200, json: async () => ({ id: "email-1" }) } as Response;
+    }) as typeof fetch;
+
+    const adapter = m.createEmailAdapter();
+    const r = await adapter({
+      recipient: "lender@example.com",
+      subject: "Package access granted",
+      body: "Your package is ready.",
+      idempotencyKey: "buddy-lender-outbox:outbox-1",
+    });
+
+    assert.deepEqual(r, { ok: true, providerMessageId: "email-1" });
+    assert.equal(new Headers(requestHeaders).get("Idempotency-Key"), "buddy-lender-outbox:outbox-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalMode === undefined) delete process.env.BROKERAGE_COMMS_MODE;
+    else process.env.BROKERAGE_COMMS_MODE = originalMode;
+    if (originalKey === undefined) delete process.env.RESEND_API_KEY;
+    else process.env.RESEND_API_KEY = originalKey;
+    if (originalFrom === undefined) delete process.env.BROKERAGE_FROM_EMAIL;
+    else process.env.BROKERAGE_FROM_EMAIL = originalFrom;
+  }
+});
+
 // ── Slack adapter ───────────────────────────────────────────────────────────
 
 test("Slack stub returns ok", async () => {
