@@ -85,12 +85,19 @@ export async function callOpenAI(req: ProviderCallRequest): Promise<ProviderCall
   }
 
   const data = await res.json();
-  const text: string = data?.choices?.[0]?.message?.content ?? "";
-  if (!text) {
-    const finishReason = data?.choices?.[0]?.finish_reason;
+  const choice = data?.choices?.[0];
+  const finishReason = choice?.finish_reason;
+  if (finishReason !== "stop") {
     throw new Error(
-      finishReason ? `empty response (finish_reason: ${finishReason})` : "empty response",
+      finishReason
+        ? `incomplete response (finish_reason: ${finishReason})`
+        : "incomplete response (finish_reason missing)",
     );
+  }
+
+  const text: string = choice?.message?.content ?? "";
+  if (!text) {
+    throw new Error("empty response (finish_reason: stop)");
   }
 
   const usage = data?.usage ?? {};
