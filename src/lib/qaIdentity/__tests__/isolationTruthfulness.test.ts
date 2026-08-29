@@ -51,7 +51,10 @@ test("every real-lender distribution route distinguishes block from outage", () 
     assert.ok(route.includes('error.code === "test_application"'));
     assert.ok(route.includes("test_application_distribution_blocked"));
     assert.ok(route.includes("deal_isolation_state_unavailable"));
-    assert.ok(route.includes("{ status: 503 }"));
+    const hasExplicit503 =
+      route.includes("{ status: 503 }") ||
+      route.includes('failure("deal_isolation_state_unavailable", 503)');
+    assert.ok(hasExplicit503);
   }
 });
 
