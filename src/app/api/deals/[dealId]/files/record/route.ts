@@ -26,7 +26,10 @@ import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { canTransitionIntakeState, type DealIntakeState } from "@/lib/deals/intakeState";
 import { queueArtifact } from "@/lib/artifacts/queueArtifact";
 import { getBaseUrl } from "@/lib/net/getBaseUrl";
-import { gcsObjectExists } from "@/lib/storage/gcs";
+import {
+  downloadDocumentBytes,
+  verifyDocumentContentIdentity,
+} from "@/lib/storage/documentBytes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -230,6 +233,10 @@ export async function POST(req: NextRequest, ctx: Context) {
       bank_id: string;
       expires_at: string | null;
       status: string;
+    } | null = null;
+    let pendingSessionFile: {
+      id: string;
+      expectedSizeBytes: number;
     } | null = null;
 
     if (resolvedSessionId) {
@@ -600,66 +607,10 @@ export async function POST(req: NextRequest, ctx: Context) {
       resolvedPath = sessionObjectKey;
       resolvedBucket = sessionBucket;
 
-      if (fileRow.status !== "completed") {
-        await sb
-          .from("deal_upload_session_files")
-          .update({ status: "completed", completed_at: new Date().toISOString() })
-          .eq("id", fileRow.id);
-      }
-
-      const totalRes = await sb
-        .from("deal_upload_session_files")
-        .select("id", { count: "exact", head: true })
-        .eq("session_id", resolvedSessionId);
-
-      const completeRes = await sb
-        .from("deal_upload_session_files")
-        .select("id", { count: "exact", head: true })
-        .eq("session_id", resolvedSessionId)
-        .eq("status", "completed");
-
-      const total = totalRes.count ?? 0;
-      const completed = completeRes.count ?? 0;
-
-      if (validSession.status === "ready") {
-        await sb
-          .from("deal_upload_sessions")
-          .update({ status: "uploading" })
-          .eq("id", resolvedSessionId);
-      }
-
-      if (total > 0 && total === completed) {
-        await sb
-          .from("deal_upload_sessions")
-          .update({ status: "completed" })
-          .eq("id", resolvedSessionId);
-
-        const nextState: DealIntakeState = "UPLOAD_COMPLETE";
-        if (canTransitionIntakeState((deal as any).intake_state || "CREATED", nextState)) {
-          await sb
-            .from("deals")
-            .update({ intake_state: nextState })
-            .eq("id", dealId);
-        }
-
-        // Belt-and-suspenders: try naming when all files are uploaded.
-        // No-op if docs aren't classified yet; catches the case where
-        // earlier docs in the session are already classified with entity names.
-        void import("@/lib/naming/maybeTriggerDealNaming").then(({ maybeTriggerDealNaming }) =>
-          maybeTriggerDealNaming(dealId, {
-            bankId,
-            reason: "upload_session_completed",
-          }),
-        ).catch(() => {});
-      } else {
-        const nextState: DealIntakeState = "UPLOADING";
-        if (canTransitionIntakeState((deal as any).intake_state || "CREATED", nextState)) {
-          await sb
-            .from("deals")
-            .update({ intake_state: nextState })
-            .eq("id", dealId);
-        }
-      }
+      pendingSessionFile = {
+        id: String(fileRow.id),
+        expectedSizeBytes: Number(fileRow.size_bytes || 0),
+      };
     }
 
     await logLedgerEvent({
@@ -676,73 +627,64 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
     });
 
-    // Verify file exists in storage.
-    // GCS path: authoritative — if the object is confirmed absent, reject
-    // rather than materialize a deal_documents row pointing at nothing.
-    // Supabase path: best-effort (list/search is known to be flaky), so a
-    // miss there is logged but non-fatal.
-    let fileExists: any[] | null = null;
-    let checkErr: any = null;
-    let gcsObjectConfirmedMissing = false;
-    try {
-      if (resolvedBucket === process.env.GCS_BUCKET) {
-        const exists = await withTimeout(
-          gcsObjectExists({ bucket: resolvedBucket, key: resolvedPath }),
-          5_000,
-          "gcsExists",
-        );
-        if (!exists) gcsObjectConfirmedMissing = true;
-      } else {
-        const res = await withTimeout(
-          sb.storage
-            .from(resolvedBucket)
-            .list(resolvedPath.split("/").slice(0, -1).join("/"), {
-              search: resolvedPath.split("/").pop(),
-            }),
-          5_000,
-          "storageList",
-        );
-        fileExists = (res as any)?.data ?? null;
-        checkErr = (res as any)?.error ?? null;
-      }
-    } catch (e: any) {
-      checkErr = e;
+    // The signed PUT response proves only that the browser completed a request.
+    // Re-read the server-recorded object and derive its identity before any
+    // canonical row or progress pointer can advance.
+    if (!pendingSessionFile) {
+      throw new Error("upload_session_file_not_verified");
     }
 
-    if (gcsObjectConfirmedMissing) {
+    let storedIdentity: { sizeBytes: number; sha256: string };
+    try {
+      const storedBytes = await withTimeout(
+        downloadDocumentBytes({ bucket: resolvedBucket, path: resolvedPath }),
+        20_000,
+        "downloadStoredDocument",
+      );
+      storedIdentity = verifyDocumentContentIdentity({
+        bytes: storedBytes,
+        expectedSizeBytes: pendingSessionFile.expectedSizeBytes,
+        expectedSha256: sha256 ?? null,
+      });
+    } catch (error: any) {
+      const message = error?.message ?? String(error);
+      const identityMismatch = message.startsWith("storage_content_verification_failed:");
+      const timedOut = message.startsWith("timeout:");
       await logLedgerEvent({
         dealId,
         bankId,
         eventKey: "upload.rejected",
-        uiState: "done",
-        uiMessage: "Upload rejected: object not found in GCS",
+        uiState: "error",
+        uiMessage: identityMismatch
+          ? "Upload rejected: stored bytes do not match the upload claim"
+          : "Upload rejected: stored bytes could not be verified",
         meta: {
           file_id,
           upload_session_id: resolvedSessionId,
-          reason: "gcs_object_not_found",
+          reason: identityMismatch
+            ? "stored_object_identity_mismatch"
+            : timedOut
+              ? "stored_object_verification_timeout"
+              : "stored_object_unavailable",
           storage_path: resolvedPath,
           storage_bucket: resolvedBucket,
+          expected_size_bytes: pendingSessionFile.expectedSizeBytes,
+          claimed_sha256: sha256 ?? null,
+          error: message,
         },
       });
       return NextResponse.json(
-        { ok: false, error: "object_not_found_in_storage", request_id: requestId },
-        { status: 404 },
+        {
+          ok: false,
+          error: identityMismatch
+            ? "stored_object_identity_mismatch"
+            : timedOut
+              ? "stored_object_verification_timeout"
+              : "stored_object_unavailable",
+          request_id: requestId,
+        },
+        { status: identityMismatch ? 409 : timedOut ? 504 : 502 },
       );
-    }
-
-    // Best-effort only: signed upload succeeded client-side, so we should still
-    // materialize the canonical DB record even if list/search behaves oddly.
-    if (checkErr) {
-      console.warn("[files/record] storage check error (non-fatal)", {
-        object_path: resolvedPath,
-        checkErr,
-      });
-    } else if (resolvedBucket !== process.env.GCS_BUCKET) {
-      if (!fileExists || fileExists.length === 0) {
-        console.warn("[files/record] storage check did not find file (non-fatal)", {
-          object_path: resolvedPath,
-        });
-      }
     }
 
     await logLedgerEvent({
@@ -767,17 +709,17 @@ export async function POST(req: NextRequest, ctx: Context) {
       bank_id: bankId,
       original_filename,
       mime_type: mime_type ?? "application/octet-stream",
-      size_bytes: size_bytes ?? 0,
+      size_bytes: storedIdentity.sizeBytes,
       storage_bucket: resolvedBucket,
       storage_path: resolvedPath,
-      sha256: sha256 ?? null,
+      sha256: storedIdentity.sha256,
       checklist_key: checklist_key ?? null,
       source: "internal",
       uploader_user_id: userId,
       document_key: documentKey,
       metadata: {
         ...(checklist_key ? { checklist_key } : {}),
-        ...(sha256 ? { sha256 } : {}),
+        sha256: storedIdentity.sha256,
         committed_via: "banker_record_route",
       },
     };
@@ -834,6 +776,84 @@ export async function POST(req: NextRequest, ctx: Context) {
       } else {
         documentId = String(ins.data.id);
       }
+    }
+
+    // Advance upload progress only after the object identity and canonical
+    // deal_documents row are both proven. Every mutation requires returned-row
+    // evidence so a database failure cannot manufacture an UPLOAD_COMPLETE deal.
+    const fileCommit = await sb
+      .from("deal_upload_session_files")
+      .update({ status: "completed", completed_at: new Date().toISOString() })
+      .eq("id", pendingSessionFile.id)
+      .eq("session_id", resolvedSessionId)
+      .select("id, status")
+      .maybeSingle();
+    if (fileCommit.error || fileCommit.data?.status !== "completed") {
+      throw new Error(
+        `upload_session_file_commit_failed: ${fileCommit.error?.message || "missing_returned_row"}`,
+      );
+    }
+
+    const totalRes = await sb
+      .from("deal_upload_session_files")
+      .select("id", { count: "exact", head: true })
+      .eq("session_id", resolvedSessionId);
+    const completeRes = await sb
+      .from("deal_upload_session_files")
+      .select("id", { count: "exact", head: true })
+      .eq("session_id", resolvedSessionId)
+      .eq("status", "completed");
+    if (totalRes.error || completeRes.error) {
+      throw new Error(
+        `upload_session_progress_read_failed: ${totalRes.error?.message || completeRes.error?.message || "unknown"}`,
+      );
+    }
+
+    const total = totalRes.count ?? 0;
+    const completed = completeRes.count ?? 0;
+    const allCompleted = total > 0 && total === completed;
+    const nextSessionStatus = allCompleted ? "completed" : "uploading";
+    const sessionCommit = await sb
+      .from("deal_upload_sessions")
+      .update({ status: nextSessionStatus })
+      .eq("id", resolvedSessionId)
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
+      .select("id, status")
+      .maybeSingle();
+    if (sessionCommit.error || sessionCommit.data?.status !== nextSessionStatus) {
+      throw new Error(
+        `upload_session_commit_failed: ${sessionCommit.error?.message || "missing_returned_row"}`,
+      );
+    }
+
+    const nextState: DealIntakeState = allCompleted ? "UPLOAD_COMPLETE" : "UPLOADING";
+    if (canTransitionIntakeState((deal as any).intake_state || "CREATED", nextState)) {
+      const dealCommit = await sb
+        .from("deals")
+        .update({ intake_state: nextState })
+        .eq("id", dealId)
+        .eq("bank_id", bankId)
+        .select("id, intake_state")
+        .maybeSingle();
+      if (dealCommit.error || dealCommit.data?.intake_state !== nextState) {
+        throw new Error(
+          `deal_upload_progress_commit_failed: ${dealCommit.error?.message || "missing_returned_row"}`,
+        );
+      }
+    }
+
+    if (allCompleted) {
+      // Naming is downstream convenience; canonical upload truth is already
+      // committed and the classifier remains the durable next-stage owner.
+      void import("@/lib/naming/maybeTriggerDealNaming")
+        .then(({ maybeTriggerDealNaming }) =>
+          maybeTriggerDealNaming(dealId, {
+            bankId,
+            reason: "upload_session_completed",
+          }),
+        )
+        .catch(() => {});
     }
 
     // Phase E1: Invalidate snapshot if deal was already confirmed — but NEVER unseal a frozen deal.
@@ -1084,8 +1104,8 @@ export async function POST(req: NextRequest, ctx: Context) {
         storage_path: resolvedPath,
         original_filename,
         mime_type: mime_type ?? null,
-        size_bytes: size_bytes ?? null,
-        sha256: sha256 ?? null,
+        size_bytes: storedIdentity.sizeBytes,
+        sha256: storedIdentity.sha256,
       },
     });
 
@@ -1100,8 +1120,8 @@ export async function POST(req: NextRequest, ctx: Context) {
         provider: resolvedBucket === process.env.GCS_BUCKET ? "gcs" : "supabase",
         storage_bucket: resolvedBucket,
         storage_path: resolvedPath,
-        size_bytes: size_bytes ?? null,
-        sha256: sha256 ?? null,
+        size_bytes: storedIdentity.sizeBytes,
+        sha256: storedIdentity.sha256,
       },
     });
 
