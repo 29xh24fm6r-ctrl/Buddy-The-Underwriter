@@ -1290,3 +1290,75 @@ Remaining closure dependency:
 - PR 878 and the complete seal-to-marketplace-to-lender ceremony still require a
   verified Buddy-owned Supabase connection and an authorized sealed transaction.
   Unverified or non-Buddy connections remain untouched.
+
+
+## 2026-08-29 — storage orphan scan truthfulness
+
+Checkpoint:
+
+- PRs 973, 974, and 975 remain open, mergeable, independent checkpoints
+  against exact production main `9fe4b2471558fbd0e749c0ed6718ae12ea542482`.
+- PR 878 remains deployed. Full Golden Trident seal-to-marketplace-to-lender
+  transactional proof still requires a verified Buddy-owned Supabase connection
+  and an authorized sealed transaction.
+- This arc did not query or mutate any database because no verified Buddy-owned
+  Supabase connection and authorized super-admin scan fixture were available.
+
+Evidence and root cause:
+
+- GCS listing requested exactly the configured maximum, making provider
+  truncation indistinguishable from a complete scan.
+- Supabase Storage traversal read only the first 1,000 entries per folder.
+- The route continued after `capped: true`, compared partial cache evidence to
+  canonical document rows, silently truncated source/finding sets, and returned
+  success. Healthy objects beyond a boundary could therefore be recorded as
+  `db_only` or omitted without disclosure.
+- Success status persistence lacked returned-row proof.
+- An uncalled raw-SQL implementation was unsafe to revive: it compared a run
+  against unscoped document rows and cast arbitrary path segments to UUID.
+
+Repair branch: `codex/commission-storage-orphan-truthfulness`.
+
+Repair:
+
+- Request a one-object GCS sentinel beyond the configured cap and fully paginate
+  every Supabase Storage folder.
+- Refuse capped object listings, oversized source sets, and oversized finding
+  sets before any authoritative finding is written; persist a failed run and
+  return HTTP 409.
+- Page reconciliation reads, validate bucket/prefix/max-object input before run
+  creation, and exclude SQL LIKE wildcard expansion.
+- Batch checked finding inserts and require returned `id`/`status` proof for
+  both successful and failed scan-state persistence.
+- Preserve distinct start, completion, and failure timestamps.
+- Remove the unused unscoped `exec_sql` implementation.
+- Add a five-case regression guard and focused commissioning arc document.
+
+Validation on code head `f258cda0dfdcf93476cc9c8a1d855735ed0f6a54`:
+
+- 13,532 tests: 13,523 passed, 0 failed, and 9 skipped.
+- React-server-condition tests passed 18/18. Research evaluation passed 7/7;
+  13 controlled production-data placeholders remained explicitly skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only schema drift, Build Check, Secret Scan, Route
+  Budget, and public Playwright passed. Public Playwright ran 1 test and skipped
+  5 authenticated cases because credentials were unavailable.
+- Exact-head Vercel preview `dpl_2SoTLYTY3dawokKLRzwK64f3cFvN` is READY on
+  the exact code SHA. A public browser render loaded the Buddy SBA homepage, and
+  the deployment recorded no warning, error, or fatal logs in the latest
+  two-hour window.
+- The complete four-file code-head diff was inspected: +413/-181. It contains
+  two runtime files, one regression file, and one commissioning document; no
+  schema, dependency, provider, production-data, deletion, or cross-product
+  change is present.
+- This ledger-only commit must retain green checks and a READY, SHA-matched
+  preview before merge recommendation.
+
+Post-merge closure:
+
+- With a verified Buddy-owned Supabase connection and an authorized super-admin
+  fixture, prove a capped run records failure without findings, a complete run
+  records exact scoped findings, and both completion/failure states retain
+  returned-row evidence.
+- The next independent target is authenticated document download/storage
+  authorization and immutable byte-delivery integrity.
