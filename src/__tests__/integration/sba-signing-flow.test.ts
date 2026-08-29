@@ -103,9 +103,19 @@ class FakeDb {
       signed_documents: [],
       ...seed,
     };
+    const storedObjects = new Map<string, Buffer>();
     this.storage = {
       from: (_bucket: string) => ({
-        upload: async (_path: string, _data: Buffer) => ({ error: null }),
+        upload: async (path: string, data: Buffer) => {
+          storedObjects.set(path, Buffer.from(data));
+          return { error: null };
+        },
+        download: async (path: string) => {
+          const bytes = storedObjects.get(path);
+          return bytes
+            ? { data: { arrayBuffer: async () => Uint8Array.from(bytes).buffer }, error: null }
+            : { data: null, error: { message: "not_found" } };
+        },
       }),
     };
   }

@@ -9,11 +9,17 @@
  * version — only the vendor client calls and a few field names differ.
  */
 
+import { createHash } from "node:crypto";
 import { readIal2AdmissionState, type KycSupabaseClient } from "@/lib/identity/kyc/service";
 import { readLegalReviewAdmissionState } from "@/lib/sba/legalReview/service";
 
 export type EsignSupabaseClient = KycSupabaseClient & {
-  storage?: { from: (bucket: string) => { upload: (path: string, data: Buffer, opts?: any) => Promise<{ error: any }> } };
+  storage?: {
+    from: (bucket: string) => {
+      upload: (path: string, data: Buffer, opts?: any) => Promise<{ error: any }>;
+      download: (path: string) => Promise<{ data: { arrayBuffer: () => Promise<ArrayBuffer> } | null; error: any }>;
+    };
+  };
 };
 
 export type SignwellClient = {
@@ -337,6 +343,81 @@ function normalizeEmail(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+function sha256Hex(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function isStorageObjectAlreadyPresent(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { status?: unknown; statusCode?: unknown; message?: unknown; error?: unknown };
+  const status = String(candidate.statusCode ?? candidate.status ?? "");
+  const description = `${String(candidate.error ?? "")} ${String(candidate.message ?? "")}`.toLowerCase();
+  return status === "409" || description.includes("already exists") || description.includes("duplicate");
+}
+
+export async function persistImmutableSignedPdf(
+  sb: EsignSupabaseClient,
+  path: string,
+  pdfBytes: Buffer,
+): Promise<{ ok: true; sha256: string; size: number; reused: boolean } | { ok: false; detail: string }> {
+  if (!sb.storage) {
+    return { ok: false, detail: "no_storage_capable_client" };
+  }
+
+  const storage = sb.storage.from("signed-documents");
+  let reused = false;
+  try {
+    const { error: uploadError } = await storage.upload(path, pdfBytes, {
+      contentType: "application/pdf",
+      upsert: false,
+    });
+    if (uploadError) {
+      if (!isStorageObjectAlreadyPresent(uploadError)) {
+        return { ok: false, detail: `signed_pdf_create_failed:${uploadError.message ?? String(uploadError)}` };
+      }
+      reused = true;
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      detail: `signed_pdf_create_failed:${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  let storedBytes: Buffer;
+  try {
+    const { data, error: downloadError } = await storage.download(path);
+    if (downloadError || !data) {
+      return {
+        ok: false,
+        detail: `signed_pdf_verification_download_failed:${downloadError?.message ?? "object_not_returned"}`,
+      };
+    }
+    storedBytes = Buffer.from(await data.arrayBuffer());
+  } catch (err) {
+    return {
+      ok: false,
+      detail: `signed_pdf_verification_download_failed:${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const expectedSha256 = sha256Hex(pdfBytes);
+  const storedSha256 = sha256Hex(storedBytes);
+  if (storedBytes.byteLength !== pdfBytes.byteLength || storedSha256 !== expectedSha256) {
+    return {
+      ok: false,
+      detail: `signed_pdf_integrity_mismatch:expected_size=${pdfBytes.byteLength}:stored_size=${storedBytes.byteLength}:expected_sha256=${expectedSha256}:stored_sha256=${storedSha256}`,
+    };
+  }
+
+  return {
+    ok: true,
+    sha256: expectedSha256,
+    size: pdfBytes.byteLength,
+    reused,
+  };
+}
+
 export async function persistSignwellRequestStatus(
   args: { dealId: string; documentId: string; status: string; rawEvent?: unknown },
   sb: EsignSupabaseClient,
@@ -634,18 +715,13 @@ export async function handleSignwellWebhook(
   // separate audit-trail file to fetch (see client.ts).
   const pdfPath = `signed-documents/${dealId}/${formCode}/${signerOwnershipEntityId}/${documentId}.pdf`;
 
-  if (!sb.storage) {
-    return { ok: false, reason: "PDF_UPLOAD_FAILED", detail: "no_storage_capable_client" };
-  }
-
-  // The provider document ID makes this path immutable and deterministic.
-  // Upsert lets a webhook retry recover after upload succeeded but the row
-  // insert or acknowledgement failed.
-  const pdfUpload = await sb.storage
-    .from("signed-documents")
-    .upload(pdfPath, pdfBytes, { contentType: "application/pdf", upsert: true });
-  if (pdfUpload.error) {
-    return { ok: false, reason: "PDF_UPLOAD_FAILED", detail: pdfUpload.error.message };
+  // A completed signature is a compliance artifact, not mutable application
+  // state. Create the canonical object once, then prove the stored bytes are
+  // exactly the provider bytes before creating the signed_documents record.
+  // Retries may reuse an existing object only after the same proof succeeds.
+  const persistedPdf = await persistImmutableSignedPdf(sb, pdfPath, pdfBytes);
+  if (!persistedPdf.ok) {
+    return { ok: false, reason: "PDF_UPLOAD_FAILED", detail: persistedPdf.detail };
   }
 
   const completedAt = parseSignwellEventTime(payload.event.time);
