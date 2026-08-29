@@ -5,12 +5,22 @@ import { resolveCommsMode } from "@/lib/brokerage/commsMode";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
+export class SmsDeliveryAuditError extends Error {
+  readonly code = "SMS_AUDIT_PERSISTENCE_FAILED";
+  readonly dispatched = true;
+
+  constructor(readonly failedStores: string[]) {
+    super("SMS dispatched but delivery audit persistence failed");
+    this.name = "SmsDeliveryAuditError";
+  }
+}
+
 /**
  * Send SMS with opt-out enforcement and automatic ledger logging
- * 
+ *
  * This is the ONLY function that should send SMS in Buddy.
  * All banker sends + reminders should use this.
- * 
+ *
  * Features:
  * - Honours BROKERAGE_COMMS_MODE (stub / dry_run / live)
  * - Checks opt-out status before sending
@@ -88,42 +98,89 @@ export async function sendSmsWithConsent(args: {
   }
 
   const sb = supabaseAdmin();
+  const persistenceFailures: string[] = [];
 
-  // 3. Log to outbound_messages
-  const { error: outboundErr } = await sb.from("outbound_messages").insert({
-    deal_id: dealId ?? null,
-    channel: "sms",
-    to_value: to,
-    body,
-    status: "sent",
-    provider: "twilio",
-    provider_message_id: message.sid,
-    sent_at: new Date().toISOString(),
-  });
+  // 3. Persist delivery tracking and require returned-row proof. This runs
+  // after Twilio dispatch, so failure is an explicit uncertain outcome rather
+  // than a false success.
+  const { data: outboundRow, error: outboundErr } = await sb
+    .from("outbound_messages")
+    .insert({
+      deal_id: dealId ?? null,
+      channel: "sms",
+      to_value: to,
+      body,
+      status: "sent",
+      provider: "twilio",
+      provider_message_id: message.sid,
+      sent_at: new Date().toISOString(),
+    })
+    .select("id, provider_message_id, status")
+    .single();
 
-  if (outboundErr) {
-    console.error("outbound_messages insert error:", outboundErr);
+  if (
+    outboundErr ||
+    !outboundRow ||
+    outboundRow.provider_message_id !== message.sid ||
+    outboundRow.status !== "sent"
+  ) {
+    console.error("outbound_messages persistence proof failed:", outboundErr ?? {
+      returned: Boolean(outboundRow),
+      sidMatches: outboundRow?.provider_message_id === message.sid,
+      statusMatches: outboundRow?.status === "sent",
+    });
+    persistenceFailures.push("outbound_messages");
   }
 
-  // 4. Log to deal_events (if deal_id provided).
-  //    Schema is (deal_id, kind, payload) — there is NO metadata column.
+  // 4. Persist the deal timeline event and require returned-row proof.
+  // Attempt this even if outbound_messages failed so the reconciled reminder
+  // ledger retains the provider SID whenever either canonical store is live.
   if (dealId) {
-    const { error: eventErr } = await sb.from("deal_events").insert({
-      deal_id: dealId,
-      kind: "sms_outbound",
-      payload: {
-        to,
-        body,
-        label,
-        sid: message.sid,
-        status: message.status,
-        ...metadata,
-      },
-    });
+    const eventPayload = {
+      to,
+      body,
+      label,
+      sid: message.sid,
+      status: message.status,
+      ...metadata,
+    };
 
-    if (eventErr) {
-      console.error("deal_events insert error:", eventErr);
+    const { data: eventRow, error: eventErr } = await sb
+      .from("deal_events")
+      .insert({
+        deal_id: dealId,
+        kind: "sms_outbound",
+        payload: eventPayload,
+      })
+      .select("id, deal_id, kind, payload")
+      .single();
+
+    const returnedPayload =
+      eventRow?.payload && typeof eventRow.payload === "object"
+        ? (eventRow.payload as Record<string, unknown>)
+        : null;
+
+    if (
+      eventErr ||
+      !eventRow ||
+      eventRow.deal_id !== dealId ||
+      eventRow.kind !== "sms_outbound" ||
+      returnedPayload?.sid !== message.sid ||
+      returnedPayload?.label !== label
+    ) {
+      console.error("deal_events persistence proof failed:", eventErr ?? {
+        returned: Boolean(eventRow),
+        dealMatches: eventRow?.deal_id === dealId,
+        kindMatches: eventRow?.kind === "sms_outbound",
+        sidMatches: returnedPayload?.sid === message.sid,
+        labelMatches: returnedPayload?.label === label,
+      });
+      persistenceFailures.push("deal_events");
     }
+  }
+
+  if (persistenceFailures.length > 0) {
+    throw new SmsDeliveryAuditError(persistenceFailures);
   }
 
   return {
