@@ -1291,6 +1291,60 @@ Remaining closure dependency:
   verified Buddy-owned Supabase connection and an authorized sealed transaction.
   Unverified or non-Buddy connections remain untouched.
 
+## 2026-08-29 — Plaid webhook and transaction-sync truthfulness
+
+Checkpoint:
+
+- PR 973 remains open, fully green, mergeable, and zero commits behind main;
+  this repair does not modify its test-deal isolation files.
+- PR 972 is deployed in production as
+  `9fe4b2471558fbd0e749c0ed6718ae12ea542482`; www.buddysba.com returns
+  HTTP 200 and its post-deployment runtime observation windows are clean.
+- Complete Golden Trident transactional proof remains blocked on a verified
+  Buddy-owned Supabase connection and authorized transaction.
+
+Evidence and root cause:
+
+- Plaid Item lookup discarded database errors and could acknowledge unavailable
+  state as an intentionally untracked Item.
+- Transaction webhooks returned success when synchronization returned failure.
+- Item lifecycle updates ignored errors and zero-row writes.
+- Synchronization ignored account, transaction, removal, and cursor write
+  failures; it could filter out unmapped transactions and still advance the
+  cursor, permanently skipping the delta.
+
+Repair branch: `codex/commission-plaid-webhook-sync-truthfulness`.
+
+Repair:
+
+- Fail closed on unavailable connection state and failed synchronization.
+- Prove Item lifecycle writes with returned row and requested status.
+- Require every account, transaction, removal, and cursor database operation to
+  succeed before cursor advancement.
+- Reject missing account mappings and preserve explicit failure evidence.
+- Add regression coverage for the complete verified-webhook-to-cursor contract.
+
+Validation on code head `c4dc18b0f70039c29867091486ff6ae7d8add5da`:
+
+- 13,532 tests: 13,523 passed, 0 failed, 9 skipped.
+- React-server passed 18/18; research evaluation passed 7/7.
+- Typecheck, lint, architecture, safety, schema-select, report-only drift,
+  Never-500, Build Check, Secret Scan, Route Budget, and public Playwright
+  passed.
+- The complete five-file diff was inspected: +299/-18 with no schema,
+  dependency, credential, production-data, or cross-product change.
+- Exact-head Vercel preview `dpl_5uUPDjUwUTNHGtVnPgHwXEVVHVPr` is READY,
+  SHA-matched, HTTP 200, and runtime-clean.
+- The final evidence-only head must retain these required checks before merge
+  recommendation.
+
+Remaining closure:
+
+- After merge, an authorized Plaid sandbox Item is required to prove verified
+  webhook retry, database mutation, and exact cursor convergence end to end.
+- PR 878's complete Golden Trident delivery ceremony still requires a verified
+  Buddy-owned Supabase connection and authorized transaction.
+
 ## 2026-08-29 — signing admission truthfulness
 
 Checkpoint:
