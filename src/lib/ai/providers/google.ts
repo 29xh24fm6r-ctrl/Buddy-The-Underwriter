@@ -230,6 +230,9 @@ export async function* streamGoogle(req: ProviderCallRequest): AsyncGenerator<st
   const { url, headers } = await resolveEndpointAndAuth(req, true);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), req.timeoutMs);
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let sawText = false;
+  let terminalFinishReason: string | null = null;
 
   try {
     const res = await fetch(url, {
@@ -244,7 +247,7 @@ export async function* streamGoogle(req: ProviderCallRequest): AsyncGenerator<st
       throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
     }
 
-    const reader = res.body.getReader();
+    reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
 
@@ -260,25 +263,53 @@ export async function* streamGoogle(req: ProviderCallRequest): AsyncGenerator<st
         try {
           parsed = JSON.parse(evt.data);
         } catch {
-          // Malformed/partial SSE chunk — skip it, the model keeps streaming.
-          continue;
+          throw new Error("Gemini stream contained malformed SSE JSON");
         }
-        // SPEC-M1.1: a prompt-safety block is a distinct, actionable failure
-        // mode from "empty response" (e.g. MAX_TOKENS) — surface it as a
-        // thrown error (outside the malformed-JSON catch above) so callers
-        // can log/handle it separately rather than folding it into a
-        // generic "no reply text" fallback path. Promoted from
-        // geminiClient.ts's streamGeminiText, which originally detected
-        // this itself; now every gateway streaming caller gets it.
+
         const blockReason = parsed?.promptFeedback?.blockReason;
         if (blockReason) {
           throw new Error(`Gemini blocked the prompt: ${blockReason}`);
         }
-        const text = extractText(parsed?.candidates?.[0]?.content?.parts);
-        if (text) yield text;
+
+        const candidate = parsed?.candidates?.[0];
+        const finishReason = candidate?.finishReason;
+        if (
+          typeof finishReason === "string" &&
+          finishReason.length > 0 &&
+          finishReason !== "FINISH_REASON_UNSPECIFIED"
+        ) {
+          terminalFinishReason = finishReason;
+        }
+
+        const text = extractText(candidate?.content?.parts);
+        if (text) {
+          sawText = true;
+          yield text;
+        }
       }
+    }
+
+    buf += decoder.decode();
+    if (buf.trim().length > 0) {
+      throw new Error("Gemini stream ended with an incomplete SSE frame");
+    }
+    if (!terminalFinishReason) {
+      throw new Error("Gemini stream ended without a terminal finish reason");
+    }
+    if (!sawText) {
+      throw new Error(
+        `Gemini stream produced no reply text (finishReason: ${terminalFinishReason})`,
+      );
     }
   } finally {
     clearTimeout(timer);
+    if (reader) {
+      try {
+        await reader.cancel();
+      } catch {
+        // The provider may already have closed or errored the stream.
+      }
+      reader.releaseLock();
+    }
   }
 }
