@@ -169,11 +169,22 @@ async function handlePlaid(req: Request): Promise<Response> {
   }
 
   const supabase = supabaseAdmin();
-  const { data: connection } = await supabase
+  const { data: connection, error: connectionError } = await supabase
     .from("borrower_bank_connections")
     .select("id, status")
     .eq("plaid_item_id", itemId)
     .maybeSingle();
+
+  if (connectionError) {
+    console.error("[/api/webhooks/plaid] connection lookup failed", {
+      itemId,
+      error: connectionError.message,
+    });
+    return NextResponse.json(
+      { ok: false, error: "connection_state_unavailable" },
+      { status: 503 },
+    );
+  }
 
   if (!connection) {
     // Not an error — Plaid may retry webhooks for items we no longer track.
@@ -183,27 +194,78 @@ async function handlePlaid(req: Request): Promise<Response> {
   if (webhookType === "TRANSACTIONS") {
     if (["INITIAL_UPDATE", "HISTORICAL_UPDATE", "DEFAULT_UPDATE", "SYNC_UPDATES_AVAILABLE"].includes(webhookCode ?? "")) {
       const result = await syncTransactions(connection.id, supabase);
+      if (!result.ok) {
+        console.error("[/api/webhooks/plaid] transaction sync failed", {
+          connectionId: connection.id,
+          webhookCode,
+          error: result.error,
+        });
+        return NextResponse.json(
+          { ok: false, error: "transaction_sync_failed" },
+          { status: 503 },
+        );
+      }
       return NextResponse.json({ ok: true, webhookType, webhookCode, sync: result });
     }
     if (webhookCode === "TRANSACTIONS_REMOVED") {
       // Removal is also handled inline by the cursor-based sync (the
       // `removed` array) — trigger a sync so the next cursor page picks it up.
       const result = await syncTransactions(connection.id, supabase);
+      if (!result.ok) {
+        console.error("[/api/webhooks/plaid] transaction sync failed", {
+          connectionId: connection.id,
+          webhookCode,
+          error: result.error,
+        });
+        return NextResponse.json(
+          { ok: false, error: "transaction_sync_failed" },
+          { status: 503 },
+        );
+      }
       return NextResponse.json({ ok: true, webhookType, webhookCode, sync: result });
     }
   }
 
   if (webhookType === "ITEM" && webhookCode === "ERROR") {
-    await supabase.from("borrower_bank_connections").update({ status: "error" }).eq("id", connection.id);
+    const { data: updated, error: updateError } = await supabase
+      .from("borrower_bank_connections")
+      .update({ status: "error" })
+      .eq("id", connection.id)
+      .select("id, status")
+      .maybeSingle();
+    if (updateError || updated?.status !== "error") {
+      console.error("[/api/webhooks/plaid] item error status persistence failed", {
+        connectionId: connection.id,
+        error: updateError?.message ?? "updated row not returned",
+      });
+      return NextResponse.json(
+        { ok: false, error: "connection_status_persistence_failed" },
+        { status: 503 },
+      );
+    }
     return NextResponse.json({ ok: true, webhookType, webhookCode, statusUpdated: "error" });
   }
 
   if (webhookType === "ITEM" && (webhookCode === "PENDING_EXPIRATION" || webhookCode === "USER_PERMISSION_REVOKED")) {
-    await supabase
+    const requestedStatus = webhookCode === "USER_PERMISSION_REVOKED" ? "revoked" : "expired";
+    const { data: updated, error: updateError } = await supabase
       .from("borrower_bank_connections")
-      .update({ status: webhookCode === "USER_PERMISSION_REVOKED" ? "revoked" : "expired" })
-      .eq("id", connection.id);
-    return NextResponse.json({ ok: true, webhookType, webhookCode, statusUpdated: true });
+      .update({ status: requestedStatus })
+      .eq("id", connection.id)
+      .select("id, status")
+      .maybeSingle();
+    if (updateError || updated?.status !== requestedStatus) {
+      console.error("[/api/webhooks/plaid] item lifecycle persistence failed", {
+        connectionId: connection.id,
+        requestedStatus,
+        error: updateError?.message ?? "updated row not returned",
+      });
+      return NextResponse.json(
+        { ok: false, error: "connection_status_persistence_failed" },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json({ ok: true, webhookType, webhookCode, statusUpdated: requestedStatus });
   }
 
   return NextResponse.json({ ok: true, webhookType, webhookCode, handled: false });
