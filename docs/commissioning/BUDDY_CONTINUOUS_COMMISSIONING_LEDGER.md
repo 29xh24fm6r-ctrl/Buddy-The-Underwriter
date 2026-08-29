@@ -1537,8 +1537,8 @@ Remaining closure:
 Checkpoint:
 
 - PR 993 remains the clean, independent IRS transcript cron merge checkpoint.
-- Production main is `9bc50528523de822d9f3bbf9d994f20193e87011`, including
-  merged PR 976. PR 878 remains deployed; its complete Golden Trident ceremony
+- Production main is `69ff673b7d57fda700ed0539263d40fecdec0df8`, including
+  merged PR 989. PR 878 remains deployed; its complete Golden Trident ceremony
   still requires the verified Buddy-owned Supabase connection and an authorized
   sealed transaction.
 - This arc is independent of all open provider, identity, signing, upload,
@@ -1572,11 +1572,15 @@ Repair:
   provider/persistence separation, returned-row mismatch, proven success, and
   route status.
 
-Verification pending:
+Verification complete:
 
-- Run focused tests, typecheck, lint, architecture and safety guards, the full
-  unit/evaluation suite, Build Check, Secret Scan, Never-500, public Playwright,
-  and exact-head Vercel preview/log verification.
+- Broad unit suite: 13,625 tests; 13,616 passed, 0 failed, 9 skipped.
+- React-server suite: 18/18; research golden set: 7 passed, 0 failed.
+- CI, typecheck, lint, architecture, safety, schema gates, Never-500, Build
+  Check, Secret Scan, Route Budget, and public Playwright passed.
+- The exact-head preview is READY, HTTP 200, SHA-matched, and has no
+  warning/error/fatal logs or grouped runtime errors. The seven-file diff was
+  inspected in full with no conflict markers or unexpected scope.
 - No schema, dependency, credential, provider configuration, production row, or
   other product is changed. No unverified Supabase project was queried.
 - Post-merge transactional closure requires the verified Buddy-owned Supabase
