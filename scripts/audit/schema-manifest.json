@@ -523,5 +523,15 @@
     "name": "protect_active_sealed_trident_bundle",
     "type": "function",
     "migration": "20260829010000_sealed_trident_supersession_retention.sql"
+  },
+  {
+    "name": "acquire_trident_bundle_run",
+    "type": "function",
+    "migration": "20260829010000_sealed_trident_supersession_retention.sql"
+  },
+  {
+    "name": "finalize_trident_bundle_run",
+    "type": "function",
+    "migration": "20260829010000_sealed_trident_supersession_retention.sql"
   }
 ]
