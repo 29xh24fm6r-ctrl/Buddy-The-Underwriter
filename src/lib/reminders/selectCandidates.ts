@@ -15,7 +15,7 @@ export type ReminderCandidate = {
 
 /**
  * Select deals that need reminders
- * 
+ *
  * Criteria:
  * - Has active borrower portal link (not used, not expired)
  * - Has missing required checklist items
@@ -42,7 +42,7 @@ export async function selectReminderCandidates(): Promise<ReminderCandidate[]> {
 
   if (linksErr) {
     console.error("selectReminderCandidates links error:", linksErr);
-    throw new Error(`Failed to select reminder candidates: ${linksErr.message}`);
+    throw new Error("Failed to load reminder portal links");
   }
 
   if (!links || links.length === 0) {
@@ -61,7 +61,7 @@ export async function selectReminderCandidates(): Promise<ReminderCandidate[]> {
 
   if (phoneErr) {
     console.error("selectReminderCandidates phone links error:", phoneErr);
-    throw new Error(`Failed to resolve borrower phones: ${phoneErr.message}`);
+    throw new Error("Failed to load reminder borrower phones");
   }
 
   const phoneByDeal = pickLatestPhoneByDeal(phoneRows ?? []);
@@ -71,7 +71,12 @@ export async function selectReminderCandidates(): Promise<ReminderCandidate[]> {
   // For each link, check if deal has missing items
   for (const link of links) {
     const deal = (link as any).deals;
-    if (!deal) continue;
+    if (!deal?.id) {
+      console.error("selectReminderCandidates malformed joined deal", {
+        dealId: link.deal_id,
+      });
+      throw new Error("Failed to load reminder deal evidence");
+    }
 
     const phone = phoneByDeal.get(link.deal_id);
     if (!phone) continue;
@@ -86,7 +91,7 @@ export async function selectReminderCandidates(): Promise<ReminderCandidate[]> {
 
     if (itemsErr) {
       console.error("Checklist items error for deal", link.deal_id, itemsErr);
-      continue;
+      throw new Error("Failed to load reminder checklist state");
     }
 
     const missingCount = items?.length ?? 0;
