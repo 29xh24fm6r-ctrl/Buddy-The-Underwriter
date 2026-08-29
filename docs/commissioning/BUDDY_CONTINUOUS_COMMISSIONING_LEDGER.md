@@ -1290,3 +1290,48 @@ Remaining closure dependency:
 - PR 878 and the complete seal-to-marketplace-to-lender ceremony still require a
   verified Buddy-owned Supabase connection and an authorized sealed transaction.
   Unverified or non-Buddy connections remain untouched.
+
+## 2026-08-29 — signing admission truthfulness
+
+Checkpoint:
+
+- PRs 973 and 974 remain open, clean, mergeable, and current with `main`.
+  This repair does not modify their test-deal isolation or Plaid webhook files.
+- Production remains READY on merged PR 972 at
+  `9fe4b2471558fbd0e749c0ed6718ae12ea542482`; the latest two-hour production
+  query contains no warning, error, fatal, or grouped runtime-error evidence.
+- PR 878's Golden Trident code remains deployed. Its complete transactional
+  ceremony still requires the verified Buddy-owned Supabase connection and an
+  authorized sealed transaction.
+
+Evidence and root cause:
+
+- The IAL2 signature gate discarded Supabase read errors and treated unavailable
+  authoritative state as an ordinary incomplete verification.
+- Required legal-review admission used the same collapsed boolean pattern.
+- SignWell completion reused the collapsed IAL2 result and could misclassify a
+  database outage as a completed-without-IAL2 compliance anomaly.
+
+Repair branch: `codex/commission-signing-admission-truthfulness`.
+
+Repair:
+
+- Add typed authoritative-state readers for IAL2 and legal-review admission.
+- Preserve database errors separately from proven negative compliance state.
+- Refuse provider handoff with `SIGNING_STATE_UNAVAILABLE` before document
+  rendering or SignWell creation.
+- Map unavailable admission state to HTTP 503; reserve HTTP 403 for proven
+  incomplete IAL2 or legal review.
+- Preserve `SIGNING_STATE_READ_FAILED` during completion so retryable database
+  outages cannot be logged as compliance anomalies.
+- Add a cross-boundary regression guard and a focused commissioning arc.
+- No schema, migration, dependency, credential, provider configuration,
+  production data, or other product is changed.
+
+Verification in progress:
+
+- Focused and broad CI, exact-head Vercel preview, complete diff inspection, and
+  runtime-log verification are required before merge recommendation.
+- Post-merge transactional proof requires an authorized SignWell sandbox
+  ceremony and the verified Buddy-owned Supabase connection.
+
