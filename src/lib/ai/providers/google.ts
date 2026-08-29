@@ -200,17 +200,17 @@ export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCall
   if (blockReason) {
     throw new Error(`Gemini blocked the prompt: ${blockReason}`);
   }
-  const finishReason = candidate?.finishReason;
+  if (!candidate) {
+    throw new Error("Gemini response contained no candidate");
+  }
+
+  const finishReason = candidate.finishReason;
   if (finishReason !== "STOP") {
     const reason =
       typeof finishReason === "string" && finishReason.length > 0
         ? finishReason
         : "missing";
     throw new Error(`Gemini response was not complete (finishReason: ${reason})`);
-  }
-
-  if (!candidate) {
-    throw new Error("Gemini response contained no candidate");
   }
 
   const text = extractText(candidate.content?.parts);
