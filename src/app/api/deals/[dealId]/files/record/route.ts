@@ -452,7 +452,7 @@ export async function POST(req: NextRequest, ctx: Context) {
       const validSession = session!;
       const expiresAt = validSession.expires_at ? new Date(validSession.expires_at) : null;
       const expired = expiresAt ? Date.now() > expiresAt.getTime() : false;
-      if (expired || validSession.status === "failed" || validSession.status === "completed") {
+      // A completed session may be replaying an interrupted final commit. The\n      // session-file key still scopes the retry, so allow idempotent repair.\n      if (expired || validSession.status === "failed") {
         await logLedgerEvent({
           dealId,
           bankId,
