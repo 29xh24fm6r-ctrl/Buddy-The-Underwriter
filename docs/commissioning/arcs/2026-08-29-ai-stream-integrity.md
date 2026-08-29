@@ -4,7 +4,7 @@ Date: 2026-08-29
 
 ## Scope
 
-Buddy The Underwriter AI gateway Gemini streaming only. This arc is independent
+Buddy The Underwriter AI gateway Gemini streamed and non-streamed completion integrity. This arc is independent
 of the open signing, storage, scheduled-job, credit-memo, and brokerage delivery
 repairs.
 
@@ -24,13 +24,21 @@ reply text. The outer gateway could therefore ledger and settle a malformed,
 interrupted, or empty provider stream as a successful model call.
 
 The adapter also released its timeout on downstream cancellation without
-explicitly cancelling the provider reader.
+explicitly cancelling the provider reader. The adjacent non-streaming adapter
+accepted any non-empty candidate text without checking `finishReason`; the
+streaming adapter likewise treated every non-empty reason as successful. Both
+paths could therefore accept text stopped by `MAX_TOKENS`, safety controls, or
+another non-success reason. Google identifies `STOP` as the natural/provided
+stop-sequence outcome and `MAX_TOKENS` as reaching the configured output cap.
 
 ## Repair
 
 - Treat malformed completed SSE JSON as a provider failure.
 - Reject non-empty trailing SSE bytes when the connection closes.
 - Require a terminal candidate `finishReason`.
+- Accept generated text only when the terminal reason is `STOP`.
+- Reject missing, truncated, filtered, blocked, or otherwise non-successful
+  completion reasons even when the provider returned partial text.
 - Require at least one non-thought reply text chunk.
 - Cancel and release the provider reader on normal completion, provider failure,
   or downstream cancellation.
@@ -46,7 +54,10 @@ The provider suite proves:
 3. unterminated trailing frames fail closed;
 4. missing terminal evidence fails closed;
 5. terminal-but-empty streams fail closed; and
-6. downstream cancellation closes the provider reader.
+6. downstream cancellation closes the provider reader;
+7. non-streamed text without a reason fails closed;
+8. non-streamed and streamed `MAX_TOKENS` output fails closed; and
+9. a `STOP` response without non-thought reply text fails closed.
 
 ## Safety and production closure
 
