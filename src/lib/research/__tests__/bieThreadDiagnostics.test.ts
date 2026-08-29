@@ -109,6 +109,23 @@ describe("callGeminiGrounded diagnostics", () => {
     assert.equal(r.diagnostic.finish_reason, "SAFETY");
   });
 
+  it("finishReason MAX_TOKENS with partial text → finish_reason", async () => {
+    mockFetch(() => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [{
+          content: { parts: [{ text: "{\"partial\": true" }] },
+          finishReason: "MAX_TOKENS",
+        }],
+      }),
+    }));
+    const r = await call();
+    assert.equal(r.result, null);
+    assert.equal(r.diagnostic.error_type, "finish_reason");
+    assert.equal(r.diagnostic.finish_reason, "MAX_TOKENS");
+  });
+
   it("invalid JSON → json_parse_error with preview", async () => {
     mockFetch(() => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: "not json {" }] }, finishReason: "STOP" }] }) }));
     const r = await call();
