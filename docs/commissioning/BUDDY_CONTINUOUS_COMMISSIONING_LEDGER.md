@@ -1328,10 +1328,22 @@ Repair:
 - No schema, migration, dependency, credential, provider configuration,
   production data, or other product is changed.
 
-Verification in progress:
+Verification on code head `ed1dc756507501cc6b0e7d0dfc11dd487d26b651`:
 
-- Focused and broad CI, exact-head Vercel preview, complete diff inspection, and
-  runtime-log verification are required before merge recommendation.
+- The full unit suite passed 13,530 tests: 13,521 passed, 0 failed, and 9
+  skipped. React-server passed 18/18; research evaluation passed 7/7 with 13
+  controlled production-data placeholders skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only drift, Build Check, Secret Scan, Route Budget, and
+  public Playwright passed. Public Playwright passed 1 test and skipped 5
+  fixture-dependent cases.
+- Exact-head preview `dpl_CBccvSYHtGzQnQL1W588VPWoWNyA` is READY, HTTP 200,
+  SHA-matched, and has no warning, error, fatal, or grouped runtime-error logs.
+- The complete seven-file diff was inspected: 258 additions and 19 deletions.
+  PR 975 is mergeable and zero commits behind `main`.
+- This evidence-only ledger commit does not change runtime behavior. Its
+  resulting exact head must retain green required checks and a READY,
+  SHA-matched preview before merge recommendation.
 - Post-merge transactional proof requires an authorized SignWell sandbox
   ceremony and the verified Buddy-owned Supabase connection.
 
