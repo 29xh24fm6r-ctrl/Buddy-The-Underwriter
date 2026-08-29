@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const migration = readFileSync(
-  "supabase/migrations/20260828230000_sealed_trident_supersession_retention.sql",
+  "supabase/migrations/20260829010000_sealed_trident_supersession_retention.sql",
   "utf8",
 );
 
