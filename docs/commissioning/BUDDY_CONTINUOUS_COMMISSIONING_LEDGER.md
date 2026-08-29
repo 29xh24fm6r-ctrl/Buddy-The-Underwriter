@@ -1478,3 +1478,56 @@ Post-merge closure:
   changed in this run.
 - After the nightly schema path is reconciled, resume authenticated document
   download/storage authorization and immutable byte-delivery integrity.
+
+## 2026-08-29 — banker upload content-identity truthfulness
+
+Audit evidence:
+
+- The banker upload record route advanced upload-session and deal progress before
+  storage verification or canonical document persistence.
+- GCS verification proved existence only; Supabase Storage misses and errors were
+  explicitly non-fatal.
+- Canonical `deal_documents.size_bytes` and `sha256` came from the browser rather
+  than from the object persisted at the server-recorded bucket and key.
+- The independent production nightly schema defect remains evidenced by
+  `/api/cron/nightly` returning HTTP 500 because
+  `public.portfolio_risk_snapshots` is absent from the schema cache. The repository
+  has no migration creating it and no Buddy-owned Supabase project reference; that
+  component remains paused rather than crossing an uncertain product boundary.
+
+Repair branch: `codex/commission-upload-content-identity`.
+
+Repair:
+
+- Re-read each server-recorded object through the bucket-aware storage adapter and
+  derive its byte length and SHA-256 before canonical persistence.
+- Fail closed on object unavailability, timeout, malformed digest claims, size drift,
+  or digest drift.
+- Source filename, content type, expected size, bucket, and key from the verified
+  upload session and persist only the derived content identity.
+- Reconcile interrupted/historical document rows only with returned-row identity proof.
+- Advance session-file, session, and deal progress only after byte verification and
+  canonical document persistence; require returned-row evidence for every mutation.
+- Preserve failed objects for non-destructive orphan reconciliation.
+- Add unit and structural regression coverage plus the commissioning record at
+  `docs/commissioning/2026-08-29-upload-content-identity.md`.
+
+Verification on code head `99a4afa2cebd6567e367981e77cd304d2c2a187c`:
+
+- 13,535 tests: 13,526 passed, 0 failed, 9 skipped.
+- React-server: 18/18; research evaluation: 7 passed, 0 failed.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only drift, Build Check, Secret Scan, Route Budget, and
+  public Playwright passed.
+- Public Playwright passed 1 public case and skipped 5 authenticated-fixture cases.
+- Exact-code-head preview `dpl_YwHymWV6xdP7a5XkwkxtkeTNCJgN` is READY,
+  SHA-matched, HTTP 200, and runtime-clean.
+- The complete six-file diff was inspected; no schema, dependency, credential,
+  infrastructure, production-data, or destructive storage change is present.
+
+Remaining closure:
+
+- Production transactional closure requires Matt's merge, an authorized banker-upload
+  fixture, and a verified Buddy-owned Supabase connection.
+- PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
+  verified connection and an authorized sealed transaction.
