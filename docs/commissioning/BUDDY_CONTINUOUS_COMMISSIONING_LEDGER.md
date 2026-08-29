@@ -1345,3 +1345,59 @@ Remaining closure:
 - PR 878's complete Golden Trident delivery ceremony still requires a verified
   Buddy-owned Supabase connection and authorized transaction.
 
+## 2026-08-29 — signing admission truthfulness
+
+Checkpoint:
+
+- PRs 973 and 974 remain open, clean, mergeable, and current with `main`.
+  This repair does not modify their test-deal isolation or Plaid webhook files.
+- Production remains READY on merged PR 972 at
+  `9fe4b2471558fbd0e749c0ed6718ae12ea542482`; the latest two-hour production
+  query contains no warning, error, fatal, or grouped runtime-error evidence.
+- PR 878's Golden Trident code remains deployed. Its complete transactional
+  ceremony still requires the verified Buddy-owned Supabase connection and an
+  authorized sealed transaction.
+
+Evidence and root cause:
+
+- The IAL2 signature gate discarded Supabase read errors and treated unavailable
+  authoritative state as an ordinary incomplete verification.
+- Required legal-review admission used the same collapsed boolean pattern.
+- SignWell completion reused the collapsed IAL2 result and could misclassify a
+  database outage as a completed-without-IAL2 compliance anomaly.
+
+Repair branch: `codex/commission-signing-admission-truthfulness`.
+
+Repair:
+
+- Add typed authoritative-state readers for IAL2 and legal-review admission.
+- Preserve database errors separately from proven negative compliance state.
+- Refuse provider handoff with `SIGNING_STATE_UNAVAILABLE` before document
+  rendering or SignWell creation.
+- Map unavailable admission state to HTTP 503; reserve HTTP 403 for proven
+  incomplete IAL2 or legal review.
+- Preserve `SIGNING_STATE_READ_FAILED` during completion so retryable database
+  outages cannot be logged as compliance anomalies.
+- Add a cross-boundary regression guard and a focused commissioning arc.
+- No schema, migration, dependency, credential, provider configuration,
+  production data, or other product is changed.
+
+Verification on code head `ed1dc756507501cc6b0e7d0dfc11dd487d26b651`:
+
+- The full unit suite passed 13,530 tests: 13,521 passed, 0 failed, and 9
+  skipped. React-server passed 18/18; research evaluation passed 7/7 with 13
+  controlled production-data placeholders skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only drift, Build Check, Secret Scan, Route Budget, and
+  public Playwright passed. Public Playwright passed 1 test and skipped 5
+  fixture-dependent cases.
+- Exact-head preview `dpl_CBccvSYHtGzQnQL1W588VPWoWNyA` is READY, HTTP 200,
+  SHA-matched, and has no warning, error, fatal, or grouped runtime-error logs.
+- The complete seven-file diff was inspected: 258 additions and 19 deletions.
+  PR 975 is mergeable and zero commits behind `main`.
+- This evidence-only ledger commit does not change runtime behavior. Its
+  resulting exact head must retain green required checks and a READY,
+  SHA-matched preview before merge recommendation.
+- Post-merge transactional proof requires an authorized SignWell sandbox
+  ceremony and the verified Buddy-owned Supabase connection.
+
