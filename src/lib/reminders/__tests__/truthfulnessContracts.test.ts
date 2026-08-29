@@ -29,5 +29,6 @@ test("cron distinguishes suppression and audit uncertainty without returning ful
   assert.match(src, /action: "uncertain"/);
   assert.match(src, /borrowerPhoneLast4/);
   assert.doesNotMatch(src, /borrowerPhone:/);
-  assert.doesNotMatch(src, /error: e\?\.message/);
+  assert.match(src, /error: "Failed to process reminders"/);
+  assert.doesNotMatch(src, /error\?: string/);
 });
