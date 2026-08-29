@@ -68,20 +68,40 @@ async function createMission(
 ): Promise<{ ok: boolean; missionId?: string; error?: string; duplicate?: boolean }> {
   const supabase = supabaseAdmin();
 
-  const { data, error } = await supabase
+  const missionInsert = {
+    deal_id: dealId,
+    bank_id: bankId ?? null,
+    mission_type: missionType,
+    subject,
+    depth,
+    status: "queued",
+    created_by: userId ?? null,
+    run_key: runKey ?? null,
+  };
+
+  let { data, error } = await supabase
     .from("buddy_research_missions")
-    .insert({
-      deal_id: dealId,
-      bank_id: bankId ?? null,
-      mission_type: missionType,
-      subject,
-      depth,
-      status: "queued",
-      created_by: userId ?? null,
-      run_key: runKey ?? null,
-    })
+    .insert(missionInsert)
     .select("id")
     .single();
+
+  // Clerk is Buddy's canonical identity provider, while older deployments
+  // constrained created_by to auth.users UUIDs. Keep mission execution
+  // available during the migration rollout: only retry without attribution
+  // when Postgres specifically rejects a non-UUID Clerk actor. Once the
+  // created_by TEXT migration is live, the first insert succeeds and retains
+  // the full Clerk ID.
+  const actorIsLegacyUuid = !userId || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId);
+  if (error?.code === "22P02" && !actorIsLegacyUuid) {
+    console.warn(
+      "[runMission] created_by still uses the legacy UUID schema; retrying mission creation without actor attribution",
+    );
+    ({ data, error } = await supabase
+      .from("buddy_research_missions")
+      .insert({ ...missionInsert, created_by: null })
+      .select("id")
+      .single());
+  }
 
   if (error) {
     // Postgres unique_violation — another request won the race and already
