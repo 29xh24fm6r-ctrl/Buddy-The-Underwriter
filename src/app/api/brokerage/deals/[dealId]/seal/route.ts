@@ -72,10 +72,11 @@ export async function POST(
   // so a rate_card_miss (500) left an orphaned sealed package that made canSeal
   // report "already sealed" on retry — permanently bricking the deal with no
   // listing (SPEC audit H3). Every fallible read now runs up front; writes happen
-  // last, close together, with compensation if the listing insert fails.
+  // last in one database transaction so any failure rolls the whole transition
+  // back instead of leaving a partial seal/listing pair.
   const loanTier = bucketLoanAmount(snapshot.forRedactor.deal.loan_amount);
   const termTier = bucketTerm(snapshot.forRedactor.deal.term_months);
-  const { data: rateRow } = await sb
+  const { data: rateRow, error: rateError } = await sb
     .from("marketplace_rate_card")
     .select("spread_bps_over_prime")
     .eq("version", "1.0.0")
@@ -85,6 +86,17 @@ export async function POST(
     .eq("term_tier", termTier)
     .is("superseded_at", null)
     .maybeSingle();
+
+  if (rateError) {
+    console.error("[seal] rate card lookup failed", {
+      dealId,
+      error: rateError.message,
+    });
+    return NextResponse.json(
+      { ok: false, error: "seal_state_unavailable" },
+      { status: 503 },
+    );
+  }
 
   if (!rateRow) {
     return NextResponse.json(
@@ -105,65 +117,61 @@ export async function POST(
   const { previewOpensAt, claimOpensAt, claimClosesAt } =
     computeListingCadence(new Date());
 
-  // ── Writes (last, close together) ───────────────────────────────────────
-  const { data: sealedRow, error: sealErr } = await sb
-    .from("buddy_sealed_packages")
-    .insert({
-      deal_id: dealId,
-      bank_id: session.bank_id,
-      sealed_snapshot: snapshot.full,
-      ...sealedPackageArtifactColumns(snapshot.distributionBinding),
-    })
-    .select("id")
-    .single();
-  if (sealErr || !sealedRow) {
+  // One database transaction owns the sealed package, listing, and deal-state
+  // transition. A failed listing insert or zero-row deal update rolls back the
+  // seal automatically; there is no best-effort compensation window.
+  const artifactColumns = sealedPackageArtifactColumns(
+    snapshot.distributionBinding,
+  );
+  const { data: transitionRows, error: transitionError } = await sb.rpc(
+    "create_buddy_seal_listing",
+    {
+      p_deal_id: dealId,
+      p_bank_id: session.bank_id,
+      p_sealed_snapshot: snapshot.full,
+      p_final_business_plan_path:
+        artifactColumns.final_business_plan_path,
+      p_final_projections_path: artifactColumns.final_projections_path,
+      p_final_feasibility_path: artifactColumns.final_feasibility_path,
+      p_kfs: kfs,
+      p_kfs_redaction_version: kfs.redactionVersion,
+      p_score: snapshot.forRedactor.score.score,
+      p_band: snapshot.forRedactor.score.band,
+      p_rate_card_tier: snapshot.forRedactor.score.rateCardTier,
+      p_published_rate_bps: Number(
+        (rateRow as { spread_bps_over_prime: number }).spread_bps_over_prime,
+      ),
+      p_sba_program: snapshot.forRedactor.deal.sba_program,
+      p_loan_amount: snapshot.forRedactor.deal.loan_amount,
+      p_term_months: snapshot.forRedactor.deal.term_months,
+      p_matched_lender_bank_ids: matchResult.matched,
+      p_preview_opens_at: previewOpensAt.toISOString(),
+      p_claim_opens_at: claimOpensAt.toISOString(),
+      p_claim_closes_at: claimClosesAt.toISOString(),
+    },
+  );
+  const transition = Array.isArray(transitionRows)
+    ? transitionRows[0] as
+        | { sealed_package_id?: unknown; listing_id?: unknown }
+        | undefined
+    : undefined;
+  const sealedPackageId =
+    typeof transition?.sealed_package_id === "string"
+      ? transition.sealed_package_id
+      : null;
+  const listingId =
+    typeof transition?.listing_id === "string" ? transition.listing_id : null;
+
+  if (transitionError || !sealedPackageId || !listingId) {
+    console.error("[seal] atomic seal transition failed", {
+      dealId,
+      error: transitionError?.message ?? "transition result was unproven",
+    });
     return NextResponse.json(
-      { ok: false, error: "seal_insert_failed", detail: sealErr?.message },
-      { status: 500 },
+      { ok: false, error: "seal_commit_failed" },
+      { status: 503 },
     );
   }
-
-  const { data: listingRow, error: listingErr } = await sb
-    .from("marketplace_listings")
-    .insert({
-      sealed_package_id: sealedRow.id,
-      deal_id: dealId,
-      kfs,
-      kfs_redaction_version: kfs.redactionVersion,
-      score: snapshot.forRedactor.score.score,
-      band: snapshot.forRedactor.score.band,
-      rate_card_tier: snapshot.forRedactor.score.rateCardTier,
-      published_rate_bps: (rateRow as any).spread_bps_over_prime,
-      sba_program: snapshot.forRedactor.deal.sba_program,
-      loan_amount: snapshot.forRedactor.deal.loan_amount,
-      term_months: snapshot.forRedactor.deal.term_months,
-      matched_lender_bank_ids: matchResult.matched,
-      preview_opens_at: previewOpensAt.toISOString(),
-      claim_opens_at: claimOpensAt.toISOString(),
-      claim_closes_at: claimClosesAt.toISOString(),
-    })
-    .select("id")
-    .single();
-  if (listingErr || !listingRow) {
-    // Compensate: unseal the package so the deal is not bricked as "already sealed".
-    await sb
-      .from("buddy_sealed_packages")
-      .update({
-        unsealed_at: new Date().toISOString(),
-        unseal_reason: "listing_insert_failed",
-      })
-      .eq("id", sealedRow.id);
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "listing_insert_failed",
-        detail: listingErr?.message,
-      },
-      { status: 500 },
-    );
-  }
-
-  await sb.from("deals").update({ status: "sealed" }).eq("id", dealId);
 
   // Notify matched lenders that a preview is open (best-effort, non-fatal).
   try {
@@ -171,7 +179,7 @@ export async function POST(
     for (const lenderBankId of matchResult.matched) {
       await queueLenderMessage(
         "marketplace_preview_open",
-        { dealId, listingId: listingRow.id, lenderBankId, stage: "preview" },
+        { dealId, listingId, lenderBankId, stage: "preview" },
         "email",
         sb,
       );
@@ -179,7 +187,7 @@ export async function POST(
   } catch (err) {
     console.warn("[seal] lender preview notify failed (non-fatal)", {
       dealId,
-      listingId: listingRow.id,
+      listingId,
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -201,8 +209,8 @@ export async function POST(
 
   return NextResponse.json({
     ok: true,
-    sealedPackageId: sealedRow.id,
-    listingId: listingRow.id,
+    sealedPackageId,
+    listingId,
     previewOpensAt: previewOpensAt.toISOString(),
     claimOpensAt: claimOpensAt.toISOString(),
     matchedLenderCount: matchResult.matchCount,
@@ -223,30 +231,39 @@ export async function DELETE(
 
   const sb = supabaseAdmin();
 
-  const { data: listing } = await sb
-    .from("marketplace_listings")
-    .select("id, sealed_package_id, status")
-    .eq("deal_id", dealId)
-    .in("status", ["pending_preview"])
-    .maybeSingle();
+  const { data: transitionRows, error: transitionError } = await sb.rpc(
+    "unseal_buddy_marketplace_listing",
+    {
+      p_deal_id: dealId,
+      p_bank_id: session.bank_id,
+      p_reason: "borrower_requested",
+    },
+  );
+  if (transitionError) {
+    console.error("[seal] atomic unseal transition failed", {
+      dealId,
+      error: transitionError.message,
+    });
+    return NextResponse.json(
+      { ok: false, error: "unseal_commit_failed" },
+      { status: 503 },
+    );
+  }
 
-  if (!listing) {
+  const transition = Array.isArray(transitionRows)
+    ? transitionRows[0] as
+        | { sealed_package_id?: unknown; listing_id?: unknown }
+        | undefined
+    : undefined;
+  if (
+    typeof transition?.sealed_package_id !== "string" ||
+    typeof transition?.listing_id !== "string"
+  ) {
     return NextResponse.json(
       { ok: false, error: "not_unsealable" },
       { status: 400 },
     );
   }
-
-  await sb
-    .from("buddy_sealed_packages")
-    .update({
-      unsealed_at: new Date().toISOString(),
-      unseal_reason: "borrower_requested",
-    })
-    .eq("id", (listing as any).sealed_package_id);
-
-  await sb.from("marketplace_listings").delete().eq("id", (listing as any).id);
-  await sb.from("deals").update({ status: "draft" }).eq("id", dealId);
 
   return NextResponse.json({ ok: true });
 }
