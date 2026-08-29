@@ -1117,3 +1117,118 @@ Post-merge closure:
 - The next independent audit target is seal-admission authority: query-error
   truthfulness in `canSeal`, snapshot assembly, identity gating, and lender
   matching.
+
+## 2026-08-28 — sealed Golden Trident supersession retention
+
+Checkpoint:
+
+- PRs 967, 968, and 969 remain open, clean, mergeable, and exactly current with
+  `main`; this database-boundary repair does not modify their marketplace,
+  delivery, or artifact-generator files.
+- Production deployment `dpl_EQob5PMxWaA85DupqtdKcuaYEi49` is READY on exact
+  commit `fe428208311739a0147294d10c1e2d3d4d1ceb2b`, serves `www.buddysba.com`, and recorded no warning,
+  error, or fatal logs in the latest two-hour observation window.
+- PR 878's Golden Trident code remains deployed. Complete seal-to-marketplace-
+  to-lender transactional proof remains blocked on the verified Buddy-owned
+  Supabase connection and an authorized sealed transaction.
+
+Evidence and root cause:
+
+- Sealing freezes the certified final bundle id and all three distributed
+  artifact paths into `buddy_sealed_packages.sealed_snapshot.tridentFinal`.
+- `finalize_trident_bundle_run` superseded every prior current bundle without
+  checking that active binding. A run admitted before or after sealing could
+  therefore make delivery's current final bundle diverge from the bundle the
+  borrower sealed.
+- Superseded bundle objects have no ordinary deletion path. PR 969's compensating
+  cleanup is correctly limited to objects newly uploaded by the failed attempt.
+
+Repair branch: `codex/commission-sealed-trident-retention`.
+
+Repair:
+
+- Fence replacement final-run admission while an active sealed package exists;
+  preview generation remains available.
+- Recheck the seal during atomic publication, closing the admission-to-seal
+  race.
+- Block direct supersession of the exact final bundle referenced by an active
+  seal at the database trigger boundary.
+- Reconcile historical drift only when seal bundle identity, deal, bank,
+  final/succeeded state, and all three artifact paths match exactly.
+- Retain every bundle row and storage object; newer unsealed candidates become
+  superseded forensic evidence and nothing is deleted.
+- Preserve empty-search-path privileged functions and service-role-only factory
+  execution.
+
+Verification on code head `6bad26ed647b97dbf6ecf7f014fbe2b20032c032`:
+
+- Focused static regression coverage passed 6/6 locally.
+- CI ran 13,483 tests: 13,474 passed, 0 failed, and 9 skipped.
+  React-server-condition tests passed 18/18. Research evaluation passed 7/7;
+  the 13 known production-data placeholders remain explicitly skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only schema drift, Build Check, Secret Scan, and public
+  Playwright passed. Public Playwright ran 1 test and skipped 5 authenticated
+  tests because credentials were unavailable.
+- Exact-head Vercel preview `dpl_BPhg9DVHwfCTYuNUpHXxb9gynuLg` is READY,
+  returned HTTP 200 with `x-buddy-build` matching the code head, and recorded
+  no warning, error, or fatal runtime logs in the two-hour verification window.
+- The complete five-file diff was inspected. It contains one forward migration,
+  its schema-manifest provenance, one six-case regression guard, and the durable
+  commissioning evidence; it deletes no row, object, dependency, or product code.
+- This evidence-only ledger commit does not change runtime code. Its resulting
+  exact head must retain green required checks and a READY, SHA-matched preview
+  before merge recommendation.
+- Direct database verification remains blocked because no confirmed Buddy-owned
+  Supabase connection is available; no differently owned project was queried.
+
+Post-merge closure:
+
+- With the verified Buddy connection, prove active-seal admission refusal,
+  admission-before-seal publication refusal, exact historical reconciliation,
+  and authorized retrieval of the frozen business plan, projection workbook,
+  and feasibility study.
+- The next independent audit target is seal/unseal and listing rollback
+  truthfulness, especially zero-row/error proof for compensation and deal-state
+  transitions.
+
+## 2026-08-29 — sealed retention rebase after atomic seal deployment
+
+Checkpoint:
+
+- PR 971 merged externally as `38cdb8bc81f6a27d544e22a25bb152be1bb3e9f9`.
+  Production deployment `dpl_6521UYXXTnro6ymeXeu86TESxEwT` is READY,
+  `www.buddysba.com` returns HTTP 200 with the exact build SHA, and no
+  warning, error, or fatal runtime logs were found after deployment.
+- PR 970 was rebased onto that main commit and remains the dependent retention
+  repair. Because PR 971 deployed migration `20260829003000` first, the
+  retention migration was safely renumbered to `20260829010000`; its test and
+  schema-manifest provenance follow the same ordered filename.
+- The rebase preserves PR 971's atomic seal/unseal RPC manifest entries and
+  records all three function revisions from the retention migration.
+
+Exact-head evidence before this ledger-only checkpoint:
+
+- Code head `718b31919eb483b41a00b772955f4b51ec234aba` passed CI with 13,522
+  tests: 13,513 passed, 0 failed, and 9 skipped; react-server passed 18/18 and
+  research passed 7/7 with 13 controlled production-data placeholders skipped.
+- Typecheck, lint, architecture, safety, legacy-write, Never-500, schema-select,
+  Build Check, Secret Scan, and public Playwright passed.
+- Exact-head preview `dpl_BDhHZavUDRZ9mjYTz818UMxXJvZJ` is READY, returned
+  HTTP 200 with a matching `x-buddy-build`, and had no warning, error, fatal,
+  or grouped runtime-error evidence in the two-hour verification window.
+- The complete five-file diff contains only durable evidence, one schema
+  manifest, one six-case regression guard, and one forward non-destructive
+  migration; it changes no dependency, credential, provider, or other product.
+- PR 970 is mergeable and zero commits behind main. It must not be merged
+  automatically.
+
+Remaining closure:
+
+- Full transactional proof for PRs 878, 970, and 971 still requires a verified
+  Buddy-owned Supabase connection and an authorized sealed transaction. No
+  differently owned or ambiguously owned project was queried.
+- After merge and deployment, prove active-seal admission refusal,
+  admission-before-seal publication refusal, historical reconciliation, exact
+  frozen artifact retrieval, and seal/unseal rollback in the authorized fixture.
+
