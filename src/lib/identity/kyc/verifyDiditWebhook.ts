@@ -64,7 +64,9 @@ function canonicalizeV2(value: unknown): string {
     return input;
   }
 
-  return JSON.stringify(sortKeys(value));
+  const encoded = JSON.stringify(sortKeys(value));
+  if (encoded === undefined) throw new Error("didit_webhook_canonicalization_failed");
+  return encoded;
 }
 
 export function verifyDiditWebhook(params: {
