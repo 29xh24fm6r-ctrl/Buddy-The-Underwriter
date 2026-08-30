@@ -1531,3 +1531,47 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+## 2026-08-30 — Portal share-link authenticity and persistence truthfulness
+
+Evidence and root causes:
+
+- Share bearer tokens used `Math.random`, creation accepted malformed or unbounded
+  scope/expiry/text values, lookup selected every column, and malformed expiry
+  timestamps remained valid.
+- Public views could return green after partial checklist or failed deal reads.
+- Public uploads accepted empty or untyped files, exposed storage coordinates and
+  raw provider/database errors, and did not require canonical document or durable
+  completion-ledger evidence. The route read `doc.id` even though
+  `ingestDocument` returns `documentId`, producing a null success receipt.
+
+Repair branch: `codex/commission-portal-share-link-trust`.
+
+Repair:
+
+- Generate 288-bit URL-safe tokens with `node:crypto` while preserving the
+  existing 48-character representation.
+- Bound and validate token, UUID, scope cardinality/uniqueness, expiry, text,
+  filename, MIME, and byte-size inputs.
+- Require explicit-column lookup, exact creation proof, complete scoped checklist
+  evidence, authoritative deal evidence, canonical document ID, and required
+  ledger persistence before green outcomes.
+- Preserve stored borrower bytes after downstream failure and return a
+  non-retryable reconciliation response to prevent duplicate resubmission.
+- Apply no-store responses and bounded phase-only diagnostics.
+
+Verification:
+
+- Focused share-link trust regression: 3 tests passed, 0 failed.
+- Production-equivalent build, exact Vercel preview, required GitHub workflows,
+  and authorized post-merge transaction are pending.
+- No schema, credential, provider configuration, production-data, or destructive
+  storage change. No unverified database was accessed.
+
+Open dependencies:
+
+- PR 1011 remains mergeable and zero commits behind main, but its required
+  workflows failed before executing any step.
+- Complete share-link production proof requires a verified Buddy-owned Supabase
+  project and an authorized fixture.
