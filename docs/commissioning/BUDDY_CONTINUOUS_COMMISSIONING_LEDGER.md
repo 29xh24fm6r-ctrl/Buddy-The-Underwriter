@@ -1649,6 +1649,50 @@ Verification complete:
 - Next independent audit: composite document/spreads worker-tick outcome
   truthfulness.
 
+## 2026-08-29 — composite worker-tick truthfulness
+
+Checkpoint:
+
+- PR 994 remains the clean banker SLA alert merge checkpoint.
+- PR 878 remains deployed; its full Golden Trident transaction still requires
+  the verified Buddy-owned Supabase connection and an authorized sealed fixture.
+- Production is HTTP 200 and had no warning/error/fatal logs or grouped runtime
+  errors in the latest two-hour verification window.
+
+Evidence and root cause:
+
+- Four queue-discovery reads discarded Supabase errors and reported idle.
+- The spreads batch wrapper converted non-idle child failure to `ok: true`.
+- The composite route omitted processor, janitor, and stale-research failures
+  and returned HTTP 200.
+- Child database/provider detail could escape in worker responses.
+
+Repair branch: `codex/commission-worker-tick-truthfulness`.
+
+Repair:
+
+- Fail queue discovery closed while preserving true empty-queue idle behavior.
+- Propagate spread child failure and classify all critical child outcomes.
+- Return HTTP 503 for any incomplete composite or spreads-only tick.
+- Preserve step identity while redacting raw child detail.
+- Add behavioral and integration-contract regression coverage.
+
+Verification complete on code head `8b6d14d6ddf6ebef7efd9f4bb2dd07fc31c2898f`:
+
+- 13,624 tests: 13,615 passed, 0 failed, 9 skipped.
+- React-server suite: 18/18; research golden set: 7 passed, 0 failed.
+- CI, typecheck, lint, architecture, safety, schema gates, Never-500, Build
+  Check, Secret Scan, Route Budget, and public Playwright passed.
+- Exact-head preview `dpl_p8nbWdQZdZYmy5NMX1JEHv3RHYdj` is READY,
+  SHA-matched, HTTP 200, and has no warning/error/fatal logs or grouped runtime
+  errors.
+- No schema, dependency, credential, provider configuration, production row,
+  destructive action, or cross-product change is included.
+- Post-merge closure requires verified Buddy-owned Supabase access and
+  authorized document/spreads worker fixtures.
+- Next independent rotation target: authenticated document download
+  authorization and immutable byte-delivery behavior.
+
 ## 2026-08-30 — signed upload provider integrity and privacy
 
 - **System audited:** canonical GCS and Supabase Storage upload-signing helpers.
