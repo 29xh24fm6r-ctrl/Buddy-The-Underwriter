@@ -28,6 +28,8 @@ test("both download surfaces are bounded and explicitly non-cacheable", () => {
   assert.match(helper, /MAX_BUCKET_LENGTH = 128/);
   assert.match(helper, /expiresSeconds: 300/);
   assert.match(helper, /createSignedUrl\(storagePath, 300\)/);
+  assert.match(helper, /withDocumentDownloadTimeout\(query\.maybeSingle\(\), 8_000\)/);
+  assert.match(helper, /12_000/);
   assert.match(direct, /private, no-store, max-age=0/);
   assert.match(signer, /private, no-store, max-age=0/);
   assert.match(signer, /contentLength > 4_096/);
