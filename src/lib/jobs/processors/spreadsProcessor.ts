@@ -1629,13 +1629,17 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
 export async function processNextSpreadJob(leaseOwner: string = "worker-1") {
   const sb = supabaseAdmin();
 
-  const { data: jobs } = await (sb as any)
+  const { data: jobs, error: queueError } = await (sb as any)
     .from("deal_spread_jobs")
     .select("id")
     .eq("status", "QUEUED")
     .lte("next_run_at", new Date().toISOString())
     .order("next_run_at", { ascending: true })
     .limit(1);
+
+  if (queueError) {
+    return { ok: false as const, idle: false as const, error: "queue_discovery_failed" };
+  }
 
   if (!jobs || jobs.length === 0) {
     // SPEC-OBS-IDLE-NOT-ERROR-1: an empty queue is the normal steady state,
