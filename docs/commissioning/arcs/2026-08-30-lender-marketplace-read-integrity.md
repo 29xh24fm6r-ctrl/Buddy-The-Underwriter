@@ -27,4 +27,4 @@ Source, tests, and commissioning evidence only. No database, schema, policy, cre
 
 ## Closure
 
-Post-merge transactional closure requires a verified Buddy-owned Supabase connection and authorized fixtures for a test listing, multiple active lender agreements, read failure, a valid package grant, and a fully populated lender detail response.
+Code head `25c3160e995356cc50909435c3b61dc08c2a3368` passed one focused behavioral execution and 21 exact-source assertions. Its complete seven-file diff is +451/-144 and zero commits behind `main`. Exact Vercel preview `dpl_GJjbG3rY48f8CVV4TLWUqV5vBgkv` is READY, SHA-matched, HTTP 200, build-clean, and runtime-clean; both signed-out lender routes return no-store HTTP 403. CI, Build Check, Secret Scan, and Route Budget failed before executing any step (`steps: null`, no logs) because repository Actions runner/billing availability remains unavailable. Post-merge transactional closure requires a verified Buddy-owned Supabase connection and authorized fixtures for a test listing, multiple active lender agreements, read failure, a valid package grant, and a fully populated lender detail response.
