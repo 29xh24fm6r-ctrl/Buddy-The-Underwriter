@@ -57,6 +57,13 @@ function fakeSb(initial: Row[] = []) {
         _limit = n;
         return chain;
       },
+      single() {
+        return resolve().then((result) => {
+          if (result.error) return result;
+          const data = Array.isArray(result.data) ? result.data[0] ?? null : result.data;
+          return { data, error: data ? null : { message: "No rows returned" } };
+        });
+      },
       then(onF: any, onR?: any) {
         return resolve().then(onF, onR);
       },

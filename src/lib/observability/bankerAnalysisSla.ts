@@ -373,6 +373,43 @@ export type LoadOpts = {
   _sb?: SupabaseClient;
 };
 
+const EVIDENCE_PAGE_SIZE = 1_000;
+const MAX_EVIDENCE_ROWS = 50_000;
+
+type EvidencePage<T> = {
+  data: T[] | null;
+  error: { message?: string } | null;
+};
+
+async function loadEvidencePages<T>(
+  source: string,
+  loadPage: (from: number, to: number) => PromiseLike<EvidencePage<T>>,
+): Promise<T[]> {
+  const rows: T[] = [];
+
+  for (let from = 0; from < MAX_EVIDENCE_ROWS; from += EVIDENCE_PAGE_SIZE) {
+    const { data, error } = await loadPage(
+      from,
+      from + EVIDENCE_PAGE_SIZE - 1,
+    );
+    if (error) {
+      const detail =
+        typeof error.message === "string" && error.message.trim()
+          ? error.message.trim()
+          : "database_error";
+      throw new Error(`[banker-analysis-sla] ${source}_read_failed: ${detail}`);
+    }
+
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < EVIDENCE_PAGE_SIZE) return rows;
+  }
+
+  throw new Error(
+    `[banker-analysis-sla] evidence_limit_exceeded:${source}:${MAX_EVIDENCE_ROWS}`,
+  );
+}
+
 export async function loadBankerAnalysisSla(
   opts: LoadOpts = {},
 ): Promise<BankerAnalysisSlaResponse> {
@@ -382,35 +419,49 @@ export async function loadBankerAnalysisSla(
     .toISOString();
   const sb = opts._sb ?? (await loadAdmin());
 
-  const [riskRunsRes, ledgerRes, eventsRes] = await Promise.all([
-    sb
-      .from("risk_runs")
-      .select("id, deal_id, status, created_at")
-      .eq("model_name", PIPELINE_MODEL)
-      .gte("created_at", windowStart)
-      .limit(5000),
-    sb
-      .from("deal_pipeline_ledger")
-      .select("payload, created_at")
-      .eq("event_key", COMPLETION_LEDGER_KEY)
-      .gte("created_at", windowStart)
-      .limit(5000),
-    sb
-      .from("deal_events")
-      .select("kind, payload, created_at")
-      .in("kind", [WRITE_FAILED_KIND, STALE_RECOVERED_KIND])
-      .gte("created_at", windowStart)
-      .limit(5000),
-  ]);
-
-  const riskRuns: RiskRunRow[] = (riskRunsRes.data ?? []) as RiskRunRow[];
-
-  const ledgerCompletions: LedgerCompletionRow[] = (
-    (ledgerRes.data ?? []) as Array<{
+  const [riskRuns, ledgerRows, eventRows] = await Promise.all([
+    loadEvidencePages<RiskRunRow>("risk_runs", (from, to) =>
+      sb
+        .from("risk_runs")
+        .select("id, deal_id, status, created_at")
+        .eq("model_name", PIPELINE_MODEL)
+        .gte("created_at", windowStart)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+    loadEvidencePages<{
+      id: string;
       payload: any;
       created_at: string;
-    }>
-  )
+    }>("deal_pipeline_ledger", (from, to) =>
+      sb
+        .from("deal_pipeline_ledger")
+        .select("id, payload, created_at")
+        .eq("event_key", COMPLETION_LEDGER_KEY)
+        .gte("created_at", windowStart)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+    loadEvidencePages<{
+      id: string;
+      kind: string;
+      payload: any;
+      created_at: string;
+    }>("deal_events", (from, to) =>
+      sb
+        .from("deal_events")
+        .select("id, kind, payload, created_at")
+        .in("kind", [WRITE_FAILED_KIND, STALE_RECOVERED_KIND])
+        .gte("created_at", windowStart)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+  ]);
+
+  const ledgerCompletions: LedgerCompletionRow[] = ledgerRows
     .map((r) => {
       const runId = (r.payload as any)?.risk_run_id;
       if (typeof runId !== "string" || runId.length === 0) return null;
@@ -418,13 +469,7 @@ export async function loadBankerAnalysisSla(
     })
     .filter((r): r is LedgerCompletionRow => r !== null);
 
-  const events: EventRow[] = (
-    (eventsRes.data ?? []) as Array<{
-      kind: string;
-      payload: any;
-      created_at: string;
-    }>
-  ).map((r) => ({
+  const events: EventRow[] = eventRows.map((r) => ({
     kind: r.kind,
     created_at: r.created_at,
     blocker:
