@@ -32,14 +32,6 @@ export type Discrepancy = {
 
 const MATERIALITY_THRESHOLD = 1000;
 
-function dbError(operation: string, error: unknown): Error {
-  const message =
-    error && typeof error === "object" && "message" in error
-      ? String((error as { message: unknown }).message)
-      : String(error);
-  return new Error(`irs_transcript_reconcile_${operation}_failed: ${message}`);
-}
-
 export function findDiscrepancies(transcripts: TranscriptFieldSet[], borrowerFacts: BorrowerFact[]): Discrepancy[] {
   const discrepancies: Discrepancy[] = [];
 
@@ -68,6 +60,10 @@ export type ReconcileTranscriptRequestResult =
   | { ok: true; discrepancyCount: number }
   | { ok: false; reason: "REQUEST_NOT_FOUND" | "NOT_YET_RECEIVED" };
 
+function persistenceError(operation: string): Error {
+  return new Error(`IRS transcript reconciliation persistence failed: ${operation}`);
+}
+
 export async function reconcileTranscriptRequest(requestId: string, deps: { sb: IrsReconcilerSupabaseClient }): Promise<ReconcileTranscriptRequestResult> {
   const { sb } = deps;
 
@@ -77,7 +73,9 @@ export async function reconcileTranscriptRequest(requestId: string, deps: { sb: 
     .eq("id", requestId)
     .maybeSingle();
 
-  if (requestError) throw dbError("request_read", requestError);
+  if (requestError) {
+    throw persistenceError("load request");
+  }
   if (!request) {
     return { ok: false, reason: "REQUEST_NOT_FOUND" };
   }
@@ -93,12 +91,14 @@ export async function reconcileTranscriptRequest(requestId: string, deps: { sb: 
     .eq("deal_id", request.deal_id)
     .eq("is_superseded", false);
 
-  if (factsError) throw dbError("facts_read", factsError);
+  if (factsError) {
+    throw persistenceError("load borrower financial facts");
+  }
 
   const discrepancies = findDiscrepancies(transcripts, (facts ?? []) as BorrowerFact[]);
 
   if (discrepancies.length > 0) {
-    const { error: gapError } = await sb.from("deal_gap_queue").insert(
+    const gapInsert = await sb.from("deal_gap_queue").insert(
       discrepancies.map((d) => ({
         deal_id: request.deal_id,
         bank_id: request.bank_id,
@@ -111,22 +111,55 @@ export async function reconcileTranscriptRequest(requestId: string, deps: { sb: 
         priority: 2,
         status: "open",
       })),
-    );
-    if (gapError) throw dbError("gap_insert", gapError);
+    ).select("id, fact_key, status");
+    if (
+      gapInsert.error ||
+      !Array.isArray(gapInsert.data) ||
+      gapInsert.data.length !== discrepancies.length ||
+      gapInsert.data.some(
+        (row: Record<string, unknown>) =>
+          typeof row.id !== "string" ||
+          row.status !== "open" ||
+          !discrepancies.some((d) => d.fact_key === row.fact_key),
+      )
+    ) {
+      throw persistenceError("persist discrepancy gaps");
+    }
   }
 
-  const { error: requestUpdateError } = await sb
+  const requestUpdate = await sb
     .from("borrower_irs_transcript_requests")
     .update({ status: "reconciled", reconciliation_summary: { transcripts, discrepancies } })
-    .eq("id", requestId);
-  if (requestUpdateError) throw dbError("request_update", requestUpdateError);
+    .eq("id", requestId)
+    .eq("status", "received")
+    .select("id, status");
+  if (
+    requestUpdate.error ||
+    !Array.isArray(requestUpdate.data) ||
+    requestUpdate.data.length !== 1 ||
+    requestUpdate.data[0]?.id !== requestId ||
+    requestUpdate.data[0]?.status !== "reconciled"
+  ) {
+    throw persistenceError("mark request reconciled");
+  }
 
-  const { error: eventError } = await sb.from("deal_events").insert({
-    deal_id: request.deal_id,
-    kind: "irs.reconciliation_completed",
-    payload: { request_id: requestId, discrepancy_count: discrepancies.length },
-  });
-  if (eventError) throw dbError("event_insert", eventError);
+  const eventInsert = await sb
+    .from("deal_events")
+    .insert({
+      deal_id: request.deal_id,
+      kind: "irs.reconciliation_completed",
+      payload: { request_id: requestId, discrepancy_count: discrepancies.length },
+    })
+    .select("id, kind");
+  if (
+    eventInsert.error ||
+    !Array.isArray(eventInsert.data) ||
+    eventInsert.data.length !== 1 ||
+    typeof eventInsert.data[0]?.id !== "string" ||
+    eventInsert.data[0]?.kind !== "irs.reconciliation_completed"
+  ) {
+    throw persistenceError("persist completion event");
+  }
 
   return { ok: true, discrepancyCount: discrepancies.length };
 }
