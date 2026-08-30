@@ -1,269 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { signGcsReadUrl } from "@/lib/storage/gcs";
-import { defaultDocumentBucket } from "@/lib/storage/documentBytes";
-import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { createAuthorizedDocumentDownload } from "@/lib/storage/createAuthorizedDocumentDownload";
 
 export const runtime = "nodejs";
-// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
-// 10s default for cold-start auth + multi-step Supabase I/O.
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-function getRequestId(req: NextRequest) {
-  return (
-    req.headers.get("x-request-id") ||
-    req.headers.get("x-buddy-request-id") ||
-    crypto.randomUUID()
-  );
+const NO_STORE_HEADERS = {
+  "cache-control": "private, no-store, max-age=0",
+  pragma: "no-cache",
+  "referrer-policy": "no-referrer",
+};
+
+function json(body: Record<string, unknown>, status = 200) {
+  return NextResponse.json(body, { status, headers: NO_STORE_HEADERS });
 }
 
-async function withTimeout<T>(label: string, ms: number, fn: () => Promise<T>): Promise<T> {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), ms);
+async function getActorBankId(): Promise<{ ok: true; bankId: string } | { ok: false; status: 401 | 503; error: string }> {
   try {
-    return await Promise.race([
-      fn(),
-      new Promise<T>((_, reject) => {
-        controller.signal.addEventListener("abort", () =>
-          reject(new Error(`${label} timeout after ${ms}ms`)),
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(t);
+    await requireUser();
+  } catch {
+    return { ok: false, status: 401, error: "unauthorized" };
+  }
+  try {
+    return { ok: true, bankId: await getCurrentBankId() };
+  } catch {
+    return { ok: false, status: 503, error: "tenant_context_unavailable" };
   }
 }
 
-async function resolveDocForDeal(params: {
+async function respond(args: {
   dealId: string;
-  fileId?: string | null;
+  documentId?: string | null;
   storagePath?: string | null;
 }) {
-  const sb = supabaseAdmin();
+  const actor = await getActorBankId();
+  if (!actor.ok) return json({ ok: false, error: actor.error }, actor.status);
 
-  if (params.fileId) {
-    const { data, error } = await sb
-      .from("deal_documents")
-      .select("id, deal_id, storage_bucket, storage_path")
-      .eq("deal_id", params.dealId)
-      .eq("id", params.fileId)
-      .maybeSingle();
-    return { doc: data, error };
-  }
-
-  if (params.storagePath) {
-    const { data, error } = await sb
-      .from("deal_documents")
-      .select("id, deal_id, storage_bucket, storage_path")
-      .eq("deal_id", params.dealId)
-      .eq("storage_path", params.storagePath)
-      .maybeSingle();
-    return { doc: data, error };
-  }
-
-  return { doc: null as any, error: null as any };
-}
-
-async function authorizeDealAccess(dealId: string) {
-  const { userId } = await withTimeout("clerkAuth", 4_000, async () => clerkAuth());
-  if (!userId) return { ok: false as const, status: 401, error: "Unauthorized" };
-
-  const bankId = await withTimeout("getCurrentBankId", 6_000, async () => getCurrentBankId());
-  const sb = supabaseAdmin();
-  const { data: deal, error: dealErr } = await withTimeout("dealLookup", 8_000, async () =>
-    sb.from("deals").select("id, bank_id").eq("id", dealId).maybeSingle(),
+  const result = await createAuthorizedDocumentDownload({ ...args, bankId: actor.bankId }).catch(
+    () => ({ ok: false as const, status: 503 as const, error: "download_unavailable" as const }),
   );
-
-  if (dealErr) return { ok: false as const, status: 500, error: dealErr.message };
-  if (!deal) return { ok: false as const, status: 404, error: "Deal not found" };
-  if (deal.bank_id !== bankId) return { ok: false as const, status: 403, error: "Forbidden" };
-
-  return { ok: true as const, bankId };
+  if (!result.ok) return json({ ok: false, error: result.error }, result.status);
+  return json({ ok: true, signedUrl: result.signedUrl });
 }
 
-export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
-  const requestId = getRequestId(req);
-  const { dealId } = await ctx.params;
-
-  try {
-    const authz = await authorizeDealAccess(dealId);
-    if (!authz.ok) {
-      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
-    }
-
-    const { searchParams } = new URL(req.url);
-    const fileId = searchParams.get("fileId") || searchParams.get("file_id");
-    const storagePath = searchParams.get("stored_name") || searchParams.get("storage_path");
-
-    if (!fileId && !storagePath) {
-      return NextResponse.json(
-        { ok: false, error: "Missing fileId (or stored_name)." },
-        { status: 400 },
-      );
-    }
-
-    const { doc, error: docErr } = await withTimeout("docLookup", 10_000, async () =>
-      resolveDocForDeal({ dealId, fileId, storagePath }),
-    );
-
-    if (docErr) {
-      return NextResponse.json({ ok: false, error: docErr.message }, { status: 500 });
-    }
-    if (!doc) {
-      return NextResponse.json(
-        { ok: false, error: "File not found for this deal." },
-        { status: 404 },
-      );
-    }
-
-    const useBucket = String(doc.storage_bucket || defaultDocumentBucket());
-    const usePath = String(doc.storage_path);
-
-    const gcsBucket = process.env.GCS_BUCKET || "";
-    if (gcsBucket && useBucket === gcsBucket) {
-      const signedUrl = await signGcsReadUrl({
-        key: usePath,
-        expiresSeconds: 60 * 10,
-      });
-
-      await logLedgerEvent({
-        dealId,
-        bankId: authz.bankId,
-        eventKey: "documents.download_signed",
-        uiState: "done",
-        uiMessage: "Signed download generated (gcs)",
-        meta: {
-          storage_bucket: useBucket,
-          storage_path: usePath,
-        },
-      });
-
-      return NextResponse.json({ ok: true, signedUrl, requestId });
-    }
-
-    const sb = supabaseAdmin();
-    const { data, error } = await withTimeout("createSignedUrl", 12_000, async () =>
-      sb.storage.from(useBucket).createSignedUrl(usePath, 60 * 10),
-    );
-
-    if (error || !data?.signedUrl) {
-      return NextResponse.json(
-        { ok: false, error: error?.message || "Failed to create signed URL." },
-        { status: 500 },
-      );
-    }
-
-    await logLedgerEvent({
-      dealId,
-      bankId: authz.bankId,
-      eventKey: "documents.download_signed",
-      uiState: "done",
-      uiMessage: "Signed download generated (supabase)",
-      meta: {
-        storage_bucket: useBucket,
-        storage_path: usePath,
-      },
-    });
-
-    return NextResponse.json({ ok: true, signedUrl: data.signedUrl, requestId });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const status = msg.includes("timeout") ? 504 : 500;
-    return NextResponse.json({ ok: false, error: msg, requestId }, { status });
-  }
+export async function GET(req: NextRequest, { params }: { params: Promise<{ dealId: string }> }) {
+  const { dealId } = await params;
+  const fileId = req.nextUrl.searchParams.get("fileId") || req.nextUrl.searchParams.get("file_id");
+  const storagePath = req.nextUrl.searchParams.get("stored_name") || req.nextUrl.searchParams.get("storage_path");
+  return respond({ dealId, documentId: fileId, storagePath });
 }
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
-  const requestId = getRequestId(req);
-  const { dealId } = await ctx.params;
-
-  try {
-    const authz = await authorizeDealAccess(dealId);
-    if (!authz.ok) {
-      return NextResponse.json({ ok: false, error: authz.error }, { status: authz.status });
-    }
-
-    const body = await req.json().catch(() => ({}) as any);
-    const storagePath = String(body?.stored_name || body?.storage_path || "");
-    const bucket = String(body?.storage_bucket || defaultDocumentBucket());
-
-    if (!storagePath) {
-      return NextResponse.json(
-        { ok: false, error: "Missing stored_name (storage path).", requestId },
-        { status: 400 },
-      );
-    }
-
-    const { doc, error: docErr } = await withTimeout("docLookup", 10_000, async () =>
-      resolveDocForDeal({ dealId, storagePath }),
-    );
-
-    if (docErr) {
-      return NextResponse.json({ ok: false, error: docErr.message, requestId }, { status: 500 });
-    }
-    if (!doc) {
-      return NextResponse.json(
-        { ok: false, error: "File not found for this deal.", requestId },
-        { status: 404 },
-      );
-    }
-
-    const useBucket = String(doc.storage_bucket || bucket);
-    const usePath = String(doc.storage_path);
-
-    const gcsBucket = process.env.GCS_BUCKET || "";
-    if (gcsBucket && useBucket === gcsBucket) {
-      const signedUrl = await signGcsReadUrl({
-        key: usePath,
-        expiresSeconds: 60 * 10,
-      });
-
-      await logLedgerEvent({
-        dealId,
-        bankId: authz.bankId,
-        eventKey: "documents.download_signed",
-        uiState: "done",
-        uiMessage: "Signed download generated (gcs)",
-        meta: {
-          storage_bucket: useBucket,
-          storage_path: usePath,
-        },
-      });
-
-      return NextResponse.json({ ok: true, signedUrl, requestId });
-    }
-
-    const sb = supabaseAdmin();
-    const { data, error } = await withTimeout("createSignedUrl", 12_000, async () =>
-      sb.storage.from(useBucket).createSignedUrl(usePath, 60 * 10),
-    );
-
-    if (error || !data?.signedUrl) {
-      return NextResponse.json(
-        { ok: false, error: error?.message || "Failed to create signed URL.", requestId },
-        { status: 500 },
-      );
-    }
-
-    await logLedgerEvent({
-      dealId,
-      bankId: authz.bankId,
-      eventKey: "documents.download_signed",
-      uiState: "done",
-      uiMessage: "Signed download generated (supabase)",
-      meta: {
-        storage_bucket: useBucket,
-        storage_path: usePath,
-      },
-    });
-
-    return NextResponse.json({ ok: true, signedUrl: data.signedUrl, requestId });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const status = msg.includes("timeout") ? 504 : 500;
-    return NextResponse.json({ ok: false, error: msg, requestId }, { status });
+export async function POST(req: NextRequest, { params }: { params: Promise<{ dealId: string }> }) {
+  const { dealId } = await params;
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > 4_096) {
+    return json({ ok: false, error: "invalid_request" }, 413);
   }
+
+  let body: Record<string, unknown>;
+  try {
+    const raw = await req.text();
+    if (Buffer.byteLength(raw, "utf8") > 4_096) return json({ ok: false, error: "invalid_request" }, 413);
+    body = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return json({ ok: false, error: "invalid_request" }, 400);
+  }
+
+  const storagePath = String(body.stored_name || body.storage_path || "");
+  return respond({ dealId, storagePath });
 }
