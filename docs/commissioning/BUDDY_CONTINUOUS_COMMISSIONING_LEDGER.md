@@ -1531,3 +1531,52 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+## 2026-08-30 — document download authorization and delivery truthfulness
+
+Audit evidence:
+
+- The internal signed-URL POST route accepted a caller-selected fallback bucket
+  for historical document rows, allowing the storage namespace to diverge from
+  authoritative persistence.
+- Both document-download routes returned raw database/provider failures, omitted
+  explicit no-store controls, and used a best-effort ledger call while reporting
+  a successful signed delivery.
+- Inputs, response URLs, request size, and signature lifetime were not governed
+  by one shared contract.
+
+Repair branch: `codex/commission-document-download-trust`.
+
+Repair:
+
+- Centralize document lookup and signing behind an exactly-one-of ID/path
+  selector bound to both authenticated deal and bank.
+- Source bucket and path only from the canonical document row and configured
+  historical default; caller-provided bucket selection is removed.
+- Bound UUIDs, object coordinates, request bodies, signed URLs, and the
+  five-minute download TTL.
+- Require durable ledger success before returning a signed URL.
+- Return stable redacted failures with private, no-store response headers.
+- Add a three-case regression guard and focused commissioning record.
+
+Validation before merge:
+
+- Focused regression: 3 passed, 0 failed.
+- TypeScript syntax transpilation: 3 runtime files passed.
+- Production-equivalent build, required GitHub checks, exact-head preview,
+  complete diff inspection, and public unauthenticated route probes remain
+  required.
+- Post-merge transactional closure requires a verified Buddy-owned Supabase
+  project and authorized Supabase/GCS document fixtures; no unverified database
+  was accessed.
+
+Independent unresolved risks:
+
+- Stripe checkout has no repository-owned webhook, subscription-state model, or
+  entitlement consumer. Implementation is paused pending the product decision
+  that identifies authoritative entitlement ownership and the verified Buddy
+  database contract.
+- PR 878's complete Golden Trident ceremony and the missing live
+  `portfolio_risk_snapshots` migration remain blocked on verification of the
+  exact Buddy-owned Supabase project and authorized fixtures.
