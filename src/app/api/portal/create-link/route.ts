@@ -11,7 +11,7 @@ function json(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: PORTAL_NO_STORE });
 }
 
-export async function POST(req: NextRequest) {
+async function handle(req: NextRequest) {
   const input = parsePortalLinkInput(await req.json().catch(() => null));
   if (!input) return json({ ok: false, error: "invalid_request" }, 400);
 
@@ -46,4 +46,9 @@ export async function POST(req: NextRequest) {
   }
 
   return json({ ok: true, token, deal_id: data.deal_id, expires_at: data.expires_at, portal_url: `${origin}/upload/${token}` });
+}
+
+export async function POST(req: NextRequest) {
+  try { return await handle(req); }
+  catch { console.error("[portal/create-link] unexpected_failure"); return json({ ok: false, error: "link_creation_unavailable" }, 503); }
 }
