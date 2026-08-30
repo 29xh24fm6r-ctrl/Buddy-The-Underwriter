@@ -184,7 +184,7 @@ test("Resend HTTP success without an id is not accepted as delivery", async () =
       ok: true,
       status: 200,
       json: async () => ({}),
-    })) as typeof fetch;
+    })) as unknown as typeof fetch;
 
     const result = await m.createEmailAdapter()({
       recipient: "lender@example.com",
@@ -220,7 +220,7 @@ test("Telnyx HTTP success without an id is not accepted as delivery", async () =
       ok: true,
       status: 202,
       json: async () => ({ data: {} }),
-    })) as typeof fetch;
+    })) as unknown as typeof fetch;
 
     const result = await m.createTelnyxSmsAdapter()({
       recipient: "+12025550124",
