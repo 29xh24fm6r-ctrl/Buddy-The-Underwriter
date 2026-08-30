@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 function json(body: unknown, status = 200) { return NextResponse.json(body, { status, headers: PORTAL_NO_STORE }); }
 
-export async function POST(req: Request) {
+async function handle(req: Request) {
   const input = await req.json().catch(() => null);
   const record = input && typeof input === "object" ? input as Record<string, unknown> : {};
   const token = parsePortalToken(record.token);
@@ -27,4 +27,9 @@ export async function POST(req: Request) {
     return json({ ok: false, error: "message_persistence_unavailable" }, 503);
   }
   return json({ ok: true });
+}
+
+export async function POST(req: Request) {
+  try { return await handle(req); }
+  catch { console.error("[portal/messages/send] unexpected_failure"); return json({ ok: false, error: "message_persistence_unavailable" }, 503); }
 }
