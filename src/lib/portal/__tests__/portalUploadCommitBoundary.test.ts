@@ -118,6 +118,7 @@ test("authoritative mutations require returned-row proof and non-green failures"
   assert.match(route, /deal_upload_session_files[\s\S]*\.select\("id, status"\)/);
   assert.match(route, /deal_upload_sessions[\s\S]*\.select\("id, status"\)/);
   assert.match(route, /document_queue_unproven/);
+  assert.match(route, /if \(!artifactQueue\.ok\) unavailable\("artifact_queue_unproven"\)/);
   assert.doesNotMatch(route, /swallow: don't block portal/);
   assert.doesNotMatch(route, /best-effort/);
   assert.match(route, /const status = known \? error\.status : 503/);
