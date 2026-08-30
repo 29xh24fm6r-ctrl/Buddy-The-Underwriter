@@ -1,6 +1,9 @@
 import test, { after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 
@@ -170,4 +173,20 @@ test("fails closed when server checkout configuration is absent", async () => {
   assert.equal(response.status, 503);
   assert.equal((await response.json()).error, "checkout_not_configured");
   assert.equal(createCalls.length, 0);
+});
+
+
+test("pricing client always delegates plan selection to the server boundary", () => {
+  const pricingSource = readFileSync(
+    resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../../components/marketing/PricingTable.tsx",
+    ),
+    "utf8",
+  );
+
+  assert.match(pricingSource, /fetch\("\/api\/stripe\/checkout"/);
+  assert.match(pricingSource, /body:\s*JSON\.stringify\(\{\}\)/);
+  assert.doesNotMatch(pricingSource, /NEXT_PUBLIC_STRIPE_PRO_PRICE_ID/);
+  assert.doesNotMatch(pricingSource, /if\s*\(!PRO_PRICE_ID\)/);
 });

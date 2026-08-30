@@ -7,6 +7,7 @@ Buddy The Underwriter pricing-to-Stripe Checkout flow only.
 ## Evidence
 
 - The public pricing component submitted a browser-visible price id.
+- On 2026-08-30, a signed-out production browser click on **Upgrade to Pro** opened the contact email fallback instead of the Checkout API because the client-side public price gate was unset.
 - The server accepted any supplied Stripe price without authentication.
 - Redirect URLs trusted the caller-controlled Origin header.
 - Stripe exception messages were returned to the caller.
@@ -22,10 +23,11 @@ Buddy The Underwriter pricing-to-Stripe Checkout flow only.
 - Bound request bodies at 8 KiB.
 - Require an HTTPS Checkout URL and return deterministic safe failures.
 - Send signed-out pricing users to the normal sign-in path.
+- Always cross the authenticated server boundary before deciding whether checkout is configured; the browser no longer depends on or selects a Stripe price.
 
 ## Regression coverage
 
-Behavioral route tests cover authentication, configured price enforcement, actor metadata, hostile Origin input, body limits, safe provider failures, HTTPS URL proof, and missing configuration.
+Behavioral route tests cover authentication, configured price enforcement, actor metadata, hostile Origin input, body limits, safe provider failures, HTTPS URL proof, and missing configuration. A source-boundary regression test proves the pricing client always calls the server with an empty payload and has no public price dependency.
 
 ## Production closure
 
