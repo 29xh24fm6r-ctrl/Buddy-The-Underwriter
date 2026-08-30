@@ -14,8 +14,8 @@ Scope: Buddy The Underwriter and `www.buddysba.com` only.
   attest to browser claims rather than persisted bytes.
 - Session-file, session, borrower-request, document-job, receipt, and readiness
   failures were ignored or treated as successful completion.
-- Database/provider errors, storage paths, internal IDs, and stack traces could
-  reach logs, ledger metadata, or borrower responses.
+- Route-level database/provider errors, storage paths, internal IDs, and stack
+  traces could reach operational logs, progress metadata, or borrower responses.
 
 ## Repair
 
