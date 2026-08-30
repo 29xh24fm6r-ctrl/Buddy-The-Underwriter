@@ -400,6 +400,14 @@ export async function POST(req: Request) {
       });
     }
 
+    const { queueArtifact } = await import("@/lib/artifacts/queueArtifact");
+    const artifactQueue = await queueArtifact({
+      dealId: invite.deal_id,
+      bankId: invite.bank_id,
+      sourceTable: "deal_documents",
+      sourceId: ingest.documentId,
+    });
+    if (!artifactQueue.ok) unavailable("artifact_queue_unproven");
     await ensureDocumentJob(sb, invite.deal_id, ingest.documentId);
     await recomputeDealReady(invite.deal_id);
     await recordReceipt({
