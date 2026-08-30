@@ -21,6 +21,23 @@ type DownloadSuccess = {
 
 export type AuthorizedDocumentDownloadResult = DownloadFailure | DownloadSuccess;
 
+export async function withDocumentDownloadTimeout<T>(
+  operation: PromiseLike<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(operation),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("document_download_timeout")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export function isValidDocumentDownloadId(value: string): boolean {
   return UUID_RE.test(value);
 }
@@ -58,7 +75,13 @@ export async function createAuthorizedDocumentDownload(args: {
     .eq("bank_id", bankId);
 
   query = documentId ? query.eq("id", documentId) : query.eq("storage_path", requestedPath);
-  const { data: doc, error: readError } = await query.maybeSingle();
+  const readResult = await withDocumentDownloadTimeout(query.maybeSingle(), 8_000).catch(
+    () => null,
+  );
+  if (!readResult) {
+    return { ok: false, status: 503, error: "document_state_unavailable" };
+  }
+  const { data: doc, error: readError } = readResult;
   if (readError) {
     return { ok: false, status: 503, error: "document_state_unavailable" };
   }
@@ -81,9 +104,15 @@ export async function createAuthorizedDocumentDownload(args: {
     if (isGcsBucket(storageBucket)) {
       provider = "gcs";
       const { signGcsReadUrl } = await import("@/lib/storage/gcs");
-      signedUrl = await signGcsReadUrl({ key: storagePath, expiresSeconds: 300 });
+      signedUrl = await withDocumentDownloadTimeout(
+        signGcsReadUrl({ key: storagePath, expiresSeconds: 300 }),
+        12_000,
+      );
     } else {
-      const { data, error } = await sb.storage.from(storageBucket).createSignedUrl(storagePath, 300);
+      const { data, error } = await withDocumentDownloadTimeout(
+        sb.storage.from(storageBucket).createSignedUrl(storagePath, 300),
+        12_000,
+      );
       if (error || !data?.signedUrl) {
         return { ok: false, status: 503, error: "download_unavailable" };
       }
@@ -97,14 +126,22 @@ export async function createAuthorizedDocumentDownload(args: {
     return { ok: false, status: 503, error: "download_unavailable" };
   }
 
-  const audit = await logLedgerEventRequired({
-    dealId,
-    bankId,
-    eventKey: "documents.download_signed",
-    uiState: "done",
-    uiMessage: "Document download authorized",
-    meta: { provider },
-  });
+  let audit;
+  try {
+    audit = await withDocumentDownloadTimeout(
+      logLedgerEventRequired({
+        dealId,
+        bankId,
+        eventKey: "documents.download_signed",
+        uiState: "done",
+        uiMessage: "Document download authorized",
+        meta: { provider },
+      }),
+      8_000,
+    );
+  } catch {
+    return { ok: false, status: 503, error: "download_audit_unavailable" };
+  }
   if (!audit.ok) {
     return { ok: false, status: 503, error: "download_audit_unavailable" };
   }
