@@ -9,11 +9,12 @@ test("IRS polling does not emit successful outcomes after Supabase failures", ()
   const polling = read("src/lib/integrations/irsTranscripts/polling.ts");
 
   assert.match(polling, /pendingError/);
-  assert.match(polling, /dbError\("pending_read"/);
-  assert.match(polling, /received_update/);
-  assert.match(polling, /expired_update/);
-  assert.match(polling, /expiry_gap_insert/);
-  assert.match(polling, /pending_update/);
+  assert.match(polling, /persistenceError\("load pending requests"\)/);
+  assert.match(polling, /requireReturnedRow\(\s*"mark request received"/);
+  assert.match(polling, /requireReturnedRow\(\s*"mark request expired"/);
+  assert.match(polling, /requireReturnedRow\(\s*"persist delayed-transcript gap"/);
+  assert.match(polling, /requireReturnedRow\(\s*"advance request polling cursor"/);
+  assert.match(polling, /\.eq\("status", "submitted"\)/);
 });
 
 test("IRS reconciliation requires every authoritative read and write", () => {
@@ -21,12 +22,13 @@ test("IRS reconciliation requires every authoritative read and write", () => {
   const worker = read("src/lib/jobs/pollIrsTranscripts.ts");
   const route = read("src/app/api/cron/sba-checks/route.ts");
 
-  assert.match(reconciler, /request_read/);
-  assert.match(reconciler, /facts_read/);
-  assert.match(reconciler, /gap_insert/);
-  assert.match(reconciler, /request_update/);
-  assert.match(reconciler, /event_insert/);
-  assert.match(worker, /failed\+\+/);
+  assert.match(reconciler, /persistenceError\("load request"\)/);
+  assert.match(reconciler, /persistenceError\("load borrower financial facts"\)/);
+  assert.match(reconciler, /persistenceError\("persist discrepancy gaps"\)/);
+  assert.match(reconciler, /persistenceError\("mark request reconciled"\)/);
+  assert.match(reconciler, /persistenceError\("persist completion event"\)/);
+  assert.match(worker, /failures\.push/);
+  assert.match(worker, /PERSISTENCE_FAILED/);
   assert.match(route, /getCronOutcome\(result\.failed\)/);
 });
 
