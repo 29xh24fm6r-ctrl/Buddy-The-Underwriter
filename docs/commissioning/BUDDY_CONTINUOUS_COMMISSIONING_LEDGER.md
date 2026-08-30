@@ -1531,3 +1531,55 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+## 2026-08-30 — borrower portal upload-commit integrity
+
+Checkpoint:
+
+- PR 878 remains deployed. Its complete seal-to-marketplace-to-lender transaction
+  still requires the verified Buddy-owned Supabase project and an authorized
+  sealed fixture.
+- PR 1010 remains an independent borrower portal trust-boundary checkpoint; this
+  arc does not modify its create-link, send-link, session, or message files.
+- No database was queried or mutated because the exact Buddy-owned Supabase
+  project is not verified.
+
+Evidence and root cause:
+
+- Portal prepare persisted every file with a zero byte length, while the browser
+  sent the real byte length only to commit. Commit therefore rejected every
+  non-empty upload as a session-size mismatch.
+- Commit trusted caller path, filename, MIME, size, and a hard-coded bucket
+  instead of the prepared session-file record.
+- The stored object was never re-read, so canonical identity could attest to
+  browser claims rather than persisted bytes.
+- Session, borrower-request, processing-queue, receipt, and readiness failures
+  could be ignored while the route returned success.
+- Runtime and ledger diagnostics included object paths, internal identifiers,
+  raw database/provider errors, and stack traces.
+
+Repair branch: `codex/commission-portal-upload-commit-integrity`.
+
+Repair:
+
+- Persist and prove a bounded positive byte length during prepare.
+- Require exact deal, bank, session, file, object-key, filename, MIME, and size
+  equality at commit, using the prepared record as the only bucket/path source.
+- Re-read the stored object and derive byte length plus SHA-256 before intake or
+  canonical persistence.
+- Reconcile interrupted canonical rows only with exact identity proof.
+- Require tenant-scoped returned-row proof for borrower requests, upload files,
+  sessions, and processing jobs.
+- Await readiness, receipt, snapshot, ledger, and queue boundaries; return
+  bounded no-store non-green responses for incomplete processing.
+- Add behavioral and structural regression coverage plus the focused arc record.
+
+Verification pending:
+
+- Focused regression suite, production-equivalent build, complete diff inspection,
+  all required GitHub checks, exact-head Vercel preview, and runtime log review.
+- Post-merge transactional closure requires an authorized borrower upload fixture
+  and the verified Buddy-owned Supabase project.
+- The independent live `portfolio_risk_snapshots` migration remains blocked on
+  exact project ownership verification.
