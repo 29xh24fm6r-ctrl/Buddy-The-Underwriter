@@ -25,6 +25,7 @@ export type ExpiringEtranCredential = {
 
 const WARNING_WINDOW_DAYS = 30;
 const MS_PER_DAY = 86_400_000;
+const PAGE_SIZE = 1_000;
 
 /**
  * Returns bank_etran_credentials rows whose cert_expires_at is within the
@@ -37,21 +38,31 @@ export async function findExpiringEtranCredentials(
 ): Promise<ExpiringEtranCredential[]> {
   const cutoff = new Date(now.getTime() + WARNING_WINDOW_DAYS * MS_PER_DAY).toISOString();
 
-  const { data, error } = await sb
-    .from("bank_etran_credentials")
-    .select("bank_id, sba_lender_id, cert_expires_at")
-    .not("cert_expires_at", "is", null)
-    .lte("cert_expires_at", cutoff);
+  const rows: Array<{ bank_id: string; sba_lender_id: string; cert_expires_at: string }> = [];
 
-  if (error) {
-    const message =
-      typeof error === "object" && error && "message" in error
-        ? String((error as { message: unknown }).message)
-        : String(error);
-    throw new Error(`etran_cert_expiry_read_failed: ${message}`);
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await sb
+      .from("bank_etran_credentials")
+      .select("bank_id, sba_lender_id, cert_expires_at")
+      .not("cert_expires_at", "is", null)
+      .lte("cert_expires_at", cutoff)
+      .order("cert_expires_at", { ascending: true })
+      .order("bank_id", { ascending: true })
+      .order("sba_lender_id", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error) {
+      const message =
+        typeof error === "object" && error && "message" in error
+          ? String((error as { message: unknown }).message)
+          : String(error);
+      throw new Error(`etran_cert_expiry_read_failed: ${message}`);
+    }
+
+    const page = (data ?? []) as Array<{ bank_id: string; sba_lender_id: string; cert_expires_at: string }>;
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) break;
   }
-
-  const rows = (data ?? []) as Array<{ bank_id: string; sba_lender_id: string; cert_expires_at: string }>;
 
   return rows.map((r) => {
     const daysRemaining = Math.round((new Date(r.cert_expires_at).getTime() - now.getTime()) / MS_PER_DAY);
