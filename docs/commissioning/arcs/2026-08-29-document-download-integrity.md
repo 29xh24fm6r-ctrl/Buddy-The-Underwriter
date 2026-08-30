@@ -29,8 +29,9 @@ Three authenticated document download surfaces shared one incomplete trust bound
 - URLs remained valid for ten minutes even though a normal click needs only a
   short handoff window.
 
-A corrupted, displaced, or unrecorded provider object could therefore receive a
-valid URL and be represented as the canonical underwriting document.
+A corrupted, displaced, unrecorded, or metadata-incomplete provider object could
+therefore receive a valid URL and be represented as the canonical underwriting
+document.
 
 ## Repair
 
@@ -38,11 +39,12 @@ Branch: `codex/commission-document-download-integrity`.
 
 - Resolve every download to a canonical `deal_documents` row bound to both deal
   and bank before privileged storage access.
-- Ignore caller-supplied bucket claims; bucket and object path come only from the
-  canonical row.
-- Download and verify stored bytes before signing. Current rows require exact
-  size and SHA-256 proof; historic rows without a digest still require exact size
-  proof and record the actual digest.
+- Ignore caller-supplied bucket claims. The object path must come from the
+  canonical row; the bucket comes from that row or the server-owned canonical
+  default already used for historic rows.
+- Require persisted size evidence, then download and verify stored bytes before
+  signing. Current rows require exact size and SHA-256 proof; historic rows
+  without a digest still require exact size proof and record the actual digest.
 - Centralize provider signing after proof and reduce the URL lifetime to 60
   seconds.
 - Record the proven size, digest, identity strength, and URL lifetime in the
@@ -58,12 +60,13 @@ was queried.
 
 ## Verification and closure
 
-Regression coverage proves authorization, canonical-row binding, proof-before-
-sign ordering, audit-before-release ordering, caller-bucket rejection, redacted
-failure behavior, and removal of direct legacy bucket signing.
+Regression coverage proves authorization, canonical-row binding, required size
+metadata, proof-before-sign ordering, audit-before-release ordering,
+caller-bucket rejection, redacted failure behavior, and removal of direct legacy
+bucket signing.
 
 Required CI, build, exact-head preview, complete diff inspection, and post-merge
 transactional proof are recorded after execution. Transactional closure requires
 a verified Buddy-owned Supabase connection and authorized document fixtures for
-current SHA-backed rows, historic size-only rows, corrupted objects, and
-cross-bank denial.
+current SHA-backed rows, historic size-only rows, missing-metadata rows,
+corrupted objects, and cross-bank denial.
