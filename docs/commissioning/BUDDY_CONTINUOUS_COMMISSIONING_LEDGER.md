@@ -1531,3 +1531,31 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+## 2026-08-30 — public liveness boundary
+
+Production evidence:
+
+- Unauthenticated `GET /api/health` returned HTTP 200 while exposing the exact
+  Vercel deployment ID and hostname, Git commit SHA/ref, environment, and
+  supporting-provider enablement and connection diagnostics.
+- Top-level `ok: true` was independent of the reported provider state, coupling
+  a liveness signal to unrelated diagnostic work without expressing readiness.
+
+Repair branch: `codex/commission-public-health-boundary`.
+
+Repair:
+
+- Reduce the public route to a constant bounded liveness contract with only
+  `ok`, `status`, and the canonical service name.
+- Remove deployment/environment serialization and provider calls from the public
+  boundary while retaining the existing authenticated admin diagnostic surface.
+- Add explicit no-store caching and behavioral regression coverage proving both
+  the exact response and absence of deployment/provider diagnostics.
+
+Validation and closure:
+
+- Exact-head code, test, build, preview, CI, and production evidence must be
+  recorded before merge recommendation.
+- After merge, reverify the bounded production response and confirm no new
+  warning/error/fatal logs or grouped runtime errors.
