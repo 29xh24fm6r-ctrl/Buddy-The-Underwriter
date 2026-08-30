@@ -16,11 +16,13 @@
  *     payload.alert_id = <id>
  *     created_at       > now() - 30 minutes
  *
- * Failure modes (none throw):
- *   - SLACK_WEBHOOK_URL missing → return { sent: false, reason: 'alert_not_configured' }
- *   - Cooldown hit             → { sent: false, reason: 'cooldown' }
- *   - Slack 4xx/5xx            → { sent: false, reason: 'slack_failed', detail: ... }
- *   - DB write failure         → still returns sent:true (already posted), logs warning
+ * Delivery outcomes are explicit and fail closed:
+ *   - Missing Slack config, unavailable cooldown evidence, provider failure,
+ *     and unproven persistence all return sent:false.
+ *   - A provider-accepted delivery whose audit row cannot be proven is marked
+ *     providerAccepted:true and evidence_persistence_failed. It is never
+ *     reported as a proven send.
+ *   - Cooldown is the only successful non-send outcome.
  */
 
 import { assertServerOnly } from "@/lib/serverOnly";
@@ -40,12 +42,17 @@ const SYSTEM_EVENT_SOURCE = "observer"; // AegisSourceSystem (existing enum)
 export type SendAlertReason =
   | "alert_not_configured"
   | "cooldown"
+  | "cooldown_check_failed"
   | "slack_failed"
+  | "evidence_persistence_failed"
   | "ok";
 
 export type SendAlertResult = {
+  /** True only when both Slack acceptance and canonical persistence are proven. */
   sent: boolean;
   reason: SendAlertReason;
+  /** Distinguishes an accepted-but-unproven provider delivery from no delivery. */
+  providerAccepted?: boolean;
   detail?: string;
 };
 
@@ -92,6 +99,17 @@ export async function sendBankerAnalysisAlert(
     .eq("payload->>kind", ALERT_SENT_KIND)
     .eq("payload->>alert_id", input.alert.id)
     .limit(1);
+  if (recent.error) {
+    console.error("[bankerAnalysisAlert] cooldown_check_failed", {
+      alertId: input.alert.id,
+      error: recent.error.message,
+    });
+    return {
+      sent: false,
+      reason: "cooldown_check_failed",
+      detail: "database_error",
+    };
+  }
   if (Array.isArray(recent.data) && recent.data.length > 0) {
     return { sent: false, reason: "cooldown" };
   }
@@ -120,9 +138,11 @@ export async function sendBankerAnalysisAlert(
     return { sent: false, reason: "slack_failed", detail: postDetail };
   }
 
-  // 3. Record send for dedupe
-  try {
-    await sb.from("buddy_system_events").insert({
+  // 3. Record and prove the provider-accepted send for dedupe. Supabase
+  // mutations return errors as values, so try/catch alone cannot prove this.
+  const persisted = await sb
+    .from("buddy_system_events")
+    .insert({
       event_type: SYSTEM_EVENT_TYPE,
       severity: input.alert.severity === "error" ? "error" : "warning",
       source_system: SYSTEM_EVENT_SOURCE,
@@ -136,16 +156,30 @@ export async function sendBankerAnalysisAlert(
       },
       env: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
       release: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
-    } as any);
-  } catch (e) {
-    // Dedupe write is best-effort. We've already posted to Slack.
-    console.warn(
-      "[bankerAnalysisAlert] dedupe write failed (non-fatal):",
-      e instanceof Error ? e.message : "unknown",
-    );
+    } as any)
+    .select("id, payload")
+    .single();
+
+  const persistedPayload = (persisted.data as any)?.payload;
+  if (
+    persisted.error ||
+    typeof (persisted.data as any)?.id !== "string" ||
+    persistedPayload?.kind !== ALERT_SENT_KIND ||
+    persistedPayload?.alert_id !== input.alert.id
+  ) {
+    console.error("[bankerAnalysisAlert] evidence_persistence_failed", {
+      alertId: input.alert.id,
+      error: persisted.error?.message ?? "returned_row_mismatch",
+    });
+    return {
+      sent: false,
+      providerAccepted: true,
+      reason: "evidence_persistence_failed",
+      detail: "database_error",
+    };
   }
 
-  return { sent: true, reason: "ok" };
+  return { sent: true, providerAccepted: true, reason: "ok" };
 }
 
 // ─── Slack payload ───────────────────────────────────────────────────────────
