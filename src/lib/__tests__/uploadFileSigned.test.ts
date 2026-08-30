@@ -131,3 +131,56 @@ test("existing-deal context returns the failure instead of throwing", async () =
     restore();
   }
 });
+
+
+test("a create-once 412 continues to authoritative record verification", async () => {
+  const restore = installFakeXhr({ event: "load", status: 412 });
+  try {
+    const result = await uploadFileWithSignedUrl({
+      uploadUrl: "https://storage.googleapis.com/bucket/obj?ifGenerationMatch=0",
+      headers: {},
+      file: FILE,
+      context: "existing-deal",
+      maxAttempts: 1,
+    });
+    assert.equal(result.ok, true);
+    assert.equal((result as any).meta?.storage_object_already_created, true);
+  } finally {
+    restore();
+  }
+});
+
+test("non-precondition storage conflicts remain failures", async () => {
+  const restore = installFakeXhr({ event: "load", status: 409 });
+  try {
+    const result = await uploadFileWithSignedUrl({
+      uploadUrl: "https://storage.googleapis.com/bucket/obj",
+      headers: {},
+      file: FILE,
+      context: "existing-deal",
+      maxAttempts: 1,
+    });
+    assert.equal(result.ok, false);
+    assert.equal((result as any).code, "HTTP_409");
+  } finally {
+    restore();
+  }
+});
+
+
+test("a 412 without the create-once precondition remains a failure", async () => {
+  const restore = installFakeXhr({ event: "load", status: 412 });
+  try {
+    const result = await uploadFileWithSignedUrl({
+      uploadUrl: "https://storage.googleapis.com/bucket/obj",
+      headers: {},
+      file: FILE,
+      context: "existing-deal",
+      maxAttempts: 1,
+    });
+    assert.equal(result.ok, false);
+    assert.equal((result as any).code, "HTTP_412");
+  } finally {
+    restore();
+  }
+});

@@ -22,6 +22,7 @@ function fakeClient(options: {
   snapshots?: any[];
   readError?: DbError;
   writeError?: DbError;
+  persistedSnapshot?: any | null;
 }) {
   const writes: any[] = [];
   const operations: QueryOperation[] = [];
@@ -71,9 +72,22 @@ function fakeClient(options: {
       }
       if (table === "portfolio_risk_snapshots") {
         return {
-          async upsert(row: any) {
+          upsert(row: any) {
             writes.push(row);
-            return { data: null, error: options.writeError ?? null };
+            return {
+              select() {
+                return this;
+              },
+              async single() {
+                return {
+                  data:
+                    options.persistedSnapshot === undefined
+                      ? row
+                      : options.persistedSnapshot,
+                  error: options.writeError ?? null,
+                };
+              },
+            };
           },
         };
       }
@@ -210,5 +224,66 @@ test("aggregatePortfolio: snapshot write failure remains loud", async () => {
   await assert.rejects(
     () => aggregatePortfolio("bank-write-failure", client as any),
     /Portfolio snapshot write failed.*upsert denied/,
+  );
+});
+
+
+test("aggregatePortfolio: returned-row mismatch cannot report success", async () => {
+  const { client } = fakeClient({
+    snapshots: [
+      {
+        inputs_json: { loan_amount: 100000 },
+        model_json: { risk_weight: 1 },
+        exceptions_json: [],
+        committee_required: false,
+        decision: "approve",
+      },
+    ],
+    persistedSnapshot: {
+      bank_id: "different-bank",
+      as_of_date: new Date().toISOString().split("T")[0],
+      total_exposure: 100000,
+      risk_weighted_exposure: 100000,
+      total_decisions: 1,
+      decisions_with_exceptions: 0,
+      exception_rate: 0,
+      committee_required_count: 0,
+      committee_override_rate: 0,
+      concentration_json: {
+        by_loan_size: {
+          "0-250k": 1,
+          "250k-500k": 0,
+          "500k-1M": 0,
+          "1M-2M": 0,
+          "2M+": 0,
+        },
+        by_decision_type: { approve: 1, decline: 0, refer: 0 },
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => aggregatePortfolio("bank-live", client as any),
+    /Portfolio snapshot persistence proof failed/,
+  );
+});
+
+test("aggregatePortfolio: missing returned row cannot report success", async () => {
+  const { client } = fakeClient({
+    snapshots: [
+      {
+        inputs_json: { loan_amount: 100000 },
+        model_json: { risk_weight: 1 },
+        exceptions_json: [],
+        committee_required: false,
+        decision: "approve",
+      },
+    ],
+    persistedSnapshot: null,
+  });
+
+  await assert.rejects(
+    () => aggregatePortfolio("bank-live", client as any),
+    /Portfolio snapshot persistence proof failed/,
   );
 });

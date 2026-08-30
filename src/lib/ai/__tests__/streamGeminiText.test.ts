@@ -44,7 +44,7 @@ test("streamGeminiText yields text deltas parsed from Gemini's SSE shape", async
   globalThis.fetch = (async () =>
     fakeGeminiSSEResponse([
       'data: {"candidates":[{"content":{"parts":[{"text":"Hi Matt, "}]}}]}\n\n',
-      'data: {"candidates":[{"content":{"parts":[{"text":"what are you financing?"}]}}]}\n\n',
+      'data: {"candidates":[{"content":{"parts":[{"text":"what are you financing?"}]},"finishReason":"STOP"}]}\n\n',
     ])) as unknown as typeof fetch;
 
   const deltas: string[] = [];
@@ -59,7 +59,7 @@ test("streamGeminiText yields text deltas parsed from Gemini's SSE shape", async
   assert.deepEqual(deltas, ["Hi Matt, ", "what are you financing?"]);
 });
 
-test("streamGeminiText skips malformed SSE data lines without throwing", async (t) => {
+test("streamGeminiText rejects malformed completed SSE data", async (t) => {
   process.env.GEMINI_API_KEY = "test-key";
   const originalFetch = globalThis.fetch;
   t.after(() => {
@@ -69,19 +69,18 @@ test("streamGeminiText skips malformed SSE data lines without throwing", async (
   globalThis.fetch = (async () =>
     fakeGeminiSSEResponse([
       "data: not-json\n\n",
-      'data: {"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}\n\n',
+      'data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}\n\n',
     ])) as unknown as typeof fetch;
 
-  const deltas: string[] = [];
-  for await (const delta of streamGeminiText({
-    model: "gemini-3.5-flash",
-    prompt: "hello",
-    logTag: "test",
-  })) {
-    deltas.push(delta);
-  }
-
-  assert.deepEqual(deltas, ["ok"]);
+  await assert.rejects(async () => {
+    for await (const _ of streamGeminiText({
+      model: "gemini-3.5-flash",
+      prompt: "hello",
+      logTag: "test",
+    })) {
+      // no-op
+    }
+  }, /malformed SSE JSON/);
 });
 
 test("streamGeminiText throws when the HTTP response is not ok", async (t) => {
@@ -120,7 +119,7 @@ test("streamGeminiText: Gemini 3.x model disables thinking and caps output token
   globalThis.fetch = (async (_url: unknown, init: any) => {
     capturedBody = init ? JSON.parse(String(init.body)) : null;
     return fakeGeminiSSEResponse([
-      'data: {"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}\n\n',
+      'data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}\n\n',
     ]);
   }) as unknown as typeof fetch;
 
@@ -147,7 +146,7 @@ test("streamGeminiText: filters out thought-marked parts from yielded text", asy
 
   globalThis.fetch = (async () =>
     fakeGeminiSSEResponse([
-      'data: {"candidates":[{"content":{"parts":[{"text":"reasoning...","thought":true},{"text":"Hi Matt"}]}}]}\n\n',
+      'data: {"candidates":[{"content":{"parts":[{"text":"reasoning...","thought":true},{"text":"Hi Matt"}]},"finishReason":"STOP"}]}\n\n',
     ])) as unknown as typeof fetch;
 
   const deltas: string[] = [];

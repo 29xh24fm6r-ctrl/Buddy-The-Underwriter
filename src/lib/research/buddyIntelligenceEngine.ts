@@ -402,6 +402,35 @@ async function callGeminiGroundedWithModel<T>(
       }));
     }
 
+    if (msg === "Gemini response contained no candidate") {
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: "empty_candidate",
+        response_chars: 0,
+      }));
+    }
+
+    if (msg === "Gemini response completed without reply text") {
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: "empty_text",
+        finish_reason: "STOP",
+        response_chars: 0,
+      }));
+    }
+
+    const incompleteMatch =
+      /^Gemini response was not complete \(finishReason: (.+)\)$/.exec(msg);
+    if (incompleteMatch) {
+      const finishReason = incompleteMatch[1];
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: finishReason === "SAFETY" ? "safety_block" : "finish_reason",
+        finish_reason: finishReason,
+        response_chars: 0,
+      }));
+    }
+
     const emptyMatch = /^empty response(?: \(finishReason: (.+)\))?$/.exec(msg);
     if (emptyMatch) {
       const finishReason = emptyMatch[1];

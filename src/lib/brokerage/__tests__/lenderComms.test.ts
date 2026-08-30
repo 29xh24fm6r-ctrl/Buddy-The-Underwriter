@@ -153,12 +153,28 @@ test("expired lease is recovered and provider exception is persisted", async () 
   assert.equal(db.tables.brokerage_lender_message_outbox[0].attempts, 2);
 });
 
-test("final transition failure surfaces after provider success", async () => {
+test("provider retries keep the same idempotency key when mark_sent persistence fails", async () => {
   const db = mdb(); db.tables.brokerage_lender_message_outbox.push({ id: "n1", status: "pending", attempts: 0, last_attempt_at: null, channel: "email", recipient: "x@y.com", body: "B" });
   let writes = 0;
   const originalFrom = db.from.bind(db);
   db.from = ((table: string) => { const q = originalFrom(table); const originalUpdate = q.update.bind(q); q.update = (u: Row) => { writes++; if (writes === 2) db.writeFailures.add(table); return originalUpdate(u); }; return q; }) as any;
-  await assert.rejects(() => m.sendLenderMessage("n1", async () => ({ ok: true }), db as any), /mark_sent.*write_failed/);
+
+  const deliveryKeys: string[] = [];
+  const adapter: import("../lenderComms").SendAdapter = async (message) => {
+    deliveryKeys.push(message.idempotencyKey);
+    return { ok: true };
+  };
+
+  await assert.rejects(() => m.sendLenderMessage("n1", adapter, db as any), /mark_sent.*write_failed/);
+  assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "pending");
+
+  db.writeFailures.clear();
+  db.tables.brokerage_lender_message_outbox[0].last_attempt_at = new Date(Date.now() - 10 * 60_000).toISOString();
+  const retry = await m.sendLenderMessage("n1", adapter, db as any);
+
+  assert.deepEqual(retry, { ok: true });
+  assert.deepEqual(deliveryKeys, ["buddy-lender-outbox:n1", "buddy-lender-outbox:n1"]);
+  assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "sent");
 });
 
 test("cycle surfaces database read failure", async () => {

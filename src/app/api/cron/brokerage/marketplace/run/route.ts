@@ -44,7 +44,12 @@ async function runMarketplaceCron(request: Request): Promise<NextResponse> {
     const adapters = createBrokerageCommsAdaptersFromEnv();
     const lenderAdapter: SendAdapter = async (m) => {
       if (m.channel === "dashboard") return { ok: true };
-      return adapters.email({ recipient: m.recipient, subject: m.subject, body: m.body });
+      return adapters.email({
+        recipient: m.recipient,
+        subject: m.subject,
+        body: m.body,
+        idempotencyKey: m.idempotencyKey,
+      });
     };
     const comms = await runLenderCommsCycle(sb, lenderAdapter);
     if (comms.failed > 0) {

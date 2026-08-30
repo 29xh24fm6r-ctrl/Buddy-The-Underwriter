@@ -1401,6 +1401,136 @@ Verification on code head `ed1dc756507501cc6b0e7d0dfc11dd487d26b651`:
 - Post-merge transactional proof requires an authorized SignWell sandbox
   ceremony and the verified Buddy-owned Supabase connection.
 
+## 2026-08-29 — storage orphan scan truthfulness
+
+Checkpoint:
+
+- PRs 973, 974, and 975 remain open, mergeable, independent checkpoints
+  against exact production main `9fe4b2471558fbd0e749c0ed6718ae12ea542482`.
+- PR 878 remains deployed. Full Golden Trident seal-to-marketplace-to-lender
+  transactional proof still requires a verified Buddy-owned Supabase connection
+  and an authorized sealed transaction.
+- This arc did not query or mutate any database because no verified Buddy-owned
+  Supabase connection and authorized super-admin scan fixture were available.
+
+Evidence and root cause:
+
+- GCS listing requested exactly the configured maximum, making provider
+  truncation indistinguishable from a complete scan.
+- Supabase Storage traversal read only the first 1,000 entries per folder.
+- The route continued after `capped: true`, compared partial cache evidence to
+  canonical document rows, silently truncated source/finding sets, and returned
+  success. Healthy objects beyond a boundary could therefore be recorded as
+  `db_only` or omitted without disclosure.
+- Success status persistence lacked returned-row proof.
+- An uncalled raw-SQL implementation was unsafe to revive: it compared a run
+  against unscoped document rows and cast arbitrary path segments to UUID.
+
+Repair branch: `codex/commission-storage-orphan-truthfulness`.
+
+Repair:
+
+- Request a one-object GCS sentinel beyond the configured cap and fully paginate
+  every Supabase Storage folder.
+- Refuse capped object listings, oversized source sets, and oversized finding
+  sets before any authoritative finding is written; persist a failed run and
+  return HTTP 409.
+- Page reconciliation reads, validate bucket/prefix/max-object input before run
+  creation, and exclude SQL LIKE wildcard expansion.
+- Batch checked finding inserts and require returned `id`/`status` proof for
+  both successful and failed scan-state persistence.
+- Preserve distinct start, completion, and failure timestamps.
+- Remove the unused unscoped `exec_sql` implementation.
+- Add a five-case regression guard and focused commissioning arc document.
+
+Validation on code head `f258cda0dfdcf93476cc9c8a1d855735ed0f6a54`:
+
+- 13,532 tests: 13,523 passed, 0 failed, and 9 skipped.
+- React-server-condition tests passed 18/18. Research evaluation passed 7/7;
+  13 controlled production-data placeholders remained explicitly skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only schema drift, Build Check, Secret Scan, Route
+  Budget, and public Playwright passed. Public Playwright ran 1 test and skipped
+  5 authenticated cases because credentials were unavailable.
+- Exact-head Vercel preview `dpl_2SoTLYTY3dawokKLRzwK64f3cFvN` is READY on
+  the exact code SHA. A public browser render loaded the Buddy SBA homepage, and
+  the deployment recorded no warning, error, or fatal logs in the latest
+  two-hour window.
+- The complete four-file code-head diff was inspected: +413/-181. It contains
+  two runtime files, one regression file, and one commissioning document; no
+  schema, dependency, provider, production-data, deletion, or cross-product
+  change is present.
+- This ledger-only commit must retain green checks and a READY, SHA-matched
+  preview before merge recommendation.
+
+Post-merge closure:
+
+- With a verified Buddy-owned Supabase connection and an authorized super-admin
+  fixture, prove a capped run records failure without findings, a complete run
+  records exact scoped findings, and both completion/failure states retain
+  returned-row evidence.
+- Production rotation at 2026-08-29T07:30:39Z found the nightly route
+  returning HTTP 500 because `public.portfolio_risk_snapshots` was absent from
+  the live schema cache. The source writes this table, but repository search
+  found no owning migration. This is the next factory arc: establish verified
+  Buddy schema provenance and add the non-destructive table contract only after
+  the Buddy-owned Supabase connection is confirmed. No database was queried or
+  changed in this run.
+- After the nightly schema path is reconciled, resume authenticated document
+  download/storage authorization and immutable byte-delivery integrity.
+
+## 2026-08-29 — banker upload content-identity truthfulness
+
+Audit evidence:
+
+- The banker upload record route advanced upload-session and deal progress before
+  storage verification or canonical document persistence.
+- GCS verification proved existence only; Supabase Storage misses and errors were
+  explicitly non-fatal.
+- Canonical `deal_documents.size_bytes` and `sha256` came from the browser rather
+  than from the object persisted at the server-recorded bucket and key.
+- The independent production nightly schema defect remains evidenced by
+  `/api/cron/nightly` returning HTTP 500 because
+  `public.portfolio_risk_snapshots` is absent from the schema cache. The repository
+  has no migration creating it and no Buddy-owned Supabase project reference; that
+  component remains paused rather than crossing an uncertain product boundary.
+
+Repair branch: `codex/commission-upload-content-identity`.
+
+Repair:
+
+- Re-read each server-recorded object through the bucket-aware storage adapter and
+  derive its byte length and SHA-256 before canonical persistence.
+- Fail closed on object unavailability, timeout, malformed digest claims, size drift,
+  or digest drift.
+- Source filename, content type, expected size, bucket, and key from the verified
+  upload session and persist only the derived content identity.
+- Reconcile interrupted/historical document rows only with returned-row identity proof.
+- Advance session-file, session, and deal progress only after byte verification and
+  canonical document persistence; require returned-row evidence for every mutation.
+- Preserve failed objects for non-destructive orphan reconciliation.
+- Add unit and structural regression coverage plus the commissioning record at
+  `docs/commissioning/2026-08-29-upload-content-identity.md`.
+
+Verification on code head `99a4afa2cebd6567e367981e77cd304d2c2a187c`:
+
+- 13,535 tests: 13,526 passed, 0 failed, 9 skipped.
+- React-server: 18/18; research evaluation: 7 passed, 0 failed.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only drift, Build Check, Secret Scan, Route Budget, and
+  public Playwright passed.
+- Public Playwright passed 1 public case and skipped 5 authenticated-fixture cases.
+- Exact-code-head preview `dpl_YwHymWV6xdP7a5XkwkxtkeTNCJgN` is READY,
+  SHA-matched, HTTP 200, and runtime-clean.
+- The complete six-file diff was inspected; no schema, dependency, credential,
+  infrastructure, production-data, or destructive storage change is present.
+
+Remaining closure:
+
+- Production transactional closure requires Matt's merge, an authorized banker-upload
+  fixture, and a verified Buddy-owned Supabase connection.
+- PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
+  verified connection and an authorized sealed transaction.
 
 
 ## 2026-08-29 — Didit webhook authenticity and replay integrity

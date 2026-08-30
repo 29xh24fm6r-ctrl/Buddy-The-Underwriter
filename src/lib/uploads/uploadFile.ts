@@ -62,6 +62,14 @@ export async function uploadViaSignedUrl(
   onProgress?: (percent: number) => void,
   headers?: Record<string, string>,
 ): Promise<UploadResult> {
+  const isCreateOnceUrl = (() => {
+    try {
+      return new URL(signedUrl).searchParams.get("ifGenerationMatch") === "0";
+    } catch {
+      return false;
+    }
+  })();
+
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
 
@@ -77,8 +85,21 @@ export async function uploadViaSignedUrl(
     });
 
     xhr.addEventListener("load", () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve({ ok: true, file_id: "" }); // file_id filled by caller
+      if (
+        (xhr.status >= 200 && xhr.status < 300) ||
+        // Create-once GCS URLs return 412 when a retry arrives after the first
+        // PUT committed but its response was lost. Continue to the record
+        // endpoint: it verifies the server-recorded object's bytes and rejects
+        // any mismatch before canonical persistence.
+        (xhr.status === 412 && isCreateOnceUrl)
+      ) {
+        resolve({
+          ok: true,
+          file_id: "",
+          ...(xhr.status === 412 && isCreateOnceUrl
+            ? { meta: { storage_object_already_created: true } }
+            : {}),
+        }); // file_id filled by caller
       } else {
         resolve({
           ok: false,

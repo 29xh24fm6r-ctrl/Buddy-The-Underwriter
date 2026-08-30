@@ -14,6 +14,7 @@ const EVALUATE_ROUTE = read(
   "src/app/api/deals/[dealId]/committee/evaluate/route.ts",
 );
 const RETRIEVAL = read("src/lib/retrieval/committee.ts");
+const RETRIEVAL_CORE = read("src/lib/retrieval/retrievalCore.ts");
 const ENGINE = read("src/lib/sba/committee.ts");
 const DECISION_ROUTE = read(
   "src/app/api/deals/[dealId]/credit-memo/underwriter-decision/route.ts",
@@ -50,10 +51,21 @@ test("[committee-truth-1] committee citations must be admitted evidence", () => 
 
 test("[committee-truth-2] evaluation schema and provenance writes fail closed", () => {
   assert.match(ENGINE, /PersonaResponseSchema\.parse/);
+  assert.match(ENGINE, /formatCommitteeEvidence\(citations\)/);
+  assert.match(ENGINE, /selectCitedEvidence\(evaluations, citations\)/);
   assert.match(ENGINE, /committee_evaluation_citation_invalid/);
   assert.match(ENGINE, /if \(aiEventError \|\| !aiEvent\?\.id\)/);
-  assert.match(ENGINE, /if \(citationError\)/);
+  assert.match(ENGINE, /\.select\("chunk_id"\)/);
+  assert.match(ENGINE, /persistedChunkIds\.length !== expectedChunkIds\.length/);
   assert.doesNotMatch(ENGINE, /aiEvent\?\.id \?\? "unknown"/);
+});
+
+test("[committee-truth-2b] authoritative evidence retrieval never degrades to partial success", () => {
+  assert.match(RETRIEVAL_CORE, /committee_deal_evidence_retrieval_failed/);
+  assert.match(RETRIEVAL_CORE, /committee_sba_evidence_retrieval_failed/);
+  assert.match(RETRIEVAL_CORE, /committee_bank_evidence_retrieval_failed/);
+  assert.doesNotMatch(RETRIEVAL_CORE, /Deal doc retrieval error:[\s\S]*?return \[\]/);
+  assert.doesNotMatch(RETRIEVAL_CORE, /Bank policy retrieval error:[\s\S]*?return \[\]/);
 });
 
 test("[committee-truth-3] client responses do not expose raw exceptions", () => {

@@ -26,6 +26,8 @@ type PortfolioClient = ReturnType<typeof supabaseAdmin>;
 
 const PORTFOLIO_DECISION_COLUMNS =
   "inputs_json,model_json,exceptions_json,committee_required,decision" as const;
+const PORTFOLIO_SNAPSHOT_COLUMNS =
+  "bank_id,as_of_date,total_exposure,risk_weighted_exposure,total_decisions,decisions_with_exceptions,exception_rate,committee_required_count,committee_override_rate,concentration_json" as const;
 
 /**
  * Returns null when a bank has not produced a final decision yet. That is a
@@ -117,9 +119,11 @@ export async function aggregatePortfolio(
     concentration_json: concentrationJson,
   };
 
-  const { error: writeError } = await sb
+  const { data: persisted, error: writeError } = await sb
     .from("portfolio_risk_snapshots")
-    .upsert(snapshot);
+    .upsert(snapshot, { onConflict: "bank_id,as_of_date" })
+    .select(PORTFOLIO_SNAPSHOT_COLUMNS)
+    .single();
 
   if (writeError) {
     throw new Error(
@@ -127,7 +131,64 @@ export async function aggregatePortfolio(
     );
   }
 
+  if (!persisted || !portfolioSnapshotMatches(persisted, snapshot)) {
+    throw new Error(
+      `Portfolio snapshot persistence proof failed for bank ${bankId}`,
+    );
+  }
+
   return snapshot;
+}
+
+function portfolioSnapshotMatches(
+  persisted: Record<string, any>,
+  requested: PortfolioSnapshot,
+): boolean {
+  const numericFields: Array<keyof Omit<
+    PortfolioSnapshot,
+    "bank_id" | "as_of_date" | "concentration_json"
+  >> = [
+    "total_exposure",
+    "risk_weighted_exposure",
+    "total_decisions",
+    "decisions_with_exceptions",
+    "exception_rate",
+    "committee_required_count",
+    "committee_override_rate",
+  ];
+
+  if (
+    persisted.bank_id !== requested.bank_id ||
+    persisted.as_of_date !== requested.as_of_date ||
+    !numericFields.every(
+      (field) => Number(persisted[field]) === requested[field],
+    )
+  ) {
+    return false;
+  }
+
+  const persistedConcentration = persisted.concentration_json;
+  if (
+    !persistedConcentration ||
+    typeof persistedConcentration !== "object" ||
+    Array.isArray(persistedConcentration)
+  ) {
+    return false;
+  }
+
+  return Object.entries(requested.concentration_json).every(
+    ([section, expectedValues]) => {
+      const actualValues = persistedConcentration[section];
+      return (
+        actualValues &&
+        typeof actualValues === "object" &&
+        !Array.isArray(actualValues) &&
+        Object.entries(expectedValues).every(
+          ([key, expected]) => Number(actualValues[key]) === expected,
+        )
+      );
+    },
+  );
 }
 
 function calculateLoanSizeConcentration(

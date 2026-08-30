@@ -315,18 +315,31 @@ test("ledger failure prevents provider invocation and leaves the leased row reco
   assert.equal(db.tables.brokerage_comms_outbox[0].status, "sending");
 });
 
-test("state-transition failure is surfaced after a provider success", async () => {
+test("state-transition recovery reuses the durable provider idempotency key", async () => {
   const db = new OS();
   await m.enqueueCommsMessage(BASE_ARGS, db as any);
   const [item] = await m.claimDueCommsMessages(db as any);
   db.updateFailures.add("brokerage_comms_outbox");
+  const deliveryKeys: string[] = [];
+  const adapter = async (message: { idempotencyKey: string }) => {
+    deliveryKeys.push(message.idempotencyKey);
+    return { ok: true, providerMessageId: "provider-1" };
+  };
 
   await assert.rejects(
-    () => m.processCommsOutboxItem(item, async () => ({ ok: true, providerMessageId: "provider-1" }), db as any),
+    () => m.processCommsOutboxItem(item, adapter, db as any),
     /mark_sent: brokerage_comms_outbox_update_failed/,
   );
-
   assert.equal(db.tables.brokerage_comms_outbox[0].status, "sending");
+
+  db.updateFailures.clear();
+  db.tables.brokerage_comms_outbox[0].next_attempt_at = new Date(Date.now() - 60_000).toISOString();
+  const [reclaimed] = await m.claimDueCommsMessages(db as any);
+  const outcome = await m.processCommsOutboxItem(reclaimed, adapter, db as any);
+
+  assert.equal(outcome, "sent");
+  assert.deepEqual(deliveryKeys, ["test-key-1", "test-key-1"]);
+  assert.equal(db.tables.brokerage_comms_outbox[0].status, "sent");
 });
 
 test("only a claimed sending row may reach a provider", async () => {

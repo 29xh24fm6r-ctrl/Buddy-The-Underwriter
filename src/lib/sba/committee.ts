@@ -19,6 +19,10 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { retrieveEvidence, type Citation } from "@/lib/retrieval/retrievalCore";
 import { evaluateAllRules, getMissingFacts, getNextCriticalFact } from "@/lib/policy/ruleEngine";
 import { OPENAI_CHAT } from "@/lib/ai/models";
+import {
+  formatCommitteeEvidence,
+  selectCitedEvidence,
+} from "@/lib/committee/evidenceSelection";
 
 export type CommitteeStance = "APPROVE" | "APPROVE_WITH_CONDITIONS" | "DECLINE";
 
@@ -90,9 +94,7 @@ export async function runCommittee({
   if (citations.length === 0) {
     throw new Error("committee_evidence_required");
   }
-  const formattedContext = citations
-    .map((citation: Citation) => citation.quote.trim())
-    .join("\n\n");
+  const formattedContext = formatCommitteeEvidence(citations);
 
   // 2. Fetch every requested persona configuration and fail closed if the
   // configuration query is incomplete.
@@ -133,10 +135,15 @@ export async function runCommittee({
     })
   );
 
-  // 4. Calculate consensus
+  // 4. Resolve the exact evidence identities cited by at least one persona.
+  // Persisting the entire retrieval set would overstate the audit trail.
+  const citedEvidence = selectCitedEvidence(evaluations, citations);
+
+  // 5. Calculate consensus
   const consensus = calculateConsensus(evaluations);
 
-  // 5. Store AI event
+  // 6. Store the indexed evidence catalog with the model output so each
+  // persona's citation number remains resolvable during later review.
   const { data: aiEvent, error: aiEventError } = await sb
     .from("ai_events")
     .insert({
@@ -147,6 +154,12 @@ export async function runCommittee({
         question,
         personas,
         context_chunks: citations.length,
+        evidence_catalog: citations.map((citation, index) => ({
+          i: index + 1,
+          source_kind: citation.source_kind,
+          chunk_id: citation.chunk_id,
+          label: citation.label,
+        })),
       },
       output_json: {
         evaluations,
@@ -166,19 +179,33 @@ export async function runCommittee({
   }
   const eventId = aiEvent.id;
 
-  // 6. Store citations before acknowledging the evaluation.
-  const { error: citationError } = await sb
+  // 7. Store only evidence actually cited by the evaluations and require
+  // returned-row proof before acknowledging the recommendation.
+  const { data: persistedCitations, error: citationError } = await sb
     .from("ai_event_citations")
     .insert(
-      citations.map((citation) => ({
+      citedEvidence.map((citation) => ({
         event_id: eventId,
         ...citation,
       })),
-    );
-  if (citationError) {
+    )
+    .select("chunk_id");
+  const expectedChunkIds = citedEvidence
+    .map((citation) => citation.chunk_id)
+    .sort();
+  const persistedChunkIds = (persistedCitations ?? [])
+    .map((citation) => citation.chunk_id)
+    .sort();
+  if (
+    citationError ||
+    persistedChunkIds.length !== expectedChunkIds.length ||
+    persistedChunkIds.some(
+      (chunkId, index) => chunkId !== expectedChunkIds[index],
+    )
+  ) {
     console.error("[runCommittee] citation persistence failed", {
       eventId,
-      code: citationError.code,
+      code: citationError?.code,
     });
     throw new Error("committee_citations_persist_failed");
   }
