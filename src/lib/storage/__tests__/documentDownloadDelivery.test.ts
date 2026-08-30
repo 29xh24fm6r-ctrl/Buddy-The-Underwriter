@@ -17,6 +17,11 @@ test("document delivery proves stored identity before creating a provider URL", 
   assert.ok(verifyAt > downloadAt);
   assert.ok(signAt > verifyAt);
   assert.match(helper, /DOCUMENT_DOWNLOAD_TTL_SECONDS = 60/);
+  assert.match(
+    helper,
+    /document\.size_bytes !== null && document\.size_bytes !== undefined/,
+  );
+  assert.match(helper, /!hasStoredSize \|\| !Number\.isSafeInteger\(expectedSizeBytes\)/);
   assert.match(helper, /expectedSha256: expectedSha256 \|\| null/);
   assert.match(helper, /document_integrity_check_failed/);
 });
