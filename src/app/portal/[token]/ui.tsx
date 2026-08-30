@@ -104,7 +104,13 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
     const res = await fetch("/api/portal/upload/prepare", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({\n        token,\n        requestId,\n        filename: file.name,\n        mimeType: file.type,\n        sizeBytes: file.size,\n      }),
+      body: JSON.stringify({
+        token,
+        requestId,
+        filename: file.name,
+        mimeType: file.type,
+        sizeBytes: file.size,
+      }),
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json?.error || "Failed to prepare upload");
