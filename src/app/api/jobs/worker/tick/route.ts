@@ -17,6 +17,11 @@ import {
   isWorkerLockSkip,
 } from "@/lib/workers/workerLock";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  isWorkerStepFailure,
+  publicWorkerStepResult,
+  workerTickStatus,
+} from "@/lib/jobs/workerTickOutcome";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,7 +57,8 @@ export async function POST(req: NextRequest) {
   const batchSize = Math.min(10, Math.max(1, Number(batchParam ?? String(defaultBatch))));
 
   const leaseOwner = `worker-${Date.now()}`;
-  const results = [];
+  const results: Array<Record<string, unknown>> = [];
+  let failedSteps = 0;
 
   // Aegis: wrap each processor with observability (side-effects only, never alters behavior)
   const guardedOcr = withBuddyGuard(processNextOcrJob, {
@@ -87,6 +93,16 @@ export async function POST(req: NextRequest) {
     sendHeartbeat({ workerId: leaseOwner, workerType: type.toLowerCase() }).catch(
       () => {},
     );
+  };
+
+  const recordFailure = (step: string, result: Record<string, unknown>) => {
+    failedSteps += 1;
+    beat();
+    console.error("[worker-tick] step_failed", {
+      step,
+      error: typeof result?.error === "string" ? result.error.slice(0, 160) : "unknown",
+    });
+    results.push(publicWorkerStepResult(step, result));
   };
 
   try {
@@ -124,8 +140,19 @@ export async function POST(req: NextRequest) {
       // the only path where queued `deal_spreads` rows with no backing job
       // get reconciled.
       const janitorResult = await cleanupOrphanSpreads();
+      const spreadFailures = [locked, stuckResult, janitorResult].filter((result) =>
+        isWorkerStepFailure(result),
+      ).length;
 
-      return NextResponse.json({ ...locked, stuckJobs: stuckResult, janitor: janitorResult });
+      return NextResponse.json(
+        {
+          ...publicWorkerStepResult("SPREADS", locked),
+          failed: spreadFailures,
+          stuckJobs: publicWorkerStepResult("SPREAD_STUCK_JOBS", stuckResult),
+          janitor: publicWorkerStepResult("SPREAD_JANITOR", janitorResult),
+        },
+        { status: workerTickStatus(spreadFailures) },
+      );
     }
 
     // Legacy document_jobs queue (OCR/CLASSIFY/EXTRACT): reclaim rows stuck
@@ -134,7 +161,9 @@ export async function POST(req: NextRequest) {
     // stuck-job reclaim done for deal_spread_jobs below/in the SPREADS
     // branch. Cheap no-op when nothing is stuck.
     const stuckDocJobsResult = await cleanupStuckDocumentJobs();
-    if (stuckDocJobsResult.cleaned > 0) {
+    if (isWorkerStepFailure(stuckDocJobsResult)) {
+      recordFailure("DOC_JOB_STUCK_JOBS", stuckDocJobsResult);
+    } else if (stuckDocJobsResult.cleaned > 0) {
       results.push({ type: "DOC_JOB_STUCK_JOBS", ...stuckDocJobsResult });
     }
 
@@ -146,6 +175,9 @@ export async function POST(req: NextRequest) {
           results.push({ type: "OCR", ...ocrResult });
           continue;
         }
+        if ((ocrResult as any).idle !== true) {
+          recordFailure("OCR", ocrResult);
+        }
       }
 
       if (type === "CLASSIFY" || type === "ALL") {
@@ -155,6 +187,9 @@ export async function POST(req: NextRequest) {
           results.push({ type: "CLASSIFY", ...classifyResult });
           continue;
         }
+        if ((classifyResult as any).idle !== true) {
+          recordFailure("CLASSIFY", classifyResult);
+        }
       }
 
       if (type === "EXTRACT" || type === "ALL") {
@@ -163,6 +198,9 @@ export async function POST(req: NextRequest) {
           beat();
           results.push({ type: "EXTRACT", ...extractResult });
           continue;
+        }
+        if ((extractResult as any).idle !== true) {
+          recordFailure("EXTRACT", extractResult);
         }
       }
 
@@ -176,19 +214,25 @@ export async function POST(req: NextRequest) {
       if (spreadResult.ok && spreadResult.processed > 0) {
         beat();
         results.push({ type: "SPREADS", ...spreadResult });
+      } else if (isWorkerStepFailure(spreadResult)) {
+        recordFailure("SPREADS", spreadResult);
       }
 
       // SPEC-SPREAD-PIPELINE-RECOVERY-1: fail wedged RUNNING jobs first so the
       // orphan janitor below reconciles on clean state.
       const stuckResult = await cleanupStuckJobs();
-      if (stuckResult.cleaned > 0) {
+      if (isWorkerStepFailure(stuckResult)) {
+        recordFailure("SPREAD_STUCK_JOBS", stuckResult);
+      } else if (stuckResult.cleaned > 0) {
         results.push({ type: "SPREAD_STUCK_JOBS", ...stuckResult });
       }
 
       // Orphan-spread janitor (STUCK-SPREADS Batch 1, 2026-04-23).
       // Reconciles 'queued' deal_spreads that have no backing active job.
       const janitorResult = await cleanupOrphanSpreads();
-      if (janitorResult.cleaned > 0) {
+      if (isWorkerStepFailure(janitorResult)) {
+        recordFailure("SPREAD_JANITOR", janitorResult);
+      } else if (janitorResult.cleaned > 0) {
         results.push({ type: "SPREAD_JANITOR", ...janitorResult });
       }
 
@@ -197,16 +241,22 @@ export async function POST(req: NextRequest) {
       // process crash mid-run) to "failed" instead of leaving them wedged
       // forever with no dead-letter signal.
       const staleResearchResult = await sweepStaleResearchMissions();
-      if (staleResearchResult.recovered > 0 || staleResearchResult.errors.length > 0) {
+      if (isWorkerStepFailure(staleResearchResult)) {
+        recordFailure("STALE_RESEARCH_MISSIONS", staleResearchResult);
+      } else if (staleResearchResult.recovered > 0) {
         results.push({ type: "STALE_RESEARCH_MISSIONS", ...staleResearchResult });
       }
     }
 
-    return NextResponse.json({
-      ok: true,
-      processed: results.length,
-      results,
-    });
+    return NextResponse.json(
+      {
+        ok: failedSteps === 0,
+        processed: results.length,
+        failed: failedSteps,
+        results,
+      },
+      { status: workerTickStatus(failedSteps) },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { ok: false, error: error?.message ?? String(error) },
