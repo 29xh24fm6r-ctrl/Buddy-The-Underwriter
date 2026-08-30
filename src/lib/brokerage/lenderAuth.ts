@@ -3,47 +3,82 @@ import "server-only";
 /**
  * Lender identity resolution for the marketplace.
  *
- * A "lender" is a Clerk user who is a member of a bank that holds an ACTIVE
- * lender_marketplace_agreement. Middleware (src/proxy.ts) does not gate /api/**,
- * so every lender marketplace route calls resolveLenderIdentity() first and 403s
- * when it returns null. Lenders are cross-tenant by design (they browse listings
- * across borrower banks), so there is no per-deal tenant check — access is scoped
- * instead by (a) being matched to a listing and (b) an explicit package_access row.
+ * Authentication/authorization absence is distinct from unavailable or
+ * ambiguous authoritative state so HTTP routes never report an infrastructure
+ * failure as a definitive 403.
  */
 
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  type LenderIdentity,
+  selectLenderIdentity,
+} from "@/lib/brokerage/lenderIdentityBoundary";
 
-export type LenderIdentity = { userId: string; lenderBankId: string };
+export type { LenderIdentity } from "@/lib/brokerage/lenderIdentityBoundary";
 
-export async function resolveLenderIdentity(): Promise<LenderIdentity | null> {
+export type LenderIdentityResolution =
+  | { ok: true; identity: LenderIdentity }
+  | {
+      ok: false;
+      reason:
+        | "not_a_lender"
+        | "identity_state_unavailable"
+        | "ambiguous_lender_identity";
+    };
+
+export async function resolveLenderIdentityResult(): Promise<LenderIdentityResolution> {
   let userId: string | null = null;
   try {
     const auth = await clerkAuth();
     userId = auth.userId;
   } catch {
-    return null; // fail closed
+    return { ok: false, reason: "identity_state_unavailable" };
   }
-  if (!userId) return null;
+  if (!userId) return { ok: false, reason: "not_a_lender" };
 
   const sb = supabaseAdmin();
-  const { data: mems } = await sb
+  const { data: memberships, error: membershipError } = await sb
     .from("bank_memberships")
     .select("bank_id")
-    .eq("clerk_user_id", userId);
-  const bankIds = Array.from(
-    new Set(((mems ?? []) as any[]).map((m) => m.bank_id).filter(Boolean)),
-  );
-  if (bankIds.length === 0) return null;
+    .eq("clerk_user_id", userId)
+    .limit(101);
+  if (membershipError || !Array.isArray(memberships) || memberships.length > 100) {
+    return { ok: false, reason: "identity_state_unavailable" };
+  }
 
-  const { data: agr } = await sb
+  const bankIds = Array.from(
+    new Set(
+      memberships
+        .map((row: { bank_id?: unknown }) => row.bank_id)
+        .filter((value): value is string => typeof value === "string" && Boolean(value.trim())),
+    ),
+  );
+  if (bankIds.length === 0) return { ok: false, reason: "not_a_lender" };
+
+  const { data: agreements, error: agreementError } = await sb
     .from("lender_marketplace_agreements")
     .select("lender_bank_id")
     .in("lender_bank_id", bankIds)
     .eq("status", "active")
-    .limit(1)
-    .maybeSingle();
-  if (!agr) return null;
+    .order("lender_bank_id", { ascending: true })
+    .limit(2);
+  if (agreementError || !Array.isArray(agreements)) {
+    return { ok: false, reason: "identity_state_unavailable" };
+  }
 
-  return { userId, lenderBankId: (agr as any).lender_bank_id };
+  const selection = selectLenderIdentity(userId, memberships, agreements);
+  if (selection.ok) return selection;
+  if (selection.reason === "ambiguous_lender_identity") return selection;
+  if (selection.reason === "not_a_lender") return selection;
+  return { ok: false, reason: "identity_state_unavailable" };
+}
+
+/**
+ * Compatibility wrapper for existing fail-closed callers. New HTTP boundaries
+ * should use resolveLenderIdentityResult so unavailable state remains non-green.
+ */
+export async function resolveLenderIdentity(): Promise<LenderIdentity | null> {
+  const result = await resolveLenderIdentityResult();
+  return result.ok ? result.identity : null;
 }
