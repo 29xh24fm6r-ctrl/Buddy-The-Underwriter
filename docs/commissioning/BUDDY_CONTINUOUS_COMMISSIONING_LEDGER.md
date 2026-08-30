@@ -1545,3 +1545,29 @@ Remaining closure:
 - **Production checkpoint:** pre-repair production on `bea361e11dadf756281ae913441a80c5e1b4cb64` was HTTP 200 and runtime-clean.
 - **Closure blocker:** after merge, an authorized Didit sandbox delivery through the product-owned destination must prove V2 acceptance, stale rejection, canonical persistence, and retry behavior.
 - **Next target:** durable Didit `event_id` deduplication after verified production schema evidence; signing-request concurrency remains dependent on the open completed-PDF immutability repair.
+
+
+## 2026-08-30 — legacy AI control-plane retirement
+
+- **System audited:** production API routes at `/api/ai/command`,
+  `/api/ai/credit-memo`, `/api/ai/execute`, and `/api/ai/underwrite`.
+- **Evidence:** repository code search found no product caller. The routes accepted
+  caller-controlled deal or AI context; credit-memo synthesized placeholder deal
+  state; underwrite could return internal/provider error text; execute reported
+  mutations as applied although both its deal store and audit ledger were
+  explicitly process-memory demo implementations.
+- **Root cause:** an early prototype control plane remained deployed after durable,
+  tenant-scoped underwriting workflows superseded it.
+- **Repair branch:** `codex/retire-legacy-ai-control-plane`.
+- **Repair:** remove all four route handlers and add a regression guard requiring
+  their absence, prohibiting product callers, and preventing API routes from
+  importing the process-memory executor or audit store.
+- **Preservation:** shared development libraries remain untouched; no schema,
+  data, credential, provider configuration, deployment setting, or other product
+  is changed.
+- **Verification target:** focused guard, complete diff, all required CI, exact
+  Vercel preview 404s for all four paths, HTTP-200 public surface, and clean
+  runtime logs. After merge, repeat the 404 proof in production.
+- **Open dependencies:** PR 878's complete Golden Trident transaction and the
+  missing `portfolio_risk_snapshots` live migration still require the exact
+  verified Buddy-owned Supabase project plus authorized fixtures.
