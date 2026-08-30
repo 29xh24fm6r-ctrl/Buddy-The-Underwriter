@@ -1531,3 +1531,16 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+## 2026-08-30 — Golden Trident lock janitor integrity
+
+- **System audited:** stale worker advisory-lock and abandoned Trident-bundle reconciliation.
+- **Finding:** raw database errors and internal lock/deal/bundle details crossed logs/responses; malformed or rejected RPC evidence lacked a deterministic fail-closed contract.
+- **Root cause:** unchecked RPC casts and detail-oriented diagnostics were treated as scheduled success evidence.
+- **Repair:** bounded row-shape validation, unique identities, count-only observability, all-settled provider handling, HTTP 503 on incomplete evidence, and no-store responses.
+- **Regression coverage:** seven pure outcome cases and four structural route-contract guards.
+- **Safety:** source/tests only; no database, RPC, bundle, lock, credential, provider, schema, storage, or production mutation.
+- **Validation:** zero commits behind `main`; exact-head preview and workflow evidence pending PR creation.
+- **Production closure:** verified Buddy-owned Supabase connection plus authorized stale-lock and abandoned-bundle fixtures.
+- **Next target:** continue an independent storage/authentication rotation while Actions availability is restored.
