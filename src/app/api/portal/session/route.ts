@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 function json(body: unknown, status = 200) { return NextResponse.json(body, { status, headers: PORTAL_NO_STORE }); }
 function clientIp(req: Request) { return (req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "").slice(0, 64) || null; }
 
-export async function POST(req: Request) {
+async function handle(req: Request) {
   const body = await req.json().catch(() => null);
   const token = parsePortalToken(body && typeof body === "object" ? (body as Record<string, unknown>).token : null);
   if (!token) return json({ ok: false, error: "invalid_request" }, 400);
@@ -56,4 +56,9 @@ export async function POST(req: Request) {
     spreadRequests: buildBorrowerSpreadRequestTiles({ drafts: draftsResult.data as any[], actions: actionsResult.data as any[] }),
     messages: messagesResult.data,
   });
+}
+
+export async function POST(req: Request) {
+  try { return await handle(req); }
+  catch { console.error("[portal/session] unexpected_failure"); return json({ ok: false, error: "portal_state_unavailable" }, 503); }
 }
