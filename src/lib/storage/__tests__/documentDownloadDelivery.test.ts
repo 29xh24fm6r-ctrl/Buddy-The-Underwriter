@@ -10,7 +10,7 @@ async function source(file: string) {
 test("document delivery proves stored identity before creating a provider URL", async () => {
   const helper = await source("src/lib/storage/documentDownloadDelivery.ts");
   const downloadAt = helper.indexOf("await downloadDocumentBytes");
-  const verifyAt = helper.indexOf("verifyDocumentContentIdentity");
+  const verifyAt = helper.indexOf("verifyDocumentContentIdentity", downloadAt);
   const signAt = helper.indexOf("await createDocumentDownloadUrl");
 
   assert.ok(downloadAt >= 0);
