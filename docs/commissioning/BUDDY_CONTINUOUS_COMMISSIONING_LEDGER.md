@@ -1593,6 +1593,62 @@ Verification and closure:
   confirmed; until then, continue with a non-conflicting scheduled-job or
   authentication rotation.
 
+## 2026-08-29 — banker analysis alert truthfulness
+
+Checkpoint:
+
+- PR 993 remains the clean, independent IRS transcript cron merge checkpoint.
+- Production main is `69ff673b7d57fda700ed0539263d40fecdec0df8`, including
+  merged PR 989. PR 878 remains deployed; its complete Golden Trident ceremony
+  still requires the verified Buddy-owned Supabase connection and an authorized
+  sealed transaction.
+- This arc is independent of all open provider, identity, signing, upload,
+  credit-memo, and scheduled-worker PRs.
+
+Evidence and root cause:
+
+- Banker SLA loading discarded errors from `risk_runs`,
+  `deal_pipeline_ledger`, and `deal_events`, making unavailable evidence look
+  empty and healthy.
+- Each authoritative source used one capped read, so truncation was
+  indistinguishable from complete evidence.
+- Cooldown lookup errors did not prevent Slack delivery.
+- Provider acceptance was reported as sent without checking the Supabase insert
+  error or proving the returned audit identity.
+- The cron classified every non-send as a benign skip and always returned HTTP
+  200.
+
+Repair branch: `codex/commission-banker-alert-truthfulness`.
+
+Repair:
+
+- Deterministically paginate each authoritative source and fail closed on page
+  errors or the explicit evidence ceiling.
+- Refuse provider delivery when cooldown evidence is unavailable.
+- Require returned id, kind, and alert identity after provider acceptance.
+- Preserve accepted-but-unproven delivery as a distinct non-green outcome.
+- Treat only proven cooldown as skipped and return HTTP 503 for incomplete
+  alert delivery.
+- Add behavioral coverage for database errors, pagination, cooldown failure,
+  provider/persistence separation, returned-row mismatch, proven success, and
+  route status.
+
+Verification complete:
+
+- Broad unit suite: 13,625 tests; 13,616 passed, 0 failed, 9 skipped.
+- React-server suite: 18/18; research golden set: 7 passed, 0 failed.
+- CI, typecheck, lint, architecture, safety, schema gates, Never-500, Build
+  Check, Secret Scan, Route Budget, and public Playwright passed.
+- The exact-head preview is READY, HTTP 200, SHA-matched, and has no
+  warning/error/fatal logs or grouped runtime errors. The seven-file diff was
+  inspected in full with no conflict markers or unexpected scope.
+- No schema, dependency, credential, provider configuration, production row, or
+  other product is changed. No unverified Supabase project was queried.
+- Post-merge transactional closure requires the verified Buddy-owned Supabase
+  connection and an authorized Slack alert fixture.
+- Next independent audit: composite document/spreads worker-tick outcome
+  truthfulness.
+
 ### Borrower portal issuance and session trust boundary — PR pending
 
 Evidence:
