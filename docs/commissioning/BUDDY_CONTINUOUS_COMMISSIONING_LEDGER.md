@@ -1565,9 +1565,18 @@ Remaining closure:
 - **Preservation:** shared development libraries remain untouched; no schema,
   data, credential, provider configuration, deployment setting, or other product
   is changed.
-- **Verification target:** focused guard, complete diff, all required CI, exact
-  Vercel preview 404s for all four paths, HTTP-200 public surface, and clean
-  runtime logs. After merge, repeat the 404 proof in production.
+- **Validation:** focused guard passed 3/3; the complete seven-file diff is
+  +126/-230. Exact head `f6e09e805a5fe05a9b149ebeb86ebc5fdf22fdae`
+  produced READY Vercel deployment `dpl_23VadVT6GNKDdBfnL1Dz8qV6PqHr`,
+  an HTTP-200 public surface, exact 404s for all four retired paths, and no
+  warning/error/fatal logs or grouped runtime errors.
+- **CI blocker:** CI, Build Check, Secret Scan, and Route Budget failed before
+  executing any step; each job had `steps: null` and no logs, including after a
+  controlled rerun. Restore repository/account Actions runner or billing
+  availability and rerun all four workflows. Do not merge beforehand.
+- **Production closure:** current production on
+  `b310efbf50d0f216206d8ebf1513f601b0e3d485` still matches all four routes
+  and returns HTTP 405 to GET probes. After merge, repeat exact production 404s.
 - **Open dependencies:** PR 878's complete Golden Trident transaction and the
   missing `portfolio_risk_snapshots` live migration still require the exact
   verified Buddy-owned Supabase project plus authorized fixtures.
