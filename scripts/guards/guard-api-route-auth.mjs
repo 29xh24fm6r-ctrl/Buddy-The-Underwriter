@@ -99,6 +99,11 @@ const AUTH_MECHANISMS = [
   "safeClerkAuth(",
   "tryGetCurrentBankId(",
   "resolveLenderIdentity(",
+  // resolveLenderIdentity() is now a thin wrapper that returns null on any
+  // failure; resolveLenderIdentityResult() is the authoritative resolver and
+  // additionally separates unavailable state from a proven non-lender, so
+  // routes using it are strictly better authorized, not less.
+  "resolveLenderIdentityResult(",
   "getActiveGrant(",
   "auth.getUser(",
   "requireBrokerageCommsAdmin(",
