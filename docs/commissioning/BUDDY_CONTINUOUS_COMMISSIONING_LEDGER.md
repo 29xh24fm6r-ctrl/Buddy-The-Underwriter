@@ -1575,11 +1575,27 @@ Repair:
   bounded no-store non-green responses for incomplete processing.
 - Add behavioral and structural regression coverage plus the focused arc record.
 
-Verification pending:
+Verification on code head `4bd849ef749ec5d65fbd7495a89d677be423474c`:
 
-- Focused regression suite, production-equivalent build, complete diff inspection,
-  all required GitHub checks, exact-head Vercel preview, and runtime log review.
-- Post-merge transactional closure requires an authorized borrower upload fixture
-  and the verified Buddy-owned Supabase project.
+- Focused parser, identity-binding, ordering, persistence-proof, and response
+  safety coverage passed 7/7 locally.
+- The production-equivalent Vercel build completed. Exact-head deployment
+  `dpl_8SnhPUEPpH8twNTQSCcBntawuMPz` is READY, returned HTTP 200 with
+  `x-buddy-build` matching the code head, and recorded no warning, error, or
+  fatal runtime logs in the two-hour verification window.
+- CI, Build Check, Secret Scan, Route Budget, and Upload Architecture Guard were
+  all created but failed before executing any step; every job has `steps: null`
+  and no logs. Repository Actions runner/billing availability must be restored
+  and every required check rerun before merge.
+- The complete eight-file diff was inspected. It changes no schema, dependency,
+  credential, provider configuration, production data, or destructive storage.
+- This evidence-only ledger commit must receive a READY SHA-matched preview. It
+  cannot make the PR merge-safe while required Actions remain unable to start.
+
+Post-merge closure:
+
+- Use an authorized borrower upload fixture and the verified Buddy-owned
+  Supabase project to prove prepare, stored bytes, commit, canonical document,
+  both processing queues, receipt, borrower-request state, and session completion.
 - The independent live `portfolio_risk_snapshots` migration remains blocked on
   exact project ownership verification.
