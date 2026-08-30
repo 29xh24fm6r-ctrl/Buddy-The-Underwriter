@@ -110,7 +110,7 @@ export async function sendLenderMessage(outboxId: string, adapter: SendAdapter, 
   const claimed = await claimLenderMessage(outboxId, sb);
   if (!claimed) return { ok: false, error: "not_claimed" };
   const attempts = Number(claimed.attempts ?? 1);
-  let result: { ok: boolean; error?: string };
+  let result: { ok: boolean; error?: string; providerMessageId?: string; retryable?: boolean };
   try {
     result = await adapter({ channel: str(claimed.channel) as LenderChannel, recipient: str(claimed.recipient) ?? "", subject: str(claimed.subject), body: str(claimed.body) ?? "", idempotencyKey: `buddy-lender-outbox:${outboxId}` });
   } catch {
