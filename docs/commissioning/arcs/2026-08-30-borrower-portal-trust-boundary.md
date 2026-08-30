@@ -29,3 +29,16 @@
 ## Closure
 
 After merge, use an authorized borrower sandbox fixture against the verified Buddy-owned Supabase project to prove link issuance, SMS failure revocation, accepted-but-unproven reconciliation, complete session reads, and message persistence.
+
+
+## Exact source-head evidence
+
+Source head `c9638f8f191ed0ce7cd9f5b33c2a067f5aad02f3`:
+
+- Complete eight-file diff inspected: +355/-391; no secrets or unexpected scope.
+- Mergeable and zero commits behind `main`.
+- Exact deployment `dpl_4p5jqZ5iHB3aXpzn38CoyVc98H9C` is READY and SHA-matched.
+- Homepage is HTTP 200; `x-buddy-build` matches the source head.
+- Production-equivalent Next.js build completed in three minutes.
+- No warning/error/fatal runtime logs on the exact preview.
+- CI, Build Check, Secret Scan, and Route Budget failed before executing a step; each job has `steps: null` and no logs.
