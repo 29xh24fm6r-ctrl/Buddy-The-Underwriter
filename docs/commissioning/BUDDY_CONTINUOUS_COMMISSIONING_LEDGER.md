@@ -1557,9 +1557,18 @@ Repair:
 - Add behavioral and structural regression coverage.
 - No schema, dependency, credential, or production-data change.
 
-Verification pending:
+Verification:
 
-- Exact-head focused and broad suites, required GitHub checks, and Vercel preview.
+- PR 1004 is open, mergeable, and zero commits behind current main.
+- Focused sanitizer execution passed: 3 passed, 0 failed.
+- Exact-head Vercel deployment `dpl_AwWNk2YYR37SNvmauxvkAubNYUCN` reached
+  READY; its production-equivalent Next.js build completed, the homepage returned
+  HTTP 200 with a matching build SHA, and no application warning/error/fatal
+  logs were recorded.
+- Browser verification at `/?qa=1` showed no QA badge and no
+  `data-qa-mode`, proving a URL cannot enable capture.
+- CI, Build Check, Secret Scan, and Route Budget failed before executing any
+  step; the inspected CI job had `steps: null` and no log URL. PR 1004 must not
+  merge until repository Actions availability is restored and all checks run
+  green.
 - Production closure requires an authorized QA-enabled sandbox click fixture.
-- Existing GitHub Actions jobs are currently failing before startup; this branch
-  must not merge until required checks execute and pass.
