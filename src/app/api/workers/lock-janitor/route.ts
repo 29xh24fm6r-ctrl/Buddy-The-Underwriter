@@ -51,15 +51,21 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    const lockRejected = lockResult.status === "rejected";
-    const tridentRejected = tridentResult.status === "rejected";
-    const lockError = lockResult.status === "fulfilled" && Boolean(lockResult.value.error);
-    const tridentError = tridentResult.status === "fulfilled" && Boolean(tridentResult.value.error);
-
-    if (lockRejected || tridentRejected || lockError || tridentError) {
+    if (lockResult.status !== "fulfilled" || tridentResult.status !== "fulfilled") {
       console.error("[lock-janitor] rpc_failed", {
-        advisoryLocks: lockRejected || lockError,
-        tridentBundles: tridentRejected || tridentError,
+        advisoryLocks: lockResult.status !== "fulfilled",
+        tridentBundles: tridentResult.status !== "fulfilled",
+      });
+      return response(
+        { ok: false, error: "janitor_rpc_failed", durationMs: Date.now() - start },
+        503,
+      );
+    }
+
+    if (lockResult.value.error || tridentResult.value.error) {
+      console.error("[lock-janitor] rpc_failed", {
+        advisoryLocks: Boolean(lockResult.value.error),
+        tridentBundles: Boolean(tridentResult.value.error),
       });
       return response(
         { ok: false, error: "janitor_rpc_failed", durationMs: Date.now() - start },
