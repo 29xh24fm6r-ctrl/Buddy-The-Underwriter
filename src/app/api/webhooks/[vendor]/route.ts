@@ -78,6 +78,7 @@ async function handleDidit(req: Request): Promise<Response> {
   // from our own logs.
   console.log("[/api/webhooks/didit] inbound", {
     bytes: rawBody.length,
+    hasSignatureV2: Boolean(req.headers.get("x-signature-v2")),
     hasSignature: Boolean(req.headers.get("x-signature")),
     hasSignatureSimple: Boolean(req.headers.get("x-signature-simple")),
     hasTimestamp: Boolean(req.headers.get("x-timestamp")),
@@ -102,7 +103,9 @@ async function handleDidit(req: Request): Promise<Response> {
     sessionId: payload.session_id,
     status: payload.status,
     webhookType: payload.webhook_type,
+    payloadTimestamp: payload.timestamp,
     timestampHeader: req.headers.get("x-timestamp"),
+    signatureV2Header: req.headers.get("x-signature-v2"),
     signatureHeader: req.headers.get("x-signature"),
     simpleSignatureHeader: req.headers.get("x-signature-simple"),
     secret,
