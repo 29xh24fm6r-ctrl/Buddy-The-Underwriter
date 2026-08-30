@@ -1,111 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { defaultDocumentBucket } from "@/lib/storage/documentBytes";
-import { signGcsReadUrl } from "@/lib/storage/gcs";
-import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { createAuthorizedDocumentDownload } from "@/lib/storage/createAuthorizedDocumentDownload";
 
 export const runtime = "nodejs";
-// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
-// 10s default for cold-start auth + multi-step Supabase I/O.
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-type Context = {
-  params: Promise<{ dealId: string; documentId: string }>;
+const NO_STORE_HEADERS = {
+  "cache-control": "private, no-store, max-age=0",
+  pragma: "no-cache",
+  "referrer-policy": "no-referrer",
 };
 
-export async function GET(_req: NextRequest, ctx: Context) {
+function json(error: string, status: number) {
+  return NextResponse.json({ ok: false, error }, { status, headers: NO_STORE_HEADERS });
+}
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ dealId: string; documentId: string }> },
+) {
   try {
-    let userId: string;
-    try {
-      ({ userId } = await requireUser());
-    } catch {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { dealId, documentId } = await ctx.params;
-    const bankId = await getCurrentBankId();
-    const sb = supabaseAdmin();
-
-    const { data: doc, error } = await sb
-      .from("deal_documents")
-      .select("id, deal_id, bank_id, storage_bucket, storage_path")
-      .eq("id", documentId)
-      .eq("deal_id", dealId)
-      .maybeSingle();
-
-    if (error || !doc || doc.bank_id !== bankId) {
-      return NextResponse.json(
-        { ok: false, error: "File not found" },
-        { status: 404 },
-      );
-    }
-
-    const storageBucket = String(doc.storage_bucket || defaultDocumentBucket());
-    const storagePath = String(doc.storage_path || "");
-
-    if (!storagePath) {
-      return NextResponse.json(
-        { ok: false, error: "Missing storage path" },
-        { status: 404 },
-      );
-    }
-
-    const gcsBucket = process.env.GCS_BUCKET || "";
-    if (gcsBucket && storageBucket === gcsBucket) {
-      const signedUrl = await signGcsReadUrl({
-        key: storagePath,
-        expiresSeconds: 60 * 10,
-      });
-
-      await logLedgerEvent({
-        dealId,
-        bankId,
-        eventKey: "documents.download_signed",
-        uiState: "done",
-        uiMessage: "Signed download generated (gcs)",
-        meta: {
-          storage_bucket: storageBucket,
-          storage_path: storagePath,
-          document_id: documentId,
-        },
-      });
-
-      return NextResponse.redirect(signedUrl, 302);
-    }
-
-    const { data, error: signErr } = await sb.storage
-      .from(storageBucket)
-      .createSignedUrl(storagePath, 60 * 10);
-
-    if (signErr || !data?.signedUrl) {
-      return NextResponse.json(
-        { ok: false, error: signErr?.message || "Failed to sign download" },
-        { status: 500 },
-      );
-    }
-
-    await logLedgerEvent({
-      dealId,
-      bankId,
-      eventKey: "documents.download_signed",
-      uiState: "done",
-      uiMessage: "Signed download generated (supabase)",
-      meta: {
-        storage_bucket: storageBucket,
-        storage_path: storagePath,
-        document_id: documentId,
-      },
-    });
-
-    return NextResponse.redirect(data.signedUrl, 302);
-  } catch (error: any) {
-    console.error("[files/download]", error);
-    return NextResponse.json(
-      { ok: false, error: error?.message || "Internal server error" },
-      { status: 500 },
-    );
+    await requireUser();
+  } catch {
+    return json("unauthorized", 401);
   }
+
+  let bankId: string;
+  try {
+    bankId = await getCurrentBankId();
+  } catch {
+    return json("tenant_context_unavailable", 503);
+  }
+
+  const { dealId, documentId } = await params;
+  const result = await createAuthorizedDocumentDownload({ dealId, bankId, documentId }).catch(
+    () => ({ ok: false as const, status: 503 as const, error: "download_unavailable" as const }),
+  );
+  if (!result.ok) return json(result.error, result.status);
+
+  return NextResponse.redirect(result.signedUrl, {
+    status: 302,
+    headers: NO_STORE_HEADERS,
+  });
 }
