@@ -56,7 +56,10 @@ async function withProjectionPdfTimeout<T>(
     return await Promise.race([
       Promise.resolve(operation),
       new Promise<T>((_, reject) => {
-        timer = setTimeout(\n          () => reject(new Error("projection_pdf_timeout")),\n          timeoutMs,\n        );
+        timer = setTimeout(
+          () => reject(new Error("projection_pdf_timeout")),
+          timeoutMs,
+        );
       }),
     ]);
   } finally {
@@ -130,10 +133,10 @@ export async function POST(
 
   const factsResult = await withProjectionPdfTimeout(
     sb
-    .from("deal_financial_facts")
-    .select("fact_key, fact_value_num, fact_value_text")
-    .eq("deal_id", ctx.dealId)
-    .in("fact_key", [
+      .from("deal_financial_facts")
+      .select("fact_key, fact_value_num, fact_value_text")
+      .eq("deal_id", ctx.dealId)
+      .in("fact_key", [
       "TOTAL_REVENUE_IS",
       "TOTAL_REVENUE",
       "TOTAL_COGS_IS",
@@ -154,8 +157,8 @@ export async function POST(
       "DATE_FORMED",
       "SL_CASH",
       "CASH",
-    ])
-    .order("created_at", { ascending: false }),
+      ])
+      .order("created_at", { ascending: false }),
     8_000,
   ).catch(() => null);
   if (!factsResult || factsResult.error) {
