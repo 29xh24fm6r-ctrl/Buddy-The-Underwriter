@@ -241,7 +241,7 @@ export async function processNextOcrJob(leaseOwner: string = "worker-1") {
   const supabase = supabaseAdmin();
 
   // Find next job
-  const { data: jobs } = await (supabase as any)
+  const { data: jobs, error: queueError } = await (supabase as any)
     .from("document_jobs")
     .select("id")
     .eq("job_type", "OCR")
@@ -249,6 +249,10 @@ export async function processNextOcrJob(leaseOwner: string = "worker-1") {
     .lte("next_run_at", new Date().toISOString())
     .order("next_run_at", { ascending: true })
     .limit(1);
+
+  if (queueError) {
+    return { ok: false as const, idle: false as const, error: "queue_discovery_failed" };
+  }
 
   if (!jobs || jobs.length === 0) {
     // SPEC-OBS-IDLE-NOT-ERROR-1: an empty queue is the normal steady state,
