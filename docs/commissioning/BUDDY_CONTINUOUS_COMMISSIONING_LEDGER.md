@@ -1531,3 +1531,16 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+## 2026-08-30 — SBA compliance lifecycle persistence proof
+
+- **Systems audited:** scheduled stale signatures, third-party order overdue gaps, E-Tran certificate expiry, and official-template staleness.
+- **Finding:** error-free writes and compare-and-set attempts were counted without exact returned-row proof; E-Tran expiry discovery was unpaged.
+- **Root cause:** helpers relied on the absence of a database error instead of proving persisted identity/state, and one bank-scoped discovery query relied on the default Data API result window.
+- **Repair:** require exact batch and transition proof, prove template state, and paginate E-Tran reads deterministically.
+- **Regression coverage:** missing upsert proof, lost compare-and-set resolution, missing template write proof, 1,001-row expiry discovery, and read failure.
+- **Conflict boundary:** the shared SBA checks route remains untouched because open PR 993 owns it.
+- **Validation:** branch is zero commits behind `main`; exact-head CI and preview evidence pending PR creation.
+- **Production closure:** verified Buddy-owned Supabase connection plus authorized lifecycle fixtures remain required.
+- **Next target:** continue an independent authentication/storage rotation while pending PRs await executable GitHub Actions.
