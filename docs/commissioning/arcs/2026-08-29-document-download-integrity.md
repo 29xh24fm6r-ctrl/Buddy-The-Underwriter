@@ -58,15 +58,31 @@ No schema, dependency, credential, provider configuration, production row,
 destructive operation, or cross-product change is included. No Supabase project
 was queried.
 
-## Verification and closure
+## Verification
+
+Implementation head `da31315c6477f4e60ee0fdebfd2da03c9078b983`:
+
+- 13,622 tests: 13,613 passed, 0 failed, 9 skipped.
+- React-server suite: 18 passed, 0 failed.
+- Research golden set: 7 passed, 0 failed, 13 explicitly skipped placeholders.
+- Typecheck, lint, architecture, safety, schema-select, Never-500, upload
+  architecture, secret scan, route budget, Next.js build, and public Playwright
+  passed.
+- The exact-head Vercel preview was READY, returned HTTP 200, and had no
+  warning/error/fatal runtime logs or grouped runtime errors.
+- The complete seven-file diff was inspected: 532 additions and 340 deletions,
+  with no conflicts, credentials, direct legacy signing, or unexpected scope.
+
+This evidence-file update is documentation-only. Its resulting exact head must
+also retain all required green checks before the PR is handed off.
+
+## Closure
 
 Regression coverage proves authorization, canonical-row binding, required size
 metadata, proof-before-sign ordering, audit-before-release ordering,
 caller-bucket rejection, redacted failure behavior, and removal of direct legacy
 bucket signing.
 
-Required CI, build, exact-head preview, complete diff inspection, and post-merge
-transactional proof are recorded after execution. Transactional closure requires
-a verified Buddy-owned Supabase connection and authorized document fixtures for
-current SHA-backed rows, historic size-only rows, missing-metadata rows,
-corrupted objects, and cross-bank denial.
+Post-merge transactional closure requires a verified Buddy-owned Supabase
+connection and authorized document fixtures for current SHA-backed rows, historic
+size-only rows, missing-metadata rows, corrupted objects, and cross-bank denial.
