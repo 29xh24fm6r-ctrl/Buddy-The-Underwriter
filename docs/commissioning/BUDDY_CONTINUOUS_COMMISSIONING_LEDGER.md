@@ -1544,9 +1544,15 @@ Checkpoint:
 - PR 878 remains deployed. Full Golden Trident seal-to-marketplace-to-lender
   transactional proof still requires a verified Buddy-owned Supabase connection
   and an authorized sealed transaction.
-- The next scheduled nightly invocation had not occurred during the initial
-  production scan, so PR 979's first post-deployment nightly transaction remains
-  open evidence.
+- The 2026-08-30 07:30:12 UTC nightly invocation returned HTTP 500. Four
+  banks completed or correctly skipped portfolio work, but the one bank with a
+  final decision again failed because PostgREST could not find
+  `public.portfolio_risk_snapshots` in the live schema cache.
+- PR 979's application code is deployed, but its migration is not present in the
+  production database. Repository CI and Vercel build configuration contain no
+  production migration-deployment step, and `supabase/config.toml` contains
+  only the generic local label `Buddy-The-Underwriter`, not a remote project
+  reference. A code merge/deploy therefore cannot close this database finding.
 
 Evidence and root cause:
 
@@ -1578,6 +1584,12 @@ Validation and closure:
 - Focused/broad validation, complete-diff inspection, required CI, and exact
   preview evidence are pending on the final branch head.
 - Post-merge transactional closure requires an authorized Plaid sandbox webhook.
+- Nightly closure requires the verified Buddy-owned Supabase project reference,
+  application of PR 979's non-destructive migration to that exact project, and
+  a returned schema/table check before the next scheduled transaction. The
+  project reference could not be derived uniquely from product-owned source or
+  deployment metadata, so no project enumeration or unverified database access
+  was attempted.
 - No database, credentials, provider configuration, production data, or
   cross-product system was accessed or changed.
 
