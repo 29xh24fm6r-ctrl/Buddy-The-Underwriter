@@ -1531,3 +1531,21 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+## 2026-08-30 — outbound provider acceptance truthfulness
+
+- Audited the live marketplace schedule, lender outbox, durable brokerage
+  outbox, and Resend/Telnyx adapter boundaries.
+- Finding: HTTP-success responses without provider message identity could be
+  marked sent; retryable lender delivery failures still produced a green
+  scheduled response.
+- Repair prepared: require provider acceptance IDs for email/SMS, enforce the
+  invariant at both outboxes, and make every incomplete marketplace delivery
+  batch non-green.
+- Production checkpoint before repair: `69ff673b7d57fda700ed0539263d40fecdec0df8`,
+  HTTP 200, with no grouped errors or warning/error/fatal logs in the latest
+  four-hour scan.
+- Transactional closure requires authorized Resend/Telnyx delivery fixtures.
+- Golden Trident closure remains blocked on the verified Buddy-owned Supabase
+  connection and an authorized sealed fixture.

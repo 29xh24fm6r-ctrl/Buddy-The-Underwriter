@@ -171,3 +171,74 @@ test("default mode is stub", () => {
   assert.equal(m.getCommsMode(), "stub");
   if (origMode) process.env.BROKERAGE_COMMS_MODE = origMode;
 });
+
+
+test("Resend HTTP success without an id is not accepted as delivery", async () => {
+  const originalMode = process.env.BROKERAGE_COMMS_MODE;
+  const originalKey = process.env.RESEND_API_KEY;
+  const originalFetch = globalThis.fetch;
+  try {
+    process.env.BROKERAGE_COMMS_MODE = "live";
+    process.env.RESEND_API_KEY = "re_test_acceptance";
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    })) as typeof fetch;
+
+    const result = await m.createEmailAdapter()({
+      recipient: "lender@example.com",
+      subject: "Deal available",
+      body: "A matched deal is available.",
+      idempotencyKey: "buddy-lender-outbox:acceptance",
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: "resend_acceptance_unproven",
+      retryable: true,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalMode === undefined) delete process.env.BROKERAGE_COMMS_MODE;
+    else process.env.BROKERAGE_COMMS_MODE = originalMode;
+    if (originalKey === undefined) delete process.env.RESEND_API_KEY;
+    else process.env.RESEND_API_KEY = originalKey;
+  }
+});
+
+test("Telnyx HTTP success without an id is not accepted as delivery", async () => {
+  const originalMode = process.env.BROKERAGE_COMMS_MODE;
+  const originalKey = process.env.TELNYX_API_KEY;
+  const originalFrom = process.env.TELNYX_FROM_NUMBER;
+  const originalFetch = globalThis.fetch;
+  try {
+    process.env.BROKERAGE_COMMS_MODE = "live";
+    process.env.TELNYX_API_KEY = "KEYtestacceptance0000000000";
+    process.env.TELNYX_FROM_NUMBER = "+12025550123";
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 202,
+      json: async () => ({ data: {} }),
+    })) as typeof fetch;
+
+    const result = await m.createTelnyxSmsAdapter()({
+      recipient: "+12025550124",
+      body: "Your Buddy update is ready.",
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: "telnyx_acceptance_unproven",
+      retryable: true,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalMode === undefined) delete process.env.BROKERAGE_COMMS_MODE;
+    else process.env.BROKERAGE_COMMS_MODE = originalMode;
+    if (originalKey === undefined) delete process.env.TELNYX_API_KEY;
+    else process.env.TELNYX_API_KEY = originalKey;
+    if (originalFrom === undefined) delete process.env.TELNYX_FROM_NUMBER;
+    else process.env.TELNYX_FROM_NUMBER = originalFrom;
+  }
+});
