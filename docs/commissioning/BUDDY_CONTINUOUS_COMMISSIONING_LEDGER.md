@@ -1531,3 +1531,35 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+### QA click telemetry trust and privacy boundary — 2026-08-30
+
+Evidence:
+
+- The global QA provider could be enabled by a URL or browser local storage.
+- The server accepted `x-qa-mode: 1` as authority and persisted arbitrary nested
+  browser JSON.
+- Captured fields included query strings, DOM text, hrefs, classes, names, input
+  types, labels, and ids; failures returned raw database or exception messages.
+
+Repair branch: `codex/commission-qa-click-privacy-boundary`.
+
+Repair:
+
+- Make server-only `QA_MODE=1` the sole capture authority and remove browser
+  URL/local-storage overrides.
+- Restrict capture to authenticated sandbox-tenant actors.
+- Share a bounded client/server sanitizer, cap requests at 8 KiB, strip queries
+  and fragments, redact identifier-shaped route segments, and retain only route,
+  tag, `data-testid`, and `data-qa` evidence.
+- Require returned-row proof and return deterministic non-sensitive failures.
+- Add behavioral and structural regression coverage.
+- No schema, dependency, credential, or production-data change.
+
+Verification pending:
+
+- Exact-head focused and broad suites, required GitHub checks, and Vercel preview.
+- Production closure requires an authorized QA-enabled sandbox click fixture.
+- Existing GitHub Actions jobs are currently failing before startup; this branch
+  must not merge until required checks execute and pass.
