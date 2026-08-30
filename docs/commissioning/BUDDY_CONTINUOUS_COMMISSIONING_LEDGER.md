@@ -1547,43 +1547,48 @@ Remaining closure:
 - **Next target:** durable Didit `event_id` deduplication after verified production schema evidence; signing-request concurrency remains dependent on the open completed-PDF immutability repair.
 
 
-## 2026-08-30 — legacy AI control-plane retirement
+## 2026-08-30 — legacy and debug control-plane retirement
 
 - **System audited:** production API routes at `/api/ai/command`,
-  `/api/ai/credit-memo`, `/api/ai/execute`, `/api/ai/underwrite`, and the
-  related unauthenticated `/api/pdfs/[pdfId]` retrieval path.
-- **Evidence:** repository code search found no product caller. The routes accepted
-  caller-controlled deal or AI context; credit-memo synthesized placeholder deal
-  state; underwrite could return internal/provider error text; execute reported
-  mutations as applied although both its deal store and audit ledger were
-  explicitly process-memory demo implementations. The related PDF route used
-  the process-memory artifact ID as its only authorization and read a server-local
-  file path directly.
-- **Root cause:** an early prototype control plane remained deployed after durable,
-  tenant-scoped underwriting workflows superseded it.
-- **Repair branch:** `codex/retire-legacy-ai-control-plane`.
-- **Repair:** remove all four AI route handlers plus the orphaned PDF retrieval
-  handler, and add a regression guard requiring
-  their absence, prohibiting product callers, and preventing API routes from
-  importing the process-memory executor or audit store.
+  `/api/ai/credit-memo`, `/api/ai/execute`, `/api/ai/underwrite`,
+  `/api/pdfs/[pdfId]`, `/api/admin/deals/[dealId]/checklist/debug`, and
+  `/api/deals/[dealId]/borrower/debug`.
+- **Evidence:** repository code search found no product caller for any route.
+  The legacy AI/PDF routes accepted caller-controlled context or deal state and
+  relied on process-memory state. Checklist debug bypassed Clerk with a reusable
+  bearer token and returned service-role checklist records. Borrower debug
+  returned EIN, email, owner, filename, OCR, missing-field, and Omega diagnostics
+  through an ordinary tenant session. Production matched both debug handlers:
+  checklist debug returned 401 and borrower debug returned a 200 diagnostic
+  envelope, proving both dark paths were deployed.
+- **Root cause:** prototype and diagnostic control planes remained in the
+  production route tree after durable tenant-scoped workflows superseded them.
+- **Repair:** PR 1015, branch `codex/retire-legacy-ai-control-plane`, removes all
+  seven handlers. A regression guard requires their absence, forbids product
+  callers, and prevents API routes from importing the process-memory executor,
+  audit store, or PDF store.
 - **Preservation:** shared development libraries remain untouched; no schema,
   data, credential, provider configuration, deployment setting, or other product
   is changed.
-- **Validation:** focused guard passed 3/3; the complete eight-file diff is
-  +144/-256. Code head `6dc11026c0365825f1228c599b4e40e4f085d25e`
-  produced READY Vercel deployment `dpl_HfhVsrCEk5fR24xuRTATeDCrUz9K`,
-  an HTTP-200 public surface, exact 404s for all five retired paths, and no
-  warning/error/fatal logs or grouped runtime errors. This evidence-only
-  ledger correction must retain the same exact-preview proof before merge.
-- **CI blocker:** CI, Build Check, Secret Scan, and Route Budget failed before
-  executing any step; each job had `steps: null` and no logs, including after a
-  controlled rerun. Restore repository/account Actions runner or billing
-  availability and rerun all four workflows. Do not merge beforehand.
-- **Production closure:** current production on
-  `b310efbf50d0f216206d8ebf1513f601b0e3d485` still matches all four AI routes
-  and returns HTTP 405 to their GET probes; the PDF probe matches its handler and
-  returns its unauthenticated artifact-not-found JSON. After merge, repeat exact
-  production 404s.
+- **Validation:** the focused guard passed 3/3 before the two additional route
+  entries were added; exact tree inspection on code head
+  `45227001dcf15fe8f50ea7a39f8dd280f68008b4` proves all seven files absent.
+  The complete ten-file diff is +148/-535. Production-equivalent Vercel
+  deployment `dpl_pahteqfcVuTiTtsDFHD4opgY6Hwf` is READY and SHA-matched.
+  Its public surface returns HTTP 200 with the exact `x-buddy-build` value;
+  all seven retired paths return no-store HTTP 404 through `/_not-found`.
+  No warning/error/fatal logs or grouped runtime errors were present after the
+  probes.
+- **CI blocker:** final code-head CI run `33322122575` / job `99285813368`,
+  Build Check `33322122566` / job `99285813252`, Secret Scan
+  `33322122573` / job `99285813326`, and Route Budget `33322122556` /
+  job `99285813315` failed before executing. Every job has `steps: null` and
+  `logs_url: null`, independently reproducing the repository/account Actions
+  runner or billing outage. Restore Actions availability and rerun all four
+  workflows before merge.
+- **Production closure:** current production still contains both debug handlers
+  and the five legacy handlers. After PR 1015 merges and deploys, repeat all
+  seven production 404 probes before closing the finding.
 - **Open dependencies:** PR 878's complete Golden Trident transaction and the
   missing `portfolio_risk_snapshots` live migration still require the exact
   verified Buddy-owned Supabase project plus authorized fixtures.
