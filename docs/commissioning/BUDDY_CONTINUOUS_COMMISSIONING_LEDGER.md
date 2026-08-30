@@ -1531,3 +1531,35 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+### Borrower portal issuance and session trust boundary — PR pending
+
+Evidence:
+
+- Link issuance accepted unbounded state and returned raw persistence failures.
+- SMS failures could leave active bearer links, and the authoritative bank was not persisted on SMS-created links.
+- Session audit and authoritative borrower-state reads could fail while the route returned successful empty or incomplete state.
+- Borrower message writes lacked returned-row proof.
+
+Repair branch: `codex/commission-borrower-portal-trust-boundary`.
+
+Repair:
+
+- Bound every public input and trusted application origin.
+- Require tenant-derived bank identity and exact returned-row proof for links and messages.
+- Revoke undispatched links; preserve accepted-but-unproven deliveries for explicit reconciliation.
+- Fail closed on audit or authoritative session-read failures.
+- Redact database/provider failures and enforce no-store responses.
+- Add pure behavioral and full-boundary structural regression coverage.
+
+Verification:
+
+- Focused tests: 2 passed, 0 failed.
+- Exact-head diff, CI, Vercel preview, and runtime proof pending PR creation.
+- Post-merge transaction requires an authorized borrower fixture and the verified Buddy-owned Supabase project.
+
+Next independent target:
+
+1. Continue borrower portal upload-commit and share-link state-machine rotation without overlapping the signed-upload PR.
+2. Reverify Golden Trident and nightly migration only after the exact Buddy-owned Supabase connection is confirmed.
