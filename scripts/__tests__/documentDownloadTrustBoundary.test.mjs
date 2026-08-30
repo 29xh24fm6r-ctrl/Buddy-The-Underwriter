@@ -15,7 +15,10 @@ test("document signing is tenant-bound and uses only authoritative storage coord
 });
 
 test("signed delivery requires durable audit evidence and redacts internal coordinates", () => {
-  assert.match(helper, /logLedgerEventRequired/);
+  assert.match(helper, /\.from\("deal_pipeline_ledger"\)/);
+  assert.match(helper, /\.select\("id, deal_id, bank_id, event_key, status"\)/);
+  assert.match(helper, /audit\.data\.deal_id !== dealId/);
+  assert.doesNotMatch(helper, /logLedgerEventRequired/);
   assert.match(helper, /download_audit_unavailable/);
   assert.doesNotMatch(helper, /storage_path:/);
   assert.doesNotMatch(helper, /storage_bucket:/);
