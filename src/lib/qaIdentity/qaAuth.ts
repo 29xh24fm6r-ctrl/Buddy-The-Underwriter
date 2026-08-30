@@ -120,7 +120,7 @@ async function verifyWithDeterministicOtp(args: {
   const email = args.email.toLowerCase().trim();
 
   // Check for existing converted lead (non-test conversion)
-  const { data: existingLead } = await sb
+  const { data: existingLead, error: existingLeadError } = await sb
     .from("brokerage_leads")
     .select("converted_deal_id")
     .eq("bank_id", args.bankId)
@@ -128,17 +128,25 @@ async function verifyWithDeterministicOtp(args: {
     .not("converted_deal_id", "is", null)
     .maybeSingle();
 
+  if (existingLeadError) {
+    return { ok: false, error: "qa_state_unavailable" };
+  }
+
   if (existingLead?.converted_deal_id) {
     const dealId = existingLead.converted_deal_id;
 
     // P0-2 (fail-closed): QA email linked to a non-test deal must be rejected
-    const { data: leadDeal } = await sb
+    const { data: leadDeal, error: leadDealError } = await sb
       .from("deals")
       .select("is_test")
       .eq("id", dealId)
+      .eq("bank_id", args.bankId)
       .maybeSingle();
+    if (leadDealError || !leadDeal) {
+      return { ok: false, error: "qa_state_unavailable" };
+    }
     const ld = leadDeal as any;
-    if (ld && !ld.is_test) {
+    if (!ld.is_test) {
       return { ok: false, error: "qa_email_linked_to_non_test_deal" };
     }
 
@@ -148,7 +156,7 @@ async function verifyWithDeterministicOtp(args: {
   }
 
   // Check for existing test deals
-  const { data: existingTestDeal } = await sb
+  const { data: existingTestDeal, error: existingTestDealError } = await sb
     .from("deals")
     .select("id, bank_id")
     .eq("bank_id", args.bankId)
@@ -157,6 +165,10 @@ async function verifyWithDeterministicOtp(args: {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (existingTestDealError) {
+    return { ok: false, error: "qa_state_unavailable" };
+  }
 
   if (existingTestDeal) {
     await markIfNewDeal(existingTestDeal.id);
@@ -202,7 +214,7 @@ async function verifyWithRealOtp(args: {
 
   // P0-2 (fail-closed): Check whether this QA email is linked to any
   // non-test deal before running OTP verification.
-  const { data: nonTestDeal } = await sb
+  const { data: nonTestDeal, error: nonTestDealError } = await sb
     .from("deals")
     .select("id")
     .eq("bank_id", args.bankId)
@@ -210,6 +222,10 @@ async function verifyWithRealOtp(args: {
     .neq("is_test", true)
     .limit(1)
     .maybeSingle();
+
+  if (nonTestDealError) {
+    return { ok: false, error: "qa_state_unavailable" };
+  }
 
   if (nonTestDeal) {
     return {
@@ -239,13 +255,17 @@ async function verifyWithRealOtp(args: {
 
   // P0-2 (fail-closed): After session is created/resolved, verify the deal
   // is not a pre-existing non-test deal.
-  const { data: resolvedDeal } = await sb
+  const { data: resolvedDeal, error: resolvedDealError } = await sb
     .from("deals")
     .select("is_test")
     .eq("id", result.dealId)
+    .eq("bank_id", args.bankId)
     .maybeSingle();
+  if (resolvedDealError || !resolvedDeal) {
+    return { ok: false, error: "qa_state_unavailable" };
+  }
   const rd = resolvedDeal as any;
-  if (rd && !rd.is_test) {
+  if (!rd.is_test) {
     return { ok: false, error: "qa_email_linked_to_non_test_deal" };
   }
 
@@ -267,20 +287,24 @@ async function verifyWithRealOtp(args: {
 async function markIfNewDeal(dealId: string): Promise<boolean> {
   const sb = supabaseAdmin();
 
-  const { data } = await sb
+  const { data, error } = await sb
     .from("deals")
     .select("is_test, test_run_id")
     .eq("id", dealId)
     .maybeSingle();
 
+  if (error || !data) {
+    throw new Error("qa_state_unavailable");
+  }
+
   const deal = data as any;
 
-  if (deal?.is_test === true && deal?.test_run_id) {
+  if (deal.is_test === true && deal.test_run_id) {
     return false; // Already fully marked
   }
 
   // P0-2: If the deal is NOT already a test deal, reject
-  if (deal && !deal.is_test) {
+  if (!deal.is_test) {
     throw new Error("qa_email_linked_to_non_test_deal");
   }
 
