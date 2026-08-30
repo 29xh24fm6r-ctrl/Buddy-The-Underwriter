@@ -1531,3 +1531,52 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+## 2026-08-30 — borrower projection PDF truthfulness and delivery integrity
+
+Audit evidence:
+
+- The portal-resolved deal read was not bank-bound, assumptions were not required
+  to be confirmed, and authoritative assumptions, financial facts, research,
+  story, and SBA-package read failures were treated as missing data.
+- Governed opening cash was passed to the projection model, but its fact keys
+  were absent from the financial-facts query and therefore resolved to zero.
+- The generated object used replace semantics, was not read back for content
+  identity, and could be reported successful with a null signed URL and no
+  durable audit row.
+- The response exposed the internal object path, used a one-hour URL, and lacked
+  private no-store controls.
+
+Repair branch: `codex/commission-borrower-projection-pdf-trust`.
+
+Repair:
+
+- Bind the authoritative deal to the portal-resolved deal and bank, require
+  confirmed assumptions, and fail closed on every required evidence read.
+- Query the governed cash fact keys and preserve the distinction between an
+  optional absent borrower story and a failed story read.
+- Bound PDF output, use collision-resistant non-upsert storage, read the object
+  back, and require exact length plus SHA-256 identity.
+- Require a bounded five-minute HTTPS URL and an exact tenant-bound ledger row
+  before success; remove only the just-created object when delivery proof is
+  incomplete.
+- Return stable redacted responses with private no-store controls and no object
+  path disclosure.
+- Add four focused regression cases and a commissioning record.
+
+Validation before merge:
+
+- Focused regression, production-equivalent build, exact-head preview, complete
+  diff inspection, and required GitHub checks remain required.
+- Post-merge transaction proof requires a verified Buddy-owned Supabase project
+  plus an authorized confirmed-assumptions borrower fixture.
+- No unverified database or cross-product system was accessed.
+
+Independent unresolved risks:
+
+- PR 878's complete seal-to-marketplace-to-lender transaction and the missing
+  live `portfolio_risk_snapshots` migration remain blocked on verification of
+  the exact Buddy-owned Supabase project and authorized fixtures.
+- Repository GitHub Actions availability remains an external prerequisite for
+  merge-safe required checks on the current commissioning queue.
