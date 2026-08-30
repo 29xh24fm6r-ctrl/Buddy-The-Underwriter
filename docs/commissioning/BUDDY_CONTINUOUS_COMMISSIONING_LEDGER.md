@@ -1550,16 +1550,20 @@ Remaining closure:
 ## 2026-08-30 — legacy AI control-plane retirement
 
 - **System audited:** production API routes at `/api/ai/command`,
-  `/api/ai/credit-memo`, `/api/ai/execute`, and `/api/ai/underwrite`.
+  `/api/ai/credit-memo`, `/api/ai/execute`, `/api/ai/underwrite`, and the
+  related unauthenticated `/api/pdfs/[pdfId]` retrieval path.
 - **Evidence:** repository code search found no product caller. The routes accepted
   caller-controlled deal or AI context; credit-memo synthesized placeholder deal
   state; underwrite could return internal/provider error text; execute reported
   mutations as applied although both its deal store and audit ledger were
-  explicitly process-memory demo implementations.
+  explicitly process-memory demo implementations. The related PDF route used
+  the process-memory artifact ID as its only authorization and read a server-local
+  file path directly.
 - **Root cause:** an early prototype control plane remained deployed after durable,
   tenant-scoped underwriting workflows superseded it.
 - **Repair branch:** `codex/retire-legacy-ai-control-plane`.
-- **Repair:** remove all four route handlers and add a regression guard requiring
+- **Repair:** remove all four AI route handlers plus the orphaned PDF retrieval
+  handler, and add a regression guard requiring
   their absence, prohibiting product callers, and preventing API routes from
   importing the process-memory executor or audit store.
 - **Preservation:** shared development libraries remain untouched; no schema,
@@ -1568,7 +1572,7 @@ Remaining closure:
 - **Validation:** focused guard passed 3/3; the complete seven-file diff is
   +126/-230. Exact head `f6e09e805a5fe05a9b149ebeb86ebc5fdf22fdae`
   produced READY Vercel deployment `dpl_23VadVT6GNKDdBfnL1Dz8qV6PqHr`,
-  an HTTP-200 public surface, exact 404s for all four retired paths, and no
+  an HTTP-200 public surface, exact 404s for all retired paths, and no
   warning/error/fatal logs or grouped runtime errors.
 - **CI blocker:** CI, Build Check, Secret Scan, and Route Budget failed before
   executing any step; each job had `steps: null` and no logs, including after a
@@ -1576,7 +1580,9 @@ Remaining closure:
   availability and rerun all four workflows. Do not merge beforehand.
 - **Production closure:** current production on
   `b310efbf50d0f216206d8ebf1513f601b0e3d485` still matches all four routes
-  and returns HTTP 405 to GET probes. After merge, repeat exact production 404s.
+  and returns HTTP 405 to AI GET probes; the PDF probe matches its handler and
+  returns its unauthenticated artifact-not-found JSON. After merge, repeat exact
+  production 404s.
 - **Open dependencies:** PR 878's complete Golden Trident transaction and the
   missing `portfolio_risk_snapshots` live migration still require the exact
   verified Buddy-owned Supabase project plus authorized fixtures.
