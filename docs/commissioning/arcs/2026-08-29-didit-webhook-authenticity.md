@@ -51,7 +51,29 @@ The focused suite covers:
 - forged, tampered, prefixed, uppercase, and non-hex signatures;
 - diagnostic header evidence.
 
-Broad repository CI, build, security, architecture, schema, Never-500, and public browser validation are required on the exact PR head before merge readiness is declared.
+## Reconciliation and exact-head validation
+
+PR 990 was reconciled onto current `main` with a merge commit that retained every
+intervening Buddy The Underwriter repair. The conflict was limited to the shared
+commissioning ledger; the Didit runtime and test files did not overlap.
+
+Code head `f3baea0d58800c23c7430170b1a3e233825325a4`:
+
+- 13,623 tests: 13,614 passed, 0 failed, 9 skipped.
+- React-server passed 18/18; research evaluation passed 7/7 with 13 controlled
+  placeholders explicitly skipped.
+- Typecheck, lint, architecture, safety, legacy-write, polling, Never-500,
+  schema-select, report-only schema drift, Build Check, Secret Scan, Route
+  Budget, and public Playwright passed.
+- Public Playwright passed its public crawl and skipped five fixture-dependent
+  authenticated cases.
+- The complete five-file diff was inspected: 315 additions and 158 deletions,
+  with no conflicts, credentials, cross-product scope, or unexpected files.
+- The exact-head Vercel preview was READY and SHA-matched.
+- PR 990 was mergeable and zero commits behind `main`.
+
+This evidence-file update is documentation-only. Its resulting exact head must
+retain all required green checks and a READY, SHA-matched preview before handoff.
 
 ## Production verification
 
@@ -65,5 +87,4 @@ The currently deployed production build remained HTTP 200 and runtime-clean befo
 ## Unresolved risks and next target
 
 - Transactional `event_id` deduplication requires verified production schema evidence before introducing a durable claim primitive.
-- Signing-request concurrency work remains dependent on the open completed-PDF immutability repair.
 - Golden Trident seal-to-marketplace-to-lender transactional proof still requires the verified product-owned database connection and an authorized sealed fixture.
