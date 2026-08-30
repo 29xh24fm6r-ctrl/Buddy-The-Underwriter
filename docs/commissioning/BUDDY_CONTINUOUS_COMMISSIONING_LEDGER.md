@@ -1531,3 +1531,53 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+## 2026-08-30 — Plaid webhook replay protection
+
+Checkpoint:
+
+- Production remains on exact main `69ff673b7d57fda700ed0539263d40fecdec0df8`,
+  HTTP 200, with no warning/error/fatal or grouped runtime errors in the latest
+  six-hour scan.
+- PRs 995 and 999 remain open, mergeable, zero commits behind main, and
+  independent of this arc.
+- PR 878 remains deployed. Full Golden Trident seal-to-marketplace-to-lender
+  transactional proof still requires a verified Buddy-owned Supabase connection
+  and an authorized sealed transaction.
+- The next scheduled nightly invocation had not occurred during the initial
+  production scan, so PR 979's first post-deployment nightly transaction remains
+  open evidence.
+
+Evidence and root cause:
+
+- The Plaid verifier authenticated ES256 signatures and the raw-body hash but
+  never enforced the signed JWT `iat` claim.
+- Plaid's authoritative contract requires rejecting webhooks more than five
+  minutes old to prevent replay. A captured authentic callback could therefore
+  retrigger transaction sync or Item lifecycle writes indefinitely.
+- Body hashes used ordinary string equality, and SDK verification exceptions
+  were reflected in public failure reasons.
+
+Repair branch: `codex/commission-plaid-webhook-replay`.
+
+Repair:
+
+- Require a safe integer issued-at claim and enforce the five-minute replay
+  window with bounded future-clock skew.
+- Reject unexpected algorithms before provider-key lookup.
+- Validate SHA-256 format and compare hash bytes in constant time.
+- Return deterministic, non-sensitive verification failure reasons.
+- Add real ES256 signed-JWT regression coverage across freshness, expiry,
+  future timestamps, missing claims, tampering, malformed hashes, algorithms,
+  and signature failure.
+- Record the focused commissioning arc at
+  `docs/commissioning/arcs/2026-08-30-plaid-webhook-replay-protection.md`.
+
+Validation and closure:
+
+- Focused/broad validation, complete-diff inspection, required CI, and exact
+  preview evidence are pending on the final branch head.
+- Post-merge transactional closure requires an authorized Plaid sandbox webhook.
+- No database, credentials, provider configuration, production data, or
+  cross-product system was accessed or changed.
+
