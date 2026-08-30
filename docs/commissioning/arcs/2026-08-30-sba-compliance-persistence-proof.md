@@ -32,9 +32,18 @@ These paths could report complete compliance reconciliation while durable state 
 
 Source and tests only. No schema, credential, provider configuration, production row, storage object, dependency, destructive action, or cross-product change.
 
-## Validation state
+## Exact-head validation
 
-- Complete changed-file diff inspected.
-- Branch is zero commits behind `main`.
-- Required CI and exact-head preview evidence will be recorded after the pull request is opened.
-- Transactional closure requires the verified Buddy-owned Supabase project and authorized fixtures.
+Validated on `28e7e908f3a3dbb256f0efd0e963848e1fc3686a` before this evidence-only commit:
+
+- 18/18 exact-source boundary assertions passed.
+- Complete ten-file diff inspected: +372/-37 with no secrets or unexpected scope.
+- GitHub reports mergeable and zero commits behind `main`.
+- Vercel deployment `dpl_CZr7pkYdbdhJLn5AtoNoHZRLKsqS` is READY and SHA-matched.
+- Exact preview homepage returns HTTP 200.
+- No preview warning/error/fatal runtime logs.
+- CI, Build Check, and Secret Scan failed before executing any step; the inspected CI job has `steps: null` and no log URL.
+
+## Closure
+
+Do not merge until GitHub Actions runner/billing availability is restored and the required checks execute and pass. Transactional closure then requires the verified Buddy-owned Supabase project and authorized fixtures.
