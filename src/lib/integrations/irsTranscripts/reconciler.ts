@@ -32,6 +32,14 @@ export type Discrepancy = {
 
 const MATERIALITY_THRESHOLD = 1000;
 
+function dbError(operation: string, error: unknown): Error {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message: unknown }).message)
+      : String(error);
+  return new Error(`irs_transcript_reconcile_${operation}_failed: ${message}`);
+}
+
 export function findDiscrepancies(transcripts: TranscriptFieldSet[], borrowerFacts: BorrowerFact[]): Discrepancy[] {
   const discrepancies: Discrepancy[] = [];
 
@@ -63,12 +71,13 @@ export type ReconcileTranscriptRequestResult =
 export async function reconcileTranscriptRequest(requestId: string, deps: { sb: IrsReconcilerSupabaseClient }): Promise<ReconcileTranscriptRequestResult> {
   const { sb } = deps;
 
-  const { data: request } = await sb
+  const { data: request, error: requestError } = await sb
     .from("borrower_irs_transcript_requests")
     .select("id, deal_id, bank_id, ownership_entity_id, status, reconciliation_summary")
     .eq("id", requestId)
     .maybeSingle();
 
+  if (requestError) throw dbError("request_read", requestError);
   if (!request) {
     return { ok: false, reason: "REQUEST_NOT_FOUND" };
   }
@@ -78,16 +87,18 @@ export async function reconcileTranscriptRequest(requestId: string, deps: { sb: 
 
   const transcripts = ((request.reconciliation_summary?.transcripts ?? []) as TranscriptFieldSet[]);
 
-  const { data: facts } = await sb
+  const { data: facts, error: factsError } = await sb
     .from("deal_financial_facts")
     .select("fact_key, fact_value_num, fact_period_end")
     .eq("deal_id", request.deal_id)
     .eq("is_superseded", false);
 
+  if (factsError) throw dbError("facts_read", factsError);
+
   const discrepancies = findDiscrepancies(transcripts, (facts ?? []) as BorrowerFact[]);
 
   if (discrepancies.length > 0) {
-    await sb.from("deal_gap_queue").insert(
+    const { error: gapError } = await sb.from("deal_gap_queue").insert(
       discrepancies.map((d) => ({
         deal_id: request.deal_id,
         bank_id: request.bank_id,
@@ -101,18 +112,21 @@ export async function reconcileTranscriptRequest(requestId: string, deps: { sb: 
         status: "open",
       })),
     );
+    if (gapError) throw dbError("gap_insert", gapError);
   }
 
-  await sb
+  const { error: requestUpdateError } = await sb
     .from("borrower_irs_transcript_requests")
     .update({ status: "reconciled", reconciliation_summary: { transcripts, discrepancies } })
     .eq("id", requestId);
+  if (requestUpdateError) throw dbError("request_update", requestUpdateError);
 
-  await sb.from("deal_events").insert({
+  const { error: eventError } = await sb.from("deal_events").insert({
     deal_id: request.deal_id,
     kind: "irs.reconciliation_completed",
     payload: { request_id: requestId, discrepancy_count: discrepancies.length },
   });
+  if (eventError) throw dbError("event_insert", eventError);
 
   return { ok: true, discrepancyCount: discrepancies.length };
 }

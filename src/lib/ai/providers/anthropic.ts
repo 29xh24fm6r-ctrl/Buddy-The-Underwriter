@@ -82,15 +82,25 @@ export async function callAnthropic(req: ProviderCallRequest): Promise<ProviderC
     input?: unknown;
   }>;
 
+  const stopReason = data?.stop_reason;
+  const expectedStopReason = req.responseSchema ? "tool_use" : "end_turn";
+  if (stopReason !== expectedStopReason) {
+    throw new Error(
+      stopReason
+        ? `incomplete response (stop_reason: ${stopReason})`
+        : "incomplete response (stop_reason missing)",
+    );
+  }
+
   let text = "";
   if (req.responseSchema) {
     const toolBlock = blocks.find(
       (b) => b.type === "tool_use" && b.name === STRUCTURED_TOOL_NAME,
     );
-    if (!toolBlock) {
-      throw new Error("no tool_use block in structured response");
+    if (!toolBlock || toolBlock.input === undefined || toolBlock.input === null) {
+      throw new Error("no complete tool_use block in structured response");
     }
-    text = JSON.stringify(toolBlock.input ?? {});
+    text = JSON.stringify(toolBlock.input);
   } else {
     text = blocks
       .filter((b) => b.type === "text")
@@ -99,8 +109,7 @@ export async function callAnthropic(req: ProviderCallRequest): Promise<ProviderC
   }
 
   if (!text) {
-    const stopReason = data?.stop_reason;
-    throw new Error(stopReason ? `empty response (stop_reason: ${stopReason})` : "empty response");
+    throw new Error(`empty response (stop_reason: ${stopReason})`);
   }
 
   const usage = data?.usage ?? {};

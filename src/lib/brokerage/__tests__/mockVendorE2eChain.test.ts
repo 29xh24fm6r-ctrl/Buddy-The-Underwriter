@@ -103,6 +103,7 @@ class Q {
 class FakeDb {
   tables: Record<string, Row[]>;
   storageUploads: Array<{ bucket: string; path: string }> = [];
+  storageObjects = new Map<string, Buffer>();
   constructor(seed?: Partial<Record<string, Row[]>>) {
     this.tables = {
       borrower_identity_verifications: [],
@@ -119,9 +120,16 @@ class FakeDb {
   get storage() {
     return {
       from: (bucket: string) => ({
-        upload: async (path: string) => {
+        upload: async (path: string, data: Buffer) => {
           this.storageUploads.push({ bucket, path });
+          this.storageObjects.set(path, Buffer.from(data));
           return { error: null };
+        },
+        download: async (path: string) => {
+          const bytes = this.storageObjects.get(path);
+          return bytes
+            ? { data: { arrayBuffer: async () => Uint8Array.from(bytes).buffer }, error: null }
+            : { data: null, error: { message: "not_found" } };
         },
       }),
     };

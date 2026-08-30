@@ -18,6 +18,8 @@
  * unit test) even when the document lives in Supabase.
  */
 
+import { createHash } from "node:crypto";
+
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /** The configured GCS bucket, or null when GCS storage is not configured. */
@@ -49,6 +51,55 @@ export function documentUploadBucket(): string {
  */
 export function defaultDocumentBucket(): string {
   return process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
+}
+
+/**
+ * Canonical identity of bytes already persisted in document storage.
+ *
+ * Upload metadata supplied by a browser is only a claim.  Hash the stored
+ * object before materializing deal_documents so dedupe and underwriting
+ * provenance never attest to bytes that storage did not actually receive.
+ */
+export type DocumentContentIdentity = {
+  sizeBytes: number;
+  sha256: string;
+};
+
+export function documentContentIdentity(bytes: Uint8Array): DocumentContentIdentity {
+  return {
+    sizeBytes: bytes.byteLength,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+export function verifyDocumentContentIdentity(args: {
+  bytes: Uint8Array;
+  expectedSizeBytes: number;
+  expectedSha256?: string | null;
+}): DocumentContentIdentity {
+  const expectedSizeBytes = Number(args.expectedSizeBytes);
+  if (!Number.isSafeInteger(expectedSizeBytes) || expectedSizeBytes < 0) {
+    throw new Error("storage_content_verification_failed: invalid_expected_size");
+  }
+
+  const actual = documentContentIdentity(args.bytes);
+  if (actual.sizeBytes !== expectedSizeBytes) {
+    throw new Error(
+      `storage_content_verification_failed: size_mismatch expected=${expectedSizeBytes} actual=${actual.sizeBytes}`,
+    );
+  }
+
+  const expectedSha256 = String(args.expectedSha256 || "").trim().toLowerCase();
+  if (expectedSha256 && !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+    throw new Error("storage_content_verification_failed: invalid_expected_sha256");
+  }
+  if (expectedSha256 && actual.sha256 !== expectedSha256) {
+    throw new Error(
+      `storage_content_verification_failed: sha256_mismatch expected=${expectedSha256} actual=${actual.sha256}`,
+    );
+  }
+
+  return actual;
 }
 
 /** True when `bucket` names the GCS uploads bucket rather than a Supabase one. */

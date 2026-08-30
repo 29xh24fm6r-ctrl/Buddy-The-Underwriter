@@ -15,14 +15,20 @@ export type PollIrsTranscriptsSupabaseClient = IrsPollingSupabaseClient & IrsRec
 export async function pollAndReconcileIrsTranscripts(deps: {
   sb: PollIrsTranscriptsSupabaseClient;
   vendor: IrsPollingVendorClient;
-}): Promise<{ polled: number; received: number; expired: number; reconciled: number }> {
+}): Promise<{ polled: number; received: number; expired: number; reconciled: number; failed: number }> {
   const outcomes = await pollPendingTranscripts({ sb: deps.sb, vendor: deps.vendor });
 
   const receivedIds = outcomes.filter((o) => o.outcome === "received").map((o) => o.requestId);
   let reconciled = 0;
+  let failed = 0;
   for (const id of receivedIds) {
-    const result = await reconcileTranscriptRequest(id, { sb: deps.sb });
-    if (result.ok) reconciled++;
+    try {
+      const result = await reconcileTranscriptRequest(id, { sb: deps.sb });
+      if (result.ok) reconciled++;
+      else failed++;
+    } catch {
+      failed++;
+    }
   }
 
   return {
@@ -30,5 +36,6 @@ export async function pollAndReconcileIrsTranscripts(deps: {
     received: receivedIds.length,
     expired: outcomes.filter((o) => o.outcome === "expired").length,
     reconciled,
+    failed,
   };
 }

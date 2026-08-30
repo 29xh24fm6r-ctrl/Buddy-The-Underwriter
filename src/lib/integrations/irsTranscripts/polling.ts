@@ -38,6 +38,14 @@ export type IrsPollingVendorClient = {
 
 const RECEIVED_STATUSES = new Set(["completed", "received", "fulfilled"]);
 
+function dbError(operation: string, error: unknown): Error {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message: unknown }).message)
+      : String(error);
+  return new Error(`irs_transcript_poll_${operation}_failed: ${message}`);
+}
+
 export type PollOutcome = { requestId: string; outcome: "received" | "still_pending" | "expired" };
 
 /**
@@ -57,11 +65,13 @@ export async function pollPendingTranscripts(
 ): Promise<PollOutcome[]> {
   const { sb, vendor } = deps;
 
-  const { data } = await sb
+  const { data, error: pendingError } = await sb
     .from("borrower_irs_transcript_requests")
     .select("id, deal_id, bank_id, vendor_request_id, submitted_at, poll_attempt_count")
     .eq("status", "submitted")
     .lte("next_poll_at", now.toISOString());
+
+  if (pendingError) throw dbError("pending_read", pendingError);
 
   const pending = (data ?? []) as Array<{
     id: string;
@@ -78,7 +88,7 @@ export async function pollPendingTranscripts(
     const response = await vendor.pollVendorTranscriptRequest(row.vendor_request_id);
 
     if (RECEIVED_STATUSES.has(response.status)) {
-      await sb
+      const { error } = await sb
         .from("borrower_irs_transcript_requests")
         .update({
           status: "received",
@@ -87,6 +97,7 @@ export async function pollPendingTranscripts(
           reconciliation_summary: { transcripts: response.transcripts ?? [] },
         })
         .eq("id", row.id);
+      if (error) throw dbError("received_update", error);
       outcomes.push({ requestId: row.id, outcome: "received" });
       continue;
     }
@@ -94,8 +105,13 @@ export async function pollPendingTranscripts(
     const { nextPollAt, expired } = computeNextPollAt(new Date(row.submitted_at), now);
 
     if (expired) {
-      await sb.from("borrower_irs_transcript_requests").update({ status: "expired", poll_attempt_count: row.poll_attempt_count + 1 }).eq("id", row.id);
-      await sb.from("deal_gap_queue").insert({
+      const { error: expiredError } = await sb
+        .from("borrower_irs_transcript_requests")
+        .update({ status: "expired", poll_attempt_count: row.poll_attempt_count + 1 })
+        .eq("id", row.id);
+      if (expiredError) throw dbError("expired_update", expiredError);
+
+      const { error: gapError } = await sb.from("deal_gap_queue").insert({
         deal_id: row.deal_id,
         bank_id: row.bank_id,
         gap_type: "irs_transcript_delayed",
@@ -107,11 +123,16 @@ export async function pollPendingTranscripts(
         priority: 2,
         status: "open",
       });
+      if (gapError) throw dbError("expiry_gap_insert", gapError);
       outcomes.push({ requestId: row.id, outcome: "expired" });
       continue;
     }
 
-    await sb.from("borrower_irs_transcript_requests").update({ next_poll_at: nextPollAt, poll_attempt_count: row.poll_attempt_count + 1 }).eq("id", row.id);
+    const { error: pendingUpdateError } = await sb
+      .from("borrower_irs_transcript_requests")
+      .update({ next_poll_at: nextPollAt, poll_attempt_count: row.poll_attempt_count + 1 })
+      .eq("id", row.id);
+    if (pendingUpdateError) throw dbError("pending_update", pendingUpdateError);
     outcomes.push({ requestId: row.id, outcome: "still_pending" });
   }
 

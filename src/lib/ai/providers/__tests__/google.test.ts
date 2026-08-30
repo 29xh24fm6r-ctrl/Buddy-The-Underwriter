@@ -16,6 +16,7 @@ mockServerOnly();
 const require = createRequire(import.meta.url);
 const {
   callGoogle,
+  streamGoogle,
   stripAdditionalPropertiesForGemini,
   __setVertexAccessTokenForTests,
   __resetVertexAccessTokenForTests,
@@ -34,11 +35,44 @@ function installFetch(impl: FetchImpl): { restore: () => void; calls: CapturedCa
   return { restore: () => { globalThis.fetch = original; }, calls };
 }
 
-function okResponse(body: Record<string, unknown>): Response {
+function rawOkResponse(body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+function okResponse(body: Record<string, unknown>): Response {
+  const candidates = Array.isArray(body.candidates)
+    ? body.candidates.map((candidate) =>
+        candidate && typeof candidate === "object" && !Array.isArray(candidate)
+          ? { finishReason: "STOP", ...candidate }
+          : candidate,
+      )
+    : body.candidates;
+  return rawOkResponse({ ...body, ...(candidates ? { candidates } : {}) });
+}
+
+function sseResponse(chunks: string[], onCancel?: () => void): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      },
+      cancel() {
+        onCancel?.();
+      },
+    }),
+    { status: 200, headers: { "content-type": "text/event-stream" } },
+  );
+}
+
+async function collectStream(stream: AsyncGenerator<string>): Promise<string[]> {
+  const chunks: string[] = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  return chunks;
 }
 
 const BASE_REQ = {
@@ -71,6 +105,64 @@ describe("callGoogle: existing API-key REST path (regression)", () => {
       assert.match(calls[0].url, /^https:\/\/generativelanguage\.googleapis\.com/);
       assert.equal(calls[0].init.headers["x-goog-api-key"], "test-key");
       assert.equal(calls[0].init.headers.Authorization, undefined);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("callGoogle: terminal completion integrity", () => {
+  it("rejects reply text when the provider omits finishReason", async () => {
+    const { restore } = installFetch(async () =>
+      rawOkResponse({ candidates: [{ content: { parts: [{ text: "partial" }] } }] }),
+    );
+    try {
+      await assert.rejects(
+        () => callGoogle(BASE_REQ),
+        /not complete \(finishReason: missing\)/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects truncated reply text when the provider reports MAX_TOKENS", async () => {
+    const { restore } = installFetch(async () =>
+      rawOkResponse({
+        candidates: [
+          {
+            content: { parts: [{ text: "partial" }] },
+            finishReason: "MAX_TOKENS",
+          },
+        ],
+      }),
+    );
+    try {
+      await assert.rejects(
+        () => callGoogle(BASE_REQ),
+        /not complete \(finishReason: MAX_TOKENS\)/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects STOP responses that contain no non-thought reply text", async () => {
+    const { restore } = installFetch(async () =>
+      rawOkResponse({
+        candidates: [
+          {
+            content: { parts: [{ text: "reasoning", thought: true }] },
+            finishReason: "STOP",
+          },
+        ],
+      }),
+    );
+    try {
+      await assert.rejects(
+        () => callGoogle(BASE_REQ),
+        /completed without reply text/,
+      );
     } finally {
       restore();
     }
@@ -378,6 +470,129 @@ describe("callGoogle: JSON object mode", () => {
       assert.equal("responseSchema" in body.generationConfig, false);
     } finally {
       restore();
+    }
+  });
+});
+
+describe("streamGoogle: terminal stream integrity", () => {
+  it("accepts a chunked stream only after a terminal finish reason", async () => {
+    const { restore } = installFetch(async () =>
+      sseResponse([
+        'data: {"candidates":[{"content":{"parts":[{"text":"hel"}]}}]}\n\n',
+        'data: {"candidates":[{"content":{"parts":[{"text":"lo"}]},"finishReason":"STOP"}]}\n\n',
+      ]),
+    );
+    try {
+      assert.deepEqual(await collectStream(streamGoogle(BASE_REQ)), ["hel", "lo"]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("fails closed on a completed SSE frame with malformed JSON", async () => {
+    const { restore } = installFetch(async () =>
+      sseResponse(['data: {"candidates":[}\n\n']),
+    );
+    try {
+      await assert.rejects(
+        () => collectStream(streamGoogle(BASE_REQ)),
+        /malformed SSE JSON/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("fails closed when the connection ends with an unterminated SSE frame", async () => {
+    const { restore } = installFetch(async () =>
+      sseResponse([
+        'data: {"candidates":[{"content":{"parts":[{"text":"partial"}]}}]}\n\n',
+        'data: {"candidates":[{"finishReason":"STOP"}]',
+      ]),
+    );
+    try {
+      await assert.rejects(
+        () => collectStream(streamGoogle(BASE_REQ)),
+        /incomplete SSE frame/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("fails closed when text arrives but no terminal finish reason does", async () => {
+    const { restore } = installFetch(async () =>
+      sseResponse([
+        'data: {"candidates":[{"content":{"parts":[{"text":"partial"}]}}]}\n\n',
+      ]),
+    );
+    try {
+      await assert.rejects(
+        () => collectStream(streamGoogle(BASE_REQ)),
+        /without a terminal finish reason/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("fails closed when a stream ends at MAX_TOKENS after yielding text", async () => {
+    const { restore } = installFetch(async () =>
+      sseResponse([
+        'data: {"candidates":[{"content":{"parts":[{"text":"partial"}]},"finishReason":"MAX_TOKENS"}]}\n\n',
+      ]),
+    );
+    try {
+      await assert.rejects(
+        () => collectStream(streamGoogle(BASE_REQ)),
+        /not complete \(finishReason: MAX_TOKENS\)/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("fails closed when a terminal response contains no reply text", async () => {
+    const { restore } = installFetch(async () =>
+      sseResponse(['data: {"candidates":[{"finishReason":"STOP"}]}\n\n']),
+    );
+    try {
+      await assert.rejects(
+        () => collectStream(streamGoogle(BASE_REQ)),
+        /produced no reply text/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("cancels the provider reader when the downstream consumer stops early", async () => {
+    let cancelled = false;
+    const encoder = new TextEncoder();
+    const original = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                'data: {"candidates":[{"content":{"parts":[{"text":"first"}]}}]}\n\n',
+              ),
+            );
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+    try {
+      const stream = streamGoogle(BASE_REQ);
+      assert.deepEqual(await stream.next(), { value: "first", done: false });
+      await stream.return(undefined);
+      assert.equal(cancelled, true);
+    } finally {
+      globalThis.fetch = original;
     }
   });
 });

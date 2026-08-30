@@ -62,7 +62,7 @@ export type ProcessResult = {
 
 type Row = Record<string, any>;
 type SB = { from: (t: string) => any };
-type Adapter = (msg: { recipient: string; subject: string | null; body: string }) => Promise<SendResult>;
+type Adapter = (msg: { recipient: string; subject: string | null; body: string; idempotencyKey: string }) => Promise<SendResult>;
 
 function str(v: unknown): string | null { return typeof v === "string" && v.trim() ? v.trim() : null; }
 function now(): string { return new Date().toISOString(); }
@@ -226,6 +226,7 @@ export async function processCommsOutboxItem(
       recipient: item.recipient,
       subject: item.subject,
       body: item.body,
+      idempotencyKey: item.idempotencyKey,
     });
   } catch (error: unknown) {
     result = {

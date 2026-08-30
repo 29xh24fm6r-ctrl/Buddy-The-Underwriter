@@ -103,12 +103,25 @@ class FakeDb {
     if (opts?.storage !== false) {
       const uploadFails = opts?.uploadFails ?? false;
       const uploads: Array<{ bucket: string; path: string; opts: any }> = [];
+      const objects = new Map<string, Buffer>();
       this.storage = {
         uploads,
+        objects,
         from: (bucket: string) => ({
-          upload: async (path: string, _data: Buffer, uploadOpts?: any) => {
+          upload: async (path: string, data: Buffer, uploadOpts?: any) => {
             uploads.push({ bucket, path, opts: uploadOpts });
-            return uploadFails ? { error: { message: "upload_failed" } } : { error: null };
+            if (uploadFails) return { error: { message: "upload_failed" } };
+            if (objects.has(path) && uploadOpts?.upsert === false) {
+              return { error: { message: "The resource already exists", statusCode: "409" } };
+            }
+            objects.set(path, Buffer.from(data));
+            return { error: null };
+          },
+          download: async (path: string) => {
+            const bytes = objects.get(path);
+            return bytes
+              ? { data: { arrayBuffer: async () => Uint8Array.from(bytes).buffer }, error: null }
+              : { data: null, error: { message: "not_found" } };
           },
         }),
       };
@@ -338,7 +351,7 @@ test("handleSignwellWebhook: document_completed with IAL2 -> uploads PDF, writes
   assert.equal(db.tables.signed_documents[0].signer_role, "guarantor");
   assert.equal(db.tables.signed_documents[0].signature_request_sent_at, "2026-01-02T03:04:05.000Z");
   assert.equal(db.tables.signed_documents[0].signature_completed_at, "2026-01-03T04:05:06.000Z");
-  assert.equal(db.storage.uploads[0].opts.upsert, true);
+  assert.equal(db.storage.uploads[0].opts.upsert, false);
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.completed"));
 });
 
