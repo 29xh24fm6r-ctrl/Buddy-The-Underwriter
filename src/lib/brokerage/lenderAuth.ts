@@ -69,8 +69,17 @@ export async function resolveLenderIdentityResult(): Promise<LenderIdentityResol
 
   const selection = selectLenderIdentity(userId, memberships, agreements);
   if (selection.ok) return selection;
-  if (selection.reason === "ambiguous_lender_identity") return selection;
-  if (selection.reason === "not_a_lender") return selection;
+  // selectLenderIdentity can also report "invalid_lender_identity", which this
+  // boundary deliberately collapses into unavailable state below. Its failure
+  // is one object type with a union-typed reason, so narrowing the field does
+  // not reshape the object; return the narrowed reason explicitly instead of
+  // passing the wider value through.
+  if (selection.reason === "ambiguous_lender_identity") {
+    return { ok: false, reason: "ambiguous_lender_identity" };
+  }
+  if (selection.reason === "not_a_lender") {
+    return { ok: false, reason: "not_a_lender" };
+  }
   return { ok: false, reason: "identity_state_unavailable" };
 }
 
