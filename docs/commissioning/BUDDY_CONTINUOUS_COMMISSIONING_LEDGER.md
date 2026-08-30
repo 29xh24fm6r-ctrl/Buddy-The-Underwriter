@@ -1564,8 +1564,16 @@ Repair:
 Verification:
 
 - Focused share-link trust regression: 3 tests passed, 0 failed.
-- Production-equivalent build, exact Vercel preview, required GitHub workflows,
-  and authorized post-merge transaction are pending.
+- Exact code-and-evidence head 317c5990: mergeable and zero commits
+  behind main; complete six-file diff +384/-153.
+- Production-equivalent Vercel build completed. Deployment
+  dpl_6oNU95YgkviVueab1zcre9cu2Mhm is READY and SHA-matched; homepage HTTP
+  200; missing and malformed share tokens return bounded, no-store HTTP 401.
+- The exact preview recorded no warning/error/fatal runtime logs in the
+  verification window.
+- GitHub CI, Build Check, Secret Scan, and Route Budget failed before executing
+  any step. Inspected jobs had steps: null and no logs, proving the
+  repository/account Actions availability blocker rather than a test failure.
 - No schema, credential, provider configuration, production-data, or destructive
   storage change. No unverified database was accessed.
 
