@@ -63,21 +63,23 @@ class Q {
   }
   maybeSingle(): Promise<{ data: any; error: any }> {
     if (this._u) {
-      this.applyUpdate();
-      return Promise.resolve({ data: this.rows()[0], error: null });
+      const updated = this.applyUpdate();
+      return Promise.resolve({ data: updated[0] ?? null, error: null });
     }
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
   then(resolve: any, reject?: any) {
     if (this._u) {
-      this.applyUpdate();
-      return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
+      const updated = this.applyUpdate();
+      return Promise.resolve({ data: updated, error: null }).then(resolve, reject);
     }
     if (this._i) return Promise.resolve({ data: this._i, error: null }).then(resolve, reject);
     return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
   }
-  private applyUpdate() {
-    for (const r of this.rows()) Object.assign(r, this._u);
+  private applyUpdate(): Row[] {
+    const rows = this.rows();
+    for (const r of rows) Object.assign(r, this._u);
+    return rows;
   }
   private rows(): Row[] {
     let rows = [...(this.db.tables[this.table] ?? [])];
