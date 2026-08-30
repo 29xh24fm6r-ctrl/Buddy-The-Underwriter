@@ -1579,13 +1579,34 @@ Repair:
   path disclosure.
 - Add four focused regression cases and a commissioning record.
 
-Validation before merge:
+Validation on code head `fcd30338861aedf72614b9a17c73ea24e6db93b4`:
 
-- Focused regression, production-equivalent build, exact-head preview, complete
-  diff inspection, and required GitHub checks remain required.
+- Focused regression passed 4/4.
+- The production-equivalent Vercel build passed; exact deployment
+  `dpl_3AVr6m9cT7zBkzmEWYvfFgPnAe1Q` is READY, SHA-matched, HTTP 200, and has
+  no warning/error/fatal logs or grouped runtime errors.
+- The complete five-file diff against current `main` was inspected:
+  470 additions and 138 deletions, with no schema, dependency, credential,
+  provider-configuration, existing-object, production-data, or cross-product
+  change.
+- PR 1014 is mergeable and zero commits behind `main`.
+- CI, Build Check, Secret Scan, and Route Budget were created but failed before
+  executing any step; each job has `steps: null` and no logs. Restoring this
+  repository/account's GitHub Actions runner or billing availability is the
+  precise external prerequisite before merge.
 - Post-merge transaction proof requires a verified Buddy-owned Supabase project
   plus an authorized confirmed-assumptions borrower fixture.
 - No unverified database or cross-product system was accessed.
+
+Production merge verification:
+
+- PRs 990 and 991 are deployed together on exact production SHA
+  `81002cb8821595e0a16f0d527a3297dab1c7c167`.
+- The homepage returns HTTP 200, the removed authentication-debug route returns
+  HTTP 404 with no diagnostic JSON, and the latest 30-minute production scan
+  contains no warning/error/fatal logs or grouped runtime errors.
+- Didit authenticity closure still requires an authorized sandbox V2 delivery,
+  stale replay, canonical status persistence, and retry-deduplication fixture.
 
 Independent unresolved risks:
 
