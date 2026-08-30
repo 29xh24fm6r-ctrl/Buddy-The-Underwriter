@@ -59,7 +59,10 @@ beforeEach(() => {
   createResult = { url: "https://checkout.stripe.com/c/pay/session_123" };
   createError = null;
   createCalls = [];
-  process.env.STRIPE_SECRET_KEY = "sk_test_configured";
+  // Deliberately not shaped like a real Stripe key. The route only checks the
+  // value is non-empty after trim, so a key-shaped fixture buys the test
+  // nothing and trips secret scanning on every commit.
+  process.env.STRIPE_SECRET_KEY = "stripe_secret_configured";
   process.env.STRIPE_PRO_PRICE_ID = "price_pro_configured";
   process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID = "price_public_fallback";
   process.env.PUBLIC_BASE_URL = "https://www.buddysba.com";
