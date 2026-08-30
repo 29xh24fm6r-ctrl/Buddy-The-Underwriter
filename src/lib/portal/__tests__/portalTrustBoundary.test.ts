@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parsePortalLinkInput, parsePortalMessage, parsePortalToken, resolvePortalOrigin } from "../requestBoundary.ts";
+import { parsePortalLinkInput, parsePortalMessage, parsePortalToken, resolvePortalOrigin } from "../requestBoundary";
 
 const deal_id = "123e4567-e89b-42d3-a456-426614174000";
 
