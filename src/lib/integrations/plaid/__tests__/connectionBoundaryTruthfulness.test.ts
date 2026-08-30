@@ -55,7 +55,7 @@ test("exchange failures expose deterministic codes, never raw provider or databa
   assert.match(exchange, /errorCode: "plaid_exchange_failed"/);
   assert.match(exchange, /errorCode: "connection_persist_failed"/);
   assert.doesNotMatch(exchange, /err\?\.message|error\?\.message|String\(err\)/);
-  assert.doesNotMatch(route, /error: result\.error|error: msg/);
+  assert.doesNotMatch(route, /error: result\.error\b|error: msg\b/);
   assert.match(route, /error: result\.errorCode/);
   assert.match(route, /error: "unexpected_error"/);
 });
