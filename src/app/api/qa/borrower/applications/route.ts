@@ -34,6 +34,7 @@ async function requireQABorrowerSession(): Promise<{
   dealId: string | null;
   bankId: string;
 }> {
+  // Path 1: borrower session cookie, already bound to a selected deal.
   const session = await getBorrowerSession();
   if (session) {
     const claimedEmail = session.claimed_email?.toLowerCase().trim();
@@ -46,6 +47,8 @@ async function requireQABorrowerSession(): Promise<{
     }
   }
 
+  // Path 2: QA chooser identity — OTP verified but no deal selected yet, so
+  // dealId is null and the caller may only list or create test applications.
   const qaEmail = await getQAChooserEmail();
   if (qaEmail && isQABorrowerEmail(qaEmail)) {
     try {
