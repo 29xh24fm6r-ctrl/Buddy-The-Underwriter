@@ -31,6 +31,10 @@ export async function requireValidShareToken(req: Request) {
   }
   const valid = isShareLinkValid(row);
   if (!valid.ok) throw new ShareTokenError(401, "invalid_share_token");
+  // isShareLinkValid already rejects a null row ("not_found"), so this is
+  // unreachable at runtime. It is stated explicitly so the returned `share`
+  // is non-null for callers rather than leaking the nullable row type.
+  if (!row) throw new ShareTokenError(401, "invalid_share_token");
 
   return {
     share: row,
