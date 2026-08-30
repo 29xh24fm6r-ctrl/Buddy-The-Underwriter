@@ -22,7 +22,7 @@ async function revokeLink(id: string) {
   return !error && data?.id === id && data.revoked_at === revokedAt;
 }
 
-export async function POST(req: NextRequest) {
+async function handle(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const input = parsePortalLinkInput(body);
   if (!input || !body || typeof body !== "object") return json({ ok: false, error: "invalid_request" }, 400);
@@ -87,4 +87,9 @@ export async function POST(req: NextRequest) {
     const code = typeof caught === "object" && caught && "code" in caught ? String((caught as { code?: unknown }).code) : "";
     return json({ ok: false, error: code === "SMS_OPTED_OUT" ? "sms_opted_out" : "sms_delivery_unavailable" }, code === "SMS_OPTED_OUT" ? 403 : 502);
   }
+}
+
+export async function POST(req: NextRequest) {
+  try { return await handle(req); }
+  catch { console.error("[portal/send-link] unexpected_failure"); return json({ ok: false, error: "sms_delivery_unavailable" }, 503); }
 }
