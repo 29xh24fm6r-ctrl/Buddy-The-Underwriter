@@ -122,7 +122,7 @@ export type RequestSignatureArgs = {
 };
 
 export type RequestSignatureResult =
-  | { ok: true; documentId: string; embedUrl: string }
+  | { ok: true; documentId: string; embedUrl: string; reused?: true }
   | {
       ok: false;
       reason:
@@ -133,25 +133,183 @@ export type RequestSignatureResult =
       detail?: string;
     };
 
-async function cancelUntrackedSignwellDocument(
-  signwell: SignwellClient,
+type SigningRequestRow = {
+  id: string;
+  signwell_document_id: string;
+  status: string;
+  signing_url?: string | null;
+  idempotency_key?: string | null;
+  recipient_email?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+function signingRequestIdempotencyKey(args: RequestSignatureArgs): string {
+  const canonical = [
+    args.dealId,
+    args.formCode,
+    args.signerOwnershipEntityId,
+    args.templateVersion,
+    normalizeEmail(args.signerEmail),
+  ].join("\u001f");
+  return `signwell-request:${createHash("sha256").update(canonical).digest("hex")}`;
+}
+
+function reservationDocumentId(idempotencyKey: string): string {
+  return `reservation:${idempotencyKey.slice("signwell-request:".length)}`;
+}
+
+function evaluateExistingSigningRequest(
+  row: SigningRequestRow | null,
+  args: RequestSignatureArgs,
+  idempotencyKey: string,
+): RequestSignatureResult | null {
+  if (!row) return null;
+
+  const metadataVersion =
+    row.metadata && typeof row.metadata.template_version === "string"
+      ? row.metadata.template_version
+      : null;
+  const matches =
+    row.idempotency_key === idempotencyKey ||
+    (row.idempotency_key == null &&
+      metadataVersion === args.templateVersion &&
+      normalizeEmail(row.recipient_email) === normalizeEmail(args.signerEmail));
+  if (!matches) return null;
+
+  if (isCompletedSigningRequestStatus(row.status)) {
+    return {
+      ok: false,
+      reason: "SIGNING_STATE_UNAVAILABLE",
+      detail: "signing_request_already_completed",
+    };
+  }
+  if (isFailedTerminalSigningRequestStatus(row.status)) return null;
+
+  const documentId = String(row.signwell_document_id ?? "");
+  const embedUrl = typeof row.signing_url === "string" ? row.signing_url.trim() : "";
+  if (
+    documentId &&
+    !documentId.startsWith("reservation:") &&
+    embedUrl &&
+    normalizeSignwellStatus(row.status) !== "creating"
+  ) {
+    return { ok: true, documentId, embedUrl, reused: true };
+  }
+
+  return {
+    ok: false,
+    reason: "SIGNING_STATE_UNAVAILABLE",
+    detail: "signing_request_in_progress",
+  };
+}
+
+async function readExistingSigningRequest(
+  args: RequestSignatureArgs,
+  sb: EsignSupabaseClient,
+  idempotencyKey: string,
+): Promise<{ ok: true; result: RequestSignatureResult | null } | { ok: false; detail: string }> {
+  try {
+    const keyed = await sb
+      .from("signing_requests")
+      .select("id, signwell_document_id, status, signing_url, idempotency_key, recipient_email, metadata")
+      .eq("idempotency_key", idempotencyKey)
+      .maybeSingle();
+    if (keyed.error) {
+      return { ok: false, detail: `idempotency_lookup_failed:${keyed.error.message}` };
+    }
+    const keyedResult = evaluateExistingSigningRequest(keyed.data as SigningRequestRow | null, args, idempotencyKey);
+    if (keyedResult) return { ok: true, result: keyedResult };
+
+    // Rows created before the idempotency migration have a null key. Reuse
+    // the exact active request rather than creating a second provider
+    // document during the migration boundary.
+    const legacy = await sb
+      .from("signing_requests")
+      .select("id, signwell_document_id, status, signing_url, idempotency_key, recipient_email, metadata")
+      .eq("deal_id", args.dealId)
+      .eq("form_code", args.formCode)
+      .eq("signer_ownership_entity_id", args.signerOwnershipEntityId)
+      .eq("recipient_email", args.signerEmail)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (legacy.error) {
+      return { ok: false, detail: `legacy_request_lookup_failed:${legacy.error.message}` };
+    }
+    return {
+      ok: true,
+      result: evaluateExistingSigningRequest(legacy.data as SigningRequestRow | null, args, idempotencyKey),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      detail: `signing_request_lookup_failed:${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+async function markSigningReservationFailed(
+  sb: EsignSupabaseClient,
+  reservationId: string,
+  idempotencyKey: string,
+  releaseLock: boolean,
+): Promise<boolean> {
+  try {
+    const { data, error } = await sb
+      .from("signing_requests")
+      .update({
+        status: "Error",
+        ...(releaseLock ? { idempotency_key: null } : {}),
+      })
+      .eq("id", reservationId)
+      .eq("idempotency_key", idempotencyKey)
+      .select("id, status, idempotency_key")
+      .maybeSingle();
+    return !error &&
+      data?.id === reservationId &&
+      normalizeSignwellStatus(data?.status) === "error" &&
+      (releaseLock ? data?.idempotency_key == null : data?.idempotency_key === idempotencyKey);
+  } catch {
+    return false;
+  }
+}
+
+async function failReservedRequest(
+  sb: EsignSupabaseClient,
+  reservationId: string,
+  idempotencyKey: string,
+  detail: string,
+): Promise<RequestSignatureResult> {
+  const released = await markSigningReservationFailed(sb, reservationId, idempotencyKey, true);
+  return {
+    ok: false,
+    reason: "SUBMISSION_FAILED",
+    detail: released ? detail : `${detail}:reservation_release_failed`,
+  };
+}
+
+async function cancelAndFailReservedRequest(
+  deps: { sb: EsignSupabaseClient; signwell: SignwellClient },
+  reservationId: string,
+  idempotencyKey: string,
   documentId: string,
   detail: string,
 ): Promise<RequestSignatureResult> {
   try {
-    await signwell.deleteSignwellDocument(documentId);
-    return { ok: false, reason: "SUBMISSION_FAILED", detail };
+    await deps.signwell.deleteSignwellDocument(documentId);
   } catch (err) {
     console.error("[requestSignature] failed to cancel untracked SignWell document", {
       documentId,
       error: err instanceof Error ? err.message : String(err),
     });
+    const held = await markSigningReservationFailed(deps.sb, reservationId, idempotencyKey, false);
     return {
       ok: false,
       reason: "SUBMISSION_FAILED",
-      detail: `${detail}:provider_cleanup_failed`,
+      detail: `${detail}:provider_cleanup_failed${held ? "" : ":reservation_hold_failed"}`,
     };
   }
+  return failReservedRequest(deps.sb, reservationId, idempotencyKey, detail);
 }
 
 export async function requestSignature(
@@ -173,10 +331,6 @@ export async function requestSignature(
     return { ok: false, reason: "IAL2_NOT_COMPLETED" };
   }
 
-  // LEGAL REVIEW GATE — Buddy-drafted closing documents (SBA Note, Loan
-  // Authorization) may not be sent for signature until an attorney/
-  // compliance reviewer has explicitly approved them for this deal. A
-  // no-op for every other form code (see FORMS_REQUIRING_LEGAL_REVIEW).
   const legalReviewState = await readLegalReviewAdmissionState(args.dealId, args.formCode, sb);
   if (!legalReviewState.ok) {
     return {
@@ -189,10 +343,78 @@ export async function requestSignature(
     return { ok: false, reason: "LEGAL_REVIEW_NOT_COMPLETED" };
   }
 
-  // SignWell must never fill loan data itself — it only ever receives an
-  // already-complete PDF and adds a signature. The filled PDF comes from
-  // the same tested build/render pipeline the forms UI uses, not a
-  // SignWell-hosted template.
+  // Resolve trusted identity provenance before reserving or handing bytes
+  // to the provider. No external side effect is allowed on an unavailable
+  // identity read.
+  const { data: verification, error: verificationError } = await sb
+    .from("borrower_identity_verifications")
+    .select("id")
+    .eq("deal_id", args.dealId)
+    .eq("ownership_entity_id", args.signerOwnershipEntityId)
+    .in("status", ["completed", "approved"])
+    .order("completed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (verificationError || !verification) {
+    return {
+      ok: false,
+      reason: "SIGNING_STATE_UNAVAILABLE",
+      detail: `identity_provenance_lookup_failed:${verificationError?.message ?? "verification_not_found"}`,
+    };
+  }
+
+  const idempotencyKey = signingRequestIdempotencyKey(args);
+  const existing = await readExistingSigningRequest(args, sb, idempotencyKey);
+  if (!existing.ok) {
+    return { ok: false, reason: "SIGNING_STATE_UNAVAILABLE", detail: existing.detail };
+  }
+  if (existing.result) return existing.result;
+
+  const placeholderDocumentId = reservationDocumentId(idempotencyKey);
+  let reservation: SigningRequestRow | null = null;
+  try {
+    const { data, error } = await sb
+      .from("signing_requests")
+      .insert({
+        deal_id: args.dealId,
+        bank_id: args.bankId,
+        form_code: args.formCode,
+        signer_ownership_entity_id: args.signerOwnershipEntityId,
+        signer_role: args.signerRole,
+        recipient_email: args.signerEmail,
+        recipient_name: args.signerName,
+        signwell_document_id: placeholderDocumentId,
+        idempotency_key: idempotencyKey,
+        status: "Creating",
+        embedded_signing: true,
+        signing_url: null,
+        metadata: {
+          template_version: args.templateVersion,
+          identity_verification_id: verification.id,
+        },
+      })
+      .select("id, signwell_document_id, status, signing_url, idempotency_key, recipient_email, metadata")
+      .maybeSingle();
+    if (!error && data) reservation = data as SigningRequestRow;
+  } catch {
+    reservation = null;
+  }
+
+  if (
+    !reservation ||
+    reservation.idempotency_key !== idempotencyKey ||
+    reservation.signwell_document_id !== placeholderDocumentId ||
+    normalizeSignwellStatus(reservation.status) !== "creating"
+  ) {
+    const raced = await readExistingSigningRequest(args, sb, idempotencyKey);
+    if (raced.ok && raced.result) return raced.result;
+    return {
+      ok: false,
+      reason: "SIGNING_STATE_UNAVAILABLE",
+      detail: raced.ok ? "signing_request_reservation_failed" : raced.detail,
+    };
+  }
+
   const filled = await renderFilledPdf({
     formCode: args.formCode,
     dealId: args.dealId,
@@ -200,11 +422,15 @@ export async function requestSignature(
     ownershipEntityId: args.signerOwnershipEntityId,
   });
   if (!filled.ok) {
-    return { ok: false, reason: "SUBMISSION_FAILED", detail: `pdf_render_failed:${filled.reason}${filled.detail ? `:${filled.detail}` : ""}` };
+    return failReservedRequest(
+      sb,
+      reservation.id,
+      idempotencyKey,
+      `pdf_render_failed:${filled.reason}${filled.detail ? `:${filled.detail}` : ""}`,
+    );
   }
 
   const externalId = `deal:${args.dealId}:form:${args.formCode}:signer:${args.signerOwnershipEntityId}`;
-
   let document;
   try {
     document = await signwell.createSignwellDocumentFromFile({
@@ -217,71 +443,62 @@ export async function requestSignature(
       redirectUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/signing/complete`,
     });
   } catch (err: any) {
-    return { ok: false, reason: "SUBMISSION_FAILED", detail: err?.message ?? String(err) };
-  }
-
-  const { data: verification, error: verificationError } = await sb
-    .from("borrower_identity_verifications")
-    .select("id")
-    .eq("deal_id", args.dealId)
-    .eq("ownership_entity_id", args.signerOwnershipEntityId)
-    .in("status", ["completed", "approved"])
-    .order("completed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (verificationError || !verification) {
-    return cancelUntrackedSignwellDocument(
-      signwell,
-      String(document.id),
-      `identity_provenance_lookup_failed:${verificationError?.message ?? "verification_not_found"}`,
+    return failReservedRequest(
+      sb,
+      reservation.id,
+      idempotencyKey,
+      `provider_submission_failed:${err?.message ?? String(err)}`,
     );
   }
 
-  const recipient = document.recipients.find((r) => String(r.id) === "1");
+  const recipient = document.recipients.find((candidate) => String(candidate.id) === "1");
   const embedUrl = recipient?.embedded_signing_url ?? recipient?.signing_url;
   if (!embedUrl) {
-    return cancelUntrackedSignwellDocument(
-      signwell,
+    return cancelAndFailReservedRequest(
+      { sb, signwell },
+      reservation.id,
+      idempotencyKey,
       String(document.id),
       "signwell_response_missing_signing_url",
     );
   }
 
-  // A successful handoff must have a durable request row. Completion uses
-  // this record as the trusted signer/template provenance rather than
-  // accepting those compliance facts from webhook metadata.
+  let trackedRequest: SigningRequestRow | null = null;
+  let trackingDetail = "row_not_returned";
   try {
-    const { data: trackedRequest, error: signingRequestError } = await sb.from("signing_requests").insert({
-      deal_id: args.dealId,
-      bank_id: args.bankId,
-      form_code: args.formCode,
-      signer_ownership_entity_id: args.signerOwnershipEntityId,
-      signer_role: args.signerRole,
-      recipient_email: args.signerEmail,
-      recipient_name: args.signerName,
-      signwell_document_id: String(document.id),
-      status: document.status,
-      embedded_signing: true,
-      signing_url: embedUrl,
-      metadata: {
-        template_version: args.templateVersion,
-        identity_verification_id: verification?.id ?? null,
-      },
-    })
-      .select("id")
+    const { data, error } = await sb
+      .from("signing_requests")
+      .update({
+        signwell_document_id: String(document.id),
+        status: document.status,
+        signing_url: embedUrl,
+      })
+      .eq("id", reservation.id)
+      .eq("idempotency_key", idempotencyKey)
+      .eq("signwell_document_id", placeholderDocumentId)
+      .eq("status", "Creating")
+      .select("id, signwell_document_id, status, signing_url, idempotency_key")
       .maybeSingle();
-    if (signingRequestError || !trackedRequest) {
-      return cancelUntrackedSignwellDocument(
-        signwell,
-        String(document.id),
-        `signing_request_tracking_failed:${signingRequestError?.message ?? "row_not_returned"}`,
-      );
-    }
-  } catch (err: any) {
-    return cancelUntrackedSignwellDocument(
-      signwell,
+    trackingDetail = error?.message ?? "row_not_returned";
+    if (!error && data) trackedRequest = data as SigningRequestRow;
+  } catch (err) {
+    trackingDetail = err instanceof Error ? err.message : String(err);
+  }
+
+  if (
+    !trackedRequest ||
+    trackedRequest.id !== reservation.id ||
+    trackedRequest.idempotency_key !== idempotencyKey ||
+    trackedRequest.signwell_document_id !== String(document.id) ||
+    trackedRequest.signing_url !== embedUrl ||
+    normalizeSignwellStatus(trackedRequest.status) !== normalizeSignwellStatus(document.status)
+  ) {
+    return cancelAndFailReservedRequest(
+      { sb, signwell },
+      reservation.id,
+      idempotencyKey,
       String(document.id),
-      `signing_request_tracking_failed:${err?.message ?? String(err)}`,
+      `signing_request_tracking_failed:${trackingDetail}`,
     );
   }
 
@@ -291,8 +508,9 @@ export async function requestSignature(
     payload: {
       form_code: args.formCode,
       signer_ownership_entity_id: args.signerOwnershipEntityId,
-      identity_verification_id: verification?.id ?? null,
+      identity_verification_id: verification.id,
       document_id: String(document.id),
+      idempotency_key: idempotencyKey,
     },
   });
 
@@ -423,6 +641,7 @@ export async function persistSignwellRequestStatus(
   sb: EsignSupabaseClient,
 ): Promise<{ ok: true } | { ok: false; detail: string }> {
   const update: Record<string, unknown> = { status: args.status };
+  if (isFailedTerminalSigningRequestStatus(args.status)) update.idempotency_key = null;
   if (args.rawEvent !== undefined) update.raw_last_event = args.rawEvent;
 
   try {
