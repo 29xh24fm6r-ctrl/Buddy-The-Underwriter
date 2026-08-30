@@ -39,14 +39,12 @@ class Q {
   }
   then(resolve: any, reject?: any) {
     if (this._u) {
-      this.applyUpdate();
-      return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
+      const rows = this.rows();
+      for (const row of rows) Object.assign(row, this._u);
+      return Promise.resolve({ data: rows, error: null }).then(resolve, reject);
     }
     if (this._i) return Promise.resolve({ data: this._i, error: null }).then(resolve, reject);
     return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
-  }
-  private applyUpdate() {
-    for (const r of this.rows()) Object.assign(r, this._u);
   }
   private rows(): Row[] {
     let rows = [...(this.db.tables[this.table] ?? [])];
@@ -130,4 +128,60 @@ test("pollPendingTranscripts: row not yet due (next_poll_at in future) -> skippe
   const outcomes = await pollPendingTranscripts({ sb: db as any, vendor }, now);
   assert.equal(outcomes.length, 0);
   assert.equal(called, false);
+});
+
+
+test("pollPendingTranscripts: pending-request read failure is not an empty healthy queue", async () => {
+  const query = {
+    select() { return this; },
+    eq() { return this; },
+    lte() { return Promise.resolve({ data: null, error: new Error("database unavailable") }); },
+  };
+  const sb = { from: () => query };
+  const vendor: IrsPollingVendorClient = {
+    pollVendorTranscriptRequest: async () => ({ status: "pending" }),
+  };
+
+  await assert.rejects(
+    () => pollPendingTranscripts({ sb: sb as any, vendor }, new Date()),
+    /load pending requests/,
+  );
+});
+
+test("pollPendingTranscripts: received status requires returned-row proof", async () => {
+  const now = new Date();
+  const pending = {
+    id: "r1",
+    deal_id: "d1",
+    bank_id: "b1",
+    vendor_request_id: "vr1",
+    submitted_at: isoDaysFromNow(-1, now.getTime()),
+    poll_attempt_count: 0,
+  };
+  let call = 0;
+  const sb = {
+    from: () => {
+      call++;
+      if (call === 1) {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          lte() { return Promise.resolve({ data: [pending], error: null }); },
+        };
+      }
+      return {
+        update() { return this; },
+        eq() { return this; },
+        select() { return Promise.resolve({ data: [], error: null }); },
+      };
+    },
+  };
+  const vendor: IrsPollingVendorClient = {
+    pollVendorTranscriptRequest: async () => ({ status: "completed", transcripts: [] }),
+  };
+
+  await assert.rejects(
+    () => pollPendingTranscripts({ sb: sb as any, vendor }, now),
+    /mark request received/,
+  );
 });
