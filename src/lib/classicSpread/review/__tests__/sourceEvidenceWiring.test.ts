@@ -106,7 +106,10 @@ describe("borrower upload preserves spread linkage (no new route)", () => {
   const commit = read("src/app/api/portal/upload/commit/route.ts");
   it("commit accepts + persists spread linkage into deal_documents.metadata", () => {
     assert.match(commit, /spreadReviewActionId/);
-    assert.match(commit, /spread_review_action_id: spreadReviewActionId/);
+    // The commit route now reads the linkage off a validated `input` object
+    // rather than loose locals, so the persisted field is sourced as
+    // input.spreadReviewActionId.
+    assert.match(commit, /spread_review_action_id: input\.spreadReviewActionId/);
     assert.match(commit, /uploaded_for: "classic_spread_review_action"/);
   });
   it("emits a non-invasive spread_evidence_uploaded ledger event (status only, never clears)", () => {
