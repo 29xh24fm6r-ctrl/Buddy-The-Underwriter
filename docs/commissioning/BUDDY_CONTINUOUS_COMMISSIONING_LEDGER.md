@@ -1531,3 +1531,34 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+### QA borrower state integrity — 2026-08-30
+
+Evidence:
+
+- Authoritative lead/deal classification reads ignored database errors.
+- The low-level marker could reclassify a non-test deal, application-list
+  failures returned an empty list, resume reads were not bank-bound, and
+  metadata re-reads did not prove success.
+- QA HTTP boundaries accepted unbounded JSON and returned raw internal errors.
+
+Repair branch: `codex/commission-qa-borrower-state-integrity`.
+
+Repair:
+
+- Fail closed on every QA classification read and bind resume proof to the
+  verified session bank.
+- Prevent the marker from changing `is_test`; use compare-and-set metadata
+  completion with exact returned-row proof.
+- Make list/read/write failures non-green and require exact RPC output.
+- Bound route bodies at 8 KiB and return non-sensitive no-store responses.
+- Update database-backed expectations and add cross-boundary regression guards.
+- No schema, dependency, credential, or production-data change.
+
+Verification pending:
+
+- Complete diff inspection, focused/broad tests, required GitHub checks, and an
+  exact-head Vercel preview.
+- Transactional closure requires a verified Buddy-owned database connection and
+  authorized QA fixtures; no unverified database may be queried.
