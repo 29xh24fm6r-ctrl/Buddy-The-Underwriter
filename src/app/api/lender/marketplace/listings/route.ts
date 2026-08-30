@@ -76,17 +76,26 @@ export async function GET(): Promise<NextResponse> {
   for (const dealIdChunk of chunks(dealIds)) {
     const { data, error } = await sb
       .from("deals")
-      .select("id")
-      .in("id", dealIdChunk)
-      .eq("is_test", true);
+      .select("id, is_test")
+      .in("id", dealIdChunk);
     if (error || !Array.isArray(data)) {
       return json({ ok: false, error: "marketplace_isolation_unavailable" }, 503);
     }
-    for (const row of data as Array<{ id?: unknown }>) {
-      if (typeof row.id !== "string" || !dealIdChunk.includes(row.id)) {
+    const provenDealIds = new Set<string>();
+    for (const row of data as Array<{ id?: unknown; is_test?: unknown }>) {
+      if (
+        typeof row.id !== "string" ||
+        !dealIdChunk.includes(row.id) ||
+        typeof row.is_test !== "boolean" ||
+        provenDealIds.has(row.id)
+      ) {
         return json({ ok: false, error: "marketplace_isolation_evidence_invalid" }, 503);
       }
-      testDealIds.add(row.id);
+      provenDealIds.add(row.id);
+      if (row.is_test) testDealIds.add(row.id);
+    }
+    if (provenDealIds.size !== dealIdChunk.length) {
+      return json({ ok: false, error: "marketplace_isolation_evidence_invalid" }, 503);
     }
   }
 
