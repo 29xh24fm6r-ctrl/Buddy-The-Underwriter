@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 const route = readFileSync("src/app/api/borrower/plaid/[action]/route.ts", "utf8");
 const exchange = readFileSync("src/lib/integrations/plaid/exchangeToken.ts", "utf8");
 const connectCard = readFileSync("src/components/borrower/PlaidConnectCard.tsx", "utf8");
+const progressRoute = readFileSync("src/app/api/borrower/intake/progress/route.ts", "utf8");
 
 test("Plaid ownership selectors are scoped to the authenticated deal", () => {
   const helper = route.indexOf("async function scopeOwnershipEntity");
@@ -80,4 +81,24 @@ test("borrower UI marks connected only after a green exchange response", () => {
   assert.ok(request >= 0);
   assert.ok(responseGuard > request);
   assert.ok(connected > responseGuard);
+});
+
+test("intake completion requires successful Plaid sync evidence", () => {
+  const query = progressRoute.indexOf('.from("borrower_bank_connections")');
+  const evidenceSelect = progressRoute.indexOf(
+    '.select("id, last_sync_at, last_sync_error")',
+    query,
+  );
+  const completion = progressRoute.indexOf(
+    "const hasBankConnection = bankConnections.some(",
+    evidenceSelect,
+  );
+
+  assert.ok(query >= 0);
+  assert.ok(evidenceSelect > query);
+  assert.ok(completion > evidenceSelect);
+  assert.match(
+    progressRoute.slice(completion, completion + 500),
+    /last_sync_at[\s\S]*last_sync_error == null/,
+  );
 });
