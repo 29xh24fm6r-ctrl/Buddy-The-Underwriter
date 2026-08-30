@@ -60,10 +60,12 @@ async function dispatchBankerAnalysisAlerts(): Promise<NextResponse> {
     id: string;
     severity: string;
     sent: boolean;
+    providerAccepted: boolean;
     reason?: string;
   }> = [];
   let sent = 0;
   let skipped = 0;
+  let failed = 0;
 
   for (const alert of sla.alerts) {
     const r = await sendBankerAnalysisAlert({
@@ -71,22 +73,31 @@ async function dispatchBankerAnalysisAlerts(): Promise<NextResponse> {
       metricsSummary: sla,
       appUrl: process.env.NEXT_PUBLIC_APP_URL ?? null,
     });
+    const cooldown = !r.sent && r.reason === "cooldown";
+    const proven = r.sent && r.reason === "ok";
     results.push({
       id: alert.id,
       severity: alert.severity,
-      sent: r.sent,
-      reason: r.sent ? undefined : r.reason,
+      sent: proven,
+      providerAccepted: r.providerAccepted === true,
+      reason: proven ? undefined : r.reason,
     });
-    if (r.sent) sent++;
-    else skipped++;
+    if (proven) sent++;
+    else if (cooldown) skipped++;
+    else failed++;
   }
 
-  return NextResponse.json({
-    ok: true,
-    sent,
-    skipped,
-    alerts: results,
-  });
+  const ok = failed === 0;
+  return NextResponse.json(
+    {
+      ok,
+      sent,
+      skipped,
+      failed,
+      alerts: results,
+    },
+    { status: ok ? 200 : 503 },
+  );
 }
 
 function unauthorized(): NextResponse {
