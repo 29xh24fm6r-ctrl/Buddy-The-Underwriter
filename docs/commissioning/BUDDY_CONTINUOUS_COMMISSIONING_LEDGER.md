@@ -1564,9 +1564,19 @@ Validation before merge:
 
 - Focused regression: 3 passed, 0 failed.
 - TypeScript syntax transpilation: 3 runtime files passed.
-- Production-equivalent build, required GitHub checks, exact-head preview,
-  complete diff inspection, and public unauthenticated route probes remain
-  required.
+- Exact code head `82669958750b8850c3467d74a4d98eeab35511a5` passed the
+  production-equivalent Vercel build. Preview
+  `dpl_2kMxLR89v5rCQadT5MbCmUqWvvMm` is READY, SHA-matched, and HTTP 200.
+- Both signed-out document routes return bounded HTTP 401 JSON with private
+  no-store caching and no raw provider, database, deal, document, bucket, or
+  path data. The exact-head preview produced no warning/error/fatal logs.
+- The complete six-file diff was inspected: +362/-339, no schema, dependency,
+  infrastructure, credential, storage-object, production-data, route-count, or
+  cross-product change.
+- CI, Build Check, Secret Scan, Route Budget, and Upload Architecture Guard
+  were all created for the exact head but failed before executing any step;
+  every job has `steps: null` and no logs. This is the proven repository/account
+  Actions availability blocker, not a code result.
 - Post-merge transactional closure requires a verified Buddy-owned Supabase
   project and authorized Supabase/GCS document fixtures; no unverified database
   was accessed.
