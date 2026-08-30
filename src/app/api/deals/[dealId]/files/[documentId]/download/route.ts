@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { createAuthorizedDocumentDownload } from "@/lib/storage/createAuthorizedDocumentDownload";
+import {
+  createAuthorizedDocumentDownload,
+  withDocumentDownloadTimeout,
+} from "@/lib/storage/createAuthorizedDocumentDownload";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -22,14 +25,14 @@ export async function GET(
   { params }: { params: Promise<{ dealId: string; documentId: string }> },
 ) {
   try {
-    await requireUser();
+    await withDocumentDownloadTimeout(requireUser(), 4_000);
   } catch {
     return json("unauthorized", 401);
   }
 
   let bankId: string;
   try {
-    bankId = await getCurrentBankId();
+    bankId = await withDocumentDownloadTimeout(getCurrentBankId(), 6_000);
   } catch {
     return json("tenant_context_unavailable", 503);
   }
