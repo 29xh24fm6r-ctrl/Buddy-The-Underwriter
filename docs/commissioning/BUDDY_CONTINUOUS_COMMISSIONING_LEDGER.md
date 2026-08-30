@@ -1531,3 +1531,15 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+## 2026-08-30 — lender marketplace read integrity
+
+- **System audited:** canonical lender identity, matched-listing feed, and explicit-grant deal detail boundaries.
+- **Finding:** the listing feed omitted `deal_id` from its query while attempting to exclude test applications by `deal_id`, so that exclusion could not work. Membership, agreement, isolation, claim, grant, checklist, document, and timeline read failures were also collapsed into denied, empty, or successful state.
+- **Root cause:** evidence-bearing reads were treated as optional, and the identity resolver used the first active agreement row rather than proving one unambiguous lender identity.
+- **Repair:** deterministic identity selection, explicit unavailable/ambiguous outcomes, server-only deal-id isolation, chunked supporting reads, returned query-error enforcement, identifier-safe failures, and no-store responses.
+- **Regression coverage:** one focused behavioral execution passed; 21 exact-source boundary assertions passed.
+- **Safety:** source/tests/evidence only; no database, schema, policy, credential, provider, production row, storage object, dependency, destructive action, or cross-product change.
+- **Production closure:** after merge, authorized fixtures must prove test-listing exclusion, ambiguous-identity denial, read-failure non-green behavior, and a complete granted lender detail response using the verified Buddy-owned Supabase project.
+- **Next target:** continue independent authenticated download and marketplace claim rotation while external CI and verified database ownership remain blocked.
