@@ -10,6 +10,7 @@ class Q {
   filters: Array<{ t: string; k: string; v: any }> = [];
   _u: Row | null = null;
   _i: Row[] | null = null;
+  _insertError: Row | null = null;
   _l: number | null = null;
   constructor(db: FakeDb, table: string) {
     this.db = db;
@@ -39,8 +40,22 @@ class Q {
   }
   insert(p: Row | Row[]) {
     const rows = Array.isArray(p) ? p : [p];
-    const withIds = rows.map((r) => ({ id: r.id ?? `id-${Math.random().toString(36).slice(2, 8)}`, ...r }));
+    if (this.table === "signing_requests" && this.db.failSigningRequestInsert) {
+      this._insertError = { message: "database_unavailable" };
+      return this;
+    }
     this.db.tables[this.table] ??= [];
+    if (
+      this.table === "signing_requests" &&
+      rows.some((row) =>
+        row.idempotency_key != null &&
+        this.db.tables[this.table].some((existing) => existing.idempotency_key === row.idempotency_key),
+      )
+    ) {
+      this._insertError = { message: "duplicate key", code: "23505" };
+      return this;
+    }
+    const withIds = rows.map((r) => ({ id: r.id ?? `id-${Math.random().toString(36).slice(2, 8)}`, ...r }));
     this.db.tables[this.table].push(...withIds);
     this._i = withIds;
     return this;
@@ -54,19 +69,24 @@ class Q {
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
   maybeSingle(): Promise<{ data: any; error: any }> {
+    if (this._insertError) return Promise.resolve({ data: null, error: this._insertError });
     if (this._u) {
       if (this.table === "signing_requests" && this.db.failSigningRequestUpdate) {
         return Promise.resolve({ data: null, error: { message: "write_rejected" } });
       }
-      this.applyUpdate();
-      return Promise.resolve({ data: this.rows()[0], error: null });
+      const matched = this.rows();
+      for (const row of matched) Object.assign(row, this._u);
+      return Promise.resolve({ data: matched[0] ?? null, error: null });
     }
+    if (this._i) return Promise.resolve({ data: this._i[0] ?? null, error: null });
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
   then(resolve: any, reject?: any) {
+    if (this._insertError) return Promise.resolve({ data: null, error: this._insertError }).then(resolve, reject);
     if (this._u) {
-      this.applyUpdate();
-      return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
+      const matched = this.rows();
+      for (const row of matched) Object.assign(row, this._u);
+      return Promise.resolve({ data: matched, error: null }).then(resolve, reject);
     }
     if (this._i) return Promise.resolve({ data: this._i, error: null }).then(resolve, reject);
     return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
@@ -90,8 +110,10 @@ class FakeDb {
   tables: Record<string, Row[]>;
   storage?: any;
   failSigningRequestUpdate: boolean;
-  constructor(seed?: Partial<Record<string, Row[]>>, opts?: { storage?: boolean; uploadFails?: boolean; signingRequestUpdateFails?: boolean }) {
+  failSigningRequestInsert: boolean;
+  constructor(seed?: Partial<Record<string, Row[]>>, opts?: { storage?: boolean; uploadFails?: boolean; signingRequestUpdateFails?: boolean; signingRequestInsertFails?: boolean }) {
     this.failSigningRequestUpdate = opts?.signingRequestUpdateFails ?? false;
+    this.failSigningRequestInsert = opts?.signingRequestInsertFails ?? false;
     this.tables = {
       borrower_identity_verifications: [],
       deal_events: [],
@@ -199,6 +221,7 @@ test("requestSignature: with IAL2 -> creates document + writes esign.requested e
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.requested"));
   assert.equal(db.tables.signing_requests?.length, 1);
   assert.equal(db.tables.signing_requests?.[0].signwell_document_id, "12345");
+  assert.match(db.tables.signing_requests?.[0].idempotency_key, /^signwell-request:[a-f0-9]{64}$/);
   assert.deepEqual(db.tables.signing_requests?.[0].metadata, {
     template_version: "v1",
     identity_verification_id: "v1",
@@ -222,80 +245,117 @@ test("requestSignature: missing provider signing URL cancels the untracked docum
 
   assert.deepEqual(r, { ok: false, reason: "SUBMISSION_FAILED", detail: "signwell_response_missing_signing_url" });
   assert.deepEqual(deleted, ["456"]);
-  assert.equal(db.tables.signing_requests.length, 0);
+  assert.equal(db.tables.signing_requests.length, 1);
+  assert.equal(db.tables.signing_requests[0].status, "Error");
+  assert.equal(db.tables.signing_requests[0].idempotency_key, null);
   assert.equal(db.tables.deal_events.length, 0);
 });
 
-test("requestSignature: tracking failure cancels the provider document before returning failure", async () => {
-  const deleted: string[] = [];
-  const db = new FakeDb({ borrower_identity_verifications: withIal2() });
-  const sb = {
-    storage: db.storage,
-    from: (table: string) => table === "signing_requests"
-      ? {
-          insert: () => ({
-            select: () => ({
-              maybeSingle: async () => ({ data: null, error: { message: "database_unavailable" } }),
-            }),
-          }),
-        }
-      : db.from(table),
-  };
+test("requestSignature: reservation failure stops before rendering or provider submission", async () => {
+  let renders = 0;
+  let submissions = 0;
+  const db = new FakeDb(
+    { borrower_identity_verifications: withIal2() },
+    { signingRequestInsertFails: true },
+  );
   const r = await requestSignature(
     { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
     {
-      sb: sb as any,
+      sb: db as any,
       signwell: fakeSignwell({
-        deleteSignwellDocument: async (documentId) => { deleted.push(documentId); },
+        createSignwellDocumentFromFile: async () => {
+          submissions += 1;
+          return fakeSignwell().createSignwellDocumentFromFile({} as any);
+        },
       }),
-      renderFilledPdf: fakeRenderFilledPdf,
+      renderFilledPdf: async () => {
+        renders += 1;
+        return fakeRenderFilledPdf();
+      },
     },
   );
 
   assert.deepEqual(r, {
     ok: false,
-    reason: "SUBMISSION_FAILED",
-    detail: "signing_request_tracking_failed:database_unavailable",
+    reason: "SIGNING_STATE_UNAVAILABLE",
+    detail: "signing_request_reservation_failed",
   });
-  assert.deepEqual(deleted, ["12345"]);
+  assert.equal(renders, 0);
+  assert.equal(submissions, 0);
   assert.equal(db.tables.deal_events.length, 0);
 });
 
-test("requestSignature: provider cleanup failure is explicit and keeps the document identity in server logs", async () => {
-  const db = new FakeDb({ borrower_identity_verifications: withIal2() });
-  const sb = {
-    storage: db.storage,
-    from: (table: string) => table === "signing_requests"
-      ? { insert: () => { throw new Error("insert_threw"); } }
-      : db.from(table),
-  };
-  const originalConsoleError = console.error;
-  const errors: unknown[][] = [];
-  console.error = (...args: unknown[]) => { errors.push(args); };
-  try {
-    const r = await requestSignature(
-      { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
-      {
-        sb: sb as any,
-        signwell: fakeSignwell({
-          deleteSignwellDocument: async () => { throw new Error("delete_failed"); },
-        }),
-        renderFilledPdf: fakeRenderFilledPdf,
+test("requestSignature: an active equivalent request is reused without rendering or provider work", async () => {
+  let renders = 0;
+  let submissions = 0;
+  const db = new FakeDb({
+    borrower_identity_verifications: withIal2(),
+    signing_requests: withSigningRequest("FORM_1919", {
+      signwell_document_id: "existing-doc",
+      signing_url: "https://www.signwell.com/embed/existing",
+      metadata: { template_version: "v1", identity_verification_id: "v1" },
+    }),
+  });
+  const r = await requestSignature(
+    { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
+    {
+      sb: db as any,
+      signwell: fakeSignwell({
+        createSignwellDocumentFromFile: async () => {
+          submissions += 1;
+          return fakeSignwell().createSignwellDocumentFromFile({} as any);
+        },
+      }),
+      renderFilledPdf: async () => {
+        renders += 1;
+        return fakeRenderFilledPdf();
       },
-    );
+    },
+  );
 
-    assert.deepEqual(r, {
-      ok: false,
-      reason: "SUBMISSION_FAILED",
-      detail: "signing_request_tracking_failed:insert_threw:provider_cleanup_failed",
-    });
-  } finally {
-    console.error = originalConsoleError;
-  }
-  assert.equal(errors.length, 1);
-  assert.match(String(errors[0][0]), /failed to cancel untracked SignWell document/);
-  assert.deepEqual(errors[0][1], { documentId: "12345", error: "delete_failed" });
-  assert.equal(db.tables.deal_events.length, 0);
+  assert.deepEqual(r, {
+    ok: true,
+    documentId: "existing-doc",
+    embedUrl: "https://www.signwell.com/embed/existing",
+    reused: true,
+  });
+  assert.equal(renders, 0);
+  assert.equal(submissions, 0);
+});
+
+test("requestSignature: concurrent equivalent calls create only one provider document", async () => {
+  let releaseProvider!: () => void;
+  const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve; });
+  let submissions = 0;
+  const db = new FakeDb({ borrower_identity_verifications: withIal2() });
+  const signwell = fakeSignwell({
+    createSignwellDocumentFromFile: async () => {
+      submissions += 1;
+      await providerGate;
+      return {
+        id: 12345,
+        status: "pending",
+        recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_abc" }],
+      };
+    },
+  });
+  const args = { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant" as const, signerEmail: "j@d.com", signerName: "Jane Doe" };
+
+  const first = requestSignature(args, { sb: db as any, signwell, renderFilledPdf: fakeRenderFilledPdf });
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = await requestSignature(args, { sb: db as any, signwell, renderFilledPdf: fakeRenderFilledPdf });
+
+  assert.deepEqual(second, {
+    ok: false,
+    reason: "SIGNING_STATE_UNAVAILABLE",
+    detail: "signing_request_in_progress",
+  });
+  assert.equal(submissions, 1);
+
+  releaseProvider();
+  const completed = await first;
+  assert.equal(completed.ok, true);
+  assert.equal(db.tables.signing_requests.length, 1);
 });
 
 test("requestSignature: pdf render fails -> SUBMISSION_FAILED, no document created", async () => {
@@ -582,7 +642,9 @@ for (const terminal of [
       event: { type: terminal[0], time: "2026-08-27T04:00:00.000Z" },
       data: { object: { id: 1, metadata: { external_id: canonicalExternalId } } },
     };
-    const db = new FakeDb({ signing_requests: withSigningRequest() });
+    const db = new FakeDb({
+      signing_requests: withSigningRequest("FORM_1919", { idempotency_key: "signwell-request:terminal" }),
+    });
     const r = await handleSignwellWebhook(
       payload,
       {
@@ -600,6 +662,7 @@ for (const terminal of [
 
     assert.deepEqual(r, { ok: true, terminalStatus: terminal[1] });
     assert.equal(db.tables.signing_requests[0].status, terminal[1]);
+    assert.equal(db.tables.signing_requests[0].idempotency_key, null);
     assert.deepEqual(db.tables.signing_requests[0].raw_last_event, payload);
     assert.ok(
       db.tables.deal_events.some(
@@ -673,26 +736,17 @@ test("handleSignwellWebhook: terminal state write failure remains retryable", as
 });
 
 
-test("requestSignature: zero-row tracking response cancels the provider document", async () => {
+test("requestSignature: failed final tracking proof cancels the provider document", async () => {
   const deleted: string[] = [];
-  const db = new FakeDb({ borrower_identity_verifications: withIal2() });
-  const sb = {
-    storage: db.storage,
-    from: (table: string) => table === "signing_requests"
-      ? {
-          insert: () => ({
-            select: () => ({
-              maybeSingle: async () => ({ data: null, error: null }),
-            }),
-          }),
-        }
-      : db.from(table),
-  };
+  const db = new FakeDb(
+    { borrower_identity_verifications: withIal2() },
+    { signingRequestUpdateFails: true },
+  );
 
   const r = await requestSignature(
     { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
     {
-      sb: sb as any,
+      sb: db as any,
       signwell: fakeSignwell({
         deleteSignwellDocument: async (documentId) => { deleted.push(documentId); },
       }),
@@ -703,7 +757,7 @@ test("requestSignature: zero-row tracking response cancels the provider document
   assert.deepEqual(r, {
     ok: false,
     reason: "SUBMISSION_FAILED",
-    detail: "signing_request_tracking_failed:row_not_returned",
+    detail: "signing_request_tracking_failed:write_rejected:reservation_release_failed",
   });
   assert.deepEqual(deleted, ["12345"]);
   assert.equal(db.tables.deal_events.length, 0);
