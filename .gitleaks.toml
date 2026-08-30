@@ -66,7 +66,6 @@ regexes = [
 description = "Documented sentinel placeholders used in env templates, CI envs, doc curl examples, and test fixtures. These are literal placeholder strings, not secrets."
 regexes = [
   '''sk_test_placeholder''',
-  '''sk_test_configured''',   # Stripe checkout route test fixture; the route only checks the value is non-empty. Current code uses stripe_secret_configured; this literal survives in branch history only.
   '''sk-placeholder''',
   '''pk_test_placeholder''',
   '''your_[a-z_]+_(here|key|secret|token|sid|number|url|api_key)''',
