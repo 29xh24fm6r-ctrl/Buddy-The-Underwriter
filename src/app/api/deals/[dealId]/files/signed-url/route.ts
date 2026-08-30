@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { createAuthorizedDocumentDownload } from "@/lib/storage/createAuthorizedDocumentDownload";
+import {
+  createAuthorizedDocumentDownload,
+  withDocumentDownloadTimeout,
+} from "@/lib/storage/createAuthorizedDocumentDownload";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,12 +22,15 @@ function json(body: Record<string, unknown>, status = 200) {
 
 async function getActorBankId(): Promise<{ ok: true; bankId: string } | { ok: false; status: 401 | 503; error: string }> {
   try {
-    await requireUser();
+    await withDocumentDownloadTimeout(requireUser(), 4_000);
   } catch {
     return { ok: false, status: 401, error: "unauthorized" };
   }
   try {
-    return { ok: true, bankId: await getCurrentBankId() };
+    return {
+      ok: true,
+      bankId: await withDocumentDownloadTimeout(getCurrentBankId(), 6_000),
+    };
   } catch {
     return { ok: false, status: 503, error: "tenant_context_unavailable" };
   }
