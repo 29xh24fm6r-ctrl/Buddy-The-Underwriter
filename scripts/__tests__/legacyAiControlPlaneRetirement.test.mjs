@@ -10,12 +10,16 @@ const retiredRoutes = [
   "src/app/api/ai/execute/route.ts",
   "src/app/api/ai/underwrite/route.ts",
   "src/app/api/pdfs/[pdfId]/route.ts",
+  "src/app/api/admin/deals/[dealId]/checklist/debug/route.ts",
+  "src/app/api/deals/[dealId]/borrower/debug/route.ts",
 ];
 const retiredEndpoints = [
   "/api/ai/command",
   "/api/ai/credit-memo",
   "/api/ai/execute",
   "/api/ai/underwrite",
+  "/checklist/debug",
+  "/borrower/debug",
 ];
 
 function sourceFiles(directory) {
@@ -34,13 +38,13 @@ function sourceFiles(directory) {
   return files;
 }
 
-test("legacy AI and PDF control-plane routes stay retired", () => {
+test("legacy and debug control-plane routes stay retired", () => {
   for (const route of retiredRoutes) {
     assert.equal(existsSync(path.join(root, route)), false, route);
   }
 });
 
-test("product source has no caller for retired AI endpoints", () => {
+test("product source has no caller for retired endpoints", () => {
   const offenders = [];
   for (const file of sourceFiles(path.join(root, "src"))) {
     const source = readFileSync(file, "utf8");
