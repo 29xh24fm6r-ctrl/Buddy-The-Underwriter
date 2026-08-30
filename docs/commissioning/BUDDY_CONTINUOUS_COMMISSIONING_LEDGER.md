@@ -1541,6 +1541,6 @@ Remaining closure:
 - **Repair:** strict signed-upload evidence validation, no download-URL fallback, configured-provider fail-closed behavior, bounded admission, deterministic timeout cleanup, and safe count/status-only diagnostics.
 - **Regression coverage:** behavioral evidence-parser cases plus structural provider, privacy, and admission guards.
 - **Safety:** source/tests only; no storage object, bucket, credential, provider, database, schema, dependency, or production mutation.
-- **Validation:** zero commits behind `main`; exact-head preview and workflow evidence pending PR creation.
+- **Validation:** runtime head `6a01f4a44beb1745ef044747671c8aade32eaaf9` passed 18 exact-source assertions; complete six-file diff +278/-121; zero behind `main`; exact preview `dpl_B8aAqy5rft3aKrXPZJgkQHxDd2TD` READY, SHA-matched, HTTP 200, build-clean, and runtime-clean. CI, Build Check, Secret Scan, and Upload Architecture Guard failed before step execution (`steps: null`, no logs) because repository Actions runner/billing availability remains unavailable.
 - **Production closure:** authorized GCS and Supabase sandbox upload fixtures after merge.
 - **Next target:** continue independent authentication/background-job rotation while Actions availability is restored.
