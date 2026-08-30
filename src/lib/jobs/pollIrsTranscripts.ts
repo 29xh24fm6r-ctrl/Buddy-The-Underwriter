@@ -12,22 +12,40 @@ import { reconcileTranscriptRequest, type IrsReconcilerSupabaseClient } from "@/
 
 export type PollIrsTranscriptsSupabaseClient = IrsPollingSupabaseClient & IrsReconcilerSupabaseClient;
 
+export type PollIrsTranscriptFailure = {
+  requestId: string;
+  reason: "REQUEST_NOT_FOUND" | "NOT_YET_RECEIVED" | "PERSISTENCE_FAILED";
+};
+
+export type PollIrsTranscriptsResult = {
+  polled: number;
+  received: number;
+  expired: number;
+  reconciled: number;
+  failed: number;
+  failures: PollIrsTranscriptFailure[];
+};
+
 export async function pollAndReconcileIrsTranscripts(deps: {
   sb: PollIrsTranscriptsSupabaseClient;
   vendor: IrsPollingVendorClient;
-}): Promise<{ polled: number; received: number; expired: number; reconciled: number; failed: number }> {
+}): Promise<PollIrsTranscriptsResult> {
   const outcomes = await pollPendingTranscripts({ sb: deps.sb, vendor: deps.vendor });
 
   const receivedIds = outcomes.filter((o) => o.outcome === "received").map((o) => o.requestId);
   let reconciled = 0;
-  let failed = 0;
+  const failures: PollIrsTranscriptFailure[] = [];
   for (const id of receivedIds) {
     try {
       const result = await reconcileTranscriptRequest(id, { sb: deps.sb });
-      if (result.ok) reconciled++;
-      else failed++;
+      if (result.ok) {
+        reconciled++;
+      } else {
+        failures.push({ requestId: id, reason: result.reason });
+      }
     } catch {
-      failed++;
+      console.error("[pollIrsTranscripts] reconciliation_persistence_failed", { requestId: id });
+      failures.push({ requestId: id, reason: "PERSISTENCE_FAILED" });
     }
   }
 
@@ -36,6 +54,7 @@ export async function pollAndReconcileIrsTranscripts(deps: {
     received: receivedIds.length,
     expired: outcomes.filter((o) => o.outcome === "expired").length,
     reconciled,
-    failed,
+    failed: failures.length,
+    failures,
   };
 }

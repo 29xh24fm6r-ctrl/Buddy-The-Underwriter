@@ -34,22 +34,20 @@ class Q {
     return this;
   }
   maybeSingle() {
+    const rows = this.rows();
     if (this._u) {
-      this.applyUpdate();
-      return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
+      for (const row of rows) Object.assign(row, this._u);
     }
-    return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
+    return Promise.resolve({ data: rows[0] ?? null, error: null });
   }
   then(resolve: any, reject?: any) {
     if (this._u) {
-      this.applyUpdate();
-      return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
+      const rows = this.rows();
+      for (const row of rows) Object.assign(row, this._u);
+      return Promise.resolve({ data: rows, error: null }).then(resolve, reject);
     }
     if (this._i) return Promise.resolve({ data: this._i, error: null }).then(resolve, reject);
     return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
-  }
-  private applyUpdate() {
-    for (const r of this.rows()) Object.assign(r, this._u);
   }
   private rows(): Row[] {
     let rows = [...(this.db.tables[this.table] ?? [])];
@@ -132,4 +130,62 @@ test("reconcileTranscriptRequest: end-to-end discrepancy -> deal_gap_queue row +
   assert.equal(db.tables.borrower_irs_transcript_requests[0].status, "reconciled");
   assert.equal(db.tables.deal_gap_queue.length, 1);
   assert.equal(db.tables.deal_gap_queue[0].gap_type, "irs_transcript_discrepancy");
+});
+
+
+test("reconcileTranscriptRequest: request read failure is not reported as not found", async () => {
+  const query = {
+    select() { return this; },
+    eq() { return this; },
+    maybeSingle() { return Promise.resolve({ data: null, error: new Error("database unavailable") }); },
+  };
+  const sb = { from: () => query };
+
+  await assert.rejects(
+    () => reconcileTranscriptRequest("r1", { sb: sb as any }),
+    /load request/,
+  );
+});
+
+test("reconcileTranscriptRequest: reconciled status requires returned-row proof", async () => {
+  const request = {
+    id: "r1",
+    deal_id: "d1",
+    bank_id: "b1",
+    ownership_entity_id: "o1",
+    status: "received",
+    reconciliation_summary: { transcripts: [] },
+  };
+  let call = 0;
+  const sb = {
+    from: () => {
+      call++;
+      if (call === 1) {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          maybeSingle() { return Promise.resolve({ data: request, error: null }); },
+        };
+      }
+      if (call === 2) {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          then(resolve: any, reject?: any) {
+            return Promise.resolve({ data: [], error: null }).then(resolve, reject);
+          },
+        };
+      }
+      return {
+        update() { return this; },
+        eq() { return this; },
+        select() { return Promise.resolve({ data: [], error: null }); },
+      };
+    },
+  };
+
+  await assert.rejects(
+    () => reconcileTranscriptRequest("r1", { sb: sb as any }),
+    /mark request reconciled/,
+  );
 });
