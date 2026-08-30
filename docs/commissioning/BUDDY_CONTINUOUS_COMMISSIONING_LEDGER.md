@@ -1531,3 +1531,16 @@ Remaining closure:
   fixture, and a verified Buddy-owned Supabase connection.
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
+
+
+## 2026-08-30 — signed upload provider integrity and privacy
+
+- **System audited:** canonical GCS and Supabase Storage upload-signing helpers.
+- **Finding:** Supabase could substitute a download-only signed URL; a configured GCS failure silently switched providers; storage paths and raw provider errors crossed logs.
+- **Root cause:** capability detection treated unlike signing APIs and providers as interchangeable fallback mechanisms.
+- **Repair:** strict signed-upload evidence validation, no download-URL fallback, configured-provider fail-closed behavior, bounded admission, deterministic timeout cleanup, and safe count/status-only diagnostics.
+- **Regression coverage:** behavioral evidence-parser cases plus structural provider, privacy, and admission guards.
+- **Safety:** source/tests only; no storage object, bucket, credential, provider, database, schema, dependency, or production mutation.
+- **Validation:** zero commits behind `main`; exact-head preview and workflow evidence pending PR creation.
+- **Production closure:** authorized GCS and Supabase sandbox upload fixtures after merge.
+- **Next target:** continue independent authentication/background-job rotation while Actions availability is restored.
