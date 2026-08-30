@@ -9,6 +9,7 @@ const retiredRoutes = [
   "src/app/api/ai/credit-memo/route.ts",
   "src/app/api/ai/execute/route.ts",
   "src/app/api/ai/underwrite/route.ts",
+  "src/app/api/pdfs/[pdfId]/route.ts",
 ];
 const retiredEndpoints = [
   "/api/ai/command",
@@ -33,7 +34,7 @@ function sourceFiles(directory) {
   return files;
 }
 
-test("legacy AI control-plane routes stay retired", () => {
+test("legacy AI and PDF control-plane routes stay retired", () => {
   for (const route of retiredRoutes) {
     assert.equal(existsSync(path.join(root, route)), false, route);
   }
@@ -54,6 +55,7 @@ test("no API route can resurrect the process-memory action executor", () => {
   const forbiddenImports = [
     "@/lib/ai/executor",
     "@/lib/db/audit",
+    "@/lib/db/pdfs",
   ];
   const offenders = [];
   for (const file of sourceFiles(path.join(root, "src/app/api"))) {
