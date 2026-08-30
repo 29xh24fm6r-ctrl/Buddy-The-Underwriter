@@ -58,6 +58,27 @@ export type BuildMemoInputPackageResult =
       error?: string;
     };
 
+type MemoInputQueryError = { code?: string | null } | null | undefined;
+
+function requireMemoInputQuery(
+  source: string,
+  error: MemoInputQueryError,
+): void {
+  if (!error) return;
+  console.error("[memo-inputs] authoritative read failed", {
+    source,
+    code: error.code ?? null,
+  });
+  throw new Error(`memo_input_${source}_load_failed`);
+}
+
+function loadFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  return /^memo_input_[a-z_]+_load_failed$/.test(message)
+    ? message
+    : "memo_input_load_failed";
+}
+
 export async function buildMemoInputPackage(
   args: BuildMemoInputPackageArgs,
 ): Promise<BuildMemoInputPackageResult> {
@@ -74,6 +95,7 @@ export async function buildMemoInputPackage(
   const { bankId } = access;
   const sb = supabaseAdmin();
 
+  try {
   if (args.runReconciliation) {
     await reconcileDealFacts({ dealId: args.dealId });
 
@@ -291,6 +313,13 @@ export async function buildMemoInputPackage(
   };
 
   return { ok: true, package: pkg, bankId };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "load_failed",
+      error: loadFailureCode(error),
+    };
+  }
 }
 
 // ─── Loaders ─────────────────────────────────────────────────────────────────
@@ -323,12 +352,13 @@ async function loadBorrowerStory(
   dealId: string,
   bankId: string,
 ): Promise<DealBorrowerStory | null> {
-  const { data } = await (sb as any)
+  const { data, error } = await (sb as any)
     .from("deal_borrower_story")
     .select("*")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .maybeSingle();
+  requireMemoInputQuery("borrower_story", error);
   return data ? (data as DealBorrowerStory) : null;
 }
 
@@ -337,12 +367,13 @@ async function loadManagementProfiles(
   dealId: string,
   bankId: string,
 ): Promise<DealManagementProfile[]> {
-  const { data } = await (sb as any)
+  const { data, error } = await (sb as any)
     .from("deal_management_profiles")
     .select("*")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .order("ownership_pct", { ascending: false, nullsFirst: false });
+  requireMemoInputQuery("management_profiles", error);
   return (data ?? []) as DealManagementProfile[];
 }
 
@@ -351,10 +382,11 @@ async function loadCollateralItems(
   dealId: string,
   bankId: string,
 ): Promise<DealCollateralItem[]> {
-  const { data } = await (sb as any)
+  const { data, error } = await (sb as any)
     .from("deal_collateral_items")
     .select("*")
     .eq("deal_id", dealId);
+  requireMemoInputQuery("collateral_items", error);
   return ((data ?? []) as any[])
     .filter((r) => r.bank_id === null || r.bank_id === bankId)
     .map(
@@ -411,13 +443,14 @@ async function loadRequiredFinancialFacts(
 ): Promise<RequiredFinancialFacts> {
   const queryKeys = [...Object.values(REQUIRED_FACT_KEYS), GCF_LEGACY_FACT_KEY];
 
-  const { data } = await (sb as any)
+  const { data, error } = await (sb as any)
     .from("deal_financial_facts")
     .select("fact_key, fact_value_num, owner_type, fact_period_end, created_at")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .eq("is_superseded", false)
     .in("fact_key", queryKeys);
+  requireMemoInputQuery("financial_facts", error);
 
   const rows = (data ?? []) as Array<{
     fact_key: string;
@@ -452,7 +485,7 @@ async function loadLatestSnapshot(
   sb: ReturnType<typeof supabaseAdmin>,
   dealId: string,
 ): Promise<unknown> {
-  const { data } = await (sb as any)
+  const { data, error } = await (sb as any)
     // SPEC-CURRENT-STAGE-AUDIT-FIX-2: real table is financial_snapshots — deal_financial_snapshots
     // does not exist, so the credit-memo input package was built on a null snapshot on every deal.
     .from("financial_snapshots")
@@ -461,6 +494,7 @@ async function loadLatestSnapshot(
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  requireMemoInputQuery("financial_snapshot", error);
   return data ? (data as any).snapshot_json ?? null : null;
 }
 
@@ -468,31 +502,34 @@ async function loadResearchGateSnapshot(
   sb: ReturnType<typeof supabaseAdmin>,
   dealId: string,
 ): Promise<ResearchGateSnapshot | null> {
-  const { data: missions } = await (sb as any)
+  const { data: missions, error: missionsError } = await (sb as any)
     .from("buddy_research_missions")
     .select("id")
     .eq("deal_id", dealId)
     .eq("status", "complete")
     .order("completed_at", { ascending: false })
     .limit(1);
+  requireMemoInputQuery("research_missions", missionsError);
 
   if (!missions || missions.length === 0) return null;
   const missionId = (missions[0] as { id: string }).id;
 
-  const { data: gate } = await (sb as any)
+  const { data: gate, error: gateError } = await (sb as any)
     .from("buddy_research_quality_gates")
     .select("trust_grade, gate_passed, quality_score")
     .eq("mission_id", missionId)
     .maybeSingle();
+  requireMemoInputQuery("research_quality_gate", gateError);
 
   if (!gate) {
     // Fallback: check completion_gate_status on the mission itself.
     // Many deals have a completed mission but no explicit quality gate row.
-    const { data: mission } = await (sb as any)
+    const { data: mission, error: missionError } = await (sb as any)
       .from("buddy_research_missions")
       .select("completion_gate_status, trust_grade")
       .eq("id", missionId)
       .maybeSingle();
+    requireMemoInputQuery("research_mission_gate", missionError);
     const passed = (mission as any)?.completion_gate_status === "pass";
     return {
       gate_passed: passed,
@@ -516,12 +553,13 @@ async function loadBankerOverrides(
   dealId: string,
   bankId: string,
 ): Promise<Record<string, unknown>> {
-  const { data } = await (sb as any)
+  const { data, error } = await (sb as any)
     .from("deal_memo_overrides")
     .select("overrides")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .maybeSingle();
+  requireMemoInputQuery("banker_overrides", error);
   const raw = data ? (data as any).overrides : null;
   return raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
 }
@@ -531,44 +569,28 @@ async function loadUnfinalizedRequiredDocCount(
   dealId: string,
   bankId: string,
 ): Promise<number> {
-  // Best-effort signal — count required checklist items missing finalized
-  // satisfaction. If the table or columns differ, return 0 (warning only).
-  try {
-    const { count } = await (sb as any)
-      .from("deal_checklist_items")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .eq("bank_id", bankId)
-      .eq("required", true)
-      .not("status", "in", '("received","waived")');
-    return count ?? 0;
-  } catch {
-    return 0;
-  }
+  const { count, error } = await (sb as any)
+    .from("deal_checklist_items")
+    .select("id", { count: "exact", head: true })
+    .eq("deal_id", dealId)
+    .eq("bank_id", bankId)
+    .eq("required", true)
+    .not("status", "in", '("received","waived")');
+  requireMemoInputQuery("required_documents", error);
+  return count ?? 0;
 }
 
 async function loadPolicyExceptionsReviewed(
   sb: ReturnType<typeof supabaseAdmin>,
   dealId: string,
 ): Promise<boolean> {
-  // Open exceptions block submission. If table absent or query fails, we
-  // treat the gate as satisfied (warning-only behavior — banker can still
-  // review exceptions in the dedicated UI).
-  // NOTE: this previously queried a nonexistent "policy_exceptions" table
-  // (the real table is deal_policy_exceptions, which has no bank_id column),
-  // so the query always failed and this always returned true — the hard
-  // "open policy exceptions" blocker could never fire.
-  try {
-    const { count, error } = await (sb as any)
-      .from("deal_policy_exceptions")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .eq("status", "open");
-    if (error) throw error;
-    return (count ?? 0) === 0;
-  } catch {
-    return true;
-  }
+  const { count, error } = await (sb as any)
+    .from("deal_policy_exceptions")
+    .select("id", { count: "exact", head: true })
+    .eq("deal_id", dealId)
+    .eq("status", "open");
+  requireMemoInputQuery("policy_exceptions", error);
+  return (count ?? 0) === 0;
 }
 
 function numOrNull(v: unknown): number | null {

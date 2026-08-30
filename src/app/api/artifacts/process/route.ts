@@ -17,6 +17,7 @@ import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { sendHeartbeat, writeSystemEvent } from "@/lib/aegis";
 import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
+import { getCronOutcome } from "@/lib/workers/cronOutcome";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -260,19 +261,24 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({
-      ok: true,
-      ...summary,
-      ...(stuck ? { stuck } : {}),
-      results: results.map((r) => ({
-        artifact_id: r.artifactId,
-        ok: r.ok,
-        doc_type: r.classification?.docType,
-        confidence: r.classification?.confidence,
-        matched_keys: r.matchedKeys,
-        error: r.error,
-      })),
-    });
+    const outcome = getCronOutcome(summary.failed);
+
+    return NextResponse.json(
+      {
+        ok: outcome.ok,
+        ...summary,
+        ...(stuck ? { stuck } : {}),
+        results: results.map((r) => ({
+          artifact_id: r.artifactId,
+          ok: r.ok,
+          doc_type: r.classification?.docType,
+          confidence: r.classification?.confidence,
+          matched_keys: r.matchedKeys,
+          error: r.error,
+        })),
+      },
+      { status: outcome.status },
+    );
   } catch (error: any) {
     console.error("[artifacts/process] error", error);
     return NextResponse.json(

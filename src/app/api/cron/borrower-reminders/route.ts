@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { selectReminderCandidates } from "@/lib/reminders/selectCandidates";
 import { getReminderStats, isAttemptsSatisfied, isCooldownSatisfied } from "@/lib/reminders/ledger";
-import { sendSmsWithConsent } from "@/lib/sms/send";
+import { sendSmsWithConsent, SmsDeliveryAuditError } from "@/lib/sms/send";
 import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
 import { getCronOutcome } from "@/lib/workers/cronOutcome";
 
@@ -12,27 +12,32 @@ function unauthorized() {
   return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 }
 
+type ReminderResult = {
+  dealId: string;
+  borrowerPhoneLast4: string;
+  action: "sent" | "skipped" | "uncertain";
+  reason?: string;
+};
+
+function resultBase(dealId: string, borrowerPhone: string) {
+  return {
+    dealId,
+    borrowerPhoneLast4: borrowerPhone.slice(-4),
+  };
+}
+
 /**
  * POST /api/cron/borrower-reminders
- * 
- * Automated reminder cron for borrowers with missing documents
- * 
+ *
+ * Automated reminder cron for borrowers with missing documents.
+ *
  * Auth: Requires Authorization: Bearer <CRON_SECRET>
- * 
+ *
  * Logic:
  * 1. Select deals with missing required items + active portal links
  * 2. Check reminder stats (attempts, cooldown)
  * 3. Send SMS if eligible (automatically enforces opt-out)
- * 4. Log to outbound_messages + deal_events
- * 
- * Vercel Cron:
- * Set in vercel.json:
- * {
- *   "crons": [{
- *     "path": "/api/cron/borrower-reminders",
- *     "schedule": "0 14 * * *"
- *   }]
- * }
+ * 4. Prove outbound_messages + deal_events persistence
  */
 export async function POST(req: NextRequest) {
   if (!hasValidWorkerSecret(req)) {
@@ -41,16 +46,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const candidates = await selectReminderCandidates();
-
-    const results: Array<{
-      dealId: string;
-      borrowerPhone: string;
-      action: "sent" | "skipped";
-      reason?: string;
-      error?: string;
-    }> = [];
+    const results: ReminderResult[] = [];
 
     for (const c of candidates) {
+      const base = resultBase(c.dealId, c.borrowerPhone);
+
       try {
         const { attempts, lastAt } = await getReminderStats({
           dealId: c.dealId,
@@ -59,8 +59,7 @@ export async function POST(req: NextRequest) {
 
         if (!isAttemptsSatisfied(attempts)) {
           results.push({
-            dealId: c.dealId,
-            borrowerPhone: c.borrowerPhone,
+            ...base,
             action: "skipped",
             reason: "max_attempts",
           });
@@ -69,8 +68,7 @@ export async function POST(req: NextRequest) {
 
         if (!isCooldownSatisfied(lastAt)) {
           results.push({
-            dealId: c.dealId,
-            borrowerPhone: c.borrowerPhone,
+            ...base,
             action: "skipped",
             reason: "cooldown",
           });
@@ -84,7 +82,7 @@ export async function POST(req: NextRequest) {
           `Please upload here:\n${c.uploadUrl}\n\n` +
           `Reply STOP to opt out.`;
 
-        await sendSmsWithConsent({
+        const delivery = await sendSmsWithConsent({
           dealId: c.dealId,
           to: c.borrowerPhone,
           body,
@@ -96,34 +94,57 @@ export async function POST(req: NextRequest) {
           },
         });
 
+        if (delivery.status === "suppressed") {
+          results.push({
+            ...base,
+            action: "skipped",
+            reason: "comms_suppressed",
+          });
+          continue;
+        }
+
         results.push({
-          dealId: c.dealId,
-          borrowerPhone: c.borrowerPhone,
+          ...base,
           action: "sent",
         });
       } catch (e: any) {
-        // Most important "error" is opted-out; treat as skipped so cron stays green
         if (e?.code === "SMS_OPTED_OUT" || String(e?.message || "").includes("opted out")) {
           results.push({
-            dealId: c.dealId,
-            borrowerPhone: c.borrowerPhone,
+            ...base,
             action: "skipped",
             reason: "opted_out",
           });
           continue;
         }
 
-        results.push({
+        if (e instanceof SmsDeliveryAuditError || e?.code === "SMS_AUDIT_PERSISTENCE_FAILED") {
+          console.error("Borrower reminder dispatch audit is uncertain", {
+            dealId: c.dealId,
+            failedStores: e?.failedStores ?? [],
+          });
+          results.push({
+            ...base,
+            action: "uncertain",
+            reason: "audit_persistence_failed",
+          });
+          continue;
+        }
+
+        console.error("Borrower reminder processing failed", {
           dealId: c.dealId,
-          borrowerPhone: c.borrowerPhone,
+          error: e?.message ?? String(e),
+        });
+        results.push({
+          ...base,
           action: "skipped",
           reason: "error",
-          error: e?.message ?? String(e),
         });
       }
     }
 
-    const failed = results.filter((r) => r.reason === "error").length;
+    const failed = results.filter(
+      (result) => result.action === "uncertain" || result.reason === "error",
+    ).length;
     const outcome = getCronOutcome(failed);
 
     return NextResponse.json(
@@ -131,8 +152,9 @@ export async function POST(req: NextRequest) {
         ok: outcome.ok,
         timestamp: new Date().toISOString(),
         candidates: candidates.length,
-        sent: results.filter((r) => r.action === "sent").length,
-        skipped: results.filter((r) => r.action === "skipped").length,
+        sent: results.filter((result) => result.action === "sent").length,
+        skipped: results.filter((result) => result.action === "skipped").length,
+        uncertain: results.filter((result) => result.action === "uncertain").length,
         failed: outcome.failures,
         results,
       },
@@ -143,9 +165,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        error: error?.message || "Failed to process reminders",
+        error: "Failed to process reminders",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
