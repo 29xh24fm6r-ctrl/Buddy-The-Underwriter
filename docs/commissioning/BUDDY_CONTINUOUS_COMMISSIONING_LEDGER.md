@@ -1541,6 +1541,6 @@ Remaining closure:
 - **Repair:** require exact batch and transition proof, prove template state, and paginate E-Tran reads deterministically.
 - **Regression coverage:** missing upsert proof, lost compare-and-set resolution, missing template write proof, 1,001-row expiry discovery, and read failure.
 - **Conflict boundary:** the shared SBA checks route remains untouched because open PR 993 owns it.
-- **Validation:** branch is zero commits behind `main`; exact-head CI and preview evidence pending PR creation.
+- **Validation:** code head `28e7e908f3a3dbb256f0efd0e963848e1fc3686a` passed 18/18 exact-source assertions; complete ten-file diff +372/-37; mergeable and zero behind; READY SHA-matched HTTP-200 Vercel preview with no warning/error/fatal logs. Required GitHub CI, Build Check, and Secret Scan failed before startup (`steps: null`, no logs), so PR 1006 is not merge-safe.
 - **Production closure:** verified Buddy-owned Supabase connection plus authorized lifecycle fixtures remain required.
 - **Next target:** continue an independent authentication/storage rotation while pending PRs await executable GitHub Actions.
