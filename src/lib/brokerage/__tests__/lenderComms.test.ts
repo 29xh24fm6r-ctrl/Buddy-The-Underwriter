@@ -172,7 +172,7 @@ test("provider retries keep the same idempotency key when mark_sent persistence 
   db.tables.brokerage_lender_message_outbox[0].last_attempt_at = new Date(Date.now() - 10 * 60_000).toISOString();
   const retry = await m.sendLenderMessage("n1", adapter, db as any);
 
-  assert.deepEqual(retry, { ok: true });
+  assert.deepEqual(retry, { ok: true, providerMessageId: "provider-1" });
   assert.deepEqual(deliveryKeys, ["buddy-lender-outbox:n1", "buddy-lender-outbox:n1"]);
   assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "sent");
 });
