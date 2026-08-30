@@ -1,0 +1,23 @@
+# Gitleaks fingerprint allowlist for verified non-secrets already in history.
+#
+# gitleaks scans COMMITS, not the working tree (secret-scan.yml checks out with
+# fetch-depth: 0 and the action scans the PR's commit range). Renaming a bad
+# fixture in a follow-up commit therefore does NOT clear the finding — the
+# original commit is still in range. Fingerprints are the supported way to
+# retire such a finding, and they are exact: <commit>:<path>:<rule>:<line>.
+# They cannot mask a secret in any other commit, file, rule, or line.
+#
+# Do NOT use this file for a real credential. A real credential must be
+# rotated and the history purged, not ignored.
+#
+# NOTE: the global `[[allowlists]]` blocks in .gitleaks.toml are NOT a
+# substitute here — gitleaks 8.24.3 (pinned by gitleaks-action@v3) silently
+# ignores the plural array-of-tables form when `[extend] useDefault = true`.
+# See the note filed against .gitleaks.toml.
+
+# Test fixture, never a credential. src/app/api/stripe/checkout/__tests__/route.test.ts
+# set STRIPE_SECRET_KEY to the literal "sk_test_configured" to exercise the route's
+# non-empty-after-trim configuration check. It is not a Stripe key and was never valid.
+# Renamed to "stripe_secret_configured" in a later commit on this branch so no new
+# commit carries a key-shaped literal; this retires the original commit's finding.
+686b5238cfa99c3d213a37fd51670d266e92938e:src/app/api/stripe/checkout/__tests__/route.test.ts:stripe-access-token:59
