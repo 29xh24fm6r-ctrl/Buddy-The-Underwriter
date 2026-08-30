@@ -1,31 +1,10 @@
 import "server-only";
 
-/**
- * GET /api/qa/borrower/applications
- *
- * Lists QA test applications. Resolves the QA borrower identity from the
- * canonical verified borrower session cookie.
- *
- * POST /api/qa/borrower/applications
- *
- * Creates a new QA test application or resumes an existing one.
- * Resolves identity from session cookie — email is never a direct
- * authorization parameter.
- *
- * P0-1: Auth via session cookie, not email query/body.
- *       A caller who only knows BORROWER_QA_EMAIL cannot list, create,
- *       resume, or obtain a session token.
- *
- * P0-2: Never returns raw session tokens in JSON. Session cookies are
- *       set via the canonical `createBorrowerSession` utility.
- *
- * Body shapes (POST):
- *   { action: "create" }
- *   { action: "resume"; dealId: string }
- */
-
 import { NextRequest, NextResponse } from "next/server";
-import { getBorrowerSession, createBorrowerSession } from "@/lib/brokerage/sessionToken";
+import {
+  getBorrowerSession,
+  createBorrowerSession,
+} from "@/lib/brokerage/sessionToken";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import {
   isQABorrowerEmail,
@@ -34,26 +13,27 @@ import {
   markDealAsTestApplication,
 } from "@/lib/qaIdentity";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getQAChooserEmail, clearQAChooserCookie } from "@/lib/brokerage/qaChooser";
+import {
+  getQAChooserEmail,
+  clearQAChooserCookie,
+} from "@/lib/brokerage/qaChooser";
 
-/**
- * P0-1: Resolve the QA borrower from the verified session cookie OR the
- * QA chooser identity cookie (post-OTP, pre-deal-selection).
- *
- * Two paths:
- *   1. Canonical borrower session — deal-bound, claimed_email set
- *   2. QA chooser cookie — HMAC-signed proof that QA email was just
- *      verified via OTP, without binding to any deal.
- *
- * Only succeeds when the caller proves QA identity via one of these paths.
- * A caller who only knows BORROWER_QA_EMAIL cannot pass this check.
- */
+const MAX_BODY_BYTES = 8_192;
+const DEAL_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function json(body: Record<string, unknown>, status: number) {
+  return NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
 async function requireQABorrowerSession(): Promise<{
   email: string;
   dealId: string | null;
   bankId: string;
 }> {
-  // Path 1: Canonical deal-bound borrower session
   const session = await getBorrowerSession();
   if (session) {
     const claimedEmail = session.claimed_email?.toLowerCase().trim();
@@ -66,200 +46,156 @@ async function requireQABorrowerSession(): Promise<{
     }
   }
 
-  // Path 2: QA chooser identity — post-OTP, pre-deal-selection
   const qaEmail = await getQAChooserEmail();
   if (qaEmail && isQABorrowerEmail(qaEmail)) {
-    let bankId: string;
     try {
-      bankId = await getBrokerageBankId();
+      const bankId = await getBrokerageBankId();
+      return { email: qaEmail, dealId: null, bankId };
     } catch {
-      throw new NoSessionError("brokerage_tenant_missing");
+      throw new Error("qa_session_unavailable");
     }
-    return { email: qaEmail, dealId: null, bankId };
   }
 
-  // Neither path succeeded — unauthorised
-  if (!session) {
-    throw new NoSessionError("no_session_cookie");
-  }
-  throw new NoSessionError("not_qa_session");
+  throw new Error(session ? "not_qa_session" : "no_session_cookie");
 }
 
-class NoSessionError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "NoSessionError";
+async function parseBody(
+  req: NextRequest,
+): Promise<{ action: "create" } | { action: "resume"; dealId: string } | null> {
+  const declaredLength = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return null;
   }
+
+  try {
+    const text = await req.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return null;
+    const body = JSON.parse(text) as Record<string, unknown>;
+    if (body.action === "create") return { action: "create" };
+    if (
+      body.action === "resume" &&
+      typeof body.dealId === "string" &&
+      DEAL_ID_RE.test(body.dealId)
+    ) {
+      return { action: "resume", dealId: body.dealId };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 export async function GET(_req: NextRequest): Promise<NextResponse> {
-  let ctx: { email: string; bankId: string };
+  let ctx: Awaited<ReturnType<typeof requireQABorrowerSession>>;
   try {
     ctx = await requireQABorrowerSession();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json(
-      { ok: false, error: msg },
-      { status: 401 },
-    );
-  }
-
-  let bankId: string;
-  try {
-    bankId = await getBrokerageBankId();
   } catch {
-    return NextResponse.json(
-      { ok: false, error: "brokerage_tenant_missing" },
-      { status: 500 },
-    );
+    return json({ ok: false, error: "unauthorized" }, 401);
   }
 
-  const applications = await listQATestApplications({
-    email: ctx.email,
-    bankId,
-  });
-
-  return NextResponse.json({ ok: true, applications });
+  try {
+    const applications = await listQATestApplications({
+      email: ctx.email,
+      bankId: ctx.bankId,
+    });
+    return json({ ok: true, applications }, 200);
+  } catch {
+    return json({ ok: false, error: "applications_unavailable" }, 503);
+  }
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  let ctx: { email: string; dealId: string | null; bankId: string };
+  let ctx: Awaited<ReturnType<typeof requireQABorrowerSession>>;
   try {
     ctx = await requireQABorrowerSession();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json(
-      { ok: false, error: msg },
-      { status: 401 },
-    );
+  } catch {
+    return json({ ok: false, error: "unauthorized" }, 401);
   }
 
-  let body: { action: string; dealId?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "invalid_json" },
-      { status: 400 },
-    );
-  }
-
-  let bankId: string;
-  try {
-    bankId = await getBrokerageBankId();
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "brokerage_tenant_missing" },
-      { status: 500 },
-    );
-  }
+  const body = await parseBody(req);
+  if (!body) return json({ ok: false, error: "invalid_payload" }, 400);
 
   if (body.action === "create") {
-    // P0-4: Atomic deal creation via RPC.
-    // Session is created by the canonical createBorrowerSession below.
-    // ONE session row — no orphan, no duplicate.
-    let dealId: string;
     try {
       const result = await createQATestApplication({
-        bankId,
+        bankId: ctx.bankId,
         email: ctx.email,
       });
-      dealId = result.dealId;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return NextResponse.json(
-        { ok: false, error: msg },
-        { status: 500 },
-      );
+      await createBorrowerSession({
+        dealId: result.dealId,
+        bankId: ctx.bankId,
+        claimedEmail: ctx.email,
+      });
+      await clearQAChooserCookie().catch(() => {});
+      return json({ ok: true, dealId: result.dealId, isNew: true }, 201);
+    } catch {
+      return json({ ok: false, error: "create_failed" }, 503);
     }
-
-    // Single canonical session — no raw token in JSON
-    await createBorrowerSession({
-      dealId,
-      bankId,
-      claimedEmail: ctx.email,
-    });
-
-    // P1: QA chooser cookie is no longer needed — a real deal-bound session exists now.
-    await clearQAChooserCookie().catch(() => {});
-
-    return NextResponse.json({ ok: true, dealId, isNew: true });
   }
 
-  if (body.action === "resume") {
-    if (!body.dealId) {
-      return NextResponse.json(
-        { ok: false, error: "dealId_required" },
-        { status: 400 },
-      );
-    }
+  const sb = supabaseAdmin();
+  const { data: deal, error: dealError } = await sb
+    .from("deals")
+    .select(
+      "id, is_test, test_identity, test_run_id, test_created_at, borrower_email, bank_id",
+    )
+    .eq("id", body.dealId)
+    .eq("bank_id", ctx.bankId)
+    .maybeSingle();
 
-    const sb = supabaseAdmin();
+  if (dealError) return json({ ok: false, error: "resume_state_unavailable" }, 503);
+  if (!deal) return json({ ok: false, error: "deal_not_found" }, 404);
 
-    // Verify the deal is a QA test application
-    const { data: deal, error } = await sb
-      .from("deals")
-      .select("id, is_test, test_identity, test_run_id, test_created_at, borrower_email, bank_id")
-      .eq("id", body.dealId)
-      .maybeSingle();
+  const candidate = deal as any;
+  if (
+    candidate.is_test !== true ||
+    candidate.test_identity !== "borrower_qa"
+  ) {
+    return json({ ok: false, error: "not_a_test_application" }, 403);
+  }
+  if (candidate.borrower_email?.toLowerCase() !== ctx.email) {
+    return json({ ok: false, error: "borrower_mismatch" }, 403);
+  }
 
-    if (error || !deal) {
-      return NextResponse.json(
-        { ok: false, error: "deal_not_found" },
-        { status: 404 },
-      );
-    }
-
-    const d = deal as any;
-    if (!d.is_test || d.test_identity !== "borrower_qa") {
-      return NextResponse.json(
-        { ok: false, error: "not_a_test_application" },
-        { status: 403 },
-      );
-    }
-
-    // Verify this deal belongs to the QA borrower
-    if (d.borrower_email?.toLowerCase() !== ctx.email) {
-      return NextResponse.json(
-        { ok: false, error: "email_mismatch" },
-        { status: 403 },
-      );
-    }
-
-    // P0-5: mark is idempotent — preserves existing test_run_id & test_created_at
+  try {
     await markDealAsTestApplication(body.dealId);
 
-    // Re-fetch to return preserved metadata (P0-5 proof)
-    const { data: refreshed } = await sb
+    const { data: refreshed, error: refreshError } = await sb
       .from("deals")
       .select("test_run_id, test_created_at, test_suite, test_identity")
       .eq("id", body.dealId)
+      .eq("bank_id", ctx.bankId)
+      .eq("is_test", true)
       .maybeSingle();
 
-    const preserved = refreshed as any;
+    if (
+      refreshError ||
+      !refreshed?.test_run_id ||
+      !refreshed?.test_created_at ||
+      refreshed.test_identity !== "borrower_qa"
+    ) {
+      return json({ ok: false, error: "resume_state_unavailable" }, 503);
+    }
 
-    // P0-2: Set new session cookie — no raw token in JSON
     await createBorrowerSession({
       dealId: body.dealId,
-      bankId: d.bank_id,
+      bankId: ctx.bankId,
       claimedEmail: ctx.email,
     });
-
-    // P1: QA chooser cookie is no longer needed.
     await clearQAChooserCookie().catch(() => {});
 
-    return NextResponse.json({
-      ok: true,
-      dealId: body.dealId,
-      testRunId: preserved?.test_run_id,
-      testCreatedAt: preserved?.test_created_at,
-      testSuite: preserved?.test_suite,
-      testIdentity: preserved?.test_identity,
-    });
+    return json(
+      {
+        ok: true,
+        dealId: body.dealId,
+        testRunId: refreshed.test_run_id,
+        testCreatedAt: refreshed.test_created_at,
+        testSuite: refreshed.test_suite,
+        testIdentity: refreshed.test_identity,
+      },
+      200,
+    );
+  } catch {
+    return json({ ok: false, error: "resume_failed" }, 503);
   }
-
-  return NextResponse.json(
-    { ok: false, error: "unknown_action" },
-    { status: 400 },
-  );
 }
