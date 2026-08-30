@@ -1556,7 +1556,7 @@ Repair:
   historical default; caller-provided bucket selection is removed.
 - Bound UUIDs, object coordinates, request bodies, signed URLs, and the
   five-minute download TTL.
-- Require durable ledger success before returning a signed URL.
+- Require an exact returned ledger row matching the deal, bank, event, and success state before returning a signed URL.
 - Return stable redacted failures with private, no-store response headers.
 - Add a three-case regression guard and focused commissioning record.
 
@@ -1564,13 +1564,13 @@ Validation before merge:
 
 - Focused regression: 3 passed, 0 failed.
 - TypeScript syntax transpilation: 3 runtime files passed.
-- Exact code head `82669958750b8850c3467d74a4d98eeab35511a5` passed the
+- Exact code head `4a27d225dfedfd2f06fe6ce80b707e65cf4f51c2` passed the
   production-equivalent Vercel build. Preview
-  `dpl_2kMxLR89v5rCQadT5MbCmUqWvvMm` is READY, SHA-matched, and HTTP 200.
+  `dpl_GSkPAC9v279zrYQjjBqUAWnHUbKJ` is READY, SHA-matched, and HTTP 200.
 - Both signed-out document routes return bounded HTTP 401 JSON with private
   no-store caching and no raw provider, database, deal, document, bucket, or
   path data. The exact-head preview produced no warning/error/fatal logs.
-- The complete six-file diff was inspected: +362/-339, no schema, dependency,
+- The complete six-file diff was inspected: +388/-339, no schema, dependency,
   infrastructure, credential, storage-object, production-data, route-count, or
   cross-product change.
 - CI, Build Check, Secret Scan, Route Budget, and Upload Architecture Guard
