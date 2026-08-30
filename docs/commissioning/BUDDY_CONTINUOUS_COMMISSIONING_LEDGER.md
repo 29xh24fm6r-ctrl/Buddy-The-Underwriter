@@ -1532,6 +1532,19 @@ Remaining closure:
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
 
+## 2026-08-29 — Didit webhook authenticity and replay integrity
+
+- **System audited:** production-owned Didit KYC webhook ingress, signature verifier, and identity status handoff.
+- **Finding:** the route ignored Didit's recommended `X-Signature-V2` and accepted authentic raw-body signatures without `X-Timestamp`, bypassing the provider's required five-minute replay window.
+- **Root cause:** an earlier compatibility assumption separated signature authenticity from timestamp freshness and modeled only legacy raw-body and Simple schemes.
+- **Repair branch:** `codex/didit-webhook-terminal-integrity`.
+- **Repair:** require a safe integer timestamp for every scheme; enforce the 300-second boundary; verify recursively canonicalized V2 JSON first; retain exact raw-body and envelope-only Simple fallbacks; surface deterministic rejection evidence without logging secrets.
+- **Regression coverage:** V2 Unicode/nesting/empty-object/array canonicalization; missing, malformed, expired, and boundary timestamps; raw and Simple compatibility; tampering and forged signatures.
+- **Provider evidence:** https://docs.didit.me/integration/webhooks (current contract: V2-first verification and timestamp freshness for every delivery).
+- **Production checkpoint:** pre-repair production on `bea361e11dadf756281ae913441a80c5e1b4cb64` was HTTP 200 and runtime-clean.
+- **Closure blocker:** after merge, an authorized Didit sandbox delivery through the product-owned destination must prove V2 acceptance, stale rejection, canonical persistence, and retry behavior.
+- **Next target:** durable Didit `event_id` deduplication after verified production schema evidence; signing-request concurrency remains dependent on the open completed-PDF immutability repair.
+
 ## 2026-08-29 — IRS transcript cron integrity
 
 Checkpoint:

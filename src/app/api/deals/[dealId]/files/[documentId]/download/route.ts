@@ -1,14 +1,17 @@
+import "server-only";
+
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { defaultDocumentBucket } from "@/lib/storage/documentBytes";
-import { signGcsReadUrl } from "@/lib/storage/gcs";
+import {
+  DOCUMENT_DOWNLOAD_TTL_SECONDS,
+  proveCanonicalDocumentDownload,
+  type CanonicalDownloadDocument,
+} from "@/lib/storage/documentDownloadDelivery";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
 export const runtime = "nodejs";
-// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
-// 10s default for cold-start auth + multi-step Supabase I/O.
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
@@ -17,73 +20,57 @@ type Context = {
 };
 
 export async function GET(_req: NextRequest, ctx: Context) {
+  let userId: string;
   try {
-    let userId: string;
-    try {
-      ({ userId } = await requireUser());
-    } catch {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+    ({ userId } = await requireUser());
+  } catch {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
 
-    const { dealId, documentId } = await ctx.params;
+  const { dealId, documentId } = await ctx.params;
+
+  try {
     const bankId = await getCurrentBankId();
-    const sb = supabaseAdmin();
-
-    const { data: doc, error } = await sb
+    const { data, error } = await supabaseAdmin()
       .from("deal_documents")
-      .select("id, deal_id, bank_id, storage_bucket, storage_path")
+      .select("id, deal_id, bank_id, storage_bucket, storage_path, size_bytes, sha256")
       .eq("id", documentId)
       .eq("deal_id", dealId)
       .maybeSingle();
 
-    if (error || !doc || doc.bank_id !== bankId) {
-      return NextResponse.json(
-        { ok: false, error: "File not found" },
-        { status: 404 },
-      );
-    }
-
-    const storageBucket = String(doc.storage_bucket || defaultDocumentBucket());
-    const storagePath = String(doc.storage_path || "");
-
-    if (!storagePath) {
-      return NextResponse.json(
-        { ok: false, error: "Missing storage path" },
-        { status: 404 },
-      );
-    }
-
-    const gcsBucket = process.env.GCS_BUCKET || "";
-    if (gcsBucket && storageBucket === gcsBucket) {
-      const signedUrl = await signGcsReadUrl({
-        key: storagePath,
-        expiresSeconds: 60 * 10,
-      });
-
-      await logLedgerEvent({
+    if (error) {
+      console.error("[files/download] document state unavailable", {
         dealId,
-        bankId,
-        eventKey: "documents.download_signed",
-        uiState: "done",
-        uiMessage: "Signed download generated (gcs)",
-        meta: {
-          storage_bucket: storageBucket,
-          storage_path: storagePath,
-          document_id: documentId,
-        },
+        documentId,
+        userId,
       });
-
-      return NextResponse.redirect(signedUrl, 302);
+      return NextResponse.json(
+        { ok: false, error: "document_state_unavailable" },
+        { status: 503 },
+      );
     }
 
-    const { data, error: signErr } = await sb.storage
-      .from(storageBucket)
-      .createSignedUrl(storagePath, 60 * 10);
-
-    if (signErr || !data?.signedUrl) {
+    const document = data as CanonicalDownloadDocument | null;
+    if (!document || document.bank_id !== bankId) {
       return NextResponse.json(
-        { ok: false, error: signErr?.message || "Failed to sign download" },
-        { status: 500 },
+        { ok: false, error: "document_not_found" },
+        { status: 404 },
+      );
+    }
+
+    let proven;
+    try {
+      proven = await proveCanonicalDocumentDownload(document);
+    } catch (error) {
+      console.error("[files/download] byte proof or signing failed", {
+        dealId,
+        documentId,
+        userId,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      return NextResponse.json(
+        { ok: false, error: "document_integrity_unavailable" },
+        { status: 503 },
       );
     }
 
@@ -92,19 +79,28 @@ export async function GET(_req: NextRequest, ctx: Context) {
       bankId,
       eventKey: "documents.download_signed",
       uiState: "done",
-      uiMessage: "Signed download generated (supabase)",
+      uiMessage: "Verified document download generated",
       meta: {
-        storage_bucket: storageBucket,
-        storage_path: storagePath,
         document_id: documentId,
+        storage_bucket: proven.bucket,
+        storage_path: proven.path,
+        size_bytes: proven.sizeBytes,
+        sha256: proven.sha256,
+        identity_strength: proven.identityStrength,
+        expires_in_seconds: DOCUMENT_DOWNLOAD_TTL_SECONDS,
       },
     });
 
-    return NextResponse.redirect(data.signedUrl, 302);
-  } catch (error: any) {
-    console.error("[files/download]", error);
+    return NextResponse.redirect(proven.signedUrl, 302);
+  } catch (error) {
+    console.error("[files/download] unexpected failure", {
+      dealId,
+      documentId,
+      userId,
+      error: error instanceof Error ? error.message : "unknown",
+    });
     return NextResponse.json(
-      { ok: false, error: error?.message || "Internal server error" },
+      { ok: false, error: "document_download_failed" },
       { status: 500 },
     );
   }

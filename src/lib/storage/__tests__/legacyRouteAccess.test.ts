@@ -33,16 +33,19 @@ test("clampSignedUrlTtl bounds private URL lifetime", async () => {
   assert.equal(clampSignedUrlTtl("3600"), 600);
 });
 
-
-test("signed URL route authorizes before privileged signing", async () => {
+test("signed URL route authorizes before canonical proof and signing", async () => {
   const source = await readFile(
     path.join(process.cwd(), "src/app/api/storage/signed-url/route.ts"),
     "utf8",
   );
   const authorizeAt = source.indexOf("await assertDealAccess(parsedKey.dealId)");
-  const signAt = source.indexOf(".createSignedUrl(");
+  const canonicalAt = source.indexOf('.from("deal_documents")');
+  const proofAt = source.indexOf("await proveCanonicalDocumentDownload(document)");
+
   assert.ok(authorizeAt >= 0);
-  assert.ok(signAt > authorizeAt);
+  assert.ok(canonicalAt > authorizeAt);
+  assert.ok(proofAt > canonicalAt);
+  assert.doesNotMatch(source, /\.createSignedUrl\(/);
 });
 
 test("upload route authorizes before privileged storage writes", async () => {
@@ -120,4 +123,3 @@ test("durable upload audit ownership is explicit before reconciliation", async (
     /new UploadCommitError\([\s\S]*?true/,
   );
 });
-
