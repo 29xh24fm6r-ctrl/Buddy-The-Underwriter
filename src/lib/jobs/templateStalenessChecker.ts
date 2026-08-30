@@ -103,16 +103,30 @@ export async function writeTemplateStalenessFindings(
     const patch: Record<string, unknown> = { last_checked_at: now };
     if (f.ok) patch.is_stale = f.isStale;
 
-    const { error } = await sb
+    const { data, error } = await sb
       .from("bank_document_templates")
       .update(patch)
-      .eq("id", f.templateRowId);
+      .eq("id", f.templateRowId)
+      .select("id, last_checked_at, is_stale");
     if (error) {
       const message =
         error && typeof error === "object" && "message" in error
           ? String((error as { message: unknown }).message)
           : String(error);
       throw new Error(`template_staleness_write_failed:${f.templateKey}: ${message}`);
+    }
+
+    const rows = (data ?? []) as Array<{ id: string; last_checked_at: string; is_stale: boolean }>;
+    const row = rows[0];
+    const stateMatches =
+      rows.length === 1 &&
+      row?.id === f.templateRowId &&
+      row?.last_checked_at === now &&
+      (!f.ok || row?.is_stale === f.isStale);
+    if (!stateMatches) {
+      throw new Error(
+        `template_staleness_write_proof_failed:${f.templateKey}: returned row did not match requested state`,
+      );
     }
     written++;
   }
