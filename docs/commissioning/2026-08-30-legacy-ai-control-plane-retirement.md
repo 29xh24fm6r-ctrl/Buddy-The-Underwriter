@@ -28,6 +28,6 @@ Repository code search found no product caller for any of the four AI endpoints.
 - Complete diff inspection.
 - Required CI, build, security, route-budget, and public browser checks.
 - Exact-head Vercel preview: each retired endpoint, including the PDF retrieval path, must return HTTP 404 while the public Buddy surface remains healthy.
-- Production closure after merge: repeat the four 404 probes against `www.buddysba.com`.
+- Production closure after merge: repeat all five 404 probes against `www.buddysba.com`.
 
 No database, schema, credentials, provider configuration, production data, or other product is changed.
