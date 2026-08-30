@@ -1553,9 +1553,21 @@ Repair:
 - Add explicit no-store caching and behavioral regression coverage proving both
   the exact response and absence of deployment/provider diagnostics.
 
-Validation and closure:
+Validation on code head `9e7fbe767508f2c8db8e5b46926888a0790a0132`:
 
-- Exact-head code, test, build, preview, CI, and production evidence must be
-  recorded before merge recommendation.
+- Complete four-file diff inspected: +91/-24 with no dependency, schema,
+  credential, production-data, or destructive change.
+- GitHub reports the branch mergeable and zero commits behind `main`.
+- Exact-head Vercel deployment `dpl_Gf2uFjNcLkvzAUZT9rv3ULgCL9Rm` is READY
+  after a successful production-equivalent Next.js build.
+- The preview endpoint returns HTTP 200 with exactly the bounded three-field JSON
+  contract and `Cache-Control: no-store, max-age=0`.
+- No warning/error/fatal preview logs or grouped runtime errors were present.
+- CI, Build Check, Secret Scan, and Route Budget all failed before executing any
+  step; every job has `steps: null` and no logs. Restore repository Actions
+  runner/billing availability and rerun all four checks before merge.
+
+Closure:
+
 - After merge, reverify the bounded production response and confirm no new
   warning/error/fatal logs or grouped runtime errors.
