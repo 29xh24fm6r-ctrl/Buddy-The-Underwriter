@@ -1541,6 +1541,6 @@ Remaining closure:
 - **Repair:** bounded row-shape validation, unique identities, count-only observability, all-settled provider handling, HTTP 503 on incomplete evidence, and no-store responses.
 - **Regression coverage:** seven pure outcome cases and four structural route-contract guards.
 - **Safety:** source/tests only; no database, RPC, bundle, lock, credential, provider, schema, storage, or production mutation.
-- **Validation:** zero commits behind `main`; exact-head preview and workflow evidence pending PR creation.
+- **Validation:** code head `bc85907c02a0df1e57bd823bdd4848845411eaa7` passed 15 exact-source assertions; complete six-file diff +324/-52; zero behind `main`; exact preview `dpl_6jH8wL3cNeZ7V3p83fwnQ4ynh1pg` READY, SHA-matched, HTTP 200, and runtime-clean. CI, Build Check, Secret Scan, and Route Budget failed before step execution (`steps: null`, no logs) because repository Actions runner/billing availability remains unavailable.
 - **Production closure:** verified Buddy-owned Supabase connection plus authorized stale-lock and abandoned-bundle fixtures.
 - **Next target:** continue an independent storage/authentication rotation while Actions availability is restored.
