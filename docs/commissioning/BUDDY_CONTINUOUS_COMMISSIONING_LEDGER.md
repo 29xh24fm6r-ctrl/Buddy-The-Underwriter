@@ -1556,9 +1556,20 @@ Repair:
 - Update database-backed expectations and add cross-boundary regression guards.
 - No schema, dependency, credential, or production-data change.
 
-Verification pending:
+Verification:
 
-- Complete diff inspection, focused/broad tests, required GitHub checks, and an
-  exact-head Vercel preview.
+- PR 1005 is open, mergeable, and zero commits behind current main.
+- Complete eight-file diff inspected: +397/-384.
+- Seventeen exact-head structural assertions passed with no forbidden
+  reclassification or raw-error patterns.
+- Exact-head Vercel deployment `dpl_4rvgxwP8hKvpGtv2roUicJfPbmSv` reached
+  READY; the production-equivalent build completed, the homepage returned HTTP
+  200 with a matching build SHA, and no application warning/error/fatal logs
+  were recorded.
+- The signed-out applications route returned non-cacheable HTTP 401 and the auth
+  route preserved its POST-only method boundary.
+- CI, Build Check, Secret Scan, and Route Budget failed before executing any
+  step; the inspected CI job had `steps: null` and no log URL. PR 1005 must not
+  merge until repository Actions availability is restored and all checks pass.
 - Transactional closure requires a verified Buddy-owned database connection and
-  authorized QA fixtures; no unverified database may be queried.
+  authorized QA fixtures; no unverified database was queried.
