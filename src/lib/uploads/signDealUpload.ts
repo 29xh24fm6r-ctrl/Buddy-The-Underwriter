@@ -1,5 +1,6 @@
 import { signUploadUrl } from "@/lib/uploads/sign";
 import { getGcsBucketName } from "@/lib/storage/gcs";
+import { sanitizeFilename } from "@/lib/storage/gcsNaming";
 import { createGcsV4SignedPutUrl } from "@/lib/storage/gcsSignedPutUrl";
 import type { NextRequest } from "next/server";
 
@@ -61,16 +62,24 @@ function randomUUID() {
 }
 
 function safeFilename(name: string) {
-  return String(name).replace(/[^a-zA-Z0-9._-]/g, "_");
+  return sanitizeFilename(name).replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 export async function signDealUpload(
   input: SignDealUploadInput,
 ): Promise<SignDealUploadOk | SignDealUploadErr> {
-  const { req: _req, dealId, uploadSessionId, filename, mimeType, sizeBytes, checklistKey, requestId } =
-    input;
+  const {
+    req: _req,
+    dealId,
+    uploadSessionId,
+    filename,
+    mimeType,
+    sizeBytes,
+    checklistKey,
+    requestId,
+  } = input;
 
-  if (!filename || !sizeBytes) {
+  if (!filename || !Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
     return { ok: false, requestId, error: "missing_filename_or_size" };
   }
 
@@ -84,15 +93,11 @@ export async function signDealUpload(
 
   const fileId = randomUUID();
   const safeName = safeFilename(filename);
-
   const sessionSegment = uploadSessionId ? `/${uploadSessionId}` : "";
   const objectKey = `deals/${dealId}${sessionSegment}/${fileId}__${safeName}`;
 
   const docStore = String(process.env.DOC_STORE || "").toLowerCase();
-  const wantsGcs = docStore === "gcs";
-
-  // GCS signed PUT URL path — any failure falls through to Supabase.
-  if (wantsGcs) {
+  if (docStore === "gcs") {
     try {
       const gcsBucket = process.env.GCS_BUCKET || getGcsBucketName();
       const signed = await createGcsV4SignedPutUrl({
@@ -114,31 +119,24 @@ export async function signDealUpload(
           checklistKey: checklistKey ?? null,
         },
       };
-    } catch (gcsErr: any) {
-      console.error("[signDealUpload] GCS signing failed, falling back to Supabase", {
+    } catch {
+      console.error("[signDealUpload] configured provider signing unavailable", {
         requestId,
-        error: gcsErr?.message ?? String(gcsErr),
+        provider: "gcs",
       });
+      return { ok: false, requestId, error: "gcs_signing_unavailable" };
     }
   }
 
-  // Supabase fallback (or default when DOC_STORE != gcs)
   const bucket = process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
   const signResult = await signUploadUrl({ bucket, objectPath: objectKey });
 
-  if (!signResult.ok || !signResult.signedUrl) {
-    if (!signResult.ok) {
-      return {
-        ok: false,
-        requestId: signResult.requestId,
-        error: signResult.error,
-        details: signResult.detail,
-      };
-    }
+  if (!signResult.ok) {
     return {
       ok: false,
       requestId: signResult.requestId,
-      error: "missing_signed_url",
+      error: signResult.error,
+      ...(signResult.detail ? { details: signResult.detail } : {}),
     };
   }
 
