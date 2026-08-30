@@ -62,11 +62,13 @@ export function PricingTable() {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ priceId: PRO_PRICE_ID }),
+        body: JSON.stringify({}),
       });
 
       const json = await res.json();
-      if (json?.url) {
+      if (res.status === 401) {
+        window.location.href = "/sign-in?redirect_url=%2Fpricing";
+      } else if (json?.url) {
         window.location.href = json.url;
       } else {
         // Stripe error → fallback to contact
