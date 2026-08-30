@@ -28,4 +28,4 @@ Source, tests, and commissioning evidence only. No RPC, schema, credential, prov
 
 ## Closure
 
-Exact-head preview and CI evidence will be recorded after PR creation. Transactional closure requires the verified Buddy-owned Supabase project and authorized stale-lock and abandoned-bundle fixtures.
+Code head `bc85907c02a0df1e57bd823bdd4848845411eaa7` passed 15 exact-source assertions. Its complete six-file diff is +324/-52 and zero commits behind `main`. Exact Vercel preview `dpl_6jH8wL3cNeZ7V3p83fwnQ4ynh1pg` is READY, SHA-matched, HTTP 200, and contains no warning/error/fatal runtime logs in the verification window. CI, Build Check, Secret Scan, and Route Budget were created but failed before executing any step; the inspected CI job has `steps: null` and no logs, consistent with the repository Actions runner/billing outage. Transactional closure requires the verified Buddy-owned Supabase project and authorized stale-lock and abandoned-bundle fixtures.
