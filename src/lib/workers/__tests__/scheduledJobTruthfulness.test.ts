@@ -17,10 +17,19 @@ test("borrower reminders use the shared worker boundary and expose partial failu
 test("SBA checks fail the invocation when reconciliation is incomplete", () => {
   const route = read("src/app/api/cron/sba-checks/route.ts");
 
-  assert.match(route, /getCronOutcome\(result\.failed\)/);
+  assert.match(
+    route,
+    /case "irs-transcripts":[\s\S]*getCronOutcome\(result\.failed\)[\s\S]*failed:\s*outcome\.failures[\s\S]*status:\s*outcome\.status/,
+  );
   assert.match(route, /getCronOutcome\(failed\.length\)/);
   assert.match(route, /status:\s*outcome\.status/g);
+
+  const worker = read("src/lib/jobs/pollIrsTranscripts.ts");
+  assert.match(worker, /failures\.push\(\{ requestId: id, reason: result\.reason \}\)/);
+  assert.match(worker, /reason: "PERSISTENCE_FAILED"/);
+  assert.match(worker, /failed: failures\.length/);
 });
+
 
 test("nightly governance exposes discovery and partial-work failures", () => {
   const route = read("src/app/api/cron/nightly/route.ts");
