@@ -2,7 +2,7 @@
 // Phase 85-BPG-EXPERIENCE — Borrower-facing projection PDF generation.
 // Portal-token gated. Loads confirmed assumptions, runs the forward model,
 // generates an actionable roadmap (single Gemini call), renders a 6-page
-// borrower PDF, uploads to storage, and returns a 1-hour signed URL.
+// borrower PDF, uploads to storage, verifies the bytes, and returns a 5-minute signed URL.
 
 import { createHash, randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
@@ -56,7 +56,7 @@ async function withProjectionPdfTimeout<T>(
     return await Promise.race([
       Promise.resolve(operation),
       new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("projection_pdf_timeout")), timeoutMs);
+        timer = setTimeout(\n          () => reject(new Error("projection_pdf_timeout")),\n          timeoutMs,\n        );
       }),
     ]);
   } finally {
@@ -383,29 +383,32 @@ export async function POST(
 
   let pdfBuffer: Buffer;
   try {
-    pdfBuffer = await withProjectionPdfTimeout(renderBorrowerProjectionPDF({
-    businessName: deal?.name ?? "Your Business",
-    loanAmount: assumptions.loanImpact.loanAmount || deal?.loan_amount || 0,
-    loanType: deal?.deal_type ?? "SBA",
-    dscrThreshold: projectedDscrThreshold,
-    baseYear,
-    annualProjections: annual,
-    monthlyProjections: monthly,
-    breakEven,
-    sensitivityScenarios: scenarios,
-    researchBriefing,
-    actionableRoadmap: roadmap,
-    generatedDate: new Date().toLocaleDateString("en-US", {
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    }),
-    planThesis: packageRow?.plan_thesis ?? null,
-    milestoneTimeline: packageRow?.milestone_timeline ?? null,
-    kpiDashboard: packageRow?.kpi_dashboard ?? null,
-    riskContingencyMatrix: packageRow?.risk_contingency_matrix ?? null,
-    borrowerStory,
-    }), 20_000);
+    pdfBuffer = await withProjectionPdfTimeout(
+      renderBorrowerProjectionPDF({
+        businessName: deal?.name ?? "Your Business",
+        loanAmount: assumptions.loanImpact.loanAmount || deal?.loan_amount || 0,
+        loanType: deal?.deal_type ?? "SBA",
+        dscrThreshold: projectedDscrThreshold,
+        baseYear,
+        annualProjections: annual,
+        monthlyProjections: monthly,
+        breakEven,
+        sensitivityScenarios: scenarios,
+        researchBriefing,
+        actionableRoadmap: roadmap,
+        generatedDate: new Date().toLocaleDateString("en-US", {
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        }),
+        planThesis: packageRow?.plan_thesis ?? null,
+        milestoneTimeline: packageRow?.milestone_timeline ?? null,
+        kpiDashboard: packageRow?.kpi_dashboard ?? null,
+        riskContingencyMatrix: packageRow?.risk_contingency_matrix ?? null,
+        borrowerStory,
+      }),
+      20_000,
+    );
   } catch {
     return json({ ok: false, error: "pdf_render_unavailable" }, 503);
   }
@@ -421,7 +424,9 @@ export async function POST(
   const pdfPath = `borrower-projections/${ctx.dealId}/${randomUUID()}.pdf`;
   const bucket = sb.storage.from("deal-documents");
   const cleanupGeneratedObject = async () => {
-    await withProjectionPdfTimeout(bucket.remove([pdfPath]), 8_000).catch(() => undefined);
+    await withProjectionPdfTimeout(bucket.remove([pdfPath]), 8_000).catch(
+      () => undefined,
+    );
   };
 
   const uploadResult = await withProjectionPdfTimeout(
