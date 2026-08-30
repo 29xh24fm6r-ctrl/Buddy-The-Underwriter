@@ -1581,8 +1581,19 @@ Repair:
 
 Validation and closure:
 
-- Focused/broad validation, complete-diff inspection, required CI, and exact
-  preview evidence are pending on the final branch head.
+- Validation on code head `576730aa3d0ee66e5228e66dbdd383ba06c1d9d8`:
+  13,628 tests (13,619 passed, 0 failed, 9 skipped); React-server 18/18;
+  research 7/7 with 13 controlled placeholders skipped.
+- Typecheck, lint, architecture, safety, schema-select, report-only drift,
+  Never-500, Build Check, Secret Scan, Route Budget, and public Playwright
+  passed.
+- Exact-head preview `dpl_89aPWyHdiFzLZbvkkcf5EmJJMH1F` is READY,
+  SHA-matched, HTTP 200, and runtime-clean.
+- The complete four-file diff was inspected: +343/-14 with no schema,
+  dependency, credential, provider configuration, production data, destructive,
+  or cross-product change.
+- This evidence-only commit changes no runtime behavior. Its final head must
+  retain green required checks and a READY, SHA-matched preview.
 - Post-merge transactional closure requires an authorized Plaid sandbox webhook.
 - Nightly closure requires the verified Buddy-owned Supabase project reference,
   application of PR 979's non-destructive migration to that exact project, and
