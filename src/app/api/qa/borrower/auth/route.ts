@@ -88,7 +88,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           unavailable ? 503 : result.error === "not_found" ? 404 : 400,
         );
       }
-      if ("qaNeedsChooser" in result && result.qaNeedsChooser) {
+      if ("qaNeedsChooser" in result) {
         return json(
           { ok: true, dealId: null, qaNeedsChooser: true },
           200,
