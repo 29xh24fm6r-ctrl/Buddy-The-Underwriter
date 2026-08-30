@@ -1563,3 +1563,11 @@ Next independent target:
 
 1. Continue borrower portal upload-commit and share-link state-machine rotation without overlapping the signed-upload PR.
 2. Reverify Golden Trident and nightly migration only after the exact Buddy-owned Supabase connection is confirmed.
+
+
+Verification update:
+
+- Source head `c9638f8f191ed0ce7cd9f5b33c2a067f5aad02f3` is mergeable and zero commits behind `main`.
+- Complete eight-file diff inspected: +355/-391.
+- Exact preview `dpl_4p5jqZ5iHB3aXpzn38CoyVc98H9C` is READY, SHA-matched, HTTP 200, build-complete, and free of warning/error/fatal logs.
+- CI, Build Check, Secret Scan, and Route Budget each failed before executing any step (`steps: null`, no logs); repository Actions availability remains the external blocker.
