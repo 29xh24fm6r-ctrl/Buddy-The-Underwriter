@@ -91,9 +91,6 @@ class Q {
     if (this._i) return Promise.resolve({ data: this._i, error: null }).then(resolve, reject);
     return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
   }
-  private applyUpdate() {
-    for (const r of this.rows()) Object.assign(r, this._u);
-  }
   private rows(): Row[] {
     let rows = [...(this.db.tables[this.table] ?? [])];
     for (const f of this.filters) {
