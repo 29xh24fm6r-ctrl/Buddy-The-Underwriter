@@ -41,13 +41,14 @@ export async function proveCanonicalDocumentDownload(
 ): Promise<ProvenDocumentDownload> {
   const bucket = String(document.storage_bucket || defaultDocumentBucket()).trim();
   const path = String(document.storage_path || "").trim();
-  const expectedSizeBytes = Number(document.size_bytes);
+  const hasStoredSize = document.size_bytes !== null && document.size_bytes !== undefined;
+  const expectedSizeBytes = hasStoredSize ? Number(document.size_bytes) : Number.NaN;
   const expectedSha256 = String(document.sha256 || "").trim().toLowerCase();
 
   if (!document.id || !document.deal_id || !bucket || !path) {
     throw new Error("document_identity_unavailable");
   }
-  if (!Number.isSafeInteger(expectedSizeBytes) || expectedSizeBytes < 0) {
+  if (!hasStoredSize || !Number.isSafeInteger(expectedSizeBytes) || expectedSizeBytes < 0) {
     throw new Error("document_identity_unavailable");
   }
   if (expectedSha256 && !/^[a-f0-9]{64}$/.test(expectedSha256)) {
