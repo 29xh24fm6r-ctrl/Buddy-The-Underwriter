@@ -1532,7 +1532,6 @@ Remaining closure:
 - PR 878's complete seal-to-marketplace-to-lender ceremony remains blocked by the same
   verified connection and an authorized sealed transaction.
 
-
 ## 2026-08-29 — Didit webhook authenticity and replay integrity
 
 - **System audited:** production-owned Didit KYC webhook ingress, signature verifier, and identity status handoff.
@@ -1545,6 +1544,54 @@ Remaining closure:
 - **Production checkpoint:** pre-repair production on `bea361e11dadf756281ae913441a80c5e1b4cb64` was HTTP 200 and runtime-clean.
 - **Closure blocker:** after merge, an authorized Didit sandbox delivery through the product-owned destination must prove V2 acceptance, stale rejection, canonical persistence, and retry behavior.
 - **Next target:** durable Didit `event_id` deduplication after verified production schema evidence; signing-request concurrency remains dependent on the open completed-PDF immutability repair.
+
+## 2026-08-29 — IRS transcript cron integrity
+
+Checkpoint:
+
+- PR 878 is merged and deployed. Complete Golden Trident
+  seal-to-marketplace-to-lender proof still requires the verified Buddy-owned
+  Supabase connection and an authorized sealed fixture.
+- Production served `bea361e11dadf756281ae913441a80c5e1b4cb64` with HTTP
+  200 and no warning, error, fatal, or grouped runtime-error evidence in the
+  latest two-hour observation window at the start of this arc.
+- Open clean PRs own separate database, AI-provider, identity, upload, signing,
+  and scheduled-delivery boundaries. This branch does not modify their files.
+
+Evidence and root cause:
+
+- The IRS transcript cron always returned HTTP 200 after worker completion.
+- Pending discovery, request state, and borrower financial-fact reads discarded
+  database errors.
+- Polling state, delayed gaps, discrepancy gaps, reconciled state, and completion
+  events were not checked or proven with returned rows.
+- The orchestration layer silently ignored non-successful reconciliation
+  results.
+
+Repair branch: `commissioning/irs-transcript-cron-integrity`.
+
+Repair:
+
+- Fail closed on every authoritative read.
+- Require compare-and-set and exact returned-row proof for request transitions,
+  polling cursors, gaps, reconciled state, and completion events.
+- Preserve deterministic per-request failures and make incomplete batches return
+  the shared non-green scheduled response.
+- Add behavior and cross-boundary regression coverage.
+- Change no schema, credential, provider configuration, production data, or
+  other product.
+
+Verification and closure:
+
+- Focused and broad tests, complete diff inspection, required CI, and the
+  exact-head preview are recorded on the PR before merge recommendation.
+- After merge, transaction closure requires the verified Buddy-owned Supabase
+  connection and an authorized IRS transcript fixture covering polling,
+  expiration, discrepancies, and a controlled persistence failure.
+- The next independent target is unmatched Twilio delivery-callback durability
+  after its product-owned persistence sink and PII retention policy are
+  confirmed; until then, continue with a non-conflicting scheduled-job or
+  authentication rotation.
 
 ## 2026-08-30 — SBA compliance lifecycle persistence proof
 
