@@ -1569,18 +1569,19 @@ Remaining closure:
 - **Preservation:** shared development libraries remain untouched; no schema,
   data, credential, provider configuration, deployment setting, or other product
   is changed.
-- **Validation:** focused guard passed 3/3; the complete seven-file diff is
-  +126/-230. Exact head `f6e09e805a5fe05a9b149ebeb86ebc5fdf22fdae`
-  produced READY Vercel deployment `dpl_23VadVT6GNKDdBfnL1Dz8qV6PqHr`,
-  an HTTP-200 public surface, exact 404s for all retired paths, and no
-  warning/error/fatal logs or grouped runtime errors.
+- **Validation:** focused guard passed 3/3; the complete eight-file diff is
+  +144/-256. Code head `6dc11026c0365825f1228c599b4e40e4f085d25e`
+  produced READY Vercel deployment `dpl_HfhVsrCEk5fR24xuRTATeDCrUz9K`,
+  an HTTP-200 public surface, exact 404s for all five retired paths, and no
+  warning/error/fatal logs or grouped runtime errors. This evidence-only
+  ledger correction must retain the same exact-preview proof before merge.
 - **CI blocker:** CI, Build Check, Secret Scan, and Route Budget failed before
   executing any step; each job had `steps: null` and no logs, including after a
   controlled rerun. Restore repository/account Actions runner or billing
   availability and rerun all four workflows. Do not merge beforehand.
 - **Production closure:** current production on
-  `b310efbf50d0f216206d8ebf1513f601b0e3d485` still matches all four routes
-  and returns HTTP 405 to AI GET probes; the PDF probe matches its handler and
+  `b310efbf50d0f216206d8ebf1513f601b0e3d485` still matches all four AI routes
+  and returns HTTP 405 to their GET probes; the PDF probe matches its handler and
   returns its unauthenticated artifact-not-found JSON. After merge, repeat exact
   production 404s.
 - **Open dependencies:** PR 878's complete Golden Trident transaction and the
