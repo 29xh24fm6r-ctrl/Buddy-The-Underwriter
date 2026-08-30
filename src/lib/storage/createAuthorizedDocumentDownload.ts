@@ -1,7 +1,6 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { logLedgerEventRequired } from "@/lib/pipeline/logLedgerEvent";
 import { defaultDocumentBucket, isGcsBucket } from "@/lib/storage/documentBytes";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -129,20 +128,34 @@ export async function createAuthorizedDocumentDownload(args: {
   let audit;
   try {
     audit = await withDocumentDownloadTimeout(
-      logLedgerEventRequired({
-        dealId,
-        bankId,
-        eventKey: "documents.download_signed",
-        uiState: "done",
-        uiMessage: "Document download authorized",
-        meta: { provider },
-      }),
+      sb
+        .from("deal_pipeline_ledger")
+        .insert({
+          deal_id: dealId,
+          bank_id: bankId,
+          event_key: "documents.download_signed",
+          stage: "documents.download_signed",
+          status: "ok",
+          ui_state: "done",
+          ui_message: "Document download authorized",
+          meta: { provider },
+          provider_metrics: null,
+        } as any)
+        .select("id, deal_id, bank_id, event_key, status")
+        .single(),
       8_000,
     );
   } catch {
     return { ok: false, status: 503, error: "download_audit_unavailable" };
   }
-  if (!audit.ok) {
+  if (
+    audit.error ||
+    !audit.data?.id ||
+    audit.data.deal_id !== dealId ||
+    audit.data.bank_id !== bankId ||
+    audit.data.event_key !== "documents.download_signed" ||
+    audit.data.status !== "ok"
+  ) {
     return { ok: false, status: 503, error: "download_audit_unavailable" };
   }
 
