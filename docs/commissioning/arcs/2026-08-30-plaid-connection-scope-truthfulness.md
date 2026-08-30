@@ -39,13 +39,16 @@ The route treated client metadata as trusted association evidence, and treated c
 
 ## Validation ledger
 
-- Focused and broad test results: pending CI on the exact PR head.
-- Complete diff inspection: pending final head.
-- Exact-head preview, public smoke, and runtime logs: pending deployment.
+- Vercel successfully completed the production-equivalent Next.js build for code head `a3ccaa2ce5942470e67558a2e2d5b1c814b28c50`.
+- Exact-head preview `dpl_EorFjowR12YgV2wa5GnfTtLJxBzY` is READY, returns HTTP 200, and reports the exact head through `x-buddy-build`.
+- The unauthenticated Plaid dynamic route resolves on that preview and rejects GET with HTTP 405.
+- The exact preview recorded no warning, error, or fatal runtime logs.
+- The complete four-file diff was inspected: +249/-24 before this validation-only update, with no unexpected scope.
+- CI runner startup is externally blocked: CI, Build Check, Secret Scan, and Route Budget each failed before executing any step; one authorized rerun produced the same zero-step result. GitHub's public status reports Actions operational, so this is repository/account runner availability rather than an evidenced code failure.
 - No schema, dependency, credential, provider-configuration, production-data, or destructive change is included.
 
 ## Production and dependencies
 
 - PR 878 remains merged and deployed. Complete Golden Trident seal-to-marketplace-to-lender transactional proof still requires an exact verified Buddy-owned Supabase project connection and an authorized sealed fixture.
-- The August 30 nightly run again failed because `public.portfolio_risk_snapshots` is absent from the live schema cache. PR 979's code is deployed, but its migration is not applied to the live Buddy database. The smallest required action is to expose or confirm the exact Buddy-owned Supabase project reference, apply that non-destructive migration to that exact project, and verify the returned schema evidence.
+- At 2026-08-30T07:30:12Z the nightly run again failed because `public.portfolio_risk_snapshots` is absent from the live schema cache. PR 979's code is deployed, but its migration is not applied to the live Buddy database. The smallest required action is to expose or confirm the exact Buddy-owned Supabase project reference, apply that non-destructive migration to that exact project, and verify the returned schema evidence.
 - Post-merge Plaid closure requires an authorized borrower sandbox fixture covering an entity-scoped connection and a controlled initial-sync failure.
