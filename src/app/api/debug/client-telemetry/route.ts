@@ -1,39 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
+import { safeClerkAuth } from "@/lib/auth/clerkServer";
+import { sanitizeClientTelemetry } from "@/lib/observability/clientTelemetry";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type TelemetryPayload = {
-  request_id?: string | null;
-  stage?: string | null;
-  message?: string | null;
-  meta?: Record<string, unknown> | null;
-};
+const MAX_BODY_BYTES = 8_192;
+
+function json(body: Record<string, unknown>, status: number) {
+  return NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
 
 export async function POST(req: NextRequest) {
+  let userId: string | null = null;
   try {
-    const body = (await req.json().catch(() => null)) as TelemetryPayload | null;
-
-    const payload: TelemetryPayload = {
-      request_id: body?.request_id ?? req.headers.get("x-request-id") ?? null,
-      stage: body?.stage ?? null,
-      message: body?.message ?? null,
-      meta: body?.meta ?? null,
-    };
-
-    console.log("[client-telemetry]", {
-      ...payload,
-      host: req.headers.get("host"),
-      referer: req.headers.get("referer"),
-      userAgent: req.headers.get("user-agent"),
-    });
-
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    console.error("[client-telemetry] error", {
-      message: e?.message ?? String(e),
-      name: e?.name,
-    });
-    return NextResponse.json({ ok: false, error: "failed" }, { status: 200 });
+    ({ userId } = await safeClerkAuth(3_000));
+  } catch {
+    return json({ ok: false, error: "authentication_unavailable" }, 503);
   }
+  if (!userId) {
+    return json({ ok: false, error: "unauthorized" }, 401);
+  }
+
+  const declaredLength = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return json({ ok: false, error: "payload_too_large" }, 413);
+  }
+
+  let raw: unknown;
+  try {
+    const text = await req.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
+      return json({ ok: false, error: "payload_too_large" }, 413);
+    }
+    raw = JSON.parse(text);
+  } catch {
+    return json({ ok: false, error: "invalid_payload" }, 400);
+  }
+
+  const payload = sanitizeClientTelemetry(
+    raw,
+    req.headers.get("x-request-id"),
+  );
+  if (!payload) {
+    return json({ ok: false, error: "invalid_payload" }, 400);
+  }
+
+  console.info("[client-telemetry]", payload);
+  return json({ ok: true }, 202);
 }
