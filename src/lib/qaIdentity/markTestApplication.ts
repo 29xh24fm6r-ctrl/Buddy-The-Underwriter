@@ -5,66 +5,60 @@ import { generateTestRunId } from "@/lib/qaIdentity/testRunId";
 import { QA_BORROWER_NAME } from "@/lib/qaIdentity/config";
 
 /**
- * Marks a pre-existing deal as a QA test application.
- *
- * IDEMPOTENT (P0-5): assigns test_run_id and test_created_at only once.
- * If the deal already has test_run_id set, no update is performed.
- * Resume must preserve existing metadata.
+ * Completes metadata for a deal already proven to be a QA test application.
+ * This helper never reclassifies a non-test or unavailable deal.
  */
 export async function markDealAsTestApplication(dealId: string): Promise<void> {
   const sb = supabaseAdmin();
 
-  // Check if already marked (idempotent – P0-5)
-  const { data: existing } = await sb
+  const { data: existing, error: readError } = await sb
     .from("deals")
     .select("id, is_test, test_run_id, test_suite, test_identity, test_created_at")
     .eq("id", dealId)
     .maybeSingle();
 
-  const d = existing as any;
-  if (d?.is_test && d?.test_run_id) {
-    // Already marked — no-op
-    return;
-  }
+  if (readError) throw new Error("qa_state_unavailable");
+  if (!existing) throw new Error("qa_deal_not_found");
 
-  const testRunId = generateTestRunId();
+  const deal = existing as any;
+  if (deal.is_test !== true) throw new Error("not_a_test_application");
+  if (deal.test_run_id && deal.test_created_at) return;
 
-  // Only set test_run_id and test_created_at when they are null/absent
-  const update: Record<string, any> = {
-    is_test: true,
+  const update: Record<string, unknown> = {
     test_suite: "borrower_e2e",
     test_identity: "borrower_qa",
+    ...(!deal.test_run_id ? { test_run_id: generateTestRunId() } : {}),
+    ...(!deal.test_created_at
+      ? { test_created_at: new Date().toISOString() }
+      : {}),
   };
 
-  // Set test_run_id only if not already present (P0-5)
-  if (!d?.test_run_id) {
-    update.test_run_id = testRunId;
-  }
-
-  // Set test_created_at only if not already present (P0-5)
-  if (!d?.test_created_at) {
-    update.test_created_at = new Date().toISOString();
-  }
-
-  const { error } = await sb
+  let updateQuery = sb
     .from("deals")
     .update(update)
-    .eq("id", dealId);
+    .eq("id", dealId)
+    .eq("is_test", true);
 
-  if (error) {
-    console.error("[qaIdentity] Failed to mark deal as test:", error.message);
-    throw new Error(`Failed to mark deal ${dealId} as test: ${error.message}`);
+  updateQuery = deal.test_run_id
+    ? updateQuery.eq("test_run_id", deal.test_run_id)
+    : updateQuery.is("test_run_id", null);
+
+  const { data: updated, error: updateError } = await updateQuery
+    .select("id, test_run_id, test_created_at")
+    .maybeSingle();
+
+  if (
+    updateError ||
+    !updated?.id ||
+    !updated.test_run_id ||
+    !updated.test_created_at
+  ) {
+    throw new Error("qa_mark_failed");
   }
 }
 
 /**
- * Creates a new QA test application atomically via the
- * `create_qa_test_application` RPC (P0-4).
- *
- * The RPC inserts deal + test metadata in a single transaction.
- * Session token creation is handled separately by the canonical
- * `createBorrowerSession()` — the RPC does NOT insert session rows.
- * This avoids orphan session tokens and duplicate rows.
+ * Creates a new QA test application atomically via the canonical RPC.
  */
 export async function createQATestApplication(args: {
   bankId: string;
@@ -82,23 +76,20 @@ export async function createQATestApplication(args: {
     p_test_identity: "borrower_qa",
   });
 
-  if (error) {
-    throw new Error(`create_qa_test_application RPC failed: ${error.message}`);
-  }
+  if (error) throw new Error("qa_create_failed");
 
   const result = data as any;
-  if (!result?.ok) {
-    throw new Error(
-      `create_qa_test_application RPC failed: ${result?.error ?? "unknown error"}`,
-    );
+  if (
+    result?.ok !== true ||
+    typeof result.deal_id !== "string" ||
+    typeof result.test_run_id !== "string"
+  ) {
+    throw new Error("qa_create_failed");
   }
 
   return { dealId: result.deal_id, testRunId: result.test_run_id };
 }
 
-/**
- * Lists QA test applications for a given email.
- */
 export async function listQATestApplications(args: {
   email: string;
   bankId: string;
@@ -124,10 +115,6 @@ export async function listQATestApplications(args: {
     .order("test_created_at", { ascending: false })
     .limit(50);
 
-  if (error) {
-    console.error("[qaIdentity] Failed to list QA test applications:", error.message);
-    return [];
-  }
-
+  if (error) throw new Error("qa_state_unavailable");
   return (data ?? []) as any[];
 }
