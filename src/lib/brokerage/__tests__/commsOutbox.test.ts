@@ -388,3 +388,24 @@ test("batch processor sends due items", async () => {
   assert.equal(result.sent, 2);
   assert.equal(result.retried, 0);
 });
+
+
+test("email success without provider acceptance evidence schedules retry", async () => {
+  const db = new OS();
+  await m.enqueueCommsMessage(BASE_ARGS, db as any);
+  const [item] = await m.claimDueCommsMessages(db as any);
+
+  const outcome = await m.processCommsOutboxItem(
+    item,
+    async () => ({ ok: true }),
+    db as any,
+  );
+
+  assert.equal(outcome, "retry_scheduled");
+  assert.equal(db.tables.brokerage_comms_outbox[0].status, "retry_scheduled");
+  assert.equal(db.tables.brokerage_comms_outbox[0].provider_message_id, null);
+  assert.equal(
+    db.tables.brokerage_comms_outbox[0].last_failure_code,
+    "provider_acceptance_unproven",
+  );
+});
