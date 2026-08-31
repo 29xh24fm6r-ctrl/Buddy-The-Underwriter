@@ -5,7 +5,7 @@ export type LenderChannel = "email" | "dashboard";
 export type LenderMessageContext = { dealId?: string; listingId?: string; claimId?: string; lenderBankId: string; accessId?: string; stage?: "preview"|"claim"|"picked"|"closing"|"funded" };
 export type LenderMessage = { trigger: string; channel: LenderChannel; subject: string | null; body: string; recipient: string | null; lenderBankId: string };
 export type LenderQueueResult = { ok: true; outboxId: string; suppressed: boolean } | { ok: false; error: string };
-export type SendAdapter = (msg: { channel: LenderChannel; recipient: string; subject: string | null; body: string; idempotencyKey: string }) => Promise<{ ok: boolean; error?: string }>;
+export type SendAdapter = (msg: { channel: LenderChannel; recipient: string; subject: string | null; body: string; idempotencyKey: string }) => Promise<{ ok: boolean; error?: string; providerMessageId?: string; retryable?: boolean }>;
 export type LenderCommsCycleResult = { queued: number; sent: number; retrying: number; failed: number; skipped: number };
 type Row = Record<string, any>;
 type SB = { from: (t: string) => any };
@@ -110,12 +110,20 @@ export async function sendLenderMessage(outboxId: string, adapter: SendAdapter, 
   const claimed = await claimLenderMessage(outboxId, sb);
   if (!claimed) return { ok: false, error: "not_claimed" };
   const attempts = Number(claimed.attempts ?? 1);
-  let result: { ok: boolean; error?: string };
+  let result: { ok: boolean; error?: string; providerMessageId?: string; retryable?: boolean };
   try {
     result = await adapter({ channel: str(claimed.channel) as LenderChannel, recipient: str(claimed.recipient) ?? "", subject: str(claimed.subject), body: str(claimed.body) ?? "", idempotencyKey: `buddy-lender-outbox:${outboxId}` });
   } catch {
     result = { ok: false, error: "provider_exception" };
   }
+  if (
+    result.ok &&
+    str(claimed.channel) === "email" &&
+    !str(result.providerMessageId)
+  ) {
+    result = { ok: false, error: "provider_acceptance_unproven" };
+  }
+
   if (result.ok) {
     await transitionClaimedMessage(outboxId, attempts, { status: "sent", sent_at: now(), error: null }, sb, "mark_sent");
     return result;
