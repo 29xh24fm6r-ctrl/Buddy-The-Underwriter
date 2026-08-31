@@ -4,6 +4,12 @@ Scope: `29xh24fm6r-ctrl/Buddy-The-Underwriter` and the infrastructure that serve
 `www.buddysba.com` only. Buddy LOS and every other LOS/CRM product are explicitly
 out of scope.
 
+> **Closed to new entries.** Add a new commissioning record as its own file,
+> `docs/commissioning/arcs/<YYYY-MM-DD>-<slug>.md`, and do not append a section
+> here. Every PR appending to this one file at the same final line made each
+> merge to `main` conflict every other open PR; see `docs/commissioning/README.md`.
+> The history below is kept as-is.
+
 ## 2026-08-26
 
 ### Clerk / Supabase identity and privilege boundary

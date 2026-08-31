@@ -1,0 +1,22 @@
+# Buddy The Underwriter — git attributes
+#
+# docs/commissioning/BUDDY_CONTINUOUS_COMMISSIONING_LEDGER.md is a shared,
+# append-at-EOF document. Every commissioning PR used to add its own section at
+# the end, so any merge to main made every other open PR conflict on the same
+# final line. In one 19-PR batch that cascade fired six times and produced ~80
+# hand-resolved conflicts, none of which involved disagreeing content: both
+# sides were always adding, never changing the same text.
+#
+# `merge=union` is git's built-in resolution for exactly that shape. It keeps
+# both sides' added lines instead of raising a conflict.
+#
+# TRADE-OFF, read before adding files here: a union-merged file NEVER reports a
+# conflict. That is correct for a file that is only ever appended to, and wrong
+# for one where two branches might revise the same existing text — such a revision
+# would be silently duplicated rather than flagged. The ledger is append-only by
+# convention (see docs/commissioning/README.md), which is what makes this safe.
+# Editing a historical ledger entry on two branches at once is the one case this
+# will not protect you from; do such edits on a single branch.
+#
+# Do not extend union merging to source files.
+docs/commissioning/BUDDY_CONTINUOUS_COMMISSIONING_LEDGER.md merge=union
