@@ -23,13 +23,11 @@ src/app/api/deals/[dealId]/checklist/set-required/route.ts
 src/app/api/deals/[dealId]/context/route.ts
 src/app/api/deals/[dealId]/credit-memo/pricing/insert/route.ts
 src/app/api/deals/[dealId]/explain/route.ts
-src/app/api/deals/[dealId]/files/[documentId]/download/route.ts
 src/app/api/deals/[dealId]/files/auto-match-checklist/route.ts
 src/app/api/deals/[dealId]/files/gcs/sign-upload/route.ts
 src/app/api/deals/[dealId]/files/list/route.ts
 src/app/api/deals/[dealId]/files/record/route.ts
 src/app/api/deals/[dealId]/files/sign/route.ts
-src/app/api/deals/[dealId]/files/signed-url/route.ts
 src/app/api/deals/[dealId]/files/upload-health/route.ts
 src/app/api/deals/[dealId]/intake/get/route.ts
 src/app/api/deals/[dealId]/intake/set/route.ts
