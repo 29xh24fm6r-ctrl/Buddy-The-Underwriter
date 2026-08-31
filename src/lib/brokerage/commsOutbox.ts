@@ -236,8 +236,20 @@ export async function processCommsOutboxItem(
     };
   }
 
+  if (
+    result.ok &&
+    item.channel !== "slack" &&
+    !str(result.providerMessageId)
+  ) {
+    result = {
+      ok: false,
+      error: "provider_acceptance_unproven",
+      retryable: true,
+    };
+  }
+
   if (result.ok) {
-    await markSent(item.id, attempt, result.providerMessageId ?? null, sb);
+    await markSent(item.id, attempt, str(result.providerMessageId), sb);
     await recordCommsSendSucceeded(sb, {
       channel: item.channel,
       recipient: item.recipient,
