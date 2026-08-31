@@ -1,181 +1,112 @@
 import "server-only";
 
-import Link from "next/link";
+import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { derivePipelineStatus } from "@/lib/deals/derivePipeline";
 import { resolveDealLabel } from "@/lib/deals/dealLabel";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
-import { RefinedStamp } from "@/components/brokerage/StatusStamp";
+import { listBrokerageTeam } from "@/lib/brokerage/team";
+import PipelineBoard, { type PipelineDeal } from "./PipelineBoard";
 
 export const dynamic = "force-dynamic";
 
 /**
- * /admin/brokerage/pipeline — the brokerage's own working deals list.
+ * /admin/brokerage/pipeline — the brokerage's book of business.
  *
- * Deliberately forked from the shared (app)/deals/page.tsx rather than
- * reskinning it in place: that page is generic, tenant-agnostic code
- * used by every bank tenant on the platform (it filters by whatever
- * bank_id tryGetCurrentBankId() resolves to — no bank_kind check, no
- * brokerage-specific logic). Reskinning it in place would change what
- * bank clients see too, and risks cross-contaminating brokerage-specific
- * assumptions into shared code. This page hard-codes the brokerage
- * bank_id instead, and reuses the same underlying helpers (resolveDealLabel,
- * derivePipelineStatus) rather than duplicating that logic.
+ * This was a flat list of the eighty most recent deals: no stages, no owner,
+ * no filters, no sign of which banks had the file. Everything needed to make
+ * it a real board already existed in the database and was simply never read
+ * — the 21-stage ladder, the owner column, the tasks with assignees, and the
+ * deal→bank submission ledger. This page reads all four and hands them to
+ * one client board.
  *
- * Individual deals still link to /deals/[id]/cockpit — the real shared
- * underwriting workspace (intake/documents/underwriting/pricing/credit
- * memo/servicing). That's genuine shared machinery the brokerage also
- * needs, not cosmetic, so it's intentionally not forked.
+ * Still deliberately forked from the shared (app)/deals/page.tsx: that page
+ * is tenant-agnostic code every bank client sees, and brokerage pipeline
+ * semantics have no business leaking into it. Individual deals still open
+ * the canonical cockpit for documents and underwriting.
  */
 
-type DealRow = {
-  id: string;
-  display_name?: string | null;
-  nickname?: string | null;
-  borrower_name?: string | null;
-  name?: string | null;
-  amount?: number | string | null;
-  stage?: string | null;
-  created_at?: string | null;
-  ready_at?: string | null;
-  submitted_at?: string | null;
-  ready_reason?: string | null;
-  archived_at?: string | null;
+type SubmissionRow = {
+  deal_id: string;
+  lender_profile_id: string;
+  status: string;
 };
 
-function formatMoney(amount: unknown): string {
-  const n = typeof amount === "number" ? amount : Number(amount);
-  if (!Number.isFinite(n) || n <= 0) return "—";
-  return "$" + Math.round(n).toLocaleString("en-US");
-}
-
-const GRID = "80px minmax(0,1fr) 118px 148px 100px 100px";
-
 export default async function BrokeragePipelinePage() {
-  const brokerageBankId = await getBrokerageBankId();
+  const bankId = await getBrokerageBankId();
   const sb = supabaseAdmin();
+  // "Mine" has to mean the person looking at the board, not the first row of
+  // the roster. Null when Clerk is unreachable; the filter hides itself then.
+  const currentUserId = (await clerkAuth()).userId ?? null;
 
-  const selectPrimary =
-    "id, display_name, nickname, borrower_name, name, amount, stage, created_at, ready_at, submitted_at, ready_reason, archived_at";
+  const [{ data: dealRows }, { data: submissions }, { data: tasks }, team] = await Promise.all([
+    sb
+      .from("deals")
+      .select(
+        "id, display_name, nickname, borrower_name, name, loan_amount, amount, state, product_type, " +
+          "brokerage_stage, brokerage_stage_entered_at, brokerage_stage_owner_clerk_user_id, " +
+          "intake_mode, crm_tracking_only, created_at, is_test",
+      )
+      .eq("bank_id", bankId)
+      .is("archived_at", null)
+      .order("created_at", { ascending: false })
+      .limit(300),
+    sb
+      .from("crm_deal_lender_submissions")
+      .select("deal_id, lender_profile_id, status")
+      .eq("bank_id", bankId),
+    sb
+      .from("brokerage_tasks")
+      .select("id, deal_id, title, due_at, assigned_to_clerk_user_id, status, priority")
+      .eq("bank_id", bankId)
+      .not("deal_id", "is", null)
+      .in("status", ["open", "in_progress", "blocked"])
+      .order("due_at", { ascending: true, nullsFirst: false }),
+    listBrokerageTeam(bankId),
+  ]);
 
-  const { data, error } = await sb
-    .from("deals")
-    .select(selectPrimary)
-    .eq("bank_id", brokerageBankId)
-    .is("archived_at", null)
-    .order("created_at", { ascending: false })
-    .limit(80);
+  const submissionsByDeal = new Map<string, SubmissionRow[]>();
+  for (const row of (submissions ?? []) as SubmissionRow[]) {
+    submissionsByDeal.set(row.deal_id, [...(submissionsByDeal.get(row.deal_id) ?? []), row]);
+  }
 
-  const deals: DealRow[] = error ? [] : ((data ?? []) as DealRow[]);
+  // Tasks arrive due-date ascending, so the first one seen for a deal is the
+  // one that matters next.
+  const nextTaskByDeal = new Map<string, any>();
+  for (const task of tasks ?? []) {
+    if (!nextTaskByDeal.has(task.deal_id)) nextTaskByDeal.set(task.deal_id, task);
+  }
 
-  const rows = deals.map((d) => {
-    const labelResult = resolveDealLabel({
-      id: d.id,
-      display_name: d.display_name ?? null,
-      nickname: d.nickname ?? null,
-      borrower_name: d.borrower_name ?? null,
-      name: d.name ?? null,
+  const deals: PipelineDeal[] = ((dealRows ?? []) as any[])
+    .filter((d) => !d.is_test)
+    .map((d) => {
+      const label = resolveDealLabel({
+        id: d.id,
+        display_name: d.display_name ?? null,
+        nickname: d.nickname ?? null,
+        borrower_name: d.borrower_name ?? null,
+        name: d.name ?? null,
+      });
+      const own = submissionsByDeal.get(d.id) ?? [];
+      const task = nextTaskByDeal.get(d.id) ?? null;
+      return {
+        id: d.id,
+        title: label.label,
+        borrower: d.borrower_name ?? d.name ?? null,
+        amount: Number(d.loan_amount ?? d.amount ?? 0) || null,
+        state: d.state ?? null,
+        productType: d.product_type ?? null,
+        stage: d.brokerage_stage ?? null,
+        stageEnteredAt: d.brokerage_stage_entered_at ?? d.created_at ?? null,
+        ownerClerkUserId: d.brokerage_stage_owner_clerk_user_id ?? null,
+        intakeMode: d.intake_mode ?? (d.crm_tracking_only ? "tracking_only" : null),
+        createdAt: d.created_at ?? null,
+        banksSent: own.filter((s) => s.status !== "planned").length,
+        banksReviewing: own.filter((s) => ["reviewing", "interested"].includes(s.status)).length,
+        banksAdvanced: own.filter((s) => ["term_sheet", "approved", "closed"].includes(s.status)).length,
+        banksDeclined: own.filter((s) => ["declined", "lost", "withdrawn"].includes(s.status)).length,
+        nextTask: task ? { title: task.title, dueAt: task.due_at ?? null } : null,
+      };
     });
-    let status: string | null = null;
-    try {
-      status = derivePipelineStatus(d as any);
-    } catch {
-      status = null;
-    }
-    const createdAt = d.created_at ? new Date(d.created_at) : null;
-    return {
-      id: d.id,
-      business: labelResult.label,
-      borrower: d.borrower_name || d.name || "Untitled deal",
-      amount: formatMoney(d.amount),
-      stage: d.stage ? String(d.stage) : "—",
-      status: status ?? "—",
-      created: createdAt ? createdAt.toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "—",
-    };
-  });
 
-  return (
-    <div style={{ padding: "18px 24px 40px" }}>
-      <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <Link href="/admin/brokerage/pipeline/queues" style={{ fontSize: 11.5, color: c.brassBright, textDecoration: "none" }}>
-          Management queues →
-        </Link>
-        <Link href="/admin/brokerage/pipeline/new" style={{ fontSize: 11.5, color: c.brassOnBrass, background: c.brass, padding: "8px 12px", borderRadius: 5, fontWeight: 700, textDecoration: "none" }}>
-          + Load self-sourced deal
-        </Link>
-      </div>
-      <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: GRID,
-            padding: "9px 16px",
-            borderBottom: `1px solid ${c.borderStrong}`,
-            background: c.inkHeader,
-            fontFamily: "var(--font-brokerage-mono)",
-            fontSize: 9.5,
-            letterSpacing: 1,
-            textTransform: "uppercase",
-            color: c.textFaint,
-          }}
-        >
-          <div>Deal</div>
-          <div>Borrower</div>
-          <div style={{ textAlign: "right" }}>Loan</div>
-          <div>Stage</div>
-          <div>Status</div>
-          <div style={{ textAlign: "right" }}>Opened</div>
-        </div>
-
-        {rows.length === 0 ? (
-          <div style={{ padding: "54px 20px", textAlign: "center" }}>
-            <div style={{ fontSize: 30, opacity: 0.35, marginBottom: 8 }}>▦</div>
-            <div style={{ fontFamily: "var(--font-brokerage-display)", fontSize: 16, color: "#C9C3B6", marginBottom: 4 }}>
-              No deals in the pipeline
-            </div>
-            <div style={{ fontSize: 12, color: c.textMuted }}>New work shows up here as it arrives from your referral sources.</div>
-          </div>
-        ) : (
-          rows.map((d) => (
-            <Link
-              key={d.id}
-              href={`/admin/brokerage/pipeline/${d.id}`}
-              style={{
-                display: "grid",
-                gridTemplateColumns: GRID,
-                padding: "11px 16px",
-                borderBottom: `1px solid ${c.divider}`,
-                alignItems: "center",
-                textDecoration: "none",
-                color: "inherit",
-              }}
-            >
-              <div style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 11, color: c.brass }}>
-                {d.id.slice(0, 8)}
-              </div>
-              <div style={{ minWidth: 0, paddingRight: 14 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: c.paper, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {d.business}
-                </div>
-                <div style={{ fontSize: 10.5, color: c.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {d.borrower}
-                </div>
-              </div>
-              <div style={{ textAlign: "right", fontFamily: "var(--font-brokerage-mono)", fontSize: 12.5, color: c.paper, paddingRight: 14 }}>
-                {d.amount}
-              </div>
-              <div style={{ fontSize: 11, color: "#C9C3B6" }}>{d.stage}</div>
-              <div>
-                <RefinedStamp status={d.status} />
-              </div>
-              <div style={{ textAlign: "right", fontSize: 11, color: c.textMuted, fontFamily: "var(--font-brokerage-mono)" }}>
-                {d.created}
-              </div>
-            </Link>
-          ))
-        )}
-      </div>
-    </div>
-  );
+  return <PipelineBoard deals={deals} team={team} currentUserId={currentUserId} />;
 }
