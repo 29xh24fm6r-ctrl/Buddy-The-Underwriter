@@ -67,6 +67,13 @@ export const REACT_SERVER_ONLY = new Set([
   "src/lib/ai/__tests__/streamGeminiText.test.ts",
   // Imports a module chain that pulls in "server-only".
   "src/core/nextStep/__tests__/computeNextStep.test.ts",
+  // Cross-checks the pipeline board columns against the real
+  // BROKERAGE_STAGES list, which lives in a `import "server-only"` module.
+  // Duplicating the stage list here to avoid the import would defeat the
+  // point of the test, which is that the two cannot drift apart.
+  "src/lib/dealStage/__tests__/board.test.ts",
+  // Imports src/lib/crm/organizations.ts, which is `import "server-only"`.
+  "src/lib/crm/__tests__/relationshipRecord.test.ts",
 ]);
 
 // SPEC-CI-2 quarantine — files that cannot run under node --test at all.
