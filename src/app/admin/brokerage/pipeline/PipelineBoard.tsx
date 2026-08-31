@@ -84,10 +84,13 @@ export default function PipelineBoard({
   deals,
   team,
   currentUserId,
+  loadError = null,
 }: {
   deals: PipelineDeal[];
   team: BrokerageTeamMember[];
   currentUserId: string | null;
+  /** Set when the deals query itself failed — never show an empty board for it. */
+  loadError?: string | null;
 }) {
   const [rows, setRows] = useState(deals);
   const [search, setSearch] = useState("");
@@ -292,9 +295,9 @@ export default function PipelineBoard({
         </button>
       </div>
 
-      {error && (
+      {(error || loadError) && (
         <div role="alert" style={{ border: `1px solid ${c.brick}`, color: c.brick, borderRadius: 6, padding: 11, fontSize: 12, marginBottom: 14 }}>
-          {error}
+          {error ?? `The pipeline could not be loaded: ${loadError}`}
         </div>
       )}
 
@@ -360,9 +363,13 @@ export default function PipelineBoard({
 
       {rows.length === 0 && (
         <div style={{ padding: "54px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: 30, opacity: 0.35, marginBottom: 8 }}>▦</div>
-          <div style={{ fontFamily: "var(--font-brokerage-display)", fontSize: 16, color: "#C9C3B6", marginBottom: 4 }}>No deals in the pipeline</div>
-          <div style={{ fontSize: 12, color: c.textMuted }}>Load one by hand, or wait for the next referral to arrive.</div>
+          <div style={{ fontSize: 30, opacity: 0.35, marginBottom: 8 }}>{loadError ? "!" : "▦"}</div>
+          <div style={{ fontFamily: "var(--font-brokerage-display)", fontSize: 16, color: loadError ? c.brick : "#C9C3B6", marginBottom: 4 }}>
+            {loadError ? "The pipeline could not be loaded" : "No deals in the pipeline"}
+          </div>
+          <div style={{ fontSize: 12, color: c.textMuted }}>
+            {loadError ?? "Load one by hand, or wait for the next referral to arrive."}
+          </div>
         </div>
       )}
 
