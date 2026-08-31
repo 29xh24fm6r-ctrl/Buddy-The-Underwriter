@@ -1942,3 +1942,14 @@ Verification:
   merge until repository Actions availability is restored and all checks pass.
 - Transactional closure requires a verified Buddy-owned database connection and
   authorized QA fixtures; no unverified database was queried.
+## 2026-08-30 — SBA compliance lifecycle persistence proof
+
+- **Systems audited:** scheduled stale signatures, third-party order overdue gaps, E-Tran certificate expiry, and official-template staleness.
+- **Finding:** error-free writes and compare-and-set attempts were counted without exact returned-row proof; E-Tran expiry discovery was unpaged.
+- **Root cause:** helpers relied on the absence of a database error instead of proving persisted identity/state, and one bank-scoped discovery query relied on the default Data API result window.
+- **Repair:** require exact batch and transition proof, prove template state, and paginate E-Tran reads deterministically.
+- **Regression coverage:** missing upsert proof, lost compare-and-set resolution, missing template write proof, 1,001-row expiry discovery, and read failure.
+- **Conflict boundary:** the shared SBA checks route remains untouched because open PR 993 owns it.
+- **Validation:** code head `28e7e908f3a3dbb256f0efd0e963848e1fc3686a` passed 18/18 exact-source assertions; complete ten-file diff +372/-37; mergeable and zero behind; READY SHA-matched HTTP-200 Vercel preview with no warning/error/fatal logs. Required GitHub CI, Build Check, and Secret Scan failed before startup (`steps: null`, no logs), so PR 1006 is not merge-safe.
+- **Production closure:** verified Buddy-owned Supabase connection plus authorized lifecycle fixtures remain required.
+- **Next target:** continue an independent authentication/storage rotation while pending PRs await executable GitHub Actions.
