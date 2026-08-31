@@ -52,11 +52,11 @@ async function runMarketplaceCron(request: Request): Promise<NextResponse> {
       });
     };
     const comms = await runLenderCommsCycle(sb, lenderAdapter);
-    if (comms.failed > 0) {
+    if (comms.retrying > 0 || comms.failed > 0) {
       return NextResponse.json(
         redactResponseSecrets({
           ok: false,
-          error: "lender_delivery_exhausted",
+          error: "lender_delivery_incomplete",
           mode,
           cadence,
           comms,
