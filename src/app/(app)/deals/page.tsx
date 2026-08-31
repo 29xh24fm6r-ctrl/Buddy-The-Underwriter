@@ -27,7 +27,7 @@ type DealRow = {
   nickname?: string | null;
   borrower_name?: string | null;
   name?: string | null;
-  amount?: number | string | null;
+  loan_amount?: number | string | null;
   stage?: string | null;
   created_at?: string | null;
   ready_at?: string | null;
@@ -75,8 +75,14 @@ export default async function DealsPage({
   const filter = normalizeFilter(params.filter);
   const sb = supabaseAdmin();
 
+  // loan_amount is the amount column on deals; there is no `amount`. Selecting
+  // it made PostgREST reject the whole request, so every load quietly took the
+  // selectFallback path below — which drops amount, stage and status from the
+  // table AND drops the archived filter, mixing archived deals into "active".
+  // The fallback is still worth keeping for a genuinely missing column; it
+  // just should not be the normal path.
   const selectPrimary =
-    "id, display_name, nickname, borrower_name, name, amount, stage, created_at, ready_at, submitted_at, ready_reason, archived_at";
+    "id, display_name, nickname, borrower_name, name, loan_amount, stage, created_at, ready_at, submitted_at, ready_reason, archived_at";
   const selectFallback = "id, borrower_name, name, created_at";
 
   let deals: DealRow[] = [];
@@ -131,7 +137,7 @@ export default async function DealsPage({
       : "-";
 
     const borrower = d.borrower_name || d.name || "Untitled deal";
-    const amountLabel = d.amount != null ? formatMoney(d.amount) : "-";
+    const amountLabel = d.loan_amount != null ? formatMoney(d.loan_amount) : "-";
     const labelResult = resolveDealLabel({
       id: d.id,
       display_name: d.display_name ?? null,

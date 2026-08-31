@@ -121,7 +121,7 @@ export async function getUnderwriteCommandBridgeActivationData(
 
       const { data: deal, error: dealError } = await sb
         .from("deals")
-        .select("id, borrower_name, name, display_name, nickname, amount, stage")
+        .select("id, borrower_name, name, display_name, nickname, loan_amount, stage")
         .eq("id", resolvedDealId)
         .maybeSingle();
 
@@ -145,7 +145,7 @@ export async function getUnderwriteCommandBridgeActivationData(
         name: deal.name ?? null,
       });
       const name = labelResult.label;
-      const amountLabel = formatMoney(deal.amount);
+      const amountLabel = formatMoney(deal.loan_amount);
       const stage = String(deal.stage ?? "-") || "-";
 
       const { data: checklist } = await sb

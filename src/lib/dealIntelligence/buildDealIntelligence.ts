@@ -161,7 +161,7 @@ export async function buildDealIntelligence(
   const { data: deal, error: dealErr } = await sb
     .from("deals")
     .select(
-      "id, borrower_name, name, display_name, nickname, stage, risk_score, created_at, updated_at, amount, bank_id"
+      "id, borrower_name, name, display_name, nickname, stage, risk_score, created_at, updated_at, loan_amount, bank_id"
     )
     .eq("id", dealId)
     .maybeSingle();
@@ -281,7 +281,7 @@ export async function buildDealIntelligence(
   const stage = safeString(deal.stage ?? "Unknown");
 
   const memoAssumptions = [...assumptions];
-  if (!deal.amount) {
+  if (!deal.loan_amount) {
     memoAssumptions.push("Loan amount not provided; loan request section is generalized.");
   }
 
@@ -290,7 +290,7 @@ export async function buildDealIntelligence(
     generatedAt: new Date().toISOString(),
     executiveSummary: `Current stage: ${stage}. Readiness score ${readiness.score0to100}/100 (${readiness.label}).`,
     borrowerOverview: `Borrower: ${borrowerName}. Known stage: ${stage}.`,
-    loanRequest: `Requested loan amount: ${formatCurrency(deal.amount ?? null)}. Purpose: Unknown / Not provided.`,
+    loanRequest: `Requested loan amount: ${formatCurrency(deal.loan_amount ?? null)}. Purpose: Unknown / Not provided.`,
     collateralSummary: "Collateral details not provided; verify collateral package.",
     documentChecklistStatus: `Required checklist items received: ${receivedItems.length} / ${requiredItems.length}.`,
     riskFactors: deal.risk_score != null && deal.risk_score >= 70
@@ -317,7 +317,7 @@ export async function buildDealIntelligence(
       risk_score: deal.risk_score ?? null,
       created_at: deal.created_at ? String(deal.created_at) : null,
       updated_at: deal.updated_at ? String(deal.updated_at) : null,
-      loan_amount: deal.amount ?? null,
+      loan_amount: deal.loan_amount ?? null,
     },
     checklist: {
       requiredTotal: requiredItems.length,

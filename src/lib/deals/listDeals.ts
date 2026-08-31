@@ -36,7 +36,7 @@ type DealRow = {
   nickname?: string | null;
   borrower_name?: string | null;
   name?: string | null;
-  amount?: number | string | null;
+  loan_amount?: number | string | null;
   stage?: string | null;
   created_at?: string | null;
   ready_at?: string | null;
@@ -49,7 +49,7 @@ export async function listDealsForBank(limit = 50): Promise<DealSummary[]> {
   const sb = supabaseAdmin();
 
   const selectPrimary =
-    "id, display_name, nickname, borrower_name, name, amount, stage, created_at, ready_at, submitted_at, ready_reason";
+    "id, display_name, nickname, borrower_name, name, loan_amount, stage, created_at, ready_at, submitted_at, ready_reason";
   const selectFallback = "id, borrower_name, name, created_at";
 
   let deals: DealRow[] = [];
@@ -96,7 +96,7 @@ export async function listDealsForBank(limit = 50): Promise<DealSummary[]> {
       : "-";
 
     const borrower = d.borrower_name || d.name || "Untitled deal";
-    const amountLabel = d.amount != null ? formatMoney(d.amount) : "-";
+    const amountLabel = d.loan_amount != null ? formatMoney(d.loan_amount) : "-";
     const stage = d.stage ? String(d.stage) : "-";
 
     const labelResult = resolveDealLabel({

@@ -77,7 +77,7 @@ export async function getPortfolioCommandBridgeActivationData(
   }
 
   const selectPrimary =
-    "id, borrower_name, name, stage, status, amount, loan_amount, updated_at, created_at";
+    "id, borrower_name, name, stage, status, loan_amount, updated_at, created_at";
 
   const { data, error } = await sb
     .from("deals")
@@ -95,7 +95,7 @@ export async function getPortfolioCommandBridgeActivationData(
   let exposure = 0;
 
   for (const deal of deals) {
-    const amountRaw = deal.loan_amount ?? deal.amount;
+    const amountRaw = deal.loan_amount;
     const amount = typeof amountRaw === "number" ? amountRaw : Number(amountRaw);
     if (Number.isFinite(amount)) {
       exposure += amount;
