@@ -1953,3 +1953,14 @@ Verification:
 - **Validation:** code head `28e7e908f3a3dbb256f0efd0e963848e1fc3686a` passed 18/18 exact-source assertions; complete ten-file diff +372/-37; mergeable and zero behind; READY SHA-matched HTTP-200 Vercel preview with no warning/error/fatal logs. Required GitHub CI, Build Check, and Secret Scan failed before startup (`steps: null`, no logs), so PR 1006 is not merge-safe.
 - **Production closure:** verified Buddy-owned Supabase connection plus authorized lifecycle fixtures remain required.
 - **Next target:** continue an independent authentication/storage rotation while pending PRs await executable GitHub Actions.
+## 2026-08-30 — Golden Trident lock janitor integrity
+
+- **System audited:** stale worker advisory-lock and abandoned Trident-bundle reconciliation.
+- **Finding:** raw database errors and internal lock/deal/bundle details crossed logs/responses; malformed or rejected RPC evidence lacked a deterministic fail-closed contract.
+- **Root cause:** unchecked RPC casts and detail-oriented diagnostics were treated as scheduled success evidence.
+- **Repair:** bounded row-shape validation, unique identities, count-only observability, all-settled provider handling, HTTP 503 on incomplete evidence, and no-store responses.
+- **Regression coverage:** seven pure outcome cases and four structural route-contract guards.
+- **Safety:** source/tests only; no database, RPC, bundle, lock, credential, provider, schema, storage, or production mutation.
+- **Validation:** code head `bc85907c02a0df1e57bd823bdd4848845411eaa7` passed 15 exact-source assertions; complete six-file diff +324/-52; zero behind `main`; exact preview `dpl_6jH8wL3cNeZ7V3p83fwnQ4ynh1pg` READY, SHA-matched, HTTP 200, and runtime-clean. CI, Build Check, Secret Scan, and Route Budget failed before step execution (`steps: null`, no logs) because repository Actions runner/billing availability remains unavailable.
+- **Production closure:** verified Buddy-owned Supabase connection plus authorized stale-lock and abandoned-bundle fixtures.
+- **Next target:** continue an independent storage/authentication rotation while Actions availability is restored.
