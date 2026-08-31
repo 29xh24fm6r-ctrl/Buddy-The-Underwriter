@@ -178,7 +178,8 @@ describe("marketplace lifecycle truthfulness guard", () => {
     assert.ok(COMMS.includes("MAX_SEND_ATTEMPTS = 5"));
     assert.ok(COMMS.includes('status: retrying ? "pending" : "failed"'));
     assert.ok(COMMS.includes('.in("status", ["pending", "failed"])'));
-    assert.ok(CRON.includes('error: "lender_delivery_exhausted"'));
+    assert.ok(CRON.includes("comms.retrying > 0 || comms.failed > 0"));
+    assert.ok(CRON.includes('error: "lender_delivery_incomplete"'));
     assert.ok(CRON.includes("{ status: 503 }"));
   });
 });
