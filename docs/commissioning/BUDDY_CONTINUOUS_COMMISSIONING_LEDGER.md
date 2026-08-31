@@ -1828,3 +1828,42 @@ Validation and closure:
   was attempted.
 - No database, credentials, provider configuration, production data, or
   cross-product system was accessed or changed.
+## 2026-08-30 — public liveness boundary
+
+Production evidence:
+
+- Unauthenticated `GET /api/health` returned HTTP 200 while exposing the exact
+  Vercel deployment ID and hostname, Git commit SHA/ref, environment, and
+  supporting-provider enablement and connection diagnostics.
+- Top-level `ok: true` was independent of the reported provider state, coupling
+  a liveness signal to unrelated diagnostic work without expressing readiness.
+
+Repair branch: `codex/commission-public-health-boundary`.
+
+Repair:
+
+- Reduce the public route to a constant bounded liveness contract with only
+  `ok`, `status`, and the canonical service name.
+- Remove deployment/environment serialization and provider calls from the public
+  boundary while retaining the existing authenticated admin diagnostic surface.
+- Add explicit no-store caching and behavioral regression coverage proving both
+  the exact response and absence of deployment/provider diagnostics.
+
+Validation on code head `9e7fbe767508f2c8db8e5b46926888a0790a0132`:
+
+- Complete four-file diff inspected: +91/-24 with no dependency, schema,
+  credential, production-data, or destructive change.
+- GitHub reports the branch mergeable and zero commits behind `main`.
+- Exact-head Vercel deployment `dpl_Gf2uFjNcLkvzAUZT9rv3ULgCL9Rm` is READY
+  after a successful production-equivalent Next.js build.
+- The preview endpoint returns HTTP 200 with exactly the bounded three-field JSON
+  contract and `Cache-Control: no-store, max-age=0`.
+- No warning/error/fatal preview logs or grouped runtime errors were present.
+- CI, Build Check, Secret Scan, and Route Budget all failed before executing any
+  step; every job has `steps: null` and no logs. Restore repository Actions
+  runner/billing availability and rerun all four checks before merge.
+
+Closure:
+
+- After merge, reverify the bounded production response and confirm no new
+  warning/error/fatal logs or grouped runtime errors.
