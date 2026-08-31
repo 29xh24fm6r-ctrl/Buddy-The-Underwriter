@@ -79,14 +79,21 @@ export async function recordReceipt(params: {
 
   // Borrower-safe timeline celebration
   // Only safe info: "We received X"
-  await sb.from("deal_timeline_events").insert({
-    deal_id: params.dealId,
-    visibility: "borrower",
-    event_type: "DOC_RECEIVED",
-    title: "Document received ✅",
-    detail: `We received: ${params.filename}`,
-    meta: { receiptId: data.id, checklistUpdated: result.updated },
-  });
+  const timeline = await sb
+    .from("deal_timeline_events")
+    .insert({
+      deal_id: params.dealId,
+      visibility: "borrower",
+      event_type: "DOC_RECEIVED",
+      title: "Document received ✅",
+      detail: `We received: ${params.filename}`,
+      meta: { receiptId: data.id, checklistUpdated: result.updated },
+    })
+    .select("id")
+    .single();
+  if (timeline.error || !timeline.data?.id) {
+    throw timeline.error ?? new Error("receipt_timeline_unproven");
+  }
 
   // `filename` is preserved in the returned object so existing consumers
   // keep working against the same key they always used.
