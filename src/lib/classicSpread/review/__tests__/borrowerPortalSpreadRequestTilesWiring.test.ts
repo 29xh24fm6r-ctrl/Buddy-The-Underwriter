@@ -19,7 +19,9 @@ describe("portal session route surfaces spread request tiles (existing tables on
   it("builds tiles via the pure builder and returns them as spreadRequests", () => {
     assert.match(route, /import \{[\s\S]*buildBorrowerSpreadRequestTiles[\s\S]*\} from "@\/lib\/classicSpread\/review\/borrowerPortalSpreadRequestTiles"/);
     assert.match(route, /buildBorrowerSpreadRequestTiles\(\{/);
-    assert.match(route, /spreadRequests,/);
+    // The tiles are built inline into the response body rather than assigned
+    // to a local first, so this reads `spreadRequests:` not `spreadRequests,`.
+    assert.match(route, /spreadRequests: buildBorrowerSpreadRequestTiles\(\{/);
   });
   it("reads draft_borrower_requests + classic_spread_review_actions (no new table)", () => {
     assert.match(route, /\.from\("draft_borrower_requests"\)/);
@@ -27,8 +29,16 @@ describe("portal session route surfaces spread request tiles (existing tables on
     // review-action read is bank-scoped
     assert.match(route, /classic_spread_review_actions[\s\S]*\.eq\("bank_id", invite\.bank_id\)/);
   });
-  it("the loader is non-fatal (a failure must not break the portal session)", () => {
-    assert.match(route, /try \{[\s\S]*buildBorrowerSpreadRequestTiles[\s\S]*\} catch \{[\s\S]*spreadRequests = \[\];[\s\S]*\}/);
+  it("the tile reads are fail-closed (a failure must not serve an incomplete portal)", () => {
+    // This route previously swallowed a tile-loader failure and served
+    // spreadRequests = [], which shows a borrower an empty "Additional
+    // evidence requested" section that is indistinguishable from genuinely
+    // having none. The trust-boundary work made both reads authoritative:
+    // they join the main Promise.all and any error returns 503
+    // portal_state_unavailable rather than a silently incomplete portal.
+    assert.match(route, /draftsResult\.error \|\| actionsResult\.error/);
+    assert.match(route, /"portal_state_unavailable" \}, 503\)/);
+    assert.doesNotMatch(route, /spreadRequests = \[\];/);
   });
   it("still exactly the one session route file (no new route added)", () => {
     const dir = path.join(repoRoot, "src/app/api/portal/session");
