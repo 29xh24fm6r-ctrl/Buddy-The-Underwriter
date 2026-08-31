@@ -34,6 +34,7 @@ const CONTRACT = [
   { route: "leads/:leadId", handler: "leads-leadId", methods: ["GET", "PATCH"] },
   { route: "organizations/:orgId", handler: "organizations-orgId", methods: ["GET", "PATCH", "POST"] },
   { route: "people/:personId", handler: "people-personId", methods: ["GET", "PATCH", "POST", "DELETE"] },
+  { route: "deals/:dealId/lender-matches", handler: "deals-dealId-lender-matches", methods: ["GET"] },
   { route: "deals/:dealId/parties", handler: "deals-dealId-parties", methods: ["GET", "POST"] },
   { route: "leads/:leadId/actions", handler: "leads-leadId-actions", methods: ["POST"] },
   { route: "leads/:leadId/qualification", handler: "leads-leadId-qualification", methods: ["GET", "PUT"] },

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
+import { createOrganization, ORGANIZATION_TYPES } from "@/lib/crm/organizations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -185,26 +186,33 @@ export async function POST(req: NextRequest) {
   const brokerageBankId = await getBrokerageBankId();
   const sb = supabaseAdmin();
 
-  const { data, error } = await sb
-    .from("crm_organizations")
-    .insert({
-      bank_id: brokerageBankId,
+  // createOrganization owns state_code normalization, tag/custom-field
+  // sanitation, and the lender-profile pairing, so this route does not
+  // re-implement any of it.
+  try {
+    const organization = await createOrganization({
+      bankId: brokerageBankId,
       name,
-      organization_type:
-        typeof body?.organizationType === "string" ? body.organizationType : "referral_source",
-      website_url: body?.websiteUrl ?? null,
+      organizationType:
+        typeof body?.organizationType === "string" && ORGANIZATION_TYPES.includes(body.organizationType)
+          ? body.organizationType
+          : "referral_source",
+      websiteUrl: body?.websiteUrl ?? null,
       phone: body?.phone ?? null,
+      addressLine1: body?.addressLine1 ?? null,
       city: body?.city ?? null,
       state: body?.state ?? null,
+      postalCode: body?.postalCode ?? null,
       notes: body?.notes ?? null,
-      created_by_clerk_user_id: userId,
-    })
-    .select("*")
-    .single();
-
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      tags: body?.tags ?? null,
+      relationshipTier: body?.relationshipTier ?? null,
+      ownerClerkUserId: body?.ownerClerkUserId ?? null,
+      howWeMet: body?.howWeMet ?? null,
+      customFields: body?.customFields ?? null,
+      createdByClerkUserId: userId,
+    }, sb);
+    return NextResponse.json({ ok: true, organization });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
-
-  return NextResponse.json({ ok: true, organization: data });
 }

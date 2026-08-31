@@ -189,6 +189,11 @@ export async function PATCH(
       state: body?.state,
       postalCode: body?.postalCode,
       notes: body?.notes,
+      tags: body?.tags,
+      relationshipTier: body?.relationshipTier,
+      ownerClerkUserId: body?.ownerClerkUserId,
+      howWeMet: body?.howWeMet,
+      customFields: body?.customFields,
     });
     return NextResponse.json({ ok: true, organization });
   } catch (e) {
