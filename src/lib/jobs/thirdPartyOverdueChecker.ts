@@ -143,12 +143,25 @@ export async function writeOverdueThirdPartyGaps(
   }));
 
   for (let offset = 0; offset < rows.length; offset += WRITE_BATCH_SIZE) {
-    const { error } = await sb
+    const batch = rows.slice(offset, offset + WRITE_BATCH_SIZE);
+    const { data, error } = await sb
       .from("deal_gap_queue")
-      .upsert(rows.slice(offset, offset + WRITE_BATCH_SIZE), {
+      .upsert(batch, {
         onConflict: "deal_id,fact_type,fact_key,gap_type,status",
-      });
+      })
+      .select("deal_id, fact_key, status");
     if (error) throw dbError("gap_upsert", error);
+
+    const persisted = (data ?? []) as Array<{ deal_id: string; fact_key: string; status: string }>;
+    const expected = new Set(
+      batch.map((row) => [row.deal_id, row.fact_key, row.status].join("|")),
+    );
+    const proven = new Set(
+      persisted.map((gap) => [gap.deal_id, gap.fact_key, gap.status].join("|")),
+    );
+    if (persisted.length !== batch.length || proven.size !== expected.size || [...expected].some((key) => !proven.has(key))) {
+      throw dbError("gap_upsert_proof", "returned rows did not exactly match requested third-party gaps");
+    }
   }
 
   return rows.length;
@@ -198,13 +211,14 @@ async function resolveRecoveredThirdPartyGaps(
   ) {
     await Promise.all(
       recovered.slice(offset, offset + RESOLVE_CONCURRENCY).map(async (gap) => {
-        const { error } = await sb
+        const resolvedFactKey = `${gap.fact_key}.resolved.${gap.id}`;
+        const { data, error } = await sb
           .from("deal_gap_queue")
           .update({
             // Production's uniqueness constraint includes status. Archive the
             // historical identity before resolution so a later overdue cycle
             // can safely create a new open gap for the same order.
-            fact_key: `${gap.fact_key}.resolved.${gap.id}`,
+            fact_key: resolvedFactKey,
             status: "resolved",
             resolved_at: resolvedAt,
             resolution_meta: {
@@ -213,8 +227,13 @@ async function resolveRecoveredThirdPartyGaps(
             },
           })
           .eq("id", gap.id)
-          .eq("status", "open");
+          .eq("status", "open")
+          .select("id, fact_key, status");
         if (error) throw dbError("gap_resolve", error);
+        const updated = (data ?? []) as Array<{ id: string; fact_key: string; status: string }>;
+        if (updated.length !== 1 || updated[0]?.id !== gap.id || updated[0]?.fact_key !== resolvedFactKey || updated[0]?.status !== "resolved") {
+          throw dbError("gap_resolve_proof", "compare-and-set did not return the resolved third-party gap");
+        }
       }),
     );
   }

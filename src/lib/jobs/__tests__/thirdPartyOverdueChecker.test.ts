@@ -27,7 +27,6 @@ class Query {
   }
 
   select(_columns?: string) {
-    this.operation = "select";
     return this;
   }
 
@@ -408,5 +407,68 @@ test("database read, upsert, and resolution failures are fatal", async () => {
   await assert.rejects(
     () => reconcileOverdueThirdPartyGaps(db as any, NOW),
     /third_party_overdue_gap_resolve_failed: resolution unavailable/,
+  );
+});
+
+
+test("writeOverdueThirdPartyGaps rejects an unproven successful batch", async () => {
+  const db = new FakeDb();
+  const originalFrom = db.from.bind(db);
+  db.from = ((table: string) => {
+    const query = originalFrom(table);
+    if (table === "deal_gap_queue") {
+      const originalThen = query.then.bind(query);
+      query.then = (resolve: any, reject?: any) =>
+        originalThen((result: any) => {
+          if ((query as any).operation === "upsert" && !result.error) return resolve({ data: [], error: null });
+          return resolve(result);
+        }, reject);
+    }
+    return query;
+  }) as any;
+
+  await assert.rejects(
+    () =>
+      writeOverdueThirdPartyGaps(db as any, [{
+        order_id: "order-1",
+        deal_id: "deal-1",
+        bank_id: "bank-1",
+        order_type: "ucc_lien_search",
+        status: "dispatched",
+        expected_completion_at: isoDaysBefore(3),
+        days_overdue: 3,
+      }]),
+    /third_party_overdue_gap_upsert_proof_failed/,
+  );
+});
+
+test("reconcile rejects a lost third-party gap resolution compare-and-set", async () => {
+  const db = new FakeDb({
+    deal_gap_queue: [{
+      id: "gap-1",
+      deal_id: "deal-1",
+      gap_type: "third_party_order_overdue",
+      fact_type: "third_party_order",
+      fact_key: "third_party_orders.order-1",
+      status: "open",
+    }],
+  });
+  const originalFrom = db.from.bind(db);
+  db.from = ((table: string) => {
+    const query = originalFrom(table);
+    if (table === "deal_gap_queue") {
+      const originalThen = query.then.bind(query);
+      query.then = (resolve: any, reject?: any) =>
+        originalThen((result: any) => {
+          if ((query as any).operation === "update" && !result.error) return resolve({ data: [], error: null });
+          return resolve(result);
+        }, reject);
+    }
+    return query;
+  }) as any;
+
+  await assert.rejects(
+    () => reconcileOverdueThirdPartyGaps(db as any, NOW),
+    /third_party_overdue_gap_resolve_proof_failed/,
   );
 });

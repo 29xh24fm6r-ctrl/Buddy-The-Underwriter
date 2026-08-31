@@ -132,9 +132,13 @@ test("writeTemplateStalenessFindings: updates last_checked_at + is_stale for row
       return {
         update(patch: Record<string, unknown>) {
           return {
-            eq: async (_k: string, id: string) => {
-              updates.push({ id, patch });
-              return { data: null, error: null };
+            eq(_k: string, id: string) {
+              return {
+                select: async () => {
+                  updates.push({ id, patch });
+                  return { data: [{ id, ...patch }], error: null };
+                },
+              };
             },
           };
         },
@@ -152,4 +156,36 @@ test("writeTemplateStalenessFindings: updates last_checked_at + is_stale for row
   assert.equal(updates[0].id, "row-1");
   assert.equal(updates[0].patch.is_stale, true);
   assert.ok(updates[0].patch.last_checked_at);
+});
+
+
+test("writeTemplateStalenessFindings rejects a successful update without returned-row proof", async () => {
+  const sb = {
+    from() {
+      return {
+        update() {
+          return {
+            eq() {
+              return { select: async () => ({ data: [], error: null }) };
+            },
+          };
+        },
+      };
+    },
+  } as any;
+
+  await assert.rejects(
+    () =>
+      writeTemplateStalenessFindings(sb, [{
+        templateKey: "SBA_1919",
+        templateRowId: "row-1",
+        ok: true,
+        isStale: true,
+        storedRevision: "x",
+        liveRevision: "y",
+        storedSha256: "a",
+        liveSha256: "b",
+      }]),
+    /template_staleness_write_proof_failed:SBA_1919/,
+  );
 });

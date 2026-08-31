@@ -25,7 +25,6 @@ class Q {
     this.table = table;
   }
   select(_?: string) {
-    this.operation = "select";
     return this;
   }
   eq(k: string, v: any) {
@@ -81,11 +80,17 @@ class Q {
         if (existing) Object.assign(existing, row);
         else this.db.tables[this.table].push({ id: `id-${this.db.nextId++}`, ...row });
       }
-      return Promise.resolve({ data: null, error: null }).then(resolve, reject);
+      const persisted = rows.map((row) =>
+        this.db.tables[this.table].find((candidate) =>
+          this.conflictCols.every((column) => candidate[column] === row[column]),
+        ),
+      );
+      return Promise.resolve({ data: persisted, error: null }).then(resolve, reject);
     }
 
-    for (const row of this.rows()) Object.assign(row, this.payload);
-    return Promise.resolve({ data: null, error: null }).then(resolve, reject);
+    const matches = this.rows();
+    for (const row of matches) Object.assign(row, this.payload);
+    return Promise.resolve({ data: matches, error: null }).then(resolve, reject);
   }
   private rows(): Row[] {
     let rows = [...(this.db.tables[this.table] ?? [])];
@@ -341,4 +346,69 @@ test("reconcileStaleSignatureGaps: preserves the active signer-specific gap on r
   assert.equal(second.gapsResolved, 0);
   assert.equal(db.tables.deal_gap_queue.length, 1);
   assert.equal(db.tables.deal_gap_queue[0].status, "open");
+});
+
+
+test("writeStaleSignatureGaps: rejects successful writes without returned-row proof", async () => {
+  const db = new FakeDb();
+  const originalFrom = db.from.bind(db);
+  db.from = ((table: string) => {
+    const query = originalFrom(table);
+    if (table === "deal_gap_queue") {
+      const originalThen = query.then.bind(query);
+      query.then = (resolve: any, reject?: any) =>
+        originalThen((result: any) => {
+          if ((query as any).operation === "upsert" && !result.error) return resolve({ data: [], error: null });
+          return resolve(result);
+        }, reject);
+    }
+    return query;
+  }) as any;
+
+  await assert.rejects(
+    () =>
+      writeStaleSignatureGaps(db as any, [{
+        deal_id: "d1",
+        bank_id: "b1",
+        form_code: "FORM_1919",
+        signer_id: "o1",
+        signer_role: "applicant",
+        expires_at: isoDaysFromNow(8),
+        days_remaining: 8,
+      }]),
+    /stale_signature_gap_upsert_proof_failed/,
+  );
+});
+
+test("reconcileStaleSignatureGaps: rejects a lost compare-and-set resolution", async () => {
+  const db = new FakeDb({
+    deal_gap_queue: [{
+      id: "gap-1",
+      deal_id: "d1",
+      bank_id: "b1",
+      gap_type: "sba_signature_stale",
+      fact_type: "sba_form_signature",
+      fact_key: "signed_documents.FORM_1919",
+      owner_entity_id: "o1",
+      status: "open",
+    }],
+  });
+  const originalFrom = db.from.bind(db);
+  db.from = ((table: string) => {
+    const query = originalFrom(table);
+    if (table === "deal_gap_queue") {
+      const originalThen = query.then.bind(query);
+      query.then = (resolve: any, reject?: any) =>
+        originalThen((result: any) => {
+          if ((query as any).operation === "update" && !result.error) return resolve({ data: [], error: null });
+          return resolve(result);
+        }, reject);
+    }
+    return query;
+  }) as any;
+
+  await assert.rejects(
+    () => reconcileStaleSignatureGaps(db as any),
+    /stale_signature_gap_resolve_proof_failed/,
+  );
 });

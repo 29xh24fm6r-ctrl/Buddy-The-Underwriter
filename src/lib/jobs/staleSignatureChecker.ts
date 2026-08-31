@@ -131,11 +131,32 @@ export async function writeStaleSignatureGaps(
     status: "open",
   }));
 
-  const { error } = await sb
+  const { data, error } = await sb
     .from("deal_gap_queue")
-    .upsert(rows, { onConflict: "deal_id,fact_type,fact_key,gap_type,status" });
+    .upsert(rows, { onConflict: "deal_id,fact_type,fact_key,gap_type,status" })
+    .select("deal_id, fact_key, owner_entity_id, status");
   if (error) throw dbError("gap_upsert", error);
-  return rows.length;
+
+  const persisted = (data ?? []) as Array<{
+    deal_id: string;
+    fact_key: string;
+    owner_entity_id: string | null;
+    status: string;
+  }>;
+  const expected = new Set(
+    findings.map((finding) =>
+      [finding.deal_id, staleGapFactKey(finding), finding.signer_id ?? "", "open"].join("|"),
+    ),
+  );
+  const proven = new Set(
+    persisted.map((gap) =>
+      [gap.deal_id, gap.fact_key, gap.owner_entity_id ?? "", gap.status].join("|"),
+    ),
+  );
+  if (persisted.length !== rows.length || proven.size !== expected.size || [...expected].some((key) => !proven.has(key))) {
+    throw dbError("gap_upsert_proof", "returned rows did not exactly match requested stale-signature gaps");
+  }
+  return persisted.length;
 }
 
 async function resolveSupersededStaleSignatureGaps(
@@ -171,10 +192,11 @@ async function resolveSupersededStaleSignatureGaps(
   // a future stale → fresh → stale cycle cannot collide with prior history.
   await Promise.all(
     staleGaps.map(async (gap) => {
-      const { error: updateError } = await sb
+      const resolvedFactKey = `${gap.fact_key}.resolved.${gap.id}`;
+      const { data: updated, error: updateError } = await sb
         .from("deal_gap_queue")
         .update({
-          fact_key: `${gap.fact_key}.resolved.${gap.id}`,
+          fact_key: resolvedFactKey,
           status: "resolved",
           resolved_at: new Date().toISOString(),
           resolution_meta: {
@@ -183,8 +205,13 @@ async function resolveSupersededStaleSignatureGaps(
           },
         })
         .eq("id", gap.id)
-        .eq("status", "open");
+        .eq("status", "open")
+        .select("id, fact_key, status");
       if (updateError) throw dbError("gap_resolve", updateError);
+      const rows = (updated ?? []) as Array<{ id: string; fact_key: string; status: string }>;
+      if (rows.length !== 1 || rows[0]?.id !== gap.id || rows[0]?.fact_key !== resolvedFactKey || rows[0]?.status !== "resolved") {
+        throw dbError("gap_resolve_proof", "compare-and-set did not return the resolved stale-signature gap");
+      }
     }),
   );
   return staleGaps.length;
