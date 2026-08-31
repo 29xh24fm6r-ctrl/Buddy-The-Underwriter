@@ -1,18 +1,5 @@
 import "server-only";
 
-/**
- * POST /api/qa/borrower/auth
- *
- * QA borrower authentication gate — send OTP and verify OTP, method-merged
- * onto a single route.
- *
- * SPEC-BORROWER-QA-IDENTITY-V1 §1, §6
- *
- * Body shapes:
- *   { action: "send"; email: string }
- *   { action: "verify"; email: string; code: string }
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import {
@@ -20,117 +7,105 @@ import {
   verifyQACode,
 } from "@/lib/qaIdentity";
 
-type SendBody = { action: "send"; email: string };
-type VerifyBody = { action: "verify"; email: string; code: string };
-type Body = SendBody | VerifyBody;
-
+const MAX_BODY_BYTES = 8_192;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  let body: Body;
-  try {
-    body = (await req.json()) as Body;
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "invalid_json" },
-      { status: 400 },
-    );
-  }
+function json(body: Record<string, unknown>, status: number, headers?: HeadersInit) {
+  return NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store", ...headers },
+  });
+}
 
-  if (
-    !body?.email ||
-    typeof body.email !== "string" ||
-    !EMAIL_RE.test(body.email.trim())
-  ) {
-    return NextResponse.json(
-      { ok: false, error: "valid_email_required" },
-      { status: 400 },
-    );
+async function parseBody(req: NextRequest): Promise<Record<string, unknown> | null> {
+  const declaredLength = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return null;
+  }
+  try {
+    const text = await req.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return null;
+    const body = JSON.parse(text);
+    return body && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  const body = await parseBody(req);
+  if (!body) return json({ ok: false, error: "invalid_payload" }, 400);
+
+  const email =
+    typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  if (!email || email.length > 320 || !EMAIL_RE.test(email)) {
+    return json({ ok: false, error: "valid_email_required" }, 400);
   }
 
   let bankId: string;
   try {
     bankId = await getBrokerageBankId();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("[qa-auth] brokerage_tenant_missing:", msg);
-    return NextResponse.json(
-      { ok: false, errorCode: "brokerage_tenant_missing", error: msg },
-      { status: 500 },
-    );
+  } catch {
+    return json({ ok: false, error: "brokerage_tenant_missing" }, 503);
   }
 
   if (body.action === "send") {
-    const result = await sendQAVerificationCode({
-      email: body.email,
-      bankId,
-    });
-
-    if (!result.ok) {
-      const status = result.error === "not_qa_email" ? 403 : 500;
-      if ("retryAfterSeconds" in result && result.retryAfterSeconds) {
-        return NextResponse.json(
+    try {
+      const result = await sendQAVerificationCode({ email, bankId });
+      if (!result.ok) {
+        if ("retryAfterSeconds" in result && result.retryAfterSeconds) {
+          return json(
+            { ok: false, error: result.error },
+            429,
+            { "retry-after": String(result.retryAfterSeconds) },
+          );
+        }
+        return json(
           { ok: false, error: result.error },
-          {
-            status: 429,
-            headers: { "retry-after": String(result.retryAfterSeconds) },
-          },
+          result.error === "not_qa_email" ? 403 : 503,
         );
       }
-      return NextResponse.json(
-        { ok: false, error: result.error },
-        { status },
-      );
+      return json({ ok: true, deterministic: result.deterministic }, 200);
+    } catch {
+      return json({ ok: false, error: "verification_unavailable" }, 503);
     }
-
-    return NextResponse.json({
-      ok: true,
-      deterministic:
-        "deterministic" in result ? result.deterministic : false,
-    });
   }
 
   if (body.action === "verify") {
-    if (!body.code || typeof body.code !== "string") {
-      return NextResponse.json(
-        { ok: false, error: "code_required" },
-        { status: 400 },
+    const code = typeof body.code === "string" ? body.code.trim() : "";
+    if (!code || code.length > 64) {
+      return json({ ok: false, error: "code_required" }, 400);
+    }
+
+    try {
+      const result = await verifyQACode({ email, code, bankId });
+      if (!result.ok) {
+        const unavailable = result.error === "qa_state_unavailable";
+        return json(
+          { ok: false, error: result.error },
+          unavailable ? 503 : result.error === "not_found" ? 404 : 400,
+        );
+      }
+      if ("qaNeedsChooser" in result) {
+        return json(
+          { ok: true, dealId: null, qaNeedsChooser: true },
+          200,
+        );
+      }
+      return json(
+        {
+          ok: true,
+          dealId: result.dealId,
+          isNewDeal: result.isNewDeal,
+        },
+        200,
       );
+    } catch {
+      return json({ ok: false, error: "verification_unavailable" }, 503);
     }
-
-    const result = await verifyQACode({
-      email: body.email,
-      code: body.code,
-      bankId,
-    });
-
-    if (!result.ok) {
-      const status = result.error === "not_found" ? 404 : 400;
-      return NextResponse.json(
-        { ok: false, error: result.error },
-        { status },
-      );
-    }
-
-    // P0 SECURITY: QA identity verified but no test deal — client must show QA chooser.
-    if ("qaNeedsChooser" in result && result.qaNeedsChooser) {
-      return NextResponse.json({
-        ok: true,
-        dealId: null,
-        qaNeedsChooser: true,
-      });
-    }
-
-    const typedResult = result as Extract<typeof result, { ok: true; dealId: string }>;
-    return NextResponse.json({
-      ok: true,
-      dealId: typedResult.dealId,
-      isNewDeal: typedResult.isNewDeal,
-    });
   }
 
-  return NextResponse.json(
-    { ok: false, error: "unknown_action" },
-    { status: 400 },
-  );
+  return json({ ok: false, error: "unknown_action" }, 400);
 }

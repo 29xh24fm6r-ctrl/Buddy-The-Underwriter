@@ -158,17 +158,22 @@ describe("Test D: unverified identity → GET and POST return 401", () => {
     assert.ok(source.includes('"no_session_cookie"'), "Must throw no_session_cookie when both paths fail");
   });
 
+  // The route returns through a shared json(body, status) helper that also
+  // stamps Cache-Control: no-store, so the 401s read as `, 401)` rather than
+  // `status: 401`. Assert on the unauthorized response itself, which is the
+  // property that matters, not on the call syntax.
   it("GET handler catches and returns 401", () => {
     const source = readSource("src/app/api/qa/borrower/applications/route.ts");
-    assert.ok(source.includes("status: 401"), "GET must return 401 on auth failure");
+    assert.ok(
+      source.includes('"unauthorized" }, 401)'),
+      "GET must return 401 on auth failure",
+    );
   });
 
   it("POST handler catches and returns 401", () => {
     const source = readSource("src/app/api/qa/borrower/applications/route.ts");
-    // POST also catches the error and returns 401
-    const postIdx = source.lastIndexOf("status: 401");
-    const getIdx = source.indexOf("status: 401");
-    assert.ok(postIdx > getIdx, "Both GET and POST must return 401 paths (two 401 returns)");
+    const count = source.split('"unauthorized" }, 401)').length - 1;
+    assert.ok(count >= 2, "Both GET and POST must return 401 paths (two 401 returns)");
   });
 });
 
@@ -272,15 +277,26 @@ describe("Test H: no non-test deal can be listed, resumed, or bound", () => {
 
   it("POST resume verifies deal.is_test and test_identity before session creation", () => {
     const source = readSource("src/app/api/qa/borrower/applications/route.ts");
-    assert.ok(source.includes("d.is_test"), "Resume must verify is_test");
+    // The resume path names the row `candidate` and rejects it unless
+    // is_test is exactly true; the old `d.is_test` spelling is gone.
+    assert.ok(source.includes("is_test !== true"), "Resume must verify is_test");
     assert.ok(source.includes('test_identity !== "borrower_qa"'), "Resume must verify test_identity");
     assert.ok(source.includes('"not_a_test_application"'), "Must return not_a_test_application error");
   });
 
   it("POST resume verifies borrower_email matches session identity", () => {
     const source = readSource("src/app/api/qa/borrower/applications/route.ts");
-    assert.ok(source.includes("d.borrower_email"), "Resume must check borrower_email");
-    assert.ok(source.includes('"email_mismatch"'), "Must return email_mismatch error");
+    assert.ok(
+      source.includes("borrower_email?.toLowerCase() !== ctx.email"),
+      "Resume must check borrower_email",
+    );
+    // This route renamed the code to borrower_mismatch. The unrelated
+    // brokerage/session/applications route still returns email_mismatch and
+    // keeps its own guard.
+    assert.ok(
+      source.includes('"borrower_mismatch"'),
+      "Must return borrower_mismatch error",
+    );
   });
 
   it("Create path goes through createQATestApplication which enforces is_test=true", () => {

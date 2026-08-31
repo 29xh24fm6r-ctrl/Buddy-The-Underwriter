@@ -1889,6 +1889,27 @@ Repair:
   tag, `data-testid`, and `data-qa` evidence.
 - Require returned-row proof and return deterministic non-sensitive failures.
 - Add behavioral and structural regression coverage.
+### QA borrower state integrity — 2026-08-30
+
+Evidence:
+
+- Authoritative lead/deal classification reads ignored database errors.
+- The low-level marker could reclassify a non-test deal, application-list
+  failures returned an empty list, resume reads were not bank-bound, and
+  metadata re-reads did not prove success.
+- QA HTTP boundaries accepted unbounded JSON and returned raw internal errors.
+
+Repair branch: `codex/commission-qa-borrower-state-integrity`.
+
+Repair:
+
+- Fail closed on every QA classification read and bind resume proof to the
+  verified session bank.
+- Prevent the marker from changing `is_test`; use compare-and-set metadata
+  completion with exact returned-row proof.
+- Make list/read/write failures non-green and require exact RPC output.
+- Bound route bodies at 8 KiB and return non-sensitive no-store responses.
+- Update database-backed expectations and add cross-boundary regression guards.
 - No schema, dependency, credential, or production-data change.
 
 Verification:
@@ -1906,3 +1927,18 @@ Verification:
   merge until repository Actions availability is restored and all checks run
   green.
 - Production closure requires an authorized QA-enabled sandbox click fixture.
+- PR 1005 is open, mergeable, and zero commits behind current main.
+- Complete eight-file diff inspected: +397/-384.
+- Seventeen exact-head structural assertions passed with no forbidden
+  reclassification or raw-error patterns.
+- Exact-head Vercel deployment `dpl_4rvgxwP8hKvpGtv2roUicJfPbmSv` reached
+  READY; the production-equivalent build completed, the homepage returned HTTP
+  200 with a matching build SHA, and no application warning/error/fatal logs
+  were recorded.
+- The signed-out applications route returned non-cacheable HTTP 401 and the auth
+  route preserved its POST-only method boundary.
+- CI, Build Check, Secret Scan, and Route Budget failed before executing any
+  step; the inspected CI job had `steps: null` and no log URL. PR 1005 must not
+  merge until repository Actions availability is restored and all checks pass.
+- Transactional closure requires a verified Buddy-owned database connection and
+  authorized QA fixtures; no unverified database was queried.
