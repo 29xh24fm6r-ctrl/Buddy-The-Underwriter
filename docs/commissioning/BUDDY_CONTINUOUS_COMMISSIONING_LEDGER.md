@@ -1693,6 +1693,36 @@ Verification complete on code head `8b6d14d6ddf6ebef7efd9f4bb2dd07fc31c2898f`:
 - Next independent rotation target: authenticated document download
   authorization and immutable byte-delivery behavior.
 
+## 2026-08-30 — client telemetry privacy and authenticity
+
+Evidence:
+
+- The public client-telemetry route accepted and logged arbitrary caller JSON,
+  host, referrer, and user-agent values without authentication or a body limit.
+- The upload client sent deal ids, filenames, MIME types, document ids, object
+  paths, and raw failures to that route.
+
+Repair branch: `codex/commission-client-telemetry-privacy`.
+
+Repair:
+
+- Require bounded Clerk authentication and truthful 400/401/413/503 outcomes.
+- Enforce an 8 KiB payload ceiling.
+- Share a strict allowlist sanitizer at the client and server boundaries.
+- Retain only request/stage tokens and scalar operational state; drop borrower,
+  deal, document, filename, object-path, free-form error, nested metadata, and
+  request-fingerprinting fields.
+- Add behavior and cross-boundary regression coverage.
+
+Closure:
+
+- Required CI, complete-diff inspection, and exact-head preview evidence are
+  recorded on the pull request.
+- After merge, an authorized upload fixture must prove sanitized production
+  telemetry contains no borrower or document identifiers.
+- PR 878's full Golden Trident transaction still requires the verified
+  Buddy-owned Supabase connection and an authorized sealed fixture.
+
 ## 2026-08-30 — borrower projection PDF truthfulness and delivery integrity
 
 Audit evidence:
