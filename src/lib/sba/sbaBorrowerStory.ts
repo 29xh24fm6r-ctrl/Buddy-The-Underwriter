@@ -64,9 +64,13 @@ function rowToStory(row: StoryRow): BorrowerStory {
   };
 }
 
-export async function loadBorrowerStory(
+export type BorrowerStoryEvidence =
+  | { ok: true; story: BorrowerStory | null }
+  | { ok: false; error: "borrower_story_read_failed" };
+
+export async function loadBorrowerStoryWithEvidence(
   dealId: string,
-): Promise<BorrowerStory | null> {
+): Promise<BorrowerStoryEvidence> {
   const sb = supabaseAdmin();
   const { data, error } = await sb
     .from("buddy_borrower_stories")
@@ -76,12 +80,16 @@ export async function loadBorrowerStory(
     .eq("deal_id", dealId)
     .maybeSingle();
 
-  if (error) {
-    console.error("[sbaBorrowerStory] loadBorrowerStory error:", error);
-    return null;
-  }
-  if (!data) return null;
-  return rowToStory(data as StoryRow);
+  if (error) return { ok: false, error: "borrower_story_read_failed" };
+  if (!data) return { ok: true, story: null };
+  return { ok: true, story: rowToStory(data as StoryRow) };
+}
+
+export async function loadBorrowerStory(
+  dealId: string,
+): Promise<BorrowerStory | null> {
+  const result = await loadBorrowerStoryWithEvidence(dealId);
+  return result.ok ? result.story : null;
 }
 
 export async function saveBorrowerStory(
