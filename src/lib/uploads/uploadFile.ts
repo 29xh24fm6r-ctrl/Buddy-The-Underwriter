@@ -13,6 +13,7 @@
 
 import type { UploadResult, UploadErr } from "./types";
 import { readJson, toUploadErr, generateRequestId } from "./parse";
+import { sanitizeClientTelemetry } from "@/lib/observability/clientTelemetry";
 
 export type { UploadResult, UploadOk, UploadErr } from "./types";
 
@@ -220,20 +221,25 @@ function emitClientTelemetry(payload: {
   meta?: Record<string, unknown>;
 }) {
   try {
+    // Keep the browser callback rich for local UI diagnostics, but only send
+    // the allowlisted, non-sensitive telemetry contract to the server.
+    const sanitized = sanitizeClientTelemetry(payload);
+    if (!sanitized) return;
+
     if (typeof navigator !== "undefined" && typeof (navigator as any).sendBeacon === "function") {
-      const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+      const blob = new Blob([JSON.stringify(sanitized)], { type: "application/json" });
       (navigator as any).sendBeacon("/api/debug/client-telemetry", blob);
       return;
     }
 
     fetch("/api/debug/client-telemetry", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-request-id": payload.request_id },
-      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json", "x-request-id": sanitized.request_id },
+      body: JSON.stringify(sanitized),
       keepalive: true,
     }).catch(() => {});
   } catch {
-    // ignore
+    // Telemetry must never interrupt the canonical upload flow.
   }
 }
 
