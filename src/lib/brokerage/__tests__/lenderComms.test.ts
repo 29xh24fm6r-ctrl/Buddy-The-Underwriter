@@ -134,14 +134,14 @@ test("lost compare-and-set claim never invokes the provider", async () => {
   await m.queueLenderMessage("claim_window_open", { lenderBankId: "b1", listingId: "l1", stage: "claim" }, "email", db as any);
   const id = String(db.tables.brokerage_lender_message_outbox[0].id); db.claimConflicts.add(id);
   let calls = 0;
-  const r = await m.sendLenderMessage(id, async () => { calls++; return { ok: true }; }, db as any);
+  const r = await m.sendLenderMessage(id, async () => { calls++; return { ok: true, providerMessageId: "provider-1" }; }, db as any);
   assert.deepEqual(r, { ok: false, error: "not_claimed" });
   assert.equal(calls, 0);
 });
 
 test("active claim lease prevents duplicate delivery", async () => {
   const db = mdb(); db.tables.brokerage_lender_message_outbox.push({ id: "leased", status: "pending", attempts: 1, last_attempt_at: new Date().toISOString(), channel: "email", recipient: "x@y.com", body: "B" });
-  let calls = 0; const r = await m.sendLenderMessage("leased", async () => { calls++; return { ok: true }; }, db as any);
+  let calls = 0; const r = await m.sendLenderMessage("leased", async () => { calls++; return { ok: true, providerMessageId: "provider-1" }; }, db as any);
   assert.equal(r.error, "not_claimed"); assert.equal(calls, 0);
 });
 
@@ -162,7 +162,7 @@ test("provider retries keep the same idempotency key when mark_sent persistence 
   const deliveryKeys: string[] = [];
   const adapter: import("../lenderComms").SendAdapter = async (message) => {
     deliveryKeys.push(message.idempotencyKey);
-    return { ok: true };
+    return { ok: true, providerMessageId: "provider-1" };
   };
 
   await assert.rejects(() => m.sendLenderMessage("n1", adapter, db as any), /mark_sent.*write_failed/);
@@ -172,7 +172,7 @@ test("provider retries keep the same idempotency key when mark_sent persistence 
   db.tables.brokerage_lender_message_outbox[0].last_attempt_at = new Date(Date.now() - 10 * 60_000).toISOString();
   const retry = await m.sendLenderMessage("n1", adapter, db as any);
 
-  assert.deepEqual(retry, { ok: true });
+  assert.deepEqual(retry, { ok: true, providerMessageId: "provider-1" });
   assert.deepEqual(deliveryKeys, ["buddy-lender-outbox:n1", "buddy-lender-outbox:n1"]);
   assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "sent");
 });
@@ -185,7 +185,7 @@ test("cycle surfaces database read failure", async () => {
 test("cycle paginates beyond the Supabase default result window", async () => {
   const rows = Array.from({ length: 1005 }, (_, i) => ({ id: `n-${String(i).padStart(4, "0")}`, status: "pending", attempts: 0, last_attempt_at: null, channel: "email", recipient: "x@y.com", body: "B" }));
   const db = new S({ brokerage_lender_message_outbox: rows });
-  const r = await m.runLenderCommsCycle(db as any, async () => ({ ok: true }));
+  const r = await m.runLenderCommsCycle(db as any, async () => ({ ok: true, providerMessageId: "provider-1" }));
   assert.deepEqual(r, { queued: 1005, sent: 1005, retrying: 0, failed: 0, skipped: 0 });
 });
 
@@ -219,8 +219,36 @@ test("historical failed delivery below the limit is recovered", async () => {
     recipient: "x@y.com",
     body: "B",
   });
-  const r = await m.runLenderCommsCycle(db as any, async () => ({ ok: true }));
+  const r = await m.runLenderCommsCycle(db as any, async () => ({ ok: true, providerMessageId: "provider-1" }));
   assert.deepEqual(r, { queued: 1, sent: 1, retrying: 0, failed: 0, skipped: 0 });
   assert.equal(db.tables.brokerage_lender_message_outbox[0].attempts, 2);
   assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "sent");
+});
+
+
+test("email acceptance without a provider message id stays retryable", async () => {
+  const db = mdb();
+  db.tables.brokerage_lender_message_outbox.push({
+    id: "unproven",
+    status: "pending",
+    attempts: 0,
+    last_attempt_at: null,
+    channel: "email",
+    recipient: "x@y.com",
+    body: "B",
+  });
+
+  const result = await m.sendLenderMessage(
+    "unproven",
+    async () => ({ ok: true }),
+    db as any,
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    error: "provider_acceptance_unproven",
+    retrying: true,
+  });
+  assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "pending");
+  assert.equal(db.tables.brokerage_lender_message_outbox[0].attempts, 1);
 });
