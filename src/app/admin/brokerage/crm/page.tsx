@@ -28,7 +28,13 @@ type Organization = {
   health: "active" | "cooling" | "cold" | "new";
   dealsReferredCount: number;
   dealsReferredValue: number;
+  state_code: string | null;
+  tags: string[] | null;
+  relationship_tier: string | null;
+  owner_clerk_user_id: string | null;
 };
+
+type TeamMember = { clerkUserId: string; firstName: string | null; lastName: string | null; email: string | null };
 
 type Summary = {
   organizationCount: number;
@@ -48,7 +54,13 @@ type FeedItem = {
   organizationName: string | null;
 };
 
-const GRID = "1.5fr 1fr 1fr 100px 130px 120px";
+/**
+ * Column gap is load-bearing, not decoration: without it the right-aligned
+ * Contacts column butted straight into the next header and the table read
+ * "CONTACTSLAST TOUCH".
+ */
+const GRID = "minmax(0, 1.6fr) minmax(0, 1fr) 130px minmax(0, 1fr) 74px 96px 96px";
+const GRID_GAP = 14;
 
 const TYPE_LABELS: Record<string, string> = {
   referral_source: "Referral source",
@@ -67,6 +79,13 @@ const TYPE_LABELS: Record<string, string> = {
   investor: "Investor",
   vendor: "Vendor",
   other: "Other",
+};
+
+const TIER_LABELS: Record<string, string> = {
+  strategic: "Strategic",
+  core: "Core",
+  developing: "Developing",
+  dormant: "Dormant",
 };
 
 const HEALTH_LABEL: Record<string, string> = {
@@ -124,6 +143,9 @@ export default function BrokerageCrmPage() {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const [team, setTeam] = useState<TeamMember[]>([]);
 
   const [name, setName] = useState("");
   const [type, setType] = useState("");
@@ -143,8 +165,17 @@ export default function BrokerageCrmPage() {
 
   const filteredOrgs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return orgs.filter((o) => (typeFilter === "all" || o.organization_type === typeFilter) && (!q || [o.name, o.city, o.state, TYPE_LABELS[o.organization_type]].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))));
-  }, [orgs, search, typeFilter]);
+    return orgs.filter((o) => {
+      if (typeFilter !== "all" && o.organization_type !== typeFilter) return false;
+      if (tagFilter !== "all" && !(o.tags ?? []).includes(tagFilter)) return false;
+      if (ownerFilter === "unassigned" && o.owner_clerk_user_id) return false;
+      if (ownerFilter !== "all" && ownerFilter !== "unassigned" && o.owner_clerk_user_id !== ownerFilter) return false;
+      if (!q) return true;
+      return [o.name, o.city, o.state, o.state_code, TYPE_LABELS[o.organization_type], ...(o.tags ?? [])]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q));
+    });
+  }, [orgs, search, typeFilter, tagFilter, ownerFilter]);
 
   async function load() {
     setLoading(true);
@@ -167,7 +198,26 @@ export default function BrokerageCrmPage() {
 
   useEffect(() => {
     load();
+    // The roster names relationship owners. A failure here costs the owner
+    // column its names, not the page.
+    void fetch("/api/admin/brokerage/team")
+      .then((res) => res.json())
+      .then((json) => { if (json?.ok) setTeam(json.team ?? []); })
+      .catch(() => {});
   }, []);
+
+  const ownerName = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of team) {
+      map[m.clerkUserId] = [m.firstName, m.lastName].filter(Boolean).join(" ") || m.email || "Teammate";
+    }
+    return map;
+  }, [team]);
+
+  const allTags = useMemo(
+    () => Array.from(new Set(orgs.flatMap((o) => o.tags ?? []))).sort(),
+    [orgs],
+  );
 
   async function createOrg() {
     if (!name.trim() || !type) return;
@@ -301,9 +351,20 @@ export default function BrokerageCrmPage() {
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(170px, .35fr)", gap: 10, marginBottom: 12 }}>
-        <input aria-label="Search relationships" style={inputStyle()} placeholder="Search organizations, cities, or types…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1.4fr) repeat(auto-fit, minmax(150px, .5fr))", gap: 10, marginBottom: 12 }}>
+        <input aria-label="Search relationships" style={inputStyle()} placeholder="Search organizations, cities, tags, or types…" value={search} onChange={(e) => setSearch(e.target.value)} />
         <select aria-label="Filter by organization type" style={inputStyle()} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}><option value="all">All relationship types</option>{Object.entries(TYPE_LABELS).map(([value, title]) => <option key={value} value={value}>{title}</option>)}</select>
+        <select aria-label="Filter by relationship owner" style={inputStyle()} value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
+          <option value="all">Any owner</option>
+          <option value="unassigned">Unowned</option>
+          {team.map((m) => <option key={m.clerkUserId} value={m.clerkUserId}>{ownerName[m.clerkUserId]}</option>)}
+        </select>
+        {allTags.length > 0 && (
+          <select aria-label="Filter by tag" style={inputStyle()} value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
+            <option value="all">Any tag</option>
+            {allTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+          </select>
+        )}
       </div>
 
       {showForm && (
@@ -346,6 +407,7 @@ export default function BrokerageCrmPage() {
           style={{
             display: "grid",
             gridTemplateColumns: GRID,
+            columnGap: GRID_GAP,
             padding: "9px 16px",
             borderBottom: `1px solid ${c.borderStrong}`,
             background: c.inkHeader,
@@ -358,6 +420,7 @@ export default function BrokerageCrmPage() {
         >
           <div>Organization</div>
           <div>Type</div>
+          <div>Owner</div>
           <div>Deals sourced</div>
           <div style={{ textAlign: "right" }}>Contacts</div>
           <div>Last touch</div>
@@ -382,6 +445,7 @@ export default function BrokerageCrmPage() {
               style={{
                 display: "grid",
                 gridTemplateColumns: GRID,
+                columnGap: GRID_GAP,
                 padding: "12px 16px",
                 borderBottom: `1px solid ${c.divider}`,
                 alignItems: "center",
@@ -389,8 +453,22 @@ export default function BrokerageCrmPage() {
                 color: "inherit",
               }}
             >
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: c.paper }}>{o.name}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: c.paper, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {o.name}
+                  {o.relationship_tier && (
+                    <span style={{ color: c.brass, fontSize: 10, fontWeight: 500 }}> · {TIER_LABELS[o.relationship_tier] ?? o.relationship_tier}</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 10.5, color: c.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {[o.city, o.state_code ?? o.state].filter(Boolean).join(", ") || "No location"}
+                  {(o.tags ?? []).length > 0 && ` · ${(o.tags ?? []).join(", ")}`}
+                </div>
+              </div>
               <div style={{ fontSize: 11.5, color: c.textSecondary }}>{TYPE_LABELS[o.organization_type] ?? o.organization_type}</div>
+              <div style={{ fontSize: 11, color: o.owner_clerk_user_id ? c.textSecondary : c.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {o.owner_clerk_user_id ? (ownerName[o.owner_clerk_user_id] ?? "Assigned") : "Unowned"}
+              </div>
               <div style={{ fontSize: 11.5, color: c.textSecondary }}>
                 {o.dealsReferredCount > 0 ? (
                   <>

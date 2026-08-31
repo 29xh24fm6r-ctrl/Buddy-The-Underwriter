@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
 import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
+import { US_STATES } from "@/lib/crm/geography";
 
 type Tab = "overview" | "people" | "marketplace" | "appetite" | "deals" | "activity";
 type Json = Record<string, any>;
@@ -13,6 +14,9 @@ const STATUS: Record<string, string> = {
   term_sheet: "Term sheet", approved: "Approved", declined: "Declined",
   withdrawn: "Withdrawn", lost: "Lost", closed: "Closed",
 };
+const TIERS: Array<[string, string]> = [
+  ["strategic", "Strategic"], ["core", "Core"], ["developing", "Developing"], ["dormant", "Dormant"],
+];
 const ORG_TYPES = [
   ["lender", "Bank / Lender"], ["referral_source", "Referral source"],
   ["professional_partner", "Professional partner"], ["borrower_business", "Borrower business"],
@@ -28,6 +32,27 @@ function field(): CSSProperties {
 function label(title: string, child: ReactNode) {
   return <label style={{ display: "grid", gap: 5, color: c.textMuted, fontSize: 10.5 }}>{title}{child}</label>;
 }
+/**
+ * Geography is a set of states, not a sentence. The free-text box this
+ * replaces produced values like "Nationwide" and "GA, FL" that nothing could
+ * search, which is why "which banks buy in TX" had no answer.
+ */
+function StateMultiSelect({ selected, onChange, ariaLabel }: { selected: string[]; onChange: (next: string[]) => void; ariaLabel: string }) {
+  return <div role="group" aria-label={ariaLabel} style={{ display: "flex", flexWrap: "wrap", gap: 4, maxHeight: 168, overflowY: "auto", border: `1px solid ${c.border}`, borderRadius: 6, padding: 8, background: c.ink }}>
+    {US_STATES.map((state) => {
+      const on = selected.includes(state.code);
+      return <button
+        key={state.code}
+        type="button"
+        aria-pressed={on}
+        title={state.name}
+        onClick={() => onChange(on ? selected.filter((x) => x !== state.code) : [...selected, state.code].sort())}
+        style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 10.5, padding: "3px 6px", borderRadius: 4, cursor: "pointer", border: `1px solid ${on ? c.brass : c.border}`, background: on ? c.brass : "transparent", color: on ? c.brassOnBrass : c.textSecondary }}
+      >{state.code}</button>;
+    })}
+  </div>;
+}
+
 function Card({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return <section style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 9, overflow: "hidden" }}>
     <div style={{ padding: "12px 15px", borderBottom: `1px solid ${c.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
@@ -54,7 +79,8 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
   const [contact, setContact] = useState({ firstName: "", lastName: "", preferredName: "", jobTitle: "", role: "contact", email: "", phone: "", mobilePhone: "", linkedinUrl: "", communicationPreference: "email", notes: "" });
   const [orgForm, setOrgForm] = useState<Json>({});
   const [marketplace, setMarketplace] = useState<Json>({ marketplaceRole: "", marketplaceAccessStatus: "not_invited", marketplaceOnboardingNotes: "" });
-  const [appetite, setAppetite] = useState<Json>({ relationshipStatus: "prospect", lenderType: "bank", sba7a: true, sba504: false, conventional: false, minLoanAmount: "", maxLoanAmount: "", minDscr: "", maxLtv: "", minimumFico: "", geographies: "", industries: "", excludedIndustries: "", collateralPreferences: "", dealPreferences: "", referralFeeBps: "", responseSlaDays: "" });
+  const [appetite, setAppetite] = useState<Json>({ relationshipStatus: "prospect", lenderType: "bank", sba7a: true, sba504: false, conventional: false, minLoanAmount: "", maxLoanAmount: "", minDscr: "", maxLtv: "", minimumFico: "", geographyMode: "states", stateCodes: [], excludedStateCodes: [], naicsCodes: "", excludedNaicsCodes: "", industries: "", excludedIndustries: "", collateralPreferences: "", dealPreferences: "", referralFeeBps: "", responseSlaDays: "" });
+  const [team, setTeam] = useState<Array<{ clerkUserId: string; firstName: string | null; lastName: string | null; email: string | null }>>([]);
   const [note, setNote] = useState("");
 
   const load = useCallback(async () => {
@@ -73,6 +99,14 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
         addressLine1: json.organization.address_line1 || "", city: json.organization.city || "",
         state: json.organization.state || "", postalCode: json.organization.postal_code || "",
         notes: json.organization.notes || "",
+        stateCode: json.organization.state_code || "",
+        relationshipTier: json.organization.relationship_tier || "",
+        ownerClerkUserId: json.organization.owner_clerk_user_id || "",
+        howWeMet: json.organization.how_we_met || "",
+        tags: (json.organization.tags || []).join(", "),
+        customFields: Object.entries(json.organization.custom_fields || {})
+          .map(([key, value]) => `${key}: ${value}`)
+          .join("\n"),
       });
       if (json.lenderProfile) {
         const p = json.lenderProfile;
@@ -81,7 +115,12 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
           relationshipStatus: p.relationship_status || "prospect", lenderType: p.lender_type || "bank",
           sba7a: p.sba_7a_appetite, sba504: p.sba_504_appetite, conventional: p.conventional_appetite,
           minLoanAmount: p.min_loan_amount ?? "", maxLoanAmount: p.max_loan_amount ?? "", minDscr: p.min_dscr ?? "",
-          maxLtv: p.max_ltv ?? "", minimumFico: p.minimum_fico ?? "", geographies: (p.geographies || []).join(", "),
+          maxLtv: p.max_ltv ?? "", minimumFico: p.minimum_fico ?? "",
+          geographyMode: p.geography_mode || "states",
+          stateCodes: p.state_codes || [],
+          excludedStateCodes: p.excluded_state_codes || [],
+          naicsCodes: (p.naics_codes || []).join(", "),
+          excludedNaicsCodes: (p.excluded_naics_codes || []).join(", "),
           industries: (p.industries || []).join(", "), excludedIndustries: (p.excluded_industries || []).join(", "),
           collateralPreferences: (p.collateral_preferences || []).join(", "), dealPreferences: p.deal_preferences || "",
           referralFeeBps: p.referral_fee_bps ?? "", responseSlaDays: p.response_sla_days ?? "",
@@ -92,6 +131,14 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
   }, [orgId]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    // Relationship owner needs names. Failing to load the roster costs the
+    // picker its labels, not the page.
+    void fetch("/api/admin/brokerage/team")
+      .then((res) => res.json())
+      .then((json) => { if (json?.ok) setTeam(json.team ?? []); })
+      .catch(() => {});
+  }, []);
 
   async function saveContact() {
     if (!contact.firstName.trim() && !contact.lastName.trim() && !contact.email.trim()) return setError("Enter a name or email for the contact.");
@@ -106,7 +153,29 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
   async function saveOrganization() {
     setBusy(true);
     try {
-      const res = await fetch(`/api/admin/brokerage/crm/organizations/${orgId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(orgForm) });
+      // "Key: value" per line is the plainest thing a person can type; the
+      // server sanitises it into the flat custom_fields map.
+      const customFields: Record<string, string> = {};
+      for (const line of String(orgForm.customFields || "").split("\n")) {
+        const at = line.indexOf(":");
+        if (at <= 0) continue;
+        const key = line.slice(0, at).trim();
+        const value = line.slice(at + 1).trim();
+        if (key && value) customFields[key] = value;
+      }
+      const res = await fetch(`/api/admin/brokerage/crm/organizations/${orgId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...orgForm,
+          state: orgForm.stateCode || orgForm.state,
+          tags: String(orgForm.tags || "").split(",").map((t: string) => t.trim()).filter(Boolean),
+          relationshipTier: orgForm.relationshipTier || null,
+          ownerClerkUserId: orgForm.ownerClerkUserId || null,
+          howWeMet: orgForm.howWeMet || null,
+          customFields,
+        }),
+      });
       const json = await res.json(); if (!res.ok || !json.ok) throw new Error(json.error || "Unable to update organization");
       setPanel(null); await load();
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
@@ -198,7 +267,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
 
     {panel === "contact" && <ContactForm value={contact} setValue={setContact} busy={busy} save={saveContact} cancel={() => setPanel(null)} />}
     {panel === "marketplace" && <MarketplaceForm value={marketplace} setValue={setMarketplace} busy={busy} save={saveMarketplace} cancel={() => setPanel(null)} />}
-    {panel === "organization" && <OrganizationForm value={orgForm} setValue={setOrgForm} busy={busy} save={saveOrganization} cancel={() => setPanel(null)} />}
+    {panel === "organization" && <OrganizationForm value={orgForm} setValue={setOrgForm} busy={busy} save={saveOrganization} cancel={() => setPanel(null)} team={team} />}
     {panel === "appetite" && <AppetiteForm value={appetite} setValue={setAppetite} busy={busy} save={saveAppetite} cancel={() => setPanel(null)} />}
 
     {tab === "overview" && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
@@ -262,7 +331,7 @@ function Person({ person: p, card = false }: { person: Json; card?: boolean }) {
   </div>;
 }
 function Metric({ label: name, value }: { label: string; value: number }) { return <div style={{ background: c.ink, border: `1px solid ${c.border}`, borderRadius: 7, padding: 11 }}><div style={{ color: c.textMuted, fontSize: 9.5, textTransform: "uppercase", letterSpacing: 1 }}>{name}</div><div style={{ color: c.paper, fontFamily: "var(--font-brokerage-mono)", fontSize: 20, marginTop: 5 }}>{value}</div></div>; }
-function Details({ org }: { org: Json }) { return <div style={{ display: "grid", gap: 9, fontSize: 11.5 }}>{[["Website", org.website_url],["Phone",org.phone],["Address",[org.address_line1,org.city,org.state,org.postal_code].filter(Boolean).join(", ")],["Notes",org.notes]].map(([k,v]) => <div key={k} style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 10 }}><span style={{ color: c.textMuted }}>{k}</span><span style={{ color: v ? c.textSecondary : c.textFaint }}>{v || "Not added"}</span></div>)}</div>; }
+function Details({ org }: { org: Json }) { return <div style={{ display: "grid", gap: 9, fontSize: 11.5 }}>{[["Website", org.website_url],["Phone",org.phone],["Address",[org.address_line1,org.city,org.state_code||org.state,org.postal_code].filter(Boolean).join(", ")],["Tier",org.relationship_tier],["Tags",(org.tags||[]).join(", ")],["How we met",org.how_we_met],...Object.entries(org.custom_fields||{}),["Notes",org.notes]].map(([k,v]) => <div key={k} style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 10 }}><span style={{ color: c.textMuted }}>{k}</span><span style={{ color: v ? c.textSecondary : c.textFaint }}>{v || "Not added"}</span></div>)}</div>; }
 function marketplaceRoleLabel(role?: string) {
   return ({ buyer: "Marketplace Buyer", seller: "Marketplace Seller", buyer_seller: "Marketplace Buyer & Seller", viewer: "Marketplace Viewer" } as Record<string, string>)[role || ""] || "Not participating";
 }
@@ -278,7 +347,7 @@ function MarketplaceSummary({ profile: p, expanded = false }: { profile?: Json; 
 }
 function AppetiteSummary({ profile: p, expanded = false }: { profile: Json; expanded?: boolean }) {
   const programs = [p.sba_7a_appetite && "SBA 7(a)", p.sba_504_appetite && "SBA 504", p.conventional_appetite && "Conventional"].filter(Boolean);
-  const rows = [["Programs", programs.join(", ") || "Not set"],["Loan size", p.min_loan_amount || p.max_loan_amount ? `${p.min_loan_amount ? fmtMoney(Number(p.min_loan_amount)) : "Any"} – ${p.max_loan_amount ? fmtMoney(Number(p.max_loan_amount)) : "Any"}` : "Not set"],["Credit box", [p.min_dscr && `DSCR ≥ ${p.min_dscr}`,p.max_ltv && `LTV ≤ ${Math.round(Number(p.max_ltv) * 100)}%`,p.minimum_fico && `FICO ≥ ${p.minimum_fico}`].filter(Boolean).join(" · ") || "Not set"],["Geography",(p.geographies||[]).join(", ")||"Not set"],["Industries",(p.industries||[]).join(", ")||"Not set"],["Excluded",(p.excluded_industries||[]).join(", ")||"None"],["Response target",p.response_sla_days ? `${p.response_sla_days} days` : "Not set"],["Deal preferences",p.deal_preferences||"Not set"]];
+  const rows = [["Programs", programs.join(", ") || "Not set"],["Loan size", p.min_loan_amount || p.max_loan_amount ? `${p.min_loan_amount ? fmtMoney(Number(p.min_loan_amount)) : "Any"} – ${p.max_loan_amount ? fmtMoney(Number(p.max_loan_amount)) : "Any"}` : "Not set"],["Credit box", [p.min_dscr && `DSCR ≥ ${p.min_dscr}`,p.max_ltv && `LTV ≤ ${Math.round(Number(p.max_ltv) * 100)}%`,p.minimum_fico && `FICO ≥ ${p.minimum_fico}`].filter(Boolean).join(" · ") || "Not set"],["Geography", p.geography_mode === "nationwide" ? `Nationwide${(p.excluded_state_codes||[]).length ? ` except ${(p.excluded_state_codes||[]).join(", ")}` : ""}` : ((p.state_codes||[]).join(", ") || (p.geographies||[]).join(", ") || "Not set")],["NAICS",[(p.naics_codes||[]).length ? `Prefers ${(p.naics_codes||[]).join(", ")}` : null,(p.excluded_naics_codes||[]).length ? `Excludes ${(p.excluded_naics_codes||[]).join(", ")}` : null].filter(Boolean).join(" · ")||"Not set"],["Industries",(p.industries||[]).join(", ")||"Not set"],["Excluded",(p.excluded_industries||[]).join(", ")||"None"],["Response target",p.response_sla_days ? `${p.response_sla_days} days` : "Not set"],["Deal preferences",p.deal_preferences||"Not set"]];
   return <div style={{ display: "grid", gridTemplateColumns: expanded ? "repeat(auto-fit,minmax(240px,1fr))" : "1fr", gap: expanded ? 10 : 7 }}>{rows.slice(0, expanded ? rows.length : 5).map(([k,v]) => <div key={k} style={{ display: "grid", gridTemplateColumns: "95px 1fr", gap: 8, background: expanded ? c.ink : "transparent", border: expanded ? `1px solid ${c.border}` : 0, borderRadius: 6, padding: expanded ? 10 : 0 }}><span style={{ color: c.textMuted, fontSize: 10.5 }}>{k}</span><span style={{ color: c.textSecondary, fontSize: 11.5 }}>{v}</span></div>)}</div>;
 }
 function FormShell({ title, description, children, save, cancel, busy, saveLabel }: { title: string; description: string; children: ReactNode; save: () => void; cancel: () => void; busy: boolean; saveLabel: string }) {
@@ -295,10 +364,17 @@ function ContactForm({ value: v, setValue: set, busy, save, cancel }: any) {
     <label style={{ gridColumn: "1/-1", display: "grid", gap: 5, color: c.textMuted, fontSize: 10.5 }}>Notes<textarea style={{...field(),minHeight:65}} placeholder="Coverage area, authority, preferences, relationship context…" value={v.notes} onChange={e=>set({...v,notes:e.target.value})}/></label>
   </div></FormShell>;
 }
-function OrganizationForm({ value: v, setValue: set, busy, save, cancel }: any) {
+function OrganizationForm({ value: v, setValue: set, busy, save, cancel, team = [] }: any) {
   return <FormShell title="Edit organization" description="Keep the entity record accurate. Choose Bank / lender to enable deal distribution." save={save} cancel={cancel} busy={busy} saveLabel="Save organization"><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 10 }}>
     {label("Organization name", <input style={field()} value={v.name} onChange={e=>set({...v,name:e.target.value})}/>)}{label("Type", <select style={field()} value={v.organizationType} onChange={e=>set({...v,organizationType:e.target.value})}>{ORG_TYPES.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select>)}{label("Website", <input style={field()} value={v.websiteUrl} onChange={e=>set({...v,websiteUrl:e.target.value})}/>)}{label("Main phone", <input style={field()} value={v.phone} onChange={e=>set({...v,phone:e.target.value})}/>)}
-    {label("Street address", <input style={field()} value={v.addressLine1} onChange={e=>set({...v,addressLine1:e.target.value})}/>)}{label("City", <input style={field()} value={v.city} onChange={e=>set({...v,city:e.target.value})}/>)}{label("State", <input style={field()} value={v.state} onChange={e=>set({...v,state:e.target.value})}/>)}{label("Postal code", <input style={field()} value={v.postalCode} onChange={e=>set({...v,postalCode:e.target.value})}/>)}
+    {label("Street address", <input style={field()} value={v.addressLine1} onChange={e=>set({...v,addressLine1:e.target.value})}/>)}{label("City", <input style={field()} value={v.city} onChange={e=>set({...v,city:e.target.value})}/>)}
+    {label("State", <select style={field()} value={v.stateCode || ""} onChange={e=>set({...v,stateCode:e.target.value})}><option value="">Not recorded</option>{US_STATES.map(st=><option key={st.code} value={st.code}>{st.name}</option>)}</select>)}
+    {label("Postal code", <input style={field()} value={v.postalCode} onChange={e=>set({...v,postalCode:e.target.value})}/>)}
+    {label("Relationship tier", <select style={field()} value={v.relationshipTier || ""} onChange={e=>set({...v,relationshipTier:e.target.value})}><option value="">Not set</option>{TIERS.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select>)}
+    {label("Relationship owner", <select style={field()} value={v.ownerClerkUserId || ""} onChange={e=>set({...v,ownerClerkUserId:e.target.value})}><option value="">Unowned</option>{(team as any[]).map((m:any)=><option key={m.clerkUserId} value={m.clerkUserId}>{[m.firstName,m.lastName].filter(Boolean).join(" ") || m.email || "Teammate"}</option>)}</select>)}
+    {label("How we met", <input style={field()} value={v.howWeMet || ""} onChange={e=>set({...v,howWeMet:e.target.value})} placeholder="Conference, mutual client, cold outreach…"/>)}
+    {label("Tags (comma separated)", <input style={field()} value={v.tags || ""} onChange={e=>set({...v,tags:e.target.value})} placeholder="fast-close, marine, sba-preferred"/>)}
+    <label style={{ gridColumn:"1/-1",display:"grid",gap:5,color:c.textMuted,fontSize:10.5 }}>Anything else worth keeping<textarea style={{...field(),minHeight:70}} value={v.customFields || ""} onChange={e=>set({...v,customFields:e.target.value})} placeholder={"One per line, as Label: value\nFee agreement: signed 3/14\nCredit officer: Dana Ruiz"}/></label>
     <label style={{ gridColumn:"1/-1",display:"grid",gap:5,color:c.textMuted,fontSize:10.5 }}>Relationship notes<textarea style={{...field(),minHeight:65}} value={v.notes} onChange={e=>set({...v,notes:e.target.value})}/></label>
   </div></FormShell>;
 }
@@ -313,7 +389,13 @@ function AppetiteForm({ value: v, setValue: set, busy, save, cancel }: any) {
   return <FormShell title="Define lending appetite" description="Optional: record what you know today and refine it as the bank reviews deals. Appetite is never required to send a deal." save={save} cancel={cancel} busy={busy} saveLabel="Save lending appetite"><div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10 }}>
     {label("Relationship stage",<select style={field()} value={v.relationshipStatus} onChange={e=>set({...v,relationshipStatus:e.target.value})}><option value="prospect">Prospect</option><option value="qualified">Qualified</option><option value="active">Active</option><option value="preferred">Preferred</option><option value="paused">Paused</option><option value="inactive">Inactive</option></select>)}{label("Lender type",<select style={field()} value={v.lenderType} onChange={e=>set({...v,lenderType:e.target.value})}><option value="bank">Bank</option><option value="credit_union">Credit union</option><option value="non_bank">Non-bank lender</option><option value="investor">Investor</option><option value="other">Other</option></select>)}{label("Minimum loan",<input type="number" style={field()} value={v.minLoanAmount} onChange={e=>set({...v,minLoanAmount:e.target.value})}/>)}{label("Maximum loan",<input type="number" style={field()} value={v.maxLoanAmount} onChange={e=>set({...v,maxLoanAmount:e.target.value})}/>)}{label("Minimum DSCR",<input type="number" step=".01" style={field()} value={v.minDscr} onChange={e=>set({...v,minDscr:e.target.value})}/>)}{label("Maximum LTV (decimal)",<input type="number" style={field()} value={v.maxLtv} onChange={e=>set({...v,maxLtv:e.target.value})}/>)}{label("Minimum FICO",<input type="number" style={field()} value={v.minimumFico} onChange={e=>set({...v,minimumFico:e.target.value})}/>)}{label("Response target (days)",<input type="number" style={field()} value={v.responseSlaDays} onChange={e=>set({...v,responseSlaDays:e.target.value})}/>)}
     <div style={{gridColumn:"1/-1",display:"flex",gap:18,flexWrap:"wrap",color:c.textSecondary,fontSize:11.5}}><label><input type="checkbox" checked={v.sba7a} onChange={e=>set({...v,sba7a:e.target.checked})}/> SBA 7(a)</label><label><input type="checkbox" checked={v.sba504} onChange={e=>set({...v,sba504:e.target.checked})}/> SBA 504</label><label><input type="checkbox" checked={v.conventional} onChange={e=>set({...v,conventional:e.target.checked})}/> Conventional</label></div>
-    {label("Geographies (comma separated)",<input style={field()} value={v.geographies} onChange={e=>set({...v,geographies:e.target.value})}/>)}{label("Industries",<input style={field()} value={v.industries} onChange={e=>set({...v,industries:e.target.value})}/>)}{label("Excluded industries",<input style={field()} value={v.excludedIndustries} onChange={e=>set({...v,excludedIndustries:e.target.value})}/>)}{label("Collateral preferences",<input style={field()} value={v.collateralPreferences} onChange={e=>set({...v,collateralPreferences:e.target.value})}/>)}
+    {label("Lends", <select style={field()} value={v.geographyMode} onChange={e=>set({...v,geographyMode:e.target.value})}><option value="states">Only in selected states</option><option value="nationwide">Nationwide</option></select>)}
+    {label("Referral fee (bps)",<input type="number" style={field()} value={v.referralFeeBps} onChange={e=>set({...v,referralFeeBps:e.target.value})}/>)}
+    {v.geographyMode !== "nationwide" && <label style={{gridColumn:"1/-1",display:"grid",gap:5,color:c.textMuted,fontSize:10.5}}>States this bank lends in<StateMultiSelect ariaLabel="States this bank lends in" selected={v.stateCodes || []} onChange={(next)=>set({...v,stateCodes:next})}/></label>}
+    <label style={{gridColumn:"1/-1",display:"grid",gap:5,color:c.textMuted,fontSize:10.5}}>States it will never lend in<StateMultiSelect ariaLabel="Excluded states" selected={v.excludedStateCodes || []} onChange={(next)=>set({...v,excludedStateCodes:next})}/></label>
+    {label("Preferred NAICS codes",<input style={field()} value={v.naicsCodes} onChange={e=>set({...v,naicsCodes:e.target.value})} placeholder="6212, 3366"/>)}
+    {label("Excluded NAICS codes",<input style={field()} value={v.excludedNaicsCodes} onChange={e=>set({...v,excludedNaicsCodes:e.target.value})} placeholder="7132, 7225"/>)}
+    {label("Industries (plain language)",<input style={field()} value={v.industries} onChange={e=>set({...v,industries:e.target.value})}/>)}{label("Excluded industries",<input style={field()} value={v.excludedIndustries} onChange={e=>set({...v,excludedIndustries:e.target.value})}/>)}{label("Collateral preferences",<input style={field()} value={v.collateralPreferences} onChange={e=>set({...v,collateralPreferences:e.target.value})}/>)}
     <label style={{gridColumn:"1/-1",display:"grid",gap:5,color:c.textMuted,fontSize:10.5}}>Deal preferences<textarea style={{...field(),minHeight:65}} placeholder="Owner experience, property types, franchises, special situations, structure notes…" value={v.dealPreferences} onChange={e=>set({...v,dealPreferences:e.target.value})}/></label>
   </div></FormShell>;
 }
