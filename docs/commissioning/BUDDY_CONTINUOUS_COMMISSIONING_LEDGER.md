@@ -1867,3 +1867,42 @@ Closure:
 
 - After merge, reverify the bounded production response and confirm no new
   warning/error/fatal logs or grouped runtime errors.
+### QA click telemetry trust and privacy boundary — 2026-08-30
+
+Evidence:
+
+- The global QA provider could be enabled by a URL or browser local storage.
+- The server accepted `x-qa-mode: 1` as authority and persisted arbitrary nested
+  browser JSON.
+- Captured fields included query strings, DOM text, hrefs, classes, names, input
+  types, labels, and ids; failures returned raw database or exception messages.
+
+Repair branch: `codex/commission-qa-click-privacy-boundary`.
+
+Repair:
+
+- Make server-only `QA_MODE=1` the sole capture authority and remove browser
+  URL/local-storage overrides.
+- Restrict capture to authenticated sandbox-tenant actors.
+- Share a bounded client/server sanitizer, cap requests at 8 KiB, strip queries
+  and fragments, redact identifier-shaped route segments, and retain only route,
+  tag, `data-testid`, and `data-qa` evidence.
+- Require returned-row proof and return deterministic non-sensitive failures.
+- Add behavioral and structural regression coverage.
+- No schema, dependency, credential, or production-data change.
+
+Verification:
+
+- PR 1004 is open, mergeable, and zero commits behind current main.
+- Focused sanitizer execution passed: 3 passed, 0 failed.
+- Exact-head Vercel deployment `dpl_AwWNk2YYR37SNvmauxvkAubNYUCN` reached
+  READY; its production-equivalent Next.js build completed, the homepage returned
+  HTTP 200 with a matching build SHA, and no application warning/error/fatal
+  logs were recorded.
+- Browser verification at `/?qa=1` showed no QA badge and no
+  `data-qa-mode`, proving a URL cannot enable capture.
+- CI, Build Check, Secret Scan, and Route Budget failed before executing any
+  step; the inspected CI job had `steps: null` and no log URL. PR 1004 must not
+  merge until repository Actions availability is restored and all checks run
+  green.
+- Production closure requires an authorized QA-enabled sandbox click fixture.

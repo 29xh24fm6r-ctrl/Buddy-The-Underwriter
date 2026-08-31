@@ -1,110 +1,127 @@
 import "server-only";
 
-import { NextResponse } from "next/server";
-import { z } from "zod";
-import { clerkAuth, clerkCurrentUser } from "@/lib/auth/clerkServer";
+import { NextRequest, NextResponse } from "next/server";
+import { safeClerkAuth, clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { logDemoUsageEvent } from "@/lib/tenant/demoTelemetry";
+import { sanitizeQaClickCapture } from "@/lib/qaClickTelemetry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const BodySchema = z.object({
-  sessionId: z.string().min(4).max(200),
-  payload: z.record(z.string(), z.any()),
-});
+const MAX_BODY_BYTES = 8_192;
+const SANDBOX_BANK_CODE = "SANDBOX";
 
-function isQaRequest(req: Request) {
-  if (process.env.QA_MODE === "1" || process.env.NEXT_PUBLIC_QA_MODE === "1") return true;
-  return req.headers.get("x-qa-mode") === "1";
+function json(body: Record<string, unknown>, status: number) {
+  return NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  });
 }
 
-function stripQuery(path?: string | null) {
-  const value = String(path || "");
-  const idx = value.indexOf("?");
-  return idx === -1 ? value : value.slice(0, idx);
+function isQaCaptureEnabled() {
+  return process.env.QA_MODE === "1";
 }
 
 async function getPrimaryEmail(): Promise<string | null> {
   const user = await clerkCurrentUser();
   const primary = user?.emailAddresses?.find(
-    (e) => e.id === user.primaryEmailAddressId,
+    (email) => email.id === user.primaryEmailAddressId,
   );
   return (
     primary?.emailAddress ?? user?.emailAddresses?.[0]?.emailAddress ?? null
   );
 }
 
-export async function POST(req: Request) {
-  if (!isQaRequest(req)) {
-    return NextResponse.json(
-      { ok: false, error: "qa_mode_disabled" },
-      { status: 403 },
-    );
+export async function POST(req: NextRequest) {
+  if (!isQaCaptureEnabled()) {
+    return json({ ok: false, error: "qa_mode_disabled" }, 403);
   }
 
-  const { userId } = await clerkAuth();
-  if (!userId) {
-    return NextResponse.json(
-      { ok: false, error: "unauthorized" },
-      { status: 401 },
-    );
-  }
-
-  let parsed;
+  let userId: string | null = null;
   try {
-    parsed = BodySchema.parse(await req.json());
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "invalid_payload" },
-      { status: 400 },
-    );
+    ({ userId } = await safeClerkAuth(3_000));
+  } catch {
+    return json({ ok: false, error: "authentication_unavailable" }, 503);
+  }
+  if (!userId) {
+    return json({ ok: false, error: "unauthorized" }, 401);
+  }
+
+  const declaredLength = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return json({ ok: false, error: "payload_too_large" }, 413);
+  }
+
+  let raw: unknown;
+  try {
+    const text = await req.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
+      return json({ ok: false, error: "payload_too_large" }, 413);
+    }
+    raw = JSON.parse(text);
+  } catch {
+    return json({ ok: false, error: "invalid_payload" }, 400);
+  }
+
+  const parsed = sanitizeQaClickCapture(raw);
+  if (!parsed) {
+    return json({ ok: false, error: "invalid_payload" }, 400);
   }
 
   try {
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
 
-    const { error } = await sb.from("qa_click_events").insert({
-      bank_id: bankId,
-      clerk_user_id: userId,
-      session_id: parsed.sessionId,
-      path: String(parsed.payload?.path ?? ""),
-      event_type: "click",
-      payload_json: parsed.payload,
-    });
+    const { data: bank, error: bankError } = await sb
+      .from("banks")
+      .select("id, code, is_sandbox")
+      .eq("id", bankId)
+      .maybeSingle();
 
-    if (error) {
-      return NextResponse.json(
-        { ok: false, error: "insert_failed", detail: error.message },
-        { status: 500 },
-      );
+    if (bankError) {
+      return json({ ok: false, error: "qa_scope_check_failed" }, 503);
+    }
+    if (!bank || (!bank.is_sandbox && bank.code !== SANDBOX_BANK_CODE)) {
+      return json({ ok: false, error: "qa_scope_forbidden" }, 403);
+    }
+
+    const { data: inserted, error: insertError } = await sb
+      .from("qa_click_events")
+      .insert({
+        bank_id: bankId,
+        clerk_user_id: userId,
+        session_id: parsed.sessionId,
+        path: parsed.payload.path,
+        event_type: "click",
+        payload_json: parsed.payload,
+      })
+      .select("id")
+      .single();
+
+    if (insertError || !inserted?.id) {
+      return json({ ok: false, error: "insert_failed" }, 503);
     }
 
     const email = await getPrimaryEmail();
-    const route = stripQuery(parsed.payload?.path ?? "");
-    const testId = parsed.payload?.element?.testId ?? null;
-    const qaId = parsed.payload?.element?.qaId ?? null;
-    const label = testId || qaId || parsed.payload?.element?.id || null;
+    const label =
+      parsed.payload.element.testId ?? parsed.payload.element.qaId ?? null;
 
     await logDemoUsageEvent({
       email,
       bankId,
-      path: route,
+      path: parsed.payload.path,
       eventType: "click",
       label,
       meta: {
         sessionId: parsed.sessionId,
-        tag: parsed.payload?.element?.tag ?? null,
+        tag: parsed.payload.element.tag,
       },
     });
 
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? "qa_capture_failed" },
-      { status: 500 },
-    );
+    return json({ ok: true }, 202);
+  } catch {
+    return json({ ok: false, error: "qa_capture_failed" }, 503);
   }
 }

@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { sanitizeQaClickCapture } from "@/lib/qaClickTelemetry";
 
-const QA_STORAGE_KEY = "buddy.qa_mode";
 const QA_SESSION_KEY = "buddy.qa_session_id";
 
 type QaContextValue = {
@@ -16,29 +16,11 @@ function getSessionId() {
   if (typeof window === "undefined") return "";
   const existing = window.localStorage.getItem(QA_SESSION_KEY);
   if (existing) return existing;
-  const created = window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const created =
+    window.crypto?.randomUUID?.() ??
+    `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   window.localStorage.setItem(QA_SESSION_KEY, created);
   return created;
-}
-
-function readQaModeFromUrl() {
-  if (typeof window === "undefined") return null as null | boolean;
-  const params = new URLSearchParams(window.location.search);
-  const value = params.get("qa");
-  if (value === null) return null;
-  if (value === "1" || value === "true" || value === "on") return true;
-  if (value === "0" || value === "false" || value === "off") return false;
-  return null;
-}
-
-function readQaModeFromStorage() {
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(QA_STORAGE_KEY) === "1";
-}
-
-function writeQaModeToStorage(enabled: boolean) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(QA_STORAGE_KEY, enabled ? "1" : "0");
 }
 
 export function useQaMode() {
@@ -52,14 +34,9 @@ export function QaModeProvider({ children }: { children: React.ReactNode }) {
   const [sessionId, setSessionId] = React.useState("");
 
   React.useEffect(() => {
-    const envEnabled = process.env.NEXT_PUBLIC_QA_MODE === "1";
-    const urlOverride = readQaModeFromUrl();
-    const stored = readQaModeFromStorage();
-    const nextEnabled = urlOverride ?? (envEnabled || stored);
-
-    setEnabled(nextEnabled);
-    writeQaModeToStorage(nextEnabled);
-    setSessionId(getSessionId());
+    const deploymentEnabled = process.env.NEXT_PUBLIC_QA_MODE === "1";
+    setEnabled(deploymentEnabled);
+    setSessionId(deploymentEnabled ? getSessionId() : "");
   }, []);
 
   React.useEffect(() => {
@@ -72,57 +49,53 @@ export function QaModeProvider({ children }: { children: React.ReactNode }) {
   }, [enabled]);
 
   React.useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !sessionId) return;
     let lastSentAt = 0;
 
     const handler = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
-      if (!target) return;
-      if (target.closest("[data-qa-ignore='1']")) return;
+      if (!target || target.closest("[data-qa-ignore='1']")) return;
 
       const now = Date.now();
       if (now - lastSentAt < 150) return;
       lastSentAt = now;
 
-      const el = target.closest("button, a, input, select, textarea, [role='button']") || target;
-      if (!el) return;
+      const element =
+        (target.closest(
+          "button, a, input, select, textarea, [role='button']",
+        ) as HTMLElement | null) ?? target;
 
-      const payload = {
-        ts: new Date().toISOString(),
-        path: window.location.pathname + window.location.search,
-        element: {
-          tag: el.tagName.toLowerCase(),
-          id: el.id || null,
-          classes: el.className || null,
-          name: (el as HTMLInputElement).name || null,
-          type: (el as HTMLInputElement).type || null,
-          text: (el as HTMLElement).innerText?.slice(0, 120) || null,
-          ariaLabel: el.getAttribute("aria-label"),
-          testId: el.getAttribute("data-testid"),
-          qaId: el.getAttribute("data-qa"),
-          href: (el as HTMLAnchorElement).href || null,
+      const capture = sanitizeQaClickCapture({
+        sessionId,
+        payload: {
+          path: window.location.pathname,
+          element: {
+            tag: element.tagName.toLowerCase(),
+            testId: element.getAttribute("data-testid"),
+            qaId: element.getAttribute("data-qa"),
+          },
         },
-      };
+      });
+      if (!capture) return;
 
-      window.fetch("/api/qa/clicks", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-qa-mode": "1",
-        },
-        body: JSON.stringify({
-          sessionId,
-          payload,
-        }),
-        keepalive: true,
-      }).catch(() => null);
+      window
+        .fetch("/api/qa/clicks", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(capture),
+          keepalive: true,
+        })
+        .catch(() => null);
     };
 
     window.addEventListener("click", handler, { capture: true });
     return () => window.removeEventListener("click", handler, { capture: true });
   }, [enabled, sessionId]);
 
-  const value = React.useMemo(() => ({ enabled, sessionId }), [enabled, sessionId]);
+  const value = React.useMemo(
+    () => ({ enabled, sessionId }),
+    [enabled, sessionId],
+  );
 
   return (
     <QaModeContext.Provider value={value}>
