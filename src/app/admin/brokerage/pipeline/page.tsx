@@ -38,11 +38,16 @@ export default async function BrokeragePipelinePage() {
   // the roster. Null when Clerk is unreachable; the filter hides itself then.
   const currentUserId = (await clerkAuth()).userId ?? null;
 
-  const [{ data: dealRows }, { data: submissions }, { data: tasks }, team] = await Promise.all([
+  const [{ data: dealRows, error: dealsError }, { data: submissions }, { data: tasks }, team] = await Promise.all([
     sb
       .from("deals")
+      // loan_amount is the only amount column on deals. The page this
+      // replaced selected a non-existent `amount`, so PostgREST rejected the
+      // whole query and the catch-all `if (error) deals = []` rendered "No
+      // deals in the pipeline" — a broken query and an empty book of business
+      // look identical, which is how it survived. Hence dealsError below.
       .select(
-        "id, display_name, nickname, borrower_name, name, loan_amount, amount, state, product_type, " +
+        "id, display_name, nickname, borrower_name, name, loan_amount, state, product_type, " +
           "brokerage_stage, brokerage_stage_entered_at, brokerage_stage_owner_clerk_user_id, " +
           "intake_mode, crm_tracking_only, created_at, is_test",
       )
@@ -92,7 +97,7 @@ export default async function BrokeragePipelinePage() {
         id: d.id,
         title: label.label,
         borrower: d.borrower_name ?? d.name ?? null,
-        amount: Number(d.loan_amount ?? d.amount ?? 0) || null,
+        amount: Number(d.loan_amount ?? 0) || null,
         state: d.state ?? null,
         productType: d.product_type ?? null,
         stage: d.brokerage_stage ?? null,
@@ -108,5 +113,12 @@ export default async function BrokeragePipelinePage() {
       };
     });
 
-  return <PipelineBoard deals={deals} team={team} currentUserId={currentUserId} />;
+  return (
+    <PipelineBoard
+      deals={deals}
+      team={team}
+      currentUserId={currentUserId}
+      loadError={dealsError?.message ?? null}
+    />
+  );
 }

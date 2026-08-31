@@ -75,7 +75,7 @@ export async function GET(
 
     const { data: deal, error: dealError } = await sb
       .from("deals")
-      .select("id, borrower_name, amount, ready_at, ready_reason, submitted_at, created_at, is_test")
+      .select("id, borrower_name, loan_amount, ready_at, ready_reason, submitted_at, created_at, is_test")
       .eq("id", dealId)
       .maybeSingle();
     if (dealError) return json({ ok: false, error: "deal_state_unavailable" }, 503);
@@ -119,7 +119,7 @@ export async function GET(
       deal: {
         id: deal.id,
         borrower_name: deal.borrower_name,
-        amount: deal.amount,
+        amount: deal.loan_amount,
         ready_at: deal.ready_at,
         ready_reason: deal.ready_reason,
         submitted_at: deal.submitted_at,

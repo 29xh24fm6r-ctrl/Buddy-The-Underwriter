@@ -27,15 +27,15 @@ const getDealShellContext = cache(async (dealId: string) => {
     // (e.g. a missing optional column, a timeout) can NEVER affect whether the
     // name renders — we already have nameProjection at this point.
     let stats: {
-      amount: number | string | null;
+      loan_amount: number | string | null;
       stage: string | null;
       risk_score: number | null;
       deal_type: string | null;
-    } = { amount: null, stage: null, risk_score: null, deal_type: null };
+    } = { loan_amount: null, stage: null, risk_score: null, deal_type: null };
     try {
       const { data: statsRow } = await sb
         .from("deals")
-        .select("amount, stage, risk_score, deal_type")
+        .select("loan_amount, stage, risk_score, deal_type")
         .eq("id", dealId)
         .eq("bank_id", access.bankId)
         .maybeSingle();
@@ -57,14 +57,14 @@ const getDealShellContext = cache(async (dealId: string) => {
       console.warn("[getDealShellContext] memo status failed (name unaffected):", e);
     }
 
-    // SPEC-JOURNEY-RAIL-UNDERWRITING-FLOW-PRIORITY-1: the header "Loan" stat reads deals.amount, but
+    // SPEC-JOURNEY-RAIL-UNDERWRITING-FLOW-PRIORITY-1: the header "Loan" stat reads deals.loan_amount, but
     // that column is often null until a banker fills it in. Fall back to the active submitted loan
     // request amount so the header reflects the borrower's actual ask. Only queried when amount is null.
     const rawAmount =
-      typeof stats.amount === "number"
-        ? stats.amount
-        : stats.amount
-          ? Number(stats.amount)
+      typeof stats.loan_amount === "number"
+        ? stats.loan_amount
+        : stats.loan_amount
+          ? Number(stats.loan_amount)
           : null;
     let resolvedAmount = rawAmount;
     if (resolvedAmount == null) {

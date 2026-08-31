@@ -67,3 +67,30 @@ test("private lender CRM tables are explicitly unavailable to browser roles", ()
     assert.match(migration, new RegExp(`grant select, insert, update, delete on table public\\.${table} to service_role`));
   }
 });
+
+test("the pipeline board selects only columns that exist on deals", () => {
+  // deals has loan_amount and no `amount`. The page this replaced selected
+  // `amount`, so PostgREST rejected the whole query and the board rendered
+  // "No deals in the pipeline" — a broken query and an empty book of business
+  // are indistinguishable on screen, which is how it survived unnoticed.
+  const fromDeals = pipeline.indexOf('.from("deals")');
+  assert.notEqual(fromDeals, -1, "the page no longer queries deals");
+  const select = /\.select\(\s*((?:"[^"]*"[\s\S]*?)+?)\s*,?\s*\)/.exec(pipeline.slice(fromDeals));
+  assert.ok(select, "could not find the deals select list");
+  const columns = select[1]
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, ""))
+    .join("")
+    .replace(/"|\+|\s/g, "")
+    .split(",")
+    .filter(Boolean);
+  assert.ok(columns.includes("loan_amount"));
+  assert.equal(columns.includes("amount"), false, "deals has no `amount` column");
+});
+
+test("a failed pipeline query is reported, never shown as an empty pipeline", () => {
+  assert.match(pipeline, /error:\s*dealsError/);
+  assert.match(pipeline, /loadError=\{dealsError\?\.message \?\? null\}/);
+  assert.match(board, /loadError/);
+  assert.match(board, /could not be loaded/);
+});

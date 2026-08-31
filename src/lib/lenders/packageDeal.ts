@@ -54,7 +54,7 @@ export async function generateLenderPackage(dealId: string): Promise<LenderPacka
   // Fetch deal
   const { data: deal, error: dealError } = await sb
     .from("deals")
-    .select("id, borrower_name, amount, ready_at, submitted_at, bank_id")
+    .select("id, borrower_name, loan_amount, ready_at, submitted_at, bank_id")
     .eq("id", dealId)
     .single();
 
@@ -102,7 +102,7 @@ export async function generateLenderPackage(dealId: string): Promise<LenderPacka
   const manifest: LenderPackage["manifest"] = {
     deal: {
       borrower_name: deal.borrower_name,
-      amount: deal.amount,
+      amount: deal.loan_amount,
       ready_at: deal.ready_at,
       submitted_at: deal.submitted_at,
     },
