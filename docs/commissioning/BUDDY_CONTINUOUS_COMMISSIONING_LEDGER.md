@@ -1757,3 +1757,74 @@ Closure:
 - **Production closure:** requires migration deployment and an authorized SignWell sandbox request/concurrency fixture after merge. No unverified Supabase project was accessed.
 - **Independent blocked component:** unresolved Twilio inbound messages still need a confirmed Buddy-owned durable sink and approved PII retention/redaction policy before implementation.
 - **Next independent rotation:** signing webhook reconciliation and provider state transitions, then authentication/session boundaries not covered by open repair PRs.
+## 2026-08-30 — Plaid webhook replay protection
+
+Checkpoint:
+
+- Production remains on exact main `69ff673b7d57fda700ed0539263d40fecdec0df8`,
+  HTTP 200, with no warning/error/fatal or grouped runtime errors in the latest
+  six-hour scan.
+- PRs 995 and 999 remain open, mergeable, zero commits behind main, and
+  independent of this arc.
+- PR 878 remains deployed. Full Golden Trident seal-to-marketplace-to-lender
+  transactional proof still requires a verified Buddy-owned Supabase connection
+  and an authorized sealed transaction.
+- The 2026-08-30 07:30:12 UTC nightly invocation returned HTTP 500. Four
+  banks completed or correctly skipped portfolio work, but the one bank with a
+  final decision again failed because PostgREST could not find
+  `public.portfolio_risk_snapshots` in the live schema cache.
+- PR 979's application code is deployed, but its migration is not present in the
+  production database. Repository CI and Vercel build configuration contain no
+  production migration-deployment step, and `supabase/config.toml` contains
+  only the generic local label `Buddy-The-Underwriter`, not a remote project
+  reference. A code merge/deploy therefore cannot close this database finding.
+
+Evidence and root cause:
+
+- The Plaid verifier authenticated ES256 signatures and the raw-body hash but
+  never enforced the signed JWT `iat` claim.
+- Plaid's authoritative contract requires rejecting webhooks more than five
+  minutes old to prevent replay. A captured authentic callback could therefore
+  retrigger transaction sync or Item lifecycle writes indefinitely.
+- Body hashes used ordinary string equality, and SDK verification exceptions
+  were reflected in public failure reasons.
+
+Repair branch: `codex/commission-plaid-webhook-replay`.
+
+Repair:
+
+- Require a safe integer issued-at claim and enforce the five-minute replay
+  window with bounded future-clock skew.
+- Reject unexpected algorithms before provider-key lookup.
+- Validate SHA-256 format and compare hash bytes in constant time.
+- Return deterministic, non-sensitive verification failure reasons.
+- Add real ES256 signed-JWT regression coverage across freshness, expiry,
+  future timestamps, missing claims, tampering, malformed hashes, algorithms,
+  and signature failure.
+- Record the focused commissioning arc at
+  `docs/commissioning/arcs/2026-08-30-plaid-webhook-replay-protection.md`.
+
+Validation and closure:
+
+- Validation on code head `576730aa3d0ee66e5228e66dbdd383ba06c1d9d8`:
+  13,628 tests (13,619 passed, 0 failed, 9 skipped); React-server 18/18;
+  research 7/7 with 13 controlled placeholders skipped.
+- Typecheck, lint, architecture, safety, schema-select, report-only drift,
+  Never-500, Build Check, Secret Scan, Route Budget, and public Playwright
+  passed.
+- Exact-head preview `dpl_89aPWyHdiFzLZbvkkcf5EmJJMH1F` is READY,
+  SHA-matched, HTTP 200, and runtime-clean.
+- The complete four-file diff was inspected: +343/-14 with no schema,
+  dependency, credential, provider configuration, production data, destructive,
+  or cross-product change.
+- This evidence-only commit changes no runtime behavior. Its final head must
+  retain green required checks and a READY, SHA-matched preview.
+- Post-merge transactional closure requires an authorized Plaid sandbox webhook.
+- Nightly closure requires the verified Buddy-owned Supabase project reference,
+  application of PR 979's non-destructive migration to that exact project, and
+  a returned schema/table check before the next scheduled transaction. The
+  project reference could not be derived uniquely from product-owned source or
+  deployment metadata, so no project enumeration or unverified database access
+  was attempted.
+- No database, credentials, provider configuration, production data, or
+  cross-product system was accessed or changed.
