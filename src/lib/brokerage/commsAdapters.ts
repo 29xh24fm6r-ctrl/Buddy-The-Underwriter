@@ -33,6 +33,12 @@ export type CommsEnvStatus = {
   issues: string[];
 };
 
+function providerMessageId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const id = value.trim();
+  return id || undefined;
+}
+
 // ── Secrets redaction ───────────────────────────────────────────────────────
 
 const SECRET_PATTERNS = [
@@ -117,7 +123,15 @@ export function createEmailAdapter(): CommsAdapters["email"] {
 
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
-        return { ok: true, providerMessageId: data.id ?? undefined };
+        const messageId = providerMessageId(data?.id);
+        if (!messageId) {
+          return {
+            ok: false,
+            error: "resend_acceptance_unproven",
+            retryable: true,
+          };
+        }
+        return { ok: true, providerMessageId: messageId };
       }
 
       const status = res.status;
@@ -156,8 +170,15 @@ export function createTelnyxSmsAdapter(): CommsAdapters["sms"] {
 
       if (res.ok || res.status === 202) {
         const data = await res.json().catch(() => ({}));
-        const msgId = data?.data?.id ?? data?.id ?? undefined;
-        return { ok: true, providerMessageId: msgId };
+        const messageId = providerMessageId(data?.data?.id ?? data?.id);
+        if (!messageId) {
+          return {
+            ok: false,
+            error: "telnyx_acceptance_unproven",
+            retryable: true,
+          };
+        }
+        return { ok: true, providerMessageId: messageId };
       }
 
       const status = res.status;
