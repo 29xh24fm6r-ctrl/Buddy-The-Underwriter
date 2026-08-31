@@ -106,7 +106,7 @@ export async function generateAdvancedCreditMemo(params: {
    * bad JSON). Deliberately NOT derived from
    * `memoJson.meta.recommendedDecision === "PENDING - MISSING INFO"`: a
    * successful generation can legitimately reach that same decision when
-   * the LLM has real but incomplete data. Callers (GenerateCreditMemoPanel.tsx)
+   * the LLM has real but incomplete data. Any caller that renders a memo
    * must surface this — a stub must never be visually indistinguishable
    * from a real AI-generated memo.
    */

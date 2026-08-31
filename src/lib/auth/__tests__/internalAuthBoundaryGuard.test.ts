@@ -30,8 +30,10 @@ test("admin diagnostics never accept credentials in URLs", () => {
   assert.match(auth, /secretEquals/);
   assert.doesNotMatch(auth, /searchParams/);
 
+  // The sibling checklist/debug route was retired with the legacy diagnostic
+  // surface; list/ is the remaining admin diagnostic and still gates on
+  // hasValidAdminDebugToken, so the header-only contract stays enforced.
   for (const path of [
-    "src/app/api/admin/deals/[dealId]/checklist/debug/route.ts",
     "src/app/api/admin/deals/[dealId]/checklist/list/route.ts",
   ]) {
     const route = read(path);
