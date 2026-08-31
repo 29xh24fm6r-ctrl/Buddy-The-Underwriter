@@ -543,5 +543,65 @@
     "name": "signing_requests.idempotency_key",
     "type": "column",
     "migration": "20260830060000_signing_request_idempotency.sql"
+  },
+  {
+    "name": "crm_lender_profiles.geography_mode",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "crm_lender_profiles.state_codes",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "crm_lender_profiles.excluded_state_codes",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "crm_lender_profiles.naics_codes",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "crm_lender_profiles.excluded_naics_codes",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "crm_organizations.state_code",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "crm_organizations.tags",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "crm_organizations.relationship_tier",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "crm_organizations.owner_clerk_user_id",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "crm_organizations.how_we_met",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "crm_organizations.custom_fields",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "deals.intake_mode",
+    "type": "column",
+    "migration": "20260831140000_crm_relationship_intelligence.sql"
   }
 ]

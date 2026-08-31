@@ -63,6 +63,16 @@ function resolveRoute(path: string[]): ResolvedRoute | null {
   }
   if (
     path.length === 3 &&
+    path[0] === "deals" &&
+    path[2] === "lender-matches"
+  ) {
+    return {
+      key: "deals/:dealId/lender-matches",
+      params: { dealId: path[1] },
+    };
+  }
+  if (
+    path.length === 3 &&
     path[0] === "leads" &&
     path[2] === "actions"
   ) {
@@ -186,6 +196,11 @@ async function dispatch(method: Method, req: NextRequest, ctx: Ctx) {
       if (method === "GET") return (await import("./_handlers/deals-dealId-parties")).GET(req, handlerCtx);
       if (method === "POST") return (await import("./_handlers/deals-dealId-parties")).POST(req, handlerCtx);
       return METHOD_NOT_ALLOWED(["GET", "POST"]);
+    }
+    case "deals/:dealId/lender-matches": {
+      const handlerCtx = { params: Promise.resolve({ dealId: route.params.dealId }) };
+      if (method === "GET") return (await import("./_handlers/deals-dealId-lender-matches")).GET(req, handlerCtx);
+      return METHOD_NOT_ALLOWED(["GET"]);
     }
     case "leads/:leadId/actions": {
       const handlerCtx = { params: Promise.resolve({ leadId: route.params.leadId }) };

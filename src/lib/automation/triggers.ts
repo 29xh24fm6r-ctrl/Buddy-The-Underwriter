@@ -125,7 +125,16 @@ export async function findReferralRelationshipStale(bankId: string, staleDays = 
       findings.push({
         entityType: "person",
         entityId: p.id,
-        dedupeKey: new Date().toISOString().slice(0, 10),
+        // Keyed to the staleness episode, not the calendar day. This is the
+        // only trigger whose action is add_activity, so a per-day key wrote a
+        // fresh "relationship has gone stale" row into crm_activities every
+        // 24 hours for as long as the relationship stayed cold: two stale
+        // contacts produced 54 of the 61 activity rows in production, and the
+        // CRM dashboard had to de-duplicate them client-side to stay
+        // readable. Keying on last_contacted_at means one alert per episode —
+        // logging a contact moves the key, so if the relationship goes cold
+        // again it legitimately alerts again.
+        dedupeKey: `stale:${p.last_contacted_at ?? "never"}`,
         context: { lastContactedAt: p.last_contacted_at },
       });
     }

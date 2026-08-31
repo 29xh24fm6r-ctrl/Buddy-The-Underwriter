@@ -4,6 +4,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
+import { normalizeStateCode, parseStateList } from "@/lib/crm/geography";
+import { summarizeHistory } from "@/lib/crm/lenderMatch";
+import { createTask } from "@/lib/tasks/tasks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +34,36 @@ function timestamp(v: unknown): string | null {
 function list(v: unknown): string[] {
   if (Array.isArray(v)) return v.map(String).map((s) => s.trim()).filter(Boolean);
   return typeof v === "string" ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
+}
+/** Two-letter USPS codes only; anything unrecognised is dropped rather than stored as prose. */
+function stateCodeList(v: unknown): string[] {
+  return list(v).map((entry) => normalizeStateCode(entry)).filter((code): code is string => !!code);
+}
+/** NAICS prefixes: digits only, 2-6 characters. */
+function naicsList(v: unknown): string[] {
+  return Array.from(new Set(list(v).map((entry) => entry.replace(/\D/g, "")).filter((entry) => entry.length >= 2 && entry.length <= 6)));
+}
+/**
+ * The structured credit-box columns added by migration 20260831140000. When a
+ * caller sends only the legacy prose `geographies`, parse it rather than
+ * storing another unsearchable string — that is the whole point of the column.
+ */
+function geographyPatch(body: any): Record<string, unknown> {
+  const legacy = parseStateList(body.geographies);
+  const explicitMode = text(body.geographyMode);
+  const stateCodes = body.stateCodes === undefined ? legacy.codes : stateCodeList(body.stateCodes);
+  const mode = explicitMode === "nationwide" || explicitMode === "states"
+    ? explicitMode
+    : legacy.nationwide
+      ? "nationwide"
+      : "states";
+  return {
+    geography_mode: mode,
+    state_codes: stateCodes,
+    excluded_state_codes: stateCodeList(body.excludedStateCodes),
+    naics_codes: naicsList(body.naicsCodes),
+    excluded_naics_codes: naicsList(body.excludedNaicsCodes),
+  };
 }
 async function gate(): Promise<{ userId: string } | NextResponse> {
   try { return await requireBrokerageStaff(); }
@@ -71,7 +104,19 @@ export async function bankBuyerGET() {
   const interested = rows.filter((s: any) => ["interested", "term_sheet", "approved", "closed"].includes(s.status));
   const closed = rows.filter((s: any) => s.status === "closed");
   const overdue = open.filter((s: any) => s.next_follow_up_at && new Date(s.next_follow_up_at).getTime() < now);
-  const enrichedProfiles = (profiles ?? []).map((p: any) => ({ ...p, organization: orgById.get(p.organization_id) ?? null, contacts: peopleByOrg.get(p.organization_id) ?? [], submissions: rows.filter((s: any) => s.lender_profile_id === p.id) }));
+  const enrichedProfiles = (profiles ?? []).map((p: any) => {
+    const own = rows.filter((s: any) => s.lender_profile_id === p.id);
+    return {
+      ...p,
+      organization: orgById.get(p.organization_id) ?? null,
+      contacts: peopleByOrg.get(p.organization_id) ?? [],
+      submissions: own,
+      // Scorecard: the answer to "is this relationship worth the call". Derived
+      // on read from the submission rows rather than stored, so it can never
+      // drift from the ledger it summarizes.
+      scorecard: summarizeHistory(own),
+    };
+  });
 
   return NextResponse.json({
     ok: true,
@@ -206,6 +251,7 @@ export async function bankBuyerPOST(req: NextRequest) {
       industries: list(body.industries),
       excluded_industries: list(body.excludedIndustries),
       geographies: list(body.geographies),
+      ...geographyPatch(body),
       collateral_preferences: list(body.collateralPreferences),
       deal_preferences: text(body.dealPreferences),
       referral_fee_bps: num(body.referralFeeBps),
@@ -234,7 +280,7 @@ export async function bankBuyerPOST(req: NextRequest) {
       bank_id: bankId, organization_id: org.id, relationship_status: text(body.relationshipStatus) ?? "prospect", lender_type: text(body.lenderType) ?? "bank",
       sba_7a_appetite: body.sba7a !== false, sba_504_appetite: !!body.sba504, conventional_appetite: !!body.conventional,
       min_loan_amount: num(body.minLoanAmount), max_loan_amount: num(body.maxLoanAmount), min_dscr: num(body.minDscr), max_ltv: num(body.maxLtv), minimum_fico: num(body.minimumFico),
-      industries: list(body.industries), excluded_industries: list(body.excludedIndustries), geographies: list(body.geographies), collateral_preferences: list(body.collateralPreferences),
+      industries: list(body.industries), excluded_industries: list(body.excludedIndustries), geographies: list(body.geographies), ...geographyPatch(body), collateral_preferences: list(body.collateralPreferences),
       deal_preferences: text(body.dealPreferences), referral_fee_bps: num(body.referralFeeBps), response_sla_days: num(body.responseSlaDays),
       marketplace_role: MARKETPLACE_ROLES.has(text(body.marketplaceRole) ?? "") ? text(body.marketplaceRole) : null,
       marketplace_access_status: MARKETPLACE_ACCESS.has(text(body.marketplaceAccessStatus) ?? "") ? text(body.marketplaceAccessStatus) : "not_invited",
@@ -325,6 +371,100 @@ export async function bankBuyerPOST(req: NextRequest) {
       actor_clerk_user_id: userId,
     });
     return NextResponse.json({ ok: true, deal, submission });
+  }
+
+  // Send one deal to several banks in a single command. The single-bank
+  // action below stays as-is (the deal page and the buyers workspace both
+  // still use it); this one exists because the shortlist the match engine
+  // produces is a set, and sending it bank-by-bank was the friction that
+  // kept the distribution ledger empty.
+  if (body.action === "create_submissions") {
+    const dealId = text(body.dealId);
+    const profileIds = Array.from(new Set(list(body.lenderProfileIds)));
+    if (!dealId || profileIds.length === 0) {
+      return NextResponse.json({ ok: false, error: "Deal and at least one bank are required" }, { status: 400 });
+    }
+    if (profileIds.length > 25) {
+      return NextResponse.json({ ok: false, error: "Send to at most 25 banks at a time" }, { status: 400 });
+    }
+    const status = text(body.status) ?? "sent";
+    if (!STATUSES.has(status)) return NextResponse.json({ ok: false, error: "Invalid status" }, { status: 400 });
+
+    const [{ data: deal }, { data: profiles }] = await Promise.all([
+      sb.from("deals").select("id, loan_amount, display_name, borrower_name, name").eq("id", dealId).eq("bank_id", bankId).maybeSingle(),
+      sb.from("crm_lender_profiles").select("id, organization_id").eq("bank_id", bankId).in("id", profileIds),
+    ]);
+    if (!deal) return NextResponse.json({ ok: false, error: "Deal not found in this brokerage" }, { status: 404 });
+    const known = new Map((profiles ?? []).map((p: any) => [p.id, p]));
+    const unknown = profileIds.filter((id) => !known.has(id));
+    if (unknown.length) return NextResponse.json({ ok: false, error: "One or more banks are not in this brokerage" }, { status: 404 });
+
+    const now = new Date().toISOString();
+    const sentAt = status === "planned" ? null : (timestamp(body.sentAt) ?? now);
+    const followUpAt = timestamp(body.nextFollowUpAt);
+    const rationales: Record<string, string> = body.fitRationales && typeof body.fitRationales === "object" ? body.fitRationales : {};
+
+    const created: any[] = [];
+    const skipped: Array<{ lenderProfileId: string; reason: string }> = [];
+
+    for (const lenderProfileId of profileIds) {
+      const { data, error } = await sb.from("crm_deal_lender_submissions").insert({
+        bank_id: bankId,
+        deal_id: dealId,
+        lender_profile_id: lenderProfileId,
+        status,
+        amount_sent: num(body.amountSent) ?? num(deal.loan_amount),
+        sent_at: sentAt,
+        next_follow_up_at: followUpAt,
+        fit_rationale: text(rationales[lenderProfileId]) ?? text(body.fitRationale),
+        notes: text(body.notes),
+        created_by_clerk_user_id: userId,
+        updated_by_clerk_user_id: userId,
+      }).select("*").single();
+
+      if (error || !data) {
+        // A duplicate is the expected, benign case: the broker re-sent a
+        // shortlist that already includes a bank this deal went to. Report it
+        // and keep going rather than failing the whole batch.
+        skipped.push({
+          lenderProfileId,
+          reason: error?.code === "23505" ? "Already sent to this bank" : (error?.message ?? "Could not record"),
+        });
+        continue;
+      }
+      created.push(data);
+
+      await sb.from("crm_lender_submission_events").insert({
+        bank_id: bankId,
+        submission_id: data.id,
+        event_type: status === "sent" ? "sent" : "created",
+        to_status: status,
+        details: { entry_mode: "bulk_distribution", batch_size: profileIds.length },
+        actor_clerk_user_id: userId,
+      });
+
+      // A send with no follow-up is how a deal goes quiet at a bank. The task
+      // is what makes the follow-up someone's job.
+      if (followUpAt) {
+        const lenderName = (await sb.from("crm_organizations").select("name").eq("id", known.get(lenderProfileId).organization_id).eq("bank_id", bankId).maybeSingle()).data?.name ?? "the bank";
+        await createTask({
+          bankId,
+          title: `Follow up with ${lenderName}`,
+          description: `Sent ${deal.display_name || deal.borrower_name || deal.name || "this deal"} on ${new Date(sentAt ?? now).toLocaleDateString("en-US")}.`,
+          category: "lender_follow_up",
+          dealId,
+          assignedToClerkUserId: text(body.assignedToClerkUserId) ?? userId,
+          dueAt: followUpAt,
+          automationSource: `distribution:${data.id}`,
+          createdByClerkUserId: userId,
+        }, sb as any).catch(() => null);
+      }
+    }
+
+    if (created.length === 0) {
+      return NextResponse.json({ ok: false, error: skipped[0]?.reason ?? "No banks recorded", skipped }, { status: 400 });
+    }
+    return NextResponse.json({ ok: true, submissions: created, skipped });
   }
 
   if (body.action === "create_submission") {
