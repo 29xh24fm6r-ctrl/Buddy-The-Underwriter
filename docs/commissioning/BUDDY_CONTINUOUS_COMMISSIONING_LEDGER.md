@@ -1964,3 +1964,14 @@ Verification:
 - **Validation:** code head `bc85907c02a0df1e57bd823bdd4848845411eaa7` passed 15 exact-source assertions; complete six-file diff +324/-52; zero behind `main`; exact preview `dpl_6jH8wL3cNeZ7V3p83fwnQ4ynh1pg` READY, SHA-matched, HTTP 200, and runtime-clean. CI, Build Check, Secret Scan, and Route Budget failed before step execution (`steps: null`, no logs) because repository Actions runner/billing availability remains unavailable.
 - **Production closure:** verified Buddy-owned Supabase connection plus authorized stale-lock and abandoned-bundle fixtures.
 - **Next target:** continue an independent storage/authentication rotation while Actions availability is restored.
+## 2026-08-30 — signed upload provider integrity and privacy
+
+- **System audited:** canonical GCS and Supabase Storage upload-signing helpers.
+- **Finding:** Supabase could substitute a download-only signed URL; a configured GCS failure silently switched providers; storage paths and raw provider errors crossed logs.
+- **Root cause:** capability detection treated unlike signing APIs and providers as interchangeable fallback mechanisms.
+- **Repair:** strict signed-upload evidence validation, no download-URL fallback, configured-provider fail-closed behavior, bounded admission, deterministic timeout cleanup, and safe count/status-only diagnostics.
+- **Regression coverage:** behavioral evidence-parser cases plus structural provider, privacy, and admission guards.
+- **Safety:** source/tests only; no storage object, bucket, credential, provider, database, schema, dependency, or production mutation.
+- **Validation:** runtime head `6a01f4a44beb1745ef044747671c8aade32eaaf9` passed 18 exact-source assertions; complete six-file diff +278/-121; zero behind `main`; exact preview `dpl_B8aAqy5rft3aKrXPZJgkQHxDd2TD` READY, SHA-matched, HTTP 200, build-clean, and runtime-clean. CI, Build Check, Secret Scan, and Upload Architecture Guard failed before step execution (`steps: null`, no logs) because repository Actions runner/billing availability remains unavailable.
+- **Production closure:** authorized GCS and Supabase sandbox upload fixtures after merge.
+- **Next target:** continue independent authentication/background-job rotation while Actions availability is restored.
