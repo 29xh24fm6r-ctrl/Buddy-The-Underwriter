@@ -2139,3 +2139,71 @@ Open dependencies:
   workflows failed before executing any step.
 - Complete share-link production proof requires a verified Buddy-owned Supabase
   project and an authorized fixture.
+## 2026-08-30 — borrower projection PDF truthfulness and delivery integrity
+
+Audit evidence:
+
+- The portal-resolved deal read was not bank-bound, assumptions were not required
+  to be confirmed, and authoritative assumptions, financial facts, research,
+  story, and SBA-package read failures were treated as missing data.
+- Governed opening cash was passed to the projection model, but its fact keys
+  were absent from the financial-facts query and therefore resolved to zero.
+- The generated object used replace semantics, was not read back for content
+  identity, and could be reported successful with a null signed URL and no
+  durable audit row.
+- The response exposed the internal object path, used a one-hour URL, and lacked
+  private no-store controls.
+
+Repair branch: `codex/commission-borrower-projection-pdf-trust`.
+
+Repair:
+
+- Bind the authoritative deal to the portal-resolved deal and bank, require
+  confirmed assumptions, and fail closed on every required evidence read.
+- Query the governed cash fact keys and preserve the distinction between an
+  optional absent borrower story and a failed story read.
+- Bound PDF output, use collision-resistant non-upsert storage, read the object
+  back, and require exact length plus SHA-256 identity.
+- Require a bounded five-minute HTTPS URL and an exact tenant-bound ledger row
+  before success; remove only the just-created object when delivery proof is
+  incomplete.
+- Return stable redacted responses with private no-store controls and no object
+  path disclosure.
+- Add four focused regression cases and a commissioning record.
+
+Validation on code head `fcd30338861aedf72614b9a17c73ea24e6db93b4`:
+
+- Focused regression passed 4/4.
+- The production-equivalent Vercel build passed; exact deployment
+  `dpl_3AVr6m9cT7zBkzmEWYvfFgPnAe1Q` is READY, SHA-matched, HTTP 200, and has
+  no warning/error/fatal logs or grouped runtime errors.
+- The complete five-file diff against current `main` was inspected:
+  470 additions and 138 deletions, with no schema, dependency, credential,
+  provider-configuration, existing-object, production-data, or cross-product
+  change.
+- PR 1014 is mergeable and zero commits behind `main`.
+- CI, Build Check, Secret Scan, and Route Budget were created but failed before
+  executing any step; each job has `steps: null` and no logs. Restoring this
+  repository/account's GitHub Actions runner or billing availability is the
+  precise external prerequisite before merge.
+- Post-merge transaction proof requires a verified Buddy-owned Supabase project
+  plus an authorized confirmed-assumptions borrower fixture.
+- No unverified database or cross-product system was accessed.
+
+Production merge verification:
+
+- PRs 990 and 991 are deployed together on exact production SHA
+  `81002cb8821595e0a16f0d527a3297dab1c7c167`.
+- The homepage returns HTTP 200, the removed authentication-debug route returns
+  HTTP 404 with no diagnostic JSON, and the latest 30-minute production scan
+  contains no warning/error/fatal logs or grouped runtime errors.
+- Didit authenticity closure still requires an authorized sandbox V2 delivery,
+  stale replay, canonical status persistence, and retry-deduplication fixture.
+
+Independent unresolved risks:
+
+- PR 878's complete seal-to-marketplace-to-lender transaction and the missing
+  live `portfolio_risk_snapshots` migration remain blocked on verification of
+  the exact Buddy-owned Supabase project and authorized fixtures.
+- Repository GitHub Actions availability remains an external prerequisite for
+  merge-safe required checks on the current commissioning queue.
