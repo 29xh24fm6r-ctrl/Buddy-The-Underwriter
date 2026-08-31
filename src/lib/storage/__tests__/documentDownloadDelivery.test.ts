@@ -28,16 +28,25 @@ test("document delivery proves stored identity before creating a provider URL", 
 
 test("canonical signed-url route ignores caller bucket claims and proves canonical bytes", async () => {
   const route = await source("src/app/api/deals/[dealId]/files/signed-url/route.ts");
+  // The canonical lookup, tenant binding and byte proof moved into the shared
+  // helper so both download surfaces inherit them; the properties are unchanged
+  // and are asserted at their new location.
+  const helper = await source("src/lib/storage/createAuthorizedDocumentDownload.ts");
 
   assert.match(
-    route,
+    helper,
     /select\("id, deal_id, bank_id, storage_bucket, storage_path, size_bytes, sha256"\)/,
   );
-  assert.match(route, /proveCanonicalDocumentDownload\(document\)/);
-  assert.match(route, /document\.bank_id && document\.bank_id !== authz\.bankId/);
+  assert.match(helper, /proveCanonicalDocumentDownload\(/);
+  // Stronger than the previous in-route comparison: tenancy is enforced in the
+  // query itself, so a foreign row is never fetched at all.
+  assert.match(helper, /\.eq\("bank_id", bankId\)/);
+  assert.match(helper, /document_integrity_unavailable/);
+
   assert.doesNotMatch(route, /body\?\.storage_bucket|body\.storage_bucket/);
+  // Neither surface may sign for itself — signing belongs to the proof path.
   assert.doesNotMatch(route, /signGcsReadUrl|\.createSignedUrl\(/);
-  assert.match(route, /document_integrity_unavailable/);
+  assert.doesNotMatch(helper, /signGcsReadUrl|\.createSignedUrl\(/);
   assert.doesNotMatch(route, /docErr\.message|signErr\?\.message/);
 });
 
@@ -45,17 +54,29 @@ test("document redirect fails closed on state and byte-integrity failures", asyn
   const route = await source(
     "src/app/api/deals/[dealId]/files/[documentId]/download/route.ts",
   );
-  const lookupAt = route.indexOf('.from("deal_documents")');
-  const proofAt = route.indexOf("await proveCanonicalDocumentDownload(document)");
-  const auditAt = route.indexOf("await logLedgerEvent");
-  const redirectAt = route.indexOf("NextResponse.redirect(proven.signedUrl");
+  const helper = await source("src/lib/storage/createAuthorizedDocumentDownload.ts");
+
+  // Ordering is preserved, now inside the helper: canonical lookup, then byte
+  // proof, then durable audit — and only then is a URL returned to the caller.
+  const lookupAt = helper.indexOf('.from("deal_documents")');
+  const proofAt = helper.indexOf("proveCanonicalDocumentDownload(");
+  const auditAt = helper.indexOf('.from("deal_pipeline_ledger")');
+  const returnAt = helper.indexOf("return {\n    ok: true,");
 
   assert.ok(lookupAt >= 0);
   assert.ok(proofAt > lookupAt);
   assert.ok(auditAt > proofAt);
-  assert.ok(redirectAt > auditAt);
-  assert.match(route, /document_state_unavailable/);
-  assert.match(route, /document_integrity_unavailable/);
+  assert.ok(returnAt > auditAt);
+
+  // The route redirects only to a URL the helper vouched for.
+  const callAt = route.indexOf("createAuthorizedDocumentDownload(");
+  const redirectAt = route.indexOf("NextResponse.redirect(result.signedUrl");
+  assert.ok(callAt >= 0);
+  assert.ok(redirectAt > callAt);
+  assert.match(route, /if \(!result\.ok\) return json\(result\.error, result\.status\)/);
+
+  assert.match(helper, /document_state_unavailable/);
+  assert.match(helper, /document_integrity_unavailable/);
   assert.doesNotMatch(route, /error\?\.message \|\| "Internal server error"/);
 });
 
