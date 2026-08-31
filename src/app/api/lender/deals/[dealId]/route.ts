@@ -1,105 +1,120 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { resolveLenderIdentity } from "@/lib/brokerage/lenderAuth";
-import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
+import { resolveLenderIdentityResult } from "@/lib/brokerage/lenderAuth";
+import { DealIsolationError, assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const NO_STORE = { "Cache-Control": "no-store, max-age=0" };
+
+function json(body: Record<string, unknown>, status = 200): NextResponse {
+  return NextResponse.json(body, { status, headers: NO_STORE });
+}
+
+function boundedId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 160 || /[\u0000-\u001f\u007f]/.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
 /**
- * GET /api/lender/deals/[dealId]
- *
- * Lender-Facing Data (Read-Only)
- * - Requires an authenticated lender (a bank with an active marketplace
- *   agreement). Previously unauthenticated — it returned borrower deal data
- *   (name, amount, documents, timeline) to any caller; the honest security gate
- *   (audit C3) surfaced it.
- * - Lenders are cross-tenant by design (see lenderAuth.ts), but per that same
- *   module's documented invariant, access to any *specific* deal still
- *   requires an explicit, unrevoked marketplace_package_access grant for
- *   (dealId, lenderBankId) -- "is a lender at all" is not sufficient. This
- *   route previously skipped that check (unlike its sibling
- *   /api/lender/marketplace/package/[accessId]), letting any lender pull
- *   full deal detail for any deal, including competitors' deals, by
- *   guessing/enumerating deal IDs.
- * - 404 (not 403) on a missing/revoked grant, matching the sibling route's
- *   no-existence-leak convention.
- * - No mutations allowed.
+ * Lender-facing, read-only deal summary. An explicit unrevoked package grant
+ * is required, and every supporting database read must complete before a
+ * successful response can be emitted.
  */
 export async function GET(
-  req: NextRequest,
-  context: { params: Promise<{ dealId: string }> }
-) {
-  const lender = await resolveLenderIdentity();
-  if (!lender) {
-    return NextResponse.json({ ok: false, error: "not_a_lender" }, { status: 403 });
+  _req: NextRequest,
+  context: { params: Promise<{ dealId: string }> },
+): Promise<NextResponse> {
+  const identity = await resolveLenderIdentityResult();
+  if (!identity.ok) {
+    if (identity.reason === "identity_state_unavailable") {
+      return json({ ok: false, error: "lender_identity_unavailable" }, 503);
+    }
+    if (identity.reason === "ambiguous_lender_identity") {
+      return json({ ok: false, error: "ambiguous_lender_identity" }, 409);
+    }
+    return json({ ok: false, error: "not_a_lender" }, 403);
   }
 
-  const { dealId } = await context.params;
+  const dealId = boundedId((await context.params).dealId);
+  if (!dealId) return json({ ok: false, error: "invalid_deal" }, 400);
+
+  const lender = identity.identity;
   const sb = supabaseAdmin();
 
-  const { data: grant } = await sb
-    .from("marketplace_package_access")
-    .select("id")
-    .eq("deal_id", dealId)
-    .eq("lender_bank_id", lender.lenderBankId)
-    .is("revoked_at", null)
-    .limit(1)
-    .maybeSingle();
-
-  if (!grant) {
-    return NextResponse.json({ ok: false, error: "Deal not found" }, { status: 404 });
-  }
-
-  // P0-9: Test applications cannot be accessed by lenders.
   try {
-    await assertNotTestDeal(dealId, sb);
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "test_application_distribution_blocked" },
-      { status: 403 },
-    );
-  }
+    const { data: grant, error: grantError } = await sb
+      .from("marketplace_package_access")
+      .select("id")
+      .eq("deal_id", dealId)
+      .eq("lender_bank_id", lender.lenderBankId)
+      .is("revoked_at", null)
+      .limit(1)
+      .maybeSingle();
+    if (grantError) return json({ ok: false, error: "package_access_unavailable" }, 503);
+    if (!grant) return json({ ok: false, error: "deal_not_found" }, 404);
 
-  try {
-    // Fetch deal
+    try {
+      await assertNotTestDeal(dealId, sb);
+    } catch (error) {
+      if (error instanceof DealIsolationError) {
+        if (error.code === "test_application") {
+          return json({ ok: false, error: "test_application_distribution_blocked" }, 403);
+        }
+        if (error.code === "deal_not_found") {
+          return json({ ok: false, error: "deal_not_found" }, 404);
+        }
+      }
+      return json({ ok: false, error: "deal_isolation_state_unavailable" }, 503);
+    }
+
     const { data: deal, error: dealError } = await sb
       .from("deals")
       .select("id, borrower_name, amount, ready_at, ready_reason, submitted_at, created_at, is_test")
       .eq("id", dealId)
-      .single();
+      .maybeSingle();
+    if (dealError) return json({ ok: false, error: "deal_state_unavailable" }, 503);
+    if (!deal) return json({ ok: false, error: "deal_not_found" }, 404);
 
-    if (dealError || !deal) {
-      return NextResponse.json(
-        { ok: false, error: "Deal not found" },
-        { status: 404 }
-      );
+    const [checklistResult, documentResult, ledgerResult] = await Promise.all([
+      sb
+        .from("deal_checklist_items")
+        .select("required, received_at")
+        .eq("deal_id", dealId),
+      sb
+        .from("deal_documents")
+        .select("id, original_filename, uploaded_at, finalized_at")
+        .eq("deal_id", dealId)
+        .order("uploaded_at", { ascending: false }),
+      sb
+        .from("deal_pipeline_ledger")
+        .select("stage, status, payload, created_at")
+        .eq("deal_id", dealId)
+        .order("created_at", { ascending: false })
+        .limit(5),
+    ]);
+
+    if (checklistResult.error || !Array.isArray(checklistResult.data)) {
+      return json({ ok: false, error: "checklist_state_unavailable" }, 503);
+    }
+    if (documentResult.error || !Array.isArray(documentResult.data)) {
+      return json({ ok: false, error: "document_state_unavailable" }, 503);
+    }
+    if (ledgerResult.error || !Array.isArray(ledgerResult.data)) {
+      return json({ ok: false, error: "timeline_state_unavailable" }, 503);
     }
 
-    // Fetch checklist summary
-    const { data: checklistItems } = await sb
-      .from("deal_checklist_items")
-      .select("required, received_at")
-      .eq("deal_id", dealId);
+    const required = checklistResult.data.filter((item) => item.required).length;
+    const satisfied = checklistResult.data.filter(
+      (item) => item.required && item.received_at,
+    ).length;
 
-    const required = checklistItems?.filter((i) => i.required).length || 0;
-    const satisfied = checklistItems?.filter((i) => i.required && i.received_at).length || 0;
-
-    // Fetch documents
-    const { data: documents } = await sb
-      .from("deal_documents")
-      .select("id, original_filename, uploaded_at, finalized_at")
-      .eq("deal_id", dealId)
-      .order("uploaded_at", { ascending: false });
-
-    // Fetch latest ledger event
-    const { data: ledgerEvents } = await sb
-      .from("deal_pipeline_ledger")
-      .select("stage, status, payload, created_at")
-      .eq("deal_id", dealId)
-      .order("created_at", { ascending: false })
-      .limit(5);
-
-    return NextResponse.json({
+    return json({
       ok: true,
       deal: {
         id: deal.id,
@@ -109,20 +124,16 @@ export async function GET(
         ready_reason: deal.ready_reason,
         submitted_at: deal.submitted_at,
         created_at: deal.created_at,
-        is_test: (deal as any).is_test === true,
+        is_test: deal.is_test === true,
       },
-      checklist_summary: {
-        required,
-        satisfied,
-      },
-      documents: documents || [],
-      timeline: ledgerEvents || [],
+      checklist_summary: { required, satisfied },
+      documents: documentResult.data,
+      timeline: ledgerResult.data,
     });
-  } catch (err: any) {
-    console.error("[lender] Error fetching deal", { dealId, error: err.message });
-    return NextResponse.json(
-      { ok: false, error: "Internal server error" },
-      { status: 500 }
-    );
+  } catch {
+    console.error("[lender/deal] read boundary unavailable", {
+      route: "lender_deal_detail",
+    });
+    return json({ ok: false, error: "lender_deal_state_unavailable" }, 503);
   }
 }
