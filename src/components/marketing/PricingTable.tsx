@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { useCapture } from "@/components/analytics/useCapture";
 
-const PRO_PRICE_ID = process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID;
-
 const PLANS = [
   {
     name: "Starter",
@@ -52,21 +50,17 @@ export function PricingTable() {
   async function startCheckout() {
     capture("pricing_checkout_click", { tier: "pro" });
 
-    if (!PRO_PRICE_ID) {
-      // No Stripe configured → route to contact
-      window.location.href = "mailto:hello@buddytheunderwriter.com";
-      return;
-    }
-
     try {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ priceId: PRO_PRICE_ID }),
+        body: JSON.stringify({}),
       });
 
       const json = await res.json();
-      if (json?.url) {
+      if (res.status === 401) {
+        window.location.href = "/sign-in?redirect_url=%2Fpricing";
+      } else if (json?.url) {
         window.location.href = json.url;
       } else {
         // Stripe error → fallback to contact
