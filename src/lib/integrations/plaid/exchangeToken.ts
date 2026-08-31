@@ -16,16 +16,19 @@ export type ExchangePublicTokenArgs = {
   supabase: SupabaseClient;
 };
 
+export type ExchangePublicTokenErrorCode =
+  | "plaid_exchange_failed"
+  | "connection_persist_failed";
+
 export type ExchangePublicTokenResult =
   | { ok: true; connectionId: string; itemId: string }
-  | { ok: false; error: string };
+  | { ok: false; errorCode: ExchangePublicTokenErrorCode };
 
 /**
  * Exchanges a Plaid Link `public_token` for a long-lived `access_token`,
  * encrypts it at rest, and persists the connection with consent capture.
- * Does not itself trigger a sync — callers fire that separately (fire-and-
- * forget from the exchange API route) so this function stays a pure
- * exchange+persist step.
+ * Provider and database diagnostics remain server-side; callers receive only
+ * deterministic, non-sensitive error codes.
  */
 export async function exchangePublicToken(args: ExchangePublicTokenArgs): Promise<ExchangePublicTokenResult> {
   const client = getPlaidClient();
@@ -36,8 +39,9 @@ export async function exchangePublicToken(args: ExchangePublicTokenArgs): Promis
     const response = await client.itemPublicTokenExchange({ public_token: args.publicToken });
     itemId = response.data.item_id;
     accessToken = response.data.access_token;
-  } catch (err: any) {
-    return { ok: false, error: `plaid_exchange_failed: ${err?.message ?? String(err)}` };
+  } catch {
+    console.error("[plaid/exchange] provider exchange failed");
+    return { ok: false, errorCode: "plaid_exchange_failed" };
   }
 
   const encrypted = encryptPlaidAccessToken(accessToken);
@@ -62,8 +66,11 @@ export async function exchangePublicToken(args: ExchangePublicTokenArgs): Promis
     .select("id")
     .single();
 
-  if (error || !data) {
-    return { ok: false, error: `connection_persist_failed: ${error?.message ?? "no data"}` };
+  if (error || !data?.id) {
+    console.error("[plaid/exchange] connection persistence failed", {
+      code: error?.code ?? "row_not_returned",
+    });
+    return { ok: false, errorCode: "connection_persist_failed" };
   }
 
   return { ok: true, connectionId: String(data.id), itemId };

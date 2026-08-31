@@ -281,6 +281,42 @@ test("GET returns 401 without a session", async () => {
   assert.equal(body.error, "no_session");
 });
 
+test("GET does not complete financials from a persisted but unsynced Plaid connection", async () => {
+  const tables = productionFixture();
+  tables.deal_documents = [];
+  tables.borrower_bank_connections = [{
+    id: "conn-unsynced",
+    deal_id: DEAL,
+    status: "active",
+    last_sync_at: null,
+    last_sync_error: "sync_failed",
+  }];
+  db = makeDb(tables);
+  sessionDealId = DEAL;
+
+  const { status, body } = await getJson();
+  assert.equal(status, 200);
+  assert.deepEqual(body.progress.completedChapters, [1, 2, 3]);
+});
+
+test("GET completes financials from an active connection with successful sync evidence", async () => {
+  const tables = productionFixture();
+  tables.deal_documents = [];
+  tables.borrower_bank_connections = [{
+    id: "conn-synced",
+    deal_id: DEAL,
+    status: "active",
+    last_sync_at: "2026-08-30T08:00:00.000Z",
+    last_sync_error: null,
+  }];
+  db = makeDb(tables);
+  sessionDealId = DEAL;
+
+  const { status, body } = await getJson();
+  assert.equal(status, 200);
+  assert.deepEqual(body.progress.completedChapters, [1, 2, 3, 4]);
+});
+
 // ── POST ────────────────────────────────────────────────────────────────
 
 function mkReq(body: unknown): any {

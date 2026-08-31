@@ -28,15 +28,61 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ action: string }> };
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type OwnershipScopeResult =
+  | { ok: true; ownershipEntityId: string | null }
+  | { ok: false; status: 400 | 403 | 503; error: string };
+
+/**
+ * Client-provided ownership-entity IDs are tenant selectors. Prove that a
+ * non-empty ID belongs to the authenticated deal before it reaches Plaid or
+ * connection persistence. An omitted ID remains the supported deal-level flow.
+ */
+async function scopeOwnershipEntity(
+  supabase: ReturnType<typeof supabaseAdmin>,
+  rawOwnershipEntityId: unknown,
+  dealId: string,
+): Promise<OwnershipScopeResult> {
+  if (rawOwnershipEntityId === undefined || rawOwnershipEntityId === null || rawOwnershipEntityId === "") {
+    return { ok: true, ownershipEntityId: null };
+  }
+  if (
+    typeof rawOwnershipEntityId !== "string" ||
+    !UUID_PATTERN.test(rawOwnershipEntityId)
+  ) {
+    return { ok: false, status: 400, error: "invalid_ownership_entity_id" };
+  }
+
+  const { data, error } = await supabase
+    .from("ownership_entities")
+    .select("id, deal_id")
+    .eq("id", rawOwnershipEntityId)
+    .eq("deal_id", dealId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[plaid/connection] ownership scope read failed", {
+      code: error.code ?? "unknown",
+    });
+    return { ok: false, status: 503, error: "ownership_state_unavailable" };
+  }
+  if (
+    !data ||
+    data.id !== rawOwnershipEntityId ||
+    data.deal_id !== dealId
+  ) {
+    return { ok: false, status: 403, error: "ownership_entity_mismatch" };
+  }
+
+  return { ok: true, ownershipEntityId: rawOwnershipEntityId };
+}
+
 // SPEC-M5 CONVERSATIONAL-INTAKE-1 — same convention as
 // src/app/api/deals/[dealId]/screening/[check]/route.ts's CONSENT_VERSION/
 // consentTextHash: consent is computed server-side from a static template
-// file, never trusted from the client. Before this spec there was no real
-// UI caller of this action (see ConnectAccountsPanel.tsx's doc comment —
-// it's orphaned and targets different, dead tables), so requiring the
-// client to supply consent_version/consent_text_hash directly was never
-// exercised in production; tightening it now to match the established
-// pattern is a safe, non-breaking change.
+// file, never trusted from the client.
 const CONSENT_VERSION = "v1.0";
 
 async function plaidConsentTextHash(): Promise<string> {
@@ -56,12 +102,22 @@ export async function POST(req: Request, ctx: Ctx) {
 
     if (action === "link-token") {
       const body = await req.json().catch(() => ({}) as Record<string, unknown>);
-      const ownershipEntityId = typeof body.ownership_entity_id === "string" ? body.ownership_entity_id : "";
       const redirectUri = typeof body.redirect_uri === "string" ? body.redirect_uri : undefined;
+      const ownershipScope = await scopeOwnershipEntity(
+        supabaseAdmin(),
+        body.ownership_entity_id,
+        session.deal_id,
+      );
+      if (!ownershipScope.ok) {
+        return NextResponse.json(
+          { ok: false, error: ownershipScope.error },
+          { status: ownershipScope.status },
+        );
+      }
 
       const result = await createLinkToken({
         dealId: session.deal_id,
-        ownershipEntityId,
+        ownershipEntityId: ownershipScope.ownershipEntityId ?? "",
         userId: session.tokenHash,
         redirectUri,
       });
@@ -79,7 +135,7 @@ export async function POST(req: Request, ctx: Ctx) {
         public_token: publicToken,
         metadata,
         deal_id: bodyDealId,
-        ownership_entity_id: ownershipEntityId,
+        ownership_entity_id: rawOwnershipEntityId,
         consent_acknowledged: consentAcknowledged,
       } = body as Record<string, unknown>;
 
@@ -94,6 +150,18 @@ export async function POST(req: Request, ctx: Ctx) {
       }
 
       const supabase = supabaseAdmin();
+      const ownershipScope = await scopeOwnershipEntity(
+        supabase,
+        rawOwnershipEntityId,
+        session.deal_id,
+      );
+      if (!ownershipScope.ok) {
+        return NextResponse.json(
+          { ok: false, error: ownershipScope.error },
+          { status: ownershipScope.status },
+        );
+      }
+
       const institution = (metadata as { institution?: { institution_id?: string; name?: string } } | undefined)
         ?.institution;
 
@@ -101,7 +169,7 @@ export async function POST(req: Request, ctx: Ctx) {
         publicToken,
         dealId: session.deal_id,
         bankId: session.bank_id,
-        ownershipEntityId: typeof ownershipEntityId === "string" ? ownershipEntityId : null,
+        ownershipEntityId: ownershipScope.ownershipEntityId,
         institutionId: institution?.institution_id ?? null,
         institutionName: institution?.name ?? null,
         consent: {
@@ -114,27 +182,43 @@ export async function POST(req: Request, ctx: Ctx) {
       });
 
       if (!result.ok) {
-        return NextResponse.json({ ok: false, error: result.error }, { status: 502 });
+        return NextResponse.json({ ok: false, error: result.errorCode }, { status: 502 });
       }
 
       // Bounded inline sync (maxDuration=60), not fire-and-forget — Vercel/
       // Next serverless functions are not guaranteed to keep running after
       // the response is sent.
       const syncResult = await syncTransactions(result.connectionId, supabase);
+      if (!syncResult.ok) {
+        console.error("[plaid/connection] initial sync failed", {
+          connectionId: result.connectionId,
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "initial_sync_failed",
+            connectionId: result.connectionId,
+            connectionPersisted: true,
+          },
+          { status: 503 },
+        );
+      }
 
       return NextResponse.json({ ok: true, connectionId: result.connectionId, sync: syncResult });
     }
 
-    return NextResponse.json({ ok: false, error: `unsupported_action: ${action}` }, { status: 400 });
-  } catch (e: any) {
-    const msg: string = e?.message ?? "unexpected_error";
+    return NextResponse.json({ ok: false, error: "unsupported_action" }, { status: 400 });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "";
     if (msg.includes("Plaid not configured")) {
       return NextResponse.json(
         { ok: false, errorCode: "plaid_not_configured", error: "Bank connection is being set up — check back soon." },
         { status: 503 },
       );
     }
-    console.error("[/api/borrower/plaid/[action]]", e);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    console.error("[/api/borrower/plaid/[action]] unexpected failure", {
+      name: e instanceof Error ? e.name : "unknown",
+    });
+    return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
 }

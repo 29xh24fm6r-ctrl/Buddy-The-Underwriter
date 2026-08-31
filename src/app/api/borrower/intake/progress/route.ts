@@ -218,7 +218,7 @@ async function deriveCompletedChapters(
         .eq("deal_id", dealId),
       sb
         .from("borrower_bank_connections")
-        .select("id", { count: "exact", head: true })
+        .select("id, last_sync_at, last_sync_error")
         .eq("deal_id", dealId)
         .eq("status", "active"),
     ]);
@@ -249,7 +249,12 @@ async function deriveCompletedChapters(
   const ownerCount = countOf(ownershipsRes, "ownership_entities");
   const docCount = countOf(docsRes, "deal_documents");
   const verificationCount = countOf(verificationsRes, "borrower_identity_verifications");
-  const bankConnCount = countOf(bankConnsRes, "borrower_bank_connections");
+  const bankConnections =
+    rowOf<Array<{
+      id: string;
+      last_sync_at: string | null;
+      last_sync_error: string | null;
+    }>>(bankConnsRes, "borrower_bank_connections") ?? [];
 
   const facts = (conciergeRow?.extracted_facts ?? {}) as Record<string, any>;
 
@@ -280,9 +285,15 @@ async function deriveCompletedChapters(
     completed.push(3);
   }
 
-  // Ch4: Financials — complete if documents uploaded or bank connected
+  // Ch4: Financials — a persisted connection is not evidence until at
+  // least one sync has completed without an outstanding error.
   const hasDocs = docCount > 0;
-  const hasBankConnection = bankConnCount > 0;
+  const hasBankConnection = bankConnections.some(
+    (connection) =>
+      typeof connection.last_sync_at === "string" &&
+      connection.last_sync_at.length > 0 &&
+      connection.last_sync_error == null,
+  );
   if (hasDocs || hasBankConnection) {
     completed.push(4);
   }
