@@ -538,5 +538,10 @@
     "name": "portfolio_risk_snapshots",
     "type": "table",
     "migration": "20260829100000_portfolio_risk_snapshots.sql"
+  },
+  {
+    "name": "signing_requests.idempotency_key",
+    "type": "column",
+    "migration": "20260830060000_signing_request_idempotency.sql"
   }
 ]

@@ -1745,3 +1745,15 @@ Closure:
 - Transactional closure requires authorized Resend/Telnyx delivery fixtures.
 - Golden Trident closure remains blocked on the verified Buddy-owned Supabase
   connection and an authorized sealed fixture.
+
+## 2026-08-30 — SignWell request-creation idempotency
+
+- **Audit:** traced IAL2-gated signature request creation from Buddy-owned signing state through PDF rendering, SignWell submission, returned signing URL, and `signing_requests` persistence.
+- **Finding:** retries and concurrent requests could create multiple live SignWell documents because provider submission occurred before a database-unique request identity existed. The existing unique provider-document ID could not serialize calls until after the unsafe external side effect.
+- **Repair:** [PR 999](https://github.com/29xh24fm6r-ctrl/Buddy-The-Underwriter/pull/999) reserves a deterministic request key before rendering/provider handoff, reuses exact active and legacy requests, promotes reservations with compare-and-set returned-row proof, cancels untracked provider documents, and releases retry locks only after durable failed-terminal evidence.
+- **Schema:** additive nullable `signing_requests.idempotency_key`, format constraint, and partial unique index limited to non-null keys; historical rows are not rewritten.
+- **Regression coverage:** normal request creation, reservation failure, legacy reuse, concurrent-equivalent calls, absent provider URL, provider-cleanup failure, failed final tracking, terminal retry release, and the end-to-end IAL2-to-signing flow.
+- **Validation checkpoint:** exact-head CI is rerunning after the broad gate found the integration fake discarded an updated row when the compare-and-set changed its filtered column. The fake now preserves Supabase returned-row semantics. Typecheck, lint, architecture, safety, Secret Scan, and Build Check had already passed on the preceding head.
+- **Production closure:** requires migration deployment and an authorized SignWell sandbox request/concurrency fixture after merge. No unverified Supabase project was accessed.
+- **Independent blocked component:** unresolved Twilio inbound messages still need a confirmed Buddy-owned durable sink and approved PII retention/redaction policy before implementation.
+- **Next independent rotation:** signing webhook reconciliation and provider state transitions, then authentication/session boundaries not covered by open repair PRs.
