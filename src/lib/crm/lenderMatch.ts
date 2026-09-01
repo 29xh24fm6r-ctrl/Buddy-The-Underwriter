@@ -228,8 +228,21 @@ export function scoreLender(
     } else if (max !== null && deal.amount > max) {
       disqualifiers.push(`Above ${money(max)} maximum`);
     } else if (min !== null || max !== null) {
-      const span = (max ?? deal.amount) - (min ?? 0);
-      const edge = span > 0 && (deal.amount - (min ?? 0) < span * 0.1 || (max ?? deal.amount) - deal.amount < span * 0.1);
+      // "Near the edge" is measured against the bounds the bank actually
+      // stated. With both bounds, proximity is relative to the span. With one,
+      // there is no span to speak of, so it is relative to that bound —
+      // deriving a span from the missing bound collapsed it to zero and made a
+      // bank with only a minimum call every deal "at the edge", however far
+      // above that minimum the deal sat.
+      let edge: boolean;
+      if (min !== null && max !== null) {
+        const span = max - min;
+        edge = span > 0 && (deal.amount - min < span * 0.1 || max - deal.amount < span * 0.1);
+      } else if (min !== null) {
+        edge = deal.amount <= min * 1.1;
+      } else {
+        edge = deal.amount >= (max as number) * 0.9;
+      }
       reasons.push(edge ? "At the edge of its size band" : "Comfortably inside its size band");
       score += edge ? 5 : 8;
     } else {

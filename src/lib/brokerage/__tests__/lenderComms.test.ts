@@ -252,3 +252,61 @@ test("email acceptance without a provider message id stays retryable", async () 
   assert.equal(db.tables.brokerage_lender_message_outbox[0].status, "pending");
   assert.equal(db.tables.brokerage_lender_message_outbox[0].attempts, 1);
 });
+
+// ── Recipient resolution ────────────────────────────────────────────────────
+// The signer email on the agreement is the contractual notice address and wins
+// outright. When it is absent the CRM contacts on the lender's organization are
+// used, so a bank onboarded through the CRM before signing is still reachable.
+
+function crmDb(people: Row[], profiles?: Row[]) {
+  return new S({
+    lender_marketplace_agreements: [{ lender_bank_id: "b1", status: "active", signed_by_email: null }],
+    crm_lender_profiles: profiles ?? [{ organization_id: "org1", linked_lender_bank_id: "b1" }],
+    crm_people: people,
+  });
+}
+
+test("signer email on the agreement wins over CRM contacts", async () => {
+  const db = new S({
+    lender_marketplace_agreements: [{ lender_bank_id: "b1", status: "active", signed_by_email: "signer@bank.com" }],
+    crm_lender_profiles: [{ organization_id: "org1", linked_lender_bank_id: "b1" }],
+    crm_people: [{ organization_id: "org1", email: "banker@bank.com", created_at: "2026-01-01" }],
+  });
+  assert.deepEqual(await m.getLenderCommsRecipients("b1", db as any), ["signer@bank.com"]);
+});
+
+test("falls back to CRM contacts when no signer email is recorded", async () => {
+  const db = crmDb([
+    { organization_id: "org1", email: "first@bank.com", created_at: "2026-01-01" },
+    { organization_id: "org1", email: "second@bank.com", created_at: "2026-02-01" },
+  ]);
+  assert.deepEqual(await m.getLenderCommsRecipients("b1", db as any), ["first@bank.com", "second@bank.com"]);
+});
+
+test("CRM fallback skips do-not-contact, merged, blank, and duplicate contacts", async () => {
+  const db = crmDb([
+    { organization_id: "org1", email: "keep@bank.com", created_at: "2026-01-01" },
+    { organization_id: "org1", email: "KEEP@bank.com", created_at: "2026-01-02" },
+    { organization_id: "org1", email: "optout@bank.com", do_not_contact: true, created_at: "2026-01-03" },
+    { organization_id: "org1", email: "merged@bank.com", merged_into_id: "p9", created_at: "2026-01-04" },
+    { organization_id: "org1", email: "   ", created_at: "2026-01-05" },
+  ]);
+  assert.deepEqual(await m.getLenderCommsRecipients("b1", db as any), ["keep@bank.com"]);
+});
+
+test("CRM fallback yields nothing when the lender has no linked organization", async () => {
+  const db = crmDb([{ organization_id: "org1", email: "x@bank.com", created_at: "2026-01-01" }], []);
+  assert.deepEqual(await m.getLenderCommsRecipients("b1", db as any), []);
+});
+
+test("a CRM read failure degrades to no recipient rather than throwing", async () => {
+  const db = crmDb([{ organization_id: "org1", email: "x@bank.com", created_at: "2026-01-01" }]);
+  db.readFailures.add("crm_people");
+  assert.deepEqual(await m.getLenderCommsRecipients("b1", db as any), []);
+});
+
+test("an agreement read failure still fails closed", async () => {
+  const db = crmDb([{ organization_id: "org1", email: "x@bank.com", created_at: "2026-01-01" }]);
+  db.readFailures.add("lender_marketplace_agreements");
+  await assert.rejects(() => m.getLenderCommsRecipients("b1", db as any));
+});

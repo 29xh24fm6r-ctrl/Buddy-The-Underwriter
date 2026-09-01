@@ -73,6 +73,65 @@ const PURPOSE_ACTIONS: Record<BankerAlertPurpose, string> = {
   deal_ready_for_review: "Review deal and advance to next stage",
 };
 
+// ── Recipient ───────────────────────────────────────────────────────────────
+
+/**
+ * Who on our side hears about this deal.
+ *
+ * Precedence, most specific first:
+ *  1. The teammate the deal is assigned to. They own it, so the alert is
+ *     theirs.
+ *  2. Anyone on the deal's bank, oldest membership first — an unassigned deal
+ *     still has to reach a human.
+ *  3. BROKERAGE_BANKER_EMAIL, a single global override for environments with
+ *     no memberships wired up yet.
+ *
+ * The env var used to be the ONLY source, which is why every alert in
+ * production skipped with no_banker_contact: the variable is unset, so no
+ * banker alert could fire for any deal on any bank. A single global address
+ * is also wrong for a multi-tenant system — one bank's alerts would land in
+ * another's inbox — so it now ranks last rather than first.
+ *
+ * Emails come from app_users, which is where a Clerk user's address is
+ * mirrored; a membership with no mirrored address is skipped rather than
+ * treated as a recipient.
+ */
+async function resolveBankerEmail(deal: Row, sb: SB): Promise<string | null> {
+  const bankId = str(deal.bank_id);
+  const owner = str(deal.brokerage_stage_owner_clerk_user_id);
+
+  if (owner) {
+    const email = await emailForClerkUser(owner, sb);
+    if (email) return email;
+  }
+
+  if (bankId) {
+    const { data: members } = await sb
+      .from("bank_memberships")
+      .select("clerk_user_id, created_at")
+      .eq("bank_id", bankId)
+      .order("created_at", { ascending: true });
+    for (const member of (members ?? []) as Row[]) {
+      const id = str(member.clerk_user_id);
+      if (!id) continue;
+      const email = await emailForClerkUser(id, sb);
+      if (email) return email;
+    }
+  }
+
+  return str(process.env.BROKERAGE_BANKER_EMAIL);
+}
+
+async function emailForClerkUser(clerkUserId: string, sb: SB): Promise<string | null> {
+  const { data } = await sb
+    .from("app_users")
+    .select("email")
+    .eq("clerk_user_id", clerkUserId)
+    .limit(1)
+    .maybeSingle();
+  return str(data?.email);
+}
+
 // ── Eligibility ─────────────────────────────────────────────────────────────
 
 export async function getBankerAlertEligibility(
@@ -81,7 +140,7 @@ export async function getBankerAlertEligibility(
 ): Promise<BankerAlertEligibility> {
   const { data: deal } = await sb
     .from("deals")
-    .select("status, display_name, borrower_name, bank_id")
+    .select("status, display_name, borrower_name, bank_id, brokerage_stage_owner_clerk_user_id")
     .eq("id", dealId)
     .maybeSingle();
 
@@ -94,8 +153,7 @@ export async function getBankerAlertEligibility(
     return { eligible: false, emailAllowed: false, slackAllowed: false, skipReason: `deal_status_${dealStatus}`, bankerEmail: null, dealName: str(deal.display_name), borrowerName: str(deal.borrower_name), dealStatus };
   }
 
-  // Resolve banker email from bank profiles or env
-  const bankerEmail = str(process.env.BROKERAGE_BANKER_EMAIL) ?? null;
+  const bankerEmail = await resolveBankerEmail(deal, sb);
   const slackAllowed = Boolean(process.env.BROKERAGE_SLACK_WEBHOOK_URL);
 
   return {

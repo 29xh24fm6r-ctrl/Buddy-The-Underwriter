@@ -215,3 +215,96 @@ test("ledger emits skipped event", async () => {
   if (orig) process.env.BROKERAGE_BANKER_EMAIL = orig;
   if (origSlack) process.env.BROKERAGE_SLACK_WEBHOOK_URL = origSlack;
 });
+
+// ── Recipient resolution ────────────────────────────────────────────────────
+// The alert has to reach a real person on the right bank. The env var used to
+// be the only source, which meant no alert could fire anywhere until it was
+// set — and one global address would have crossed tenants once it was.
+
+function dealWithTeam(overrides?: Row) {
+  return new BS({
+    deals: [{
+      id: "d1", status: "active", display_name: "Test Deal", borrower_name: "Jane Smith",
+      bank_id: "brk-1", brokerage_stage_owner_clerk_user_id: null, ...overrides,
+    }],
+    bank_memberships: [
+      { bank_id: "brk-1", clerk_user_id: "user_first", created_at: "2026-01-01" },
+      { bank_id: "brk-1", clerk_user_id: "user_second", created_at: "2026-02-01" },
+      { bank_id: "other-bank", clerk_user_id: "user_other", created_at: "2025-01-01" },
+    ],
+    app_users: [
+      { clerk_user_id: "user_first", email: "first@buddy.com" },
+      { clerk_user_id: "user_second", email: "second@buddy.com" },
+      { clerk_user_id: "user_owner", email: "owner@buddy.com" },
+      { clerk_user_id: "user_other", email: "other@otherbank.com" },
+    ],
+  });
+}
+
+function withoutEnv<T>(run: () => Promise<T>): Promise<T> {
+  const orig = process.env.BROKERAGE_BANKER_EMAIL;
+  const origSlack = process.env.BROKERAGE_SLACK_WEBHOOK_URL;
+  delete process.env.BROKERAGE_BANKER_EMAIL;
+  delete process.env.BROKERAGE_SLACK_WEBHOOK_URL;
+  return run().finally(() => {
+    if (orig) process.env.BROKERAGE_BANKER_EMAIL = orig;
+    if (origSlack) process.env.BROKERAGE_SLACK_WEBHOOK_URL = origSlack;
+  });
+}
+
+test("the assigned owner is the recipient", () => withoutEnv(async () => {
+  const db = dealWithTeam({ brokerage_stage_owner_clerk_user_id: "user_owner" });
+  const elig = await m.getBankerAlertEligibility("d1", db as any);
+  assert.equal(elig.bankerEmail, "owner@buddy.com");
+  assert.equal(elig.eligible, true);
+}));
+
+test("an unassigned deal falls back to the bank's own members, oldest first", () => withoutEnv(async () => {
+  const elig = await m.getBankerAlertEligibility("d1", dealWithTeam() as any);
+  assert.equal(elig.bankerEmail, "first@buddy.com");
+}));
+
+test("members of another bank are never used", () => withoutEnv(async () => {
+  const db = new BS({
+    deals: [{ id: "d1", status: "active", bank_id: "brk-1" }],
+    bank_memberships: [{ bank_id: "other-bank", clerk_user_id: "user_other", created_at: "2025-01-01" }],
+    app_users: [{ clerk_user_id: "user_other", email: "other@otherbank.com" }],
+  });
+  const elig = await m.getBankerAlertEligibility("d1", db as any);
+  assert.equal(elig.bankerEmail, null);
+  assert.equal(elig.skipReason, "no_banker_contact");
+}));
+
+test("a membership with no mirrored address is skipped, not treated as a recipient", () => withoutEnv(async () => {
+  const db = new BS({
+    deals: [{ id: "d1", status: "active", bank_id: "brk-1" }],
+    bank_memberships: [
+      { bank_id: "brk-1", clerk_user_id: "user_no_email", created_at: "2026-01-01" },
+      { bank_id: "brk-1", clerk_user_id: "user_second", created_at: "2026-02-01" },
+    ],
+    app_users: [{ clerk_user_id: "user_second", email: "second@buddy.com" }],
+  });
+  const elig = await m.getBankerAlertEligibility("d1", db as any);
+  assert.equal(elig.bankerEmail, "second@buddy.com");
+}));
+
+test("an owner without a mirrored address falls through to the bank", () => withoutEnv(async () => {
+  const db = dealWithTeam({ brokerage_stage_owner_clerk_user_id: "user_ghost" });
+  const elig = await m.getBankerAlertEligibility("d1", db as any);
+  assert.equal(elig.bankerEmail, "first@buddy.com");
+}));
+
+test("the global env address ranks last, behind any real teammate", async () => {
+  const orig = process.env.BROKERAGE_BANKER_EMAIL;
+  process.env.BROKERAGE_BANKER_EMAIL = "global@buddy.com";
+  try {
+    const withTeam = await m.getBankerAlertEligibility("d1", dealWithTeam() as any);
+    assert.equal(withTeam.bankerEmail, "first@buddy.com");
+
+    const noTeam = await m.getBankerAlertEligibility("d1", activeDeal() as any);
+    assert.equal(noTeam.bankerEmail, "global@buddy.com");
+  } finally {
+    if (orig) process.env.BROKERAGE_BANKER_EMAIL = orig;
+    else delete process.env.BROKERAGE_BANKER_EMAIL;
+  }
+});

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
+import { RelationshipIntelligencePanel } from "@/components/brokerage/RelationshipIntelligencePanel";
 import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
 import { US_STATES } from "@/lib/crm/geography";
 
@@ -290,6 +291,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
       <Card title="Organization details">
         <Details org={org} />
       </Card>
+      <RelationshipIntelligencePanel organizationId={orgId} />
     </div>}
 
     {tab === "people" && <Card title="Bankers and contacts" action={<Button onClick={() => setPanel("contact")} primary>+ Add contact</Button>}>

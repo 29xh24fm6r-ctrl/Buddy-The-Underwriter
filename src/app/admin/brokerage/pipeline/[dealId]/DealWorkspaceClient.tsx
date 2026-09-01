@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { brokerageColors as c } from "@/components/brokerage/tokens";
 import { STAGE_LABELS } from "@/lib/dealStage/board";
+import { ExistingDebtCard } from "@/components/brokerage/ExistingDebtCard";
 import type { BrokerageTeamMember } from "@/lib/brokerage/team";
 
 /**
@@ -13,6 +14,7 @@ import type { BrokerageTeamMember } from "@/lib/brokerage/team";
  *   PATCH …/execution                     assign an owner
  *   POST  …/execution/actions             transition_stage / create_task / update_task
  *   POST  …/crm/organizations/buyers      record a bank distribution
+ *   GET   …/brokerage/deals/:id/existing-debt  the borrower's current debt
  * The one new endpoint is GET …/crm/deals/:id/lender-matches, which ranks
  * banks against this deal so the shortlist is chosen rather than remembered.
  */
@@ -503,6 +505,8 @@ export default function DealWorkspaceClient({
           </div>
         )}
       </Panel>
+
+      <ExistingDebtCard dealId={dealId} />
     </div>
   );
 }
