@@ -129,6 +129,22 @@ test("a deal under the minimum or over the maximum is disqualified", () => {
   );
 });
 
+test("a one-sided band judges distance from the bound the bank actually stated", () => {
+  // A bank with only a minimum has no upper bound to be near. Deriving a span
+  // from the missing bound made every such deal read "at the edge".
+  const minOnly = scoreLender(box({ minLoanAmount: 250_000, maxLoanAmount: null }), deal({ amount: 5_000_000 }));
+  assert.ok(minOnly.reasons.includes("Comfortably inside its size band"));
+
+  const justAboveMin = scoreLender(box({ minLoanAmount: 250_000, maxLoanAmount: null }), deal({ amount: 260_000 }));
+  assert.ok(justAboveMin.reasons.includes("At the edge of its size band"));
+
+  const maxOnly = scoreLender(box({ minLoanAmount: null, maxLoanAmount: 50_000_000 }), deal({ amount: 5_000_000 }));
+  assert.ok(maxOnly.reasons.includes("Comfortably inside its size band"));
+
+  const justUnderMax = scoreLender(box({ minLoanAmount: null, maxLoanAmount: 5_200_000 }), deal({ amount: 5_000_000 }));
+  assert.ok(justUnderMax.reasons.includes("At the edge of its size band"));
+});
+
 test("a deal near the edge of the band scores below one in the middle", () => {
   const middle = scoreLender(box(), deal({ amount: 2_400_000 }));
   const edge = scoreLender(box(), deal({ amount: 300_000 }));
