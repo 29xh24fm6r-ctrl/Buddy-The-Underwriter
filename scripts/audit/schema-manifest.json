@@ -603,5 +603,10 @@
     "name": "deals.intake_mode",
     "type": "column",
     "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "lender_marketplace_agreements.signed_by_email",
+    "type": "column",
+    "migration": "20260901120000_lender_agreement_signer_email.sql"
   }
 ]

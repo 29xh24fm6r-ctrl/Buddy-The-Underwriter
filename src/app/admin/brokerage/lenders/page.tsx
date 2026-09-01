@@ -25,6 +25,7 @@ type Lender = {
     referral_fee_bps: number | null;
     accepts_sba_7a: boolean;
     signed_by_name: string | null;
+    signed_by_email: string | null;
   } | null;
   programs: Array<{
     program_name: string;
@@ -62,6 +63,8 @@ export default function LendersPage() {
   const [geography, setGeography] = useState("NATIONWIDE");
   const [scoreThreshold, setScoreThreshold] = useState("60");
   const [referralFeeBps, setReferralFeeBps] = useState("100");
+  const [signedByName, setSignedByName] = useState("");
+  const [signedByEmail, setSignedByEmail] = useState("");
 
   async function load() {
     setLoading(true);
@@ -92,12 +95,18 @@ export default function LendersPage() {
         body: JSON.stringify({
           name,
           program: { minDscr: Number(minDscr), geography, scoreThreshold: Number(scoreThreshold) },
-          agreement: { referralFeeBps: Number(referralFeeBps) },
+          agreement: {
+            referralFeeBps: Number(referralFeeBps),
+            signedByName,
+            signedByEmail,
+          },
         }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "create failed");
       setName("");
+      setSignedByName("");
+      setSignedByEmail("");
       setShowForm(false);
       await load();
     } catch (e: any) {
@@ -135,12 +144,18 @@ export default function LendersPage() {
 
       {showForm && (
         <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16, marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
             <input style={inputStyle()} placeholder="Lender name" value={name} onChange={(e) => setName(e.target.value)} />
             <input style={inputStyle()} placeholder="Min DSCR" value={minDscr} onChange={(e) => setMinDscr(e.target.value)} />
             <input style={inputStyle()} placeholder="Geography" value={geography} onChange={(e) => setGeography(e.target.value)} />
             <input style={inputStyle()} placeholder="Score threshold" value={scoreThreshold} onChange={(e) => setScoreThreshold(e.target.value)} />
             <input style={inputStyle()} placeholder="Referral fee (bps)" value={referralFeeBps} onChange={(e) => setReferralFeeBps(e.target.value)} />
+            <input style={inputStyle()} placeholder="Signer name" value={signedByName} onChange={(e) => setSignedByName(e.target.value)} />
+            <input style={inputStyle()} type="email" placeholder="Signer email" value={signedByEmail} onChange={(e) => setSignedByEmail(e.target.value)} />
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: c.textMuted }}>
+            Signer email is where this lender&apos;s deal notifications are sent. Leave it blank and Buddy
+            falls back to the bank&apos;s CRM contacts.
           </div>
           <button
             onClick={addLender}
@@ -214,6 +229,9 @@ export default function LendersPage() {
                 <div style={{ minWidth: 0, paddingRight: 12 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 600, color: c.paper }}>{l.name}</div>
                   <div style={{ fontSize: 10.5, color: c.textMuted }}>Signer · {l.agreement?.signed_by_name ?? "—"}</div>
+                  <div style={{ fontSize: 10.5, color: l.agreement?.signed_by_email ? c.textMuted : c.brick }}>
+                    {l.agreement?.signed_by_email ?? "no signer email · using CRM contacts"}
+                  </div>
                 </div>
                 <div style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 12.5, color: "#C9C3B6" }}>
                   {p?.min_dscr ?? "—"}

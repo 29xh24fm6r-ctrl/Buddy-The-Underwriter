@@ -46,6 +46,7 @@ type AgreementInput = {
   referralFeeBps?: number | string | null;
   acceptsSba7a?: boolean;
   signedByName?: string | null;
+  signedByEmail?: string | null;
 };
 
 type LenderInput = {
@@ -224,6 +225,7 @@ async function loadOneLender(sb: any, input: LenderInput): Promise<Record<string
     referral_fee_bps: num(a.referralFeeBps) ?? 100,
     accepts_sba_7a: a.acceptsSba7a !== false,
     signed_by_name: typeof a.signedByName === "string" && a.signedByName.trim() ? a.signedByName.trim() : null,
+    signed_by_email: typeof a.signedByEmail === "string" && a.signedByEmail.trim() ? a.signedByEmail.trim().toLowerCase() : null,
   };
 
   const { data: activeAgr } = await sb
