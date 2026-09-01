@@ -897,7 +897,7 @@ export async function generateTridentBundle(args: {
  * Best-effort by design: adoption is an optimisation, and a run that cannot
  * adopt simply regenerates. It must never be the reason a run fails.
  */
-async function adoptPriorRunArtifacts(
+export async function adoptPriorRunArtifacts(
   sb: ReturnType<typeof supabaseAdmin>,
   args: {
     bundleId: string;
