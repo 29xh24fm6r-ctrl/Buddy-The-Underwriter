@@ -19,7 +19,12 @@ export async function createLinkToken(args: CreateLinkTokenArgs): Promise<Create
     language: "en",
     country_codes: [CountryCode.Us],
     user: { client_user_id: `${args.dealId}:${args.ownershipEntityId}:${args.userId}` },
-    products: [Products.Transactions, Products.Auth, Products.Identity],
+    // Buddy's Plaid client is scoped to Identity + Transactions only (SPEC S2
+    // soft-data-only principle; Auth and Plaid Check are explicitly out of
+    // scope). Requesting the unauthorized Auth product was rejected by Plaid's
+    // /link/token/create with a 400, which broke every borrower bank-connect
+    // attempt in the /start funnel. Cherry-picked from PR #802.
+    products: [Products.Transactions, Products.Identity],
     webhook: process.env.PLAID_WEBHOOK_URL,
     redirect_uri: args.redirectUri,
   });
