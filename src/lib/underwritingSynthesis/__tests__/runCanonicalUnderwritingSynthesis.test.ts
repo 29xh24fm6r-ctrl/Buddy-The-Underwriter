@@ -97,7 +97,7 @@ describe("computeCollateralFactValues — LTV", () => {
     });
 
     // Default equipment advance rate = 0.75
-    const expectedNet = 500_000 * DEFAULT_ADVANCE_RATES.equipment;
+    const expectedNet = 500_000 * (DEFAULT_ADVANCE_RATES.equipment ?? 0);
     assert.equal(result.facts.COLLATERAL_NET_VALUE, expectedNet);
     assert.equal(result.facts.LTV_NET, 300_000 / expectedNet);
   });

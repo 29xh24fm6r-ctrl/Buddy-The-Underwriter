@@ -21,16 +21,12 @@ export type CollateralInput = {
 
 // ── Default advance rates (mirrors collateralLtv.ts) ─────────────────
 
-export const DEFAULT_ADVANCE_RATES: Record<string, number> = {
-  real_estate: 0.80,
-  equipment: 0.75,
-  accounts_receivable: 0.80,
-  inventory: 0.50,
-  blanket_lien: 0.70,
-  vehicle: 0.75,
-  other: 0.50,
-};
-
+/**
+ * Re-exported so existing importers keep working. The table itself now lives
+ * with the type union it is keyed by — see collateralTypes.ts for why they
+ * had drifted apart.
+ */
+export { DEFAULT_ADVANCE_RATES } from "@/lib/collateral/collateralTypes";
 // ── Sources & Uses ──────────────────────────────────────────────────────
 
 export function computeSourcesUsesFacts(input: {
@@ -64,6 +60,8 @@ export function computeSourcesUsesFacts(input: {
   return { facts, missing };
 }
 
+import { resolveAdvanceRate } from "@/lib/collateral/collateralTypes";
+
 // ── Collateral ──────────────────────────────────────────────────────────
 
 export function computeCollateralFactValues(input: {
@@ -88,9 +86,24 @@ export function computeCollateralFactValues(input: {
   let net = 0;
   for (const item of collateral) {
     const g = item.estimated_value ?? 0;
-    const rate = item.advance_rate ?? DEFAULT_ADVANCE_RATES[item.item_type] ?? 0.50;
     gross += g;
-    net += g * rate;
+
+    const resolution = resolveAdvanceRate(item);
+    if (resolution.status === "explicit" || resolution.status === "default") {
+      net += g * resolution.rate;
+      continue;
+    }
+
+    // No defensible rate. Contributing the item at a rate nobody chose is how
+    // a UCC lien came to be discounted at 50% instead of 70% with nothing
+    // recorded; contribute nothing to the lendable total and say why, so the
+    // gap is visible rather than priced in.
+    missing.push({
+      factKey: "COLLATERAL_NET_VALUE",
+      reason: resolution.status === "needs_banker_rate"
+        ? `collateral_advance_rate_required:${resolution.itemType}`
+        : `collateral_type_unrecognised:${resolution.itemType}`,
+    });
   }
 
   if (gross > 0) {
