@@ -77,6 +77,11 @@ function assertDbOk(error: QueryError, operation: string): void {
   }
 }
 
+function isUniqueViolation(error: QueryError): boolean {
+  const e = error as { code?: string; message?: string } | null | undefined;
+  return e?.code === "23505" || /duplicate key value violates unique constraint/i.test(e?.message ?? "");
+}
+
 function requireRow<T>(data: T | null | undefined, error: QueryError, operation: string): T {
   assertDbOk(error, operation);
   if (!data) throw new Error(`[comms-outbox] ${operation}: row_missing`);
@@ -107,12 +112,18 @@ export async function enqueueCommsMessage(
   args: EnqueueArgs,
   sb: SB,
 ): Promise<{ id: string; created: boolean }> {
-  // Idempotency: check existing non-terminal item with same key
+  // Idempotency is the key alone, because that is what the unique index on
+  // idempotency_key enforces. This lookup used to filter to non-terminal
+  // statuses, which meant a message that had already SENT was invisible here
+  // and the insert below then collided with its own index — surfacing a 23505
+  // as an orchestration_error on every scheduled run once the first batch went
+  // out. Callers build keys that already carry the window they mean to dedupe
+  // over (`banker_alert:<deal>:<channel>:<purpose>:<day>`), so a key that
+  // exists in any state means the work it names is already done.
   const { data: existing, error: lookupError } = await sb
     .from("brokerage_comms_outbox")
     .select("id, status")
     .eq("idempotency_key", args.idempotencyKey)
-    .in("status", ["pending", "sending", "retry_scheduled"])
     .limit(1)
     .maybeSingle();
 
@@ -142,6 +153,18 @@ export async function enqueueCommsMessage(
     })
     .select("id")
     .single();
+
+  // A unique violation here is two runs racing on the same key, not a fault:
+  // the other one won, so adopt its row rather than failing the batch.
+  if (isUniqueViolation(insertError)) {
+    const { data: raced } = await sb
+      .from("brokerage_comms_outbox")
+      .select("id")
+      .eq("idempotency_key", args.idempotencyKey)
+      .limit(1)
+      .maybeSingle();
+    if (raced) return { id: String(raced.id), created: false };
+  }
 
   const insertedRow = requireRow<Row>(inserted, insertError, "enqueue_insert");
   return { id: String(insertedRow.id), created: true };
