@@ -43,6 +43,7 @@ paths = [
   '''src/lib/demo/.*''',
   '''src/lib/spreads/.*''',
   '''src/lib/extractors/.*''',
+  '''scripts/guards/schema-columns\.json$''',  # generated schema snapshot — table and column identifiers only, no values
   '''.*__tests__/.*''',
   '''goldens/.*''',
   '''tests/.*''',
