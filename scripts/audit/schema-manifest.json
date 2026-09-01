@@ -603,5 +603,15 @@
     "name": "deals.intake_mode",
     "type": "column",
     "migration": "20260831140000_crm_relationship_intelligence.sql"
+  },
+  {
+    "name": "buddy_sba_packages.verification_input_hash",
+    "type": "column",
+    "migration": "20260901120000_artifact_verification_input_hash.sql"
+  },
+  {
+    "name": "buddy_feasibility_studies.verification_input_hash",
+    "type": "column",
+    "migration": "20260901120000_artifact_verification_input_hash.sql"
   }
 ]
