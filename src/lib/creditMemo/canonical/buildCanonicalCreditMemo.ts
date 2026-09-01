@@ -30,6 +30,7 @@ import type { UnderwritingResults } from "@/lib/finance/underwriting/results";
 import { loadResearchForMemo } from "@/lib/creditMemo/canonical/loadResearchForMemo";
 import { buildBalanceSheetTable } from "@/lib/creditMemo/canonical/buildBalanceSheetTable";
 import { buildRatioAnalysisSuite } from "@/lib/creditMemo/canonical/buildRatioAnalysisSuite";
+import { resolveMemoThresholds } from "@/lib/creditMemo/canonical/memoThresholdAuthority";
 import { buildStressTestTable } from "@/lib/creditMemo/canonical/buildStressTestTable";
 import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 import { buildQualitativeAssessment } from "@/lib/creditMemo/canonical/buildQualitativeAssessment";
@@ -757,6 +758,16 @@ export async function buildCanonicalCreditMemo(args: {
           ? { value: dealAmount, source: "Deal:loan_amount", updated_at: null }
           : pendingMetric();
 
+    // ===== Threshold authority =====
+    // Every coverage threshold this memo cites, resolved once. Before this,
+    // seven places decided the DSCR floor independently and five of them
+    // typed 1.25 while the governed floor for a small 7(a) is 1.20 — which
+    // shipped fabricated policy breaches to lenders. See
+    // memoThresholdAuthority.ts for the full account.
+    const memoThresholds = resolveMemoThresholds({
+      productId: policyProductId(loanReq?.product_type, loanAmount.value),
+    });
+
     // ===== Phase 1A: debt_yield and cap_rate =====
     const noiForRatios = metricValueFromSnapshot({ snapshot, metric: "noi_ttm", label: "NOI TTM" });
     const debtYield = (noiForRatios.value !== null && loanAmount.value !== null && loanAmount.value > 0)
@@ -770,8 +781,8 @@ export async function buildCanonicalCreditMemo(args: {
     // The old computeDealScore (DSCR-only, max 44, always D) is no longer used for risk grade.
     // Risk factors are now derived from the conventional multi-factor model built later.
     const riskFactors: Array<{ risk: string; severity: "low" | "medium" | "high"; mitigants: string[] }> = [];
-    if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < 1.25 && !riskFactors.some(r => r.risk.includes("DSCR"))) {
-      riskFactors.push({ risk: `Below-policy DSCR (${financial.dscrGlobal.value.toFixed(2)}x vs 1.25x minimum)`, severity: "high", mitigants: ["Consider additional collateral or guarantor support"] });
+    if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < memoThresholds.dscr.value && !riskFactors.some(r => r.risk.includes("DSCR"))) {
+      riskFactors.push({ risk: `Below-policy DSCR (${financial.dscrGlobal.value.toFixed(2)}x vs ${memoThresholds.dscr.label} minimum)`, severity: "high", mitigants: ["Consider additional collateral or guarantor support"] });
     }
     if (financial.dscrStressed300bps.value !== null && financial.dscrStressed300bps.value < 1.0) {
       riskFactors.push({ risk: `Stress sensitivity — stressed DSCR (${financial.dscrStressed300bps.value.toFixed(2)}x) below 1.0x`, severity: "high", mitigants: ["Consider interest rate cap or additional reserves"] });
@@ -779,8 +790,13 @@ export async function buildCanonicalCreditMemo(args: {
 
     // ===== Phase 1E: Policy exceptions =====
     const policyExceptions: Array<{ exception: string; rationale: string }> = [];
-    if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < 1.25) {
-      policyExceptions.push({ exception: `DSCR of ${financial.dscrGlobal.value.toFixed(2)}x is below policy minimum of 1.25x`, rationale: "Requires senior credit officer approval and enhanced monitoring" });
+    if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < memoThresholds.dscr.value) {
+      policyExceptions.push({
+        exception: `DSCR of ${financial.dscrGlobal.value.toFixed(2)}x is below policy minimum of ${memoThresholds.dscr.label}`,
+        rationale: memoThresholds.dscr.citation
+          ? `Requires senior credit officer approval and enhanced monitoring. Floor per ${memoThresholds.dscr.citation}.`
+          : "Requires senior credit officer approval and enhanced monitoring",
+      });
     }
     // LTV is stored as 0-100 pct (e.g. 49.88 = 49.88%), so compare against 80 not 0.80
     if (ltvGross.value !== null && ltvGross.value > 80) {
@@ -1073,7 +1089,7 @@ export async function buildCanonicalCreditMemo(args: {
       };
     } else {
       const uwResults: UnderwritingResults = {
-        policy_min_dscr: 1.25,
+        policy_min_dscr: memoThresholds.dscr.value,
         annual_debt_service: adsVal,
         worst_year: worstYear,
         worst_dscr: worstDscr ?? financial.dscrGlobal.value,
@@ -1094,6 +1110,7 @@ export async function buildCanonicalCreditMemo(args: {
       const revForRating = metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Rev" }).value;
       const conventionalRating = buildConventionalRiskRating({
         dscr: financial.dscrGlobal.value,
+        dscrFloor: memoThresholds.dscr.value,
         stressedDscr: financial.dscrStressed300bps.value,
         worstYearDscr: worstDscr,
         cfadsTrend,
@@ -1313,6 +1330,10 @@ export async function buildCanonicalCreditMemo(args: {
       seasonalityNote: seasonalityForContext,
       stressBreakevenRevenue: stressTable?.breakeven_revenue_1x ?? null,
       stressBreakevenEbitda125x: stressTable?.breakeven_ebitda_125x ?? null,
+      // One resolution, shared by every threshold the memo cites.
+      dscrFloor: memoThresholds.dscr.value,
+      fccrFloor: memoThresholds.fccr.value,
+      dscrStrongAt: memoThresholds.dscrStrong.value,
     };
 
     // ===== Phase BS: Build balance sheet table (permanent fix) =====
@@ -1401,7 +1422,7 @@ export async function buildCanonicalCreditMemo(args: {
     if (arAgingResult?.data && isLOC) {
       weaknesses.push({ point: "AR borrowing base requires ongoing monitoring (monthly aging, concentration limits)", mitigant: "Monthly borrowing base certificate and aging report covenanted" });
     }
-    // Strong DSCR as strength (beyond 1.25)
+    // Strong DSCR as strength — well clear of the governed floor
     if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 2.0) {
       strengths.push({ point: `Strong debt service coverage (${financial.dscrGlobal.value.toFixed(2)}x) provides deep repayment cushion`, detail: null });
     }
@@ -1418,8 +1439,8 @@ export async function buildCanonicalCreditMemo(args: {
         ? Math.min(...(stressTable.scenarios as any[]).filter((s: any) => s.stressed_dscr !== null).map((s: any) => s.stressed_dscr))
         : null;
       if (worstScenarioDscr !== null && Number.isFinite(worstScenarioDscr)) {
-        if (worstScenarioDscr >= 1.25) {
-          strengths.push({ point: `Stress testing passed — worst-case DSCR ${worstScenarioDscr.toFixed(2)}x exceeds policy floor`, detail: null });
+        if (worstScenarioDscr >= memoThresholds.dscr.value) {
+          strengths.push({ point: `Stress testing passed — worst-case DSCR ${worstScenarioDscr.toFixed(2)}x exceeds the ${memoThresholds.dscr.label} policy floor`, detail: null });
         } else if (worstScenarioDscr < 1.0) {
           weaknesses.push({ point: `Stress scenario breaches coverage (worst-case DSCR ${worstScenarioDscr.toFixed(2)}x)`, mitigant: "Consider rate cap or additional reserves" });
         }
@@ -1969,8 +1990,8 @@ export async function buildCanonicalCreditMemo(args: {
         let creditView: string;
         if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 2.0 && sponsor?.netWorth != null && sponsor.netWorth > 0) {
           creditView = `Primary repayment is borrower operating cash flow. Available borrower CFADS and stress testing support repayment capacity (DSCR ${financial.dscrGlobal.value.toFixed(2)}x). Guarantor PFS provides substantial secondary support through net worth (${formatCurrencySimple(sponsor.netWorth)}). Incomplete formal GCF is a documentation/diligence gap, not a primary repayment failure, but must be acknowledged or completed per bank policy.`;
-        } else if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 1.25) {
-          creditView = "Primary repayment is borrower operating cash flow. Borrower coverage meets policy minimum. Guarantor support analysis is limited by incomplete GCF data — recommend completion before final approval.";
+        } else if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= memoThresholds.dscr.value) {
+          creditView = `Primary repayment is borrower operating cash flow. Borrower coverage meets the ${memoThresholds.dscr.label} policy minimum. Guarantor support analysis is limited by incomplete GCF data — recommend completion before final approval.`;
         } else {
           creditView = "Borrower repayment capacity requires further analysis. Formal global cash flow should be completed to assess total guarantor support.";
         }
