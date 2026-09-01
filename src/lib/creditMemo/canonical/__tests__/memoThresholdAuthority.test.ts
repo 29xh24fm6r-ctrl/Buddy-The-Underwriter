@@ -91,12 +91,17 @@ test("the risk grade is scored against the governed floor, not a literal", () =>
     collateralCoverageRatio: 1.4,
     arBorrowingBaseAvailable: false,
     guarantorNetWorth: 500_000,
-    guarantorLiquidity: 100_000,
-    yearsInBusiness: 9,
-    industryRisk: "moderate" as const,
-    managementDepth: "adequate" as const,
+    currentRatio: 1.8,
+    debtToEquity: 0.9,
+    grossMarginPct: 0.32,
+    managementYearsExperience: 9,
+    characterScore: 4,
+    gcfComplete: true,
+    formalDiligenceComplete: true,
+    customerConcentrationRisk: false,
+    hasAdverseFindings: false,
     financialStatementQuality: "tax_returns" as const,
-  } as Parameters<typeof buildConventionalRiskRating>[0];
+  };
 
   const small = buildConventionalRiskRating({ ...base, dscrFloor: 1.2 });
   const standard = buildConventionalRiskRating({ ...base, dscrFloor: 1.25 });
