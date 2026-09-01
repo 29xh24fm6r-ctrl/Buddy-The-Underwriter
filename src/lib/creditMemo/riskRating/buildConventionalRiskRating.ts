@@ -38,6 +38,17 @@ export const DEFAULT_RISK_SCALE: RiskGradeScale[] = [
 export type ConventionalRiskRatingInput = {
   // Quantitative
   dscr: number | null;
+  /**
+   * Governed DSCR floor for this deal, from resolveMemoThresholds.
+   *
+   * Required, deliberately. These bands used to compare against a literal
+   * 1.25, which mis-grades every product whose governed floor differs — a
+   * small 7(a)'s floor is 1.20, so a 1.22x deal scored "below policy minimum"
+   * while clearing policy, and that grade then drove the covenant package.
+   * An optional field with a fallback would just relocate the literal, so the
+   * caller has to resolve it.
+   */
+  dscrFloor: number;
   stressedDscr: number | null;
   worstYearDscr: number | null;
   cfadsTrend: "up" | "down" | "flat" | "unknown";
@@ -101,14 +112,17 @@ export function buildConventionalRiskRating(
 
   let qScore = 0;
 
-  // DSCR (0-20)
+  // DSCR (0-20). Bands are relative to the governed floor, not a literal.
+  const dscrFloor = input.dscrFloor;
+  const wellAbove = Math.round(dscrFloor * 1.6 * 100) / 100;
+  const above = Math.round(dscrFloor * 1.2 * 100) / 100;
   if (input.dscr !== null) {
-    if (input.dscr >= 2.0) { qScore += 20; drivers.push({ factor: "DSCR", impact: "positive", detail: `${input.dscr.toFixed(2)}x — strong repayment capacity` }); }
-    else if (input.dscr >= 1.5) { qScore += 16; drivers.push({ factor: "DSCR", impact: "positive", detail: `${input.dscr.toFixed(2)}x — above policy minimum` }); }
-    else if (input.dscr >= 1.25) { qScore += 12; drivers.push({ factor: "DSCR", impact: "neutral", detail: `${input.dscr.toFixed(2)}x — meets policy minimum` }); }
-    else if (input.dscr >= 1.0) { qScore += 6; drivers.push({ factor: "DSCR", impact: "negative", detail: `${input.dscr.toFixed(2)}x — below policy minimum` }); }
+    if (input.dscr >= wellAbove) { qScore += 20; drivers.push({ factor: "DSCR", impact: "positive", detail: `${input.dscr.toFixed(2)}x — strong repayment capacity` }); }
+    else if (input.dscr >= above) { qScore += 16; drivers.push({ factor: "DSCR", impact: "positive", detail: `${input.dscr.toFixed(2)}x — above the ${dscrFloor.toFixed(2)}x policy minimum` }); }
+    else if (input.dscr >= dscrFloor) { qScore += 12; drivers.push({ factor: "DSCR", impact: "neutral", detail: `${input.dscr.toFixed(2)}x — meets the ${dscrFloor.toFixed(2)}x policy minimum` }); }
+    else if (input.dscr >= 1.0) { qScore += 6; drivers.push({ factor: "DSCR", impact: "negative", detail: `${input.dscr.toFixed(2)}x — below the ${dscrFloor.toFixed(2)}x policy minimum` }); }
     else { qScore += 0; drivers.push({ factor: "DSCR", impact: "negative", detail: `${input.dscr.toFixed(2)}x — inadequate coverage` }); }
-    bridge.push({ category: "Repayment capacity", assessment: `DSCR ${input.dscr.toFixed(2)}x`, impact: input.dscr >= 1.25 ? "positive" : "negative" });
+    bridge.push({ category: "Repayment capacity", assessment: `DSCR ${input.dscr.toFixed(2)}x`, impact: input.dscr >= dscrFloor ? "positive" : "negative" });
   } else {
     drivers.push({ factor: "DSCR", impact: "negative", detail: "Not computed — material data gap" });
     bridge.push({ category: "Repayment capacity", assessment: "DSCR not available", impact: "negative" });
@@ -116,7 +130,7 @@ export function buildConventionalRiskRating(
 
   // Stressed DSCR (0-10)
   if (input.stressedDscr !== null) {
-    if (input.stressedDscr >= 1.25) { qScore += 10; }
+    if (input.stressedDscr >= dscrFloor) { qScore += 10; }
     else if (input.stressedDscr >= 1.0) { qScore += 6; }
     else { qScore += 2; drivers.push({ factor: "Stress sensitivity", impact: "negative", detail: `Stressed DSCR ${input.stressedDscr.toFixed(2)}x below 1.0x` }); }
     bridge.push({ category: "Stress resilience", assessment: `Stressed DSCR ${input.stressedDscr.toFixed(2)}x`, impact: input.stressedDscr >= 1.0 ? "positive" : "negative" });

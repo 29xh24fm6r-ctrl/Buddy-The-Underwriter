@@ -2229,6 +2229,7 @@
 "status",
 "updated_at",
 "verification_flagged_claims",
+"verification_input_hash",
 "verification_verdict",
 "version_number"
 ],
@@ -2891,6 +2892,7 @@
 "swot_weaknesses",
 "use_of_proceeds",
 "verification_flagged_claims",
+"verification_input_hash",
 "verification_verdict",
 "version_number"
 ],

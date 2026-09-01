@@ -72,6 +72,7 @@ describe("BOUNDARY §3 — Conventional rating is memo-facing", () => {
     const { buildConventionalRiskRating } = require("@/lib/creditMemo/riskRating/buildConventionalRiskRating");
     const result = buildConventionalRiskRating({
       dscr: 2.0, stressedDscr: 1.5, worstYearDscr: 1.8,
+      dscrFloor: 1.25,
       cfadsTrend: "flat", revenueTrend: "flat",
       ltvPct: 65, collateralCoverageRatio: 1.5,
       arBorrowingBaseAvailable: false,
@@ -149,6 +150,7 @@ describe("BOUNDARY §7 — OmniCare profile does not produce D", () => {
     const { buildConventionalRiskRating } = require("@/lib/creditMemo/riskRating/buildConventionalRiskRating");
     const r = buildConventionalRiskRating({
       dscr: 7.12, stressedDscr: 4.93, worstYearDscr: 2.03,
+      dscrFloor: 1.25,
       cfadsTrend: "down", revenueTrend: "down",
       ltvPct: 49.88, collateralCoverageRatio: 1.60,
       arBorrowingBaseAvailable: true,

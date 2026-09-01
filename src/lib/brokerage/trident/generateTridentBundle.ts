@@ -238,6 +238,30 @@ export async function generateTridentBundle(args: {
   if (existingError || !existing) {
     return { ok: false, bundleId, error: existingError?.message ?? "Trident lease lost" };
   }
+
+  // Ratchet across runs.
+  //
+  // acquire_trident_bundle_run inserts a fresh row on every attempt, and every
+  // resume path below reads from that row — so a failed run threw away the
+  // artifacts it had already produced and re-earned each of the three review
+  // verdicts from scratch. With the gates measuring ~39% each, retries
+  // re-rolled all three rather than accumulating; 916 runs, 0 published.
+  //
+  // input_hash is the frozen snapshot of this deal's inputs. A prior bundle
+  // carrying the same hash was built from identical evidence, so its artifacts
+  // are still the right artifacts. Adopting them lets a retry start from what
+  // already succeeded, and the per-artifact content hash decides whether the
+  // review itself can be reused.
+  const adopted = await adoptPriorRunArtifacts(sb, {
+    bundleId,
+    dealId,
+    bankId: admittedBankId,
+    mode,
+    inputHash: admittedInputHash,
+    leaseToken: admittedLeaseToken,
+    current: existing as Record<string, unknown>,
+  });
+
   await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
 
   return runWithAIExecutionContext(
@@ -254,8 +278,8 @@ export async function generateTridentBundle(args: {
     async () => {
   try {
     // 1. SBA package (business plan PDF + package row).
-    const resumedSbaPackageId = (existing.source_sba_package_id as string | null | undefined) ?? null;
-    const completedBusinessPlanPath = (existing.business_plan_pdf_path as string | null | undefined) ?? null;
+    const resumedSbaPackageId = (adopted.source_sba_package_id as string | null | undefined) ?? null;
+    const completedBusinessPlanPath = (adopted.business_plan_pdf_path as string | null | undefined) ?? null;
     const sbaResult = args.sbaCheckpoint ?? (resumedSbaPackageId && completedBusinessPlanPath
       ? ({ ok: true, packageId: resumedSbaPackageId, pdfUrl: null, renderInput: null } as const)
       : await generateSBAPackage(dealId, { mode }));
@@ -422,7 +446,7 @@ export async function generateTridentBundle(args: {
     }
 
     // 2. Projections XLSX — final mode only.
-    let projectionsXlsxPath = (existing.projections_xlsx_path as string | null | undefined) ?? null;
+    let projectionsXlsxPath = (adopted.projections_xlsx_path as string | null | undefined) ?? null;
     const newProjectionObjects: NewlyUploadedObject[] = [];
     if (mode === "final" && !projectionsXlsxPath) {
       const { data: pkgRow, error: pkgRowError } = await sb
@@ -464,7 +488,7 @@ export async function generateTridentBundle(args: {
     // file: the redaction is at the data layer, not just a watermark, so
     // the raw workbook can't be uncovered by stripping a layer or copying
     // the page. Final unwatermarked workbook ships at lender pick.
-    let projectionsPdfPath = (existing.projections_pdf_path as string | null | undefined) ?? null;
+    let projectionsPdfPath = (adopted.projections_pdf_path as string | null | undefined) ?? null;
     let projectionsPreviewError: string | null = null;
     if (mode === "preview" && !projectionsPdfPath) {
       try {
@@ -574,9 +598,12 @@ export async function generateTridentBundle(args: {
     // 3. Feasibility — call engine; for preview, re-render with redaction.
     let feasibilityPdfPath: string | null = null;
     let sourceFeasibilityId: string | null = null;
+    // Reviewer warnings that survived repair on the feasibility study. They do
+    // not block publication; the release manifest discloses them.
+    let feasibilityAdvisoryCount = 0;
     try {
       const resumedFeasibilityId =
-        (existing.source_feasibility_id as string | null | undefined) ?? null;
+        (adopted.source_feasibility_id as string | null | undefined) ?? null;
       const feasResult = resumedFeasibilityId
         ? await loadFeasibilityStudyResult({
             studyId: resumedFeasibilityId,
@@ -615,7 +642,7 @@ export async function generateTridentBundle(args: {
           });
         }
         if (mode === "final" && sourceFeasibilityId && feasResult.composite) {
-          const feasibilityVerification = await reviewFeasibilityWithRetry({
+          const feasibilityVerification: Awaited<ReturnType<typeof reviewFeasibilityWithRetry>> = await reviewFeasibilityWithRetry({
             dealId,
             bankId: deal.bank_id,
             studyId: sourceFeasibilityId,
@@ -641,6 +668,7 @@ export async function generateTridentBundle(args: {
                 (findings ? ` — ${findings}` : ""),
             );
           }
+          feasibilityAdvisoryCount = feasibilityVerification.advisoryCount;
         }
         if (mode === "final" && sourceFeasibilityId) {
           const { data: feasibilityRow, error: feasibilityReadError } = await sb
@@ -790,6 +818,8 @@ export async function generateTridentBundle(args: {
         feasibilityVerdict: releaseFeasibility?.verification_verdict,
         feasibilityCompleteness: releaseFeasibility?.data_completeness,
         feasibilityMissingEvidence: missingFeasibilityEvidence,
+        businessPlanAdvisoryCount: businessPlanVerification?.advisoryCount ?? 0,
+        feasibilityAdvisoryCount: feasibilityAdvisoryCount,
         feasibilityCitationCount: citationCount,
         projectionsNarrative: releasePkg?.projections_assumptions_narrative,
         sourcesAndUses: releasePkg?.sources_and_uses,
@@ -851,6 +881,85 @@ export async function generateTridentBundle(args: {
   }
     },
   );
+}
+
+/**
+ * Seed a freshly-admitted bundle from the newest prior run built on the same
+ * frozen inputs.
+ *
+ * Only fields the current run has not already produced are adopted, and only
+ * from a bundle carrying the identical input_hash — the snapshot of the deal's
+ * evidence — so nothing is inherited across a change the borrower made. The
+ * write is lease-guarded like every other write in this file and returns the
+ * row it wrote, so a lost lease surfaces here rather than silently leaving the
+ * run to redo work it thought it had adopted.
+ *
+ * Best-effort by design: adoption is an optimisation, and a run that cannot
+ * adopt simply regenerates. It must never be the reason a run fails.
+ */
+export async function adoptPriorRunArtifacts(
+  sb: ReturnType<typeof supabaseAdmin>,
+  args: {
+    bundleId: string;
+    dealId: string;
+    bankId: string;
+    mode: TridentBundleMode;
+    inputHash: string;
+    leaseToken: string;
+    current: Record<string, unknown>;
+  },
+): Promise<Record<string, unknown>> {
+  const ADOPTABLE = [
+    "source_sba_package_id",
+    "business_plan_pdf_path",
+    "projections_pdf_path",
+    "projections_xlsx_path",
+    "source_feasibility_id",
+    "feasibility_pdf_path",
+  ] as const;
+
+  // Nothing to fill in.
+  if (ADOPTABLE.every((f) => args.current[f] != null)) return args.current;
+
+  try {
+    const { data: prior } = await sb
+      .from("buddy_trident_bundles")
+      .select(ADOPTABLE.join(",") as string)
+      .eq("deal_id", args.dealId)
+      .eq("bank_id", args.bankId)
+      .eq("mode", args.mode)
+      .eq("input_hash", args.inputHash)
+      .neq("id", args.bundleId)
+      .order("generation_started_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (!prior) return args.current;
+
+    const patch: Record<string, unknown> = {};
+    for (const field of ADOPTABLE) {
+      const inherited = (prior as unknown as Record<string, unknown>)[field];
+      if (args.current[field] == null && inherited != null) patch[field] = inherited;
+    }
+    if (Object.keys(patch).length === 0) return args.current;
+
+    const { data: written, error } = await sb
+      .from("buddy_trident_bundles")
+      .update(patch)
+      .eq("id", args.bundleId)
+      .eq("lease_token", args.leaseToken)
+      .select("id")
+      .maybeSingle();
+    if (error || !written) {
+      console.warn("[trident] prior-run adoption not persisted:", error?.message ?? "lease no longer held");
+      return args.current;
+    }
+
+    console.info("[trident] adopted prior-run artifacts for identical inputs:", Object.keys(patch).join(", "));
+    return { ...args.current, ...patch };
+  } catch (err) {
+    console.warn("[trident] prior-run adoption skipped:", err instanceof Error ? err.message : String(err));
+    return args.current;
+  }
 }
 
 async function reviewFeasibilityWithRetry(

@@ -40,10 +40,11 @@ type PolicyAxisDef = {
   byProduct?: Record<string, { regulatoryFloor?: number | null; institutionalOverlay?: number | null; citation?: string }>;
   /**
    * Optional new-business variant — takes priority over byProduct when
-   * ctx.isNewBusiness is true, since SOP 50 10 8's new-business DSCR
-   * standard (§B Ch.1) applies uniformly across 7(a) small/standard/504,
-   * not layered by loan-size product tier the way the established-business
-   * floor/overlay is.
+   * ctx.isNewBusiness is true. Use ONLY where a governing authority actually
+   * prescribes a distinct new-business standard for the axis. dscr_floor
+   * previously carried a 1.25x variant here citing "SOP 50 10 8 §B Ch.1";
+   * verification against the published SOP found no such standard — see the
+   * dscr_floor axis note (2026-09-01 SOP alignment).
    */
   newBusiness?: { regulatoryFloor?: number | null; institutionalOverlay?: number | null; citation?: string };
   notes?: string;
@@ -59,21 +60,39 @@ const AXES: Record<string, PolicyAxisDef> = {
   dscr_floor: {
     axis: "dscr_floor",
     direction: "floor",
-    regulatoryFloor: 1.1, // SBA Small default
-    institutionalOverlay: 1.2,
-    citation: "SBA SOP 50 10 8 §B Credit Standards; institutional overlay (POLICY_DEFAULTS.dscr_minimum)",
-    asOf: "2025-06-01",
+    // 2026-09-01 SOP alignment (M. Paller directive): Buddy underwrites SBA
+    // deals to the SBA's own published floor, not a stricter invented overlay.
+    // An overlay above the SOP fails deals the SBA would accept, and produced
+    // fabricated "below policy minimum" exceptions in shipped memos. The
+    // institutional overlays on SBA products are therefore null; the top-level
+    // default is the Standard 7(a) floor for when no product resolves.
+    regulatoryFloor: 1.15,
+    institutionalOverlay: null,
+    citation: "SBA SOP 50 10 8 (eff. 2025-06-01) — Standard 7(a) DSCR ≥ 1.15x (EBITDA ÷ total post-transaction debt service), historical or projected basis",
+    asOf: "2026-09-01",
     byProduct: {
-      SBA_7A_SMALL: { regulatoryFloor: 1.1, institutionalOverlay: 1.2, citation: "SOP 50 10 8 §B Ch.1 — Small 7(a) ≥ 1.10x" },
-      SBA_7A_STANDARD: { regulatoryFloor: 1.15, institutionalOverlay: 1.25, citation: "SOP 50 10 8 §B Ch.1 — Standard 7(a) ≥ 1.15x" },
-      SBA_504: { regulatoryFloor: 1.15, institutionalOverlay: 1.25, citation: "SOP 50 10 8 §B — 504 ≥ 1.15x" },
-      CI_TERM: { regulatoryFloor: null, institutionalOverlay: 1.25, citation: "Institutional C&I DSCR overlay (POLICY_DEFAULTS.dscr_minimum 1.25)" },
+      SBA_7A_SMALL: { regulatoryFloor: 1.1, institutionalOverlay: null, citation: "SOP 50 10 8 + SBA Procedural Notices 5000-875701 / 5000-876777 (eff. 2026-03-01) — 7(a) Small (≤ $350K) DSCR ≥ 1.10:1, historical and/or projected basis" },
+      SBA_7A_STANDARD: { regulatoryFloor: 1.15, institutionalOverlay: null, citation: "SOP 50 10 8 — Standard 7(a) (> $350K) DSCR ≥ 1.15:1, historical or projected basis" },
+      SBA_504: { regulatoryFloor: 1.15, institutionalOverlay: null, citation: "SOP 50 10 8 — 504 project-level coverage ≥ 1.15x (global coverage ≥ 1.00x by convention)" },
+      CI_TERM: { regulatoryFloor: null, institutionalOverlay: 1.25, citation: "Institutional C&I DSCR overlay (POLICY_DEFAULTS.dscr_minimum 1.25) — non-SBA product; SOP alignment does not apply" },
     },
-    // A business generating revenue for ≤24 months requires PROJECTED (not
-    // historical) DSCR analysis at a stricter floor, uniformly across 7(a)
-    // small/standard/504 — see src/lib/sba/newBusinessProtocol.ts, which this
-    // axis replaces as the single source of truth for the threshold value.
-    newBusiness: { regulatoryFloor: 1.25, institutionalOverlay: null, citation: "SOP 50 10 8 §B Ch.1 — new business (≤24mo) projected DSCR ≥ 1.25x" },
+    // NO newBusiness variant, deliberately (2026-09-01). The prior 1.25x
+    // "new business (≤24mo) projected DSCR" variant cited SOP 50 10 8 §B Ch.1;
+    // verification against the published SOP and the Mar-2026 small-loan
+    // notices found no elevated startup DSCR floor anywhere in 50 10 8 —
+    // startups carry their product's floor, projections permitted, and the
+    // startup-specific rule is the 10% equity injection (its own axis below).
+    // The uniform 1.25 was a codified fiction that judged every startup —
+    // including Buddy's own demo deal — against a bar the SBA does not set.
+    //
+    // SOP 50 10 8.1 (issued 2026-08-14; applies to SBA loan numbers issued on
+    // or after 2026-10-01 per Notice 5000-880695) DOES set 1.25x — but only
+    // for change-of-ownership deals under Appendix 15 (Initial Acquisitions,
+    // Owner Buyouts, ESOPs), measured on HISTORICAL earnings (last FYE or
+    // 2-yr average; projections may NOT be used), with Business Expansions
+    // staying at 1.15x and 7(a) Small underwriting unavailable for any change
+    // of ownership. The registry cannot express transaction type yet.
+    notes: "Before 2026-10-01: plumb ctx.transactionType and add the SOP 50 10 8.1 Appendix 15 change-of-ownership floors (1.25x historical for initial acquisition / owner buyout / ESOP; 1.15x expansion; no 7(a) Small path). A startup is NOT a change of ownership.",
   },
   fccr_floor: {
     axis: "fccr_floor",
@@ -262,9 +281,9 @@ function layerFor(
   productId?: string | null,
   isNewBusiness?: boolean,
 ): { floor: number | null; overlay: number | null; citation: string } {
-  // New-business takes priority over byProduct — SOP's new-business standard
-  // applies uniformly regardless of loan-size product tier (see newBusiness's
-  // doc comment on PolicyAxisDef).
+  // New-business takes priority over byProduct — used only where a governing
+  // authority prescribes a distinct new-business standard for the axis (see
+  // newBusiness's doc comment on PolicyAxisDef).
   if (isNewBusiness && def.newBusiness) {
     const nb = def.newBusiness;
     return {

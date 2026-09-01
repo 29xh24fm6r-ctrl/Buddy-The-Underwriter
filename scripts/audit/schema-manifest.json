@@ -608,5 +608,15 @@
     "name": "lender_marketplace_agreements.signed_by_email",
     "type": "column",
     "migration": "20260901120000_lender_agreement_signer_email.sql"
+  },
+  {
+    "name": "buddy_sba_packages.verification_input_hash",
+    "type": "column",
+    "migration": "20260901130001_artifact_verification_input_hash.sql"
+  },
+  {
+    "name": "buddy_feasibility_studies.verification_input_hash",
+    "type": "column",
+    "migration": "20260901130001_artifact_verification_input_hash.sql"
   }
 ]
