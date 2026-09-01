@@ -69,7 +69,7 @@ export async function enrichFeasibilityStudy(args: {
   studyId: string;
   composite: CompositeFeasibilityScore;
   sb: SB;
-}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean }> {
+}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean; advisoryCount: number }> {
   const { dealId, bankId, studyId, composite, sb } = args;
 
   const { data: studyRow } = await sb
@@ -81,7 +81,7 @@ export async function enrichFeasibilityStudy(args: {
     .maybeSingle();
 
   const narratives = (studyRow?.narratives ?? null) as FeasibilityNarratives | null;
-  if (!narratives) return { verdict: null, repaired: false };
+  if (!narratives) return { verdict: null, repaired: false, advisoryCount: 0 };
 
   const { segments, allUrls } = await loadDealGroundingSegments(dealId, sb);
   const citations = attributeFeasibilityCitations(narratives, segments, allUrls);
@@ -304,5 +304,12 @@ export async function enrichFeasibilityStudy(args: {
       verification_flagged_claims: finished.flaggedClaims,
     })
     .eq("id", studyId);
-  return { verdict: finished.verdict, repaired: finished.repaired };
+  // Warnings that survived repair publish with the study and are disclosed as
+  // conditions; the count travels so the release manifest can say the study
+  // shipped with N advisories rather than leaving that only in the flag rows.
+  return {
+    verdict: finished.verdict,
+    repaired: finished.repaired,
+    advisoryCount: finished.advisoryIssues.length,
+  };
 }

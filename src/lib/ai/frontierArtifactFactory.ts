@@ -8,12 +8,23 @@ export type ArtifactSection = { key: string; text: string };
 
 export type FrontierArtifactResult = {
   sections: ArtifactSection[];
+  /**
+   * "flagged" means a CRITICAL finding survived the repair budget and the
+   * artifact must not publish. Surviving warnings do not make an artifact
+   * unpublishable — they are disclosed as conditions. See the account of the
+   * severity contract above finishInstitutionalArtifact.
+   */
   verdict: "pass" | "flagged";
   flaggedClaims: FlaggedClaim[];
   repaired: boolean;
   reviewPasses: number;
   /** Complete structured findings from the terminal independent review. */
   reviewIssues: ReviewIssue[];
+  /**
+   * Warnings that survived repair. The artifact publishes with these attached
+   * as conditions for banker sign-off rather than being discarded.
+   */
+  advisoryIssues: ReviewIssue[];
 };
 
 export type ReviewIssue = {
@@ -190,6 +201,32 @@ async function review(input: {
  * artifact upstream; Claude independently reviews it; GPT repairs only the
  * diagnosed defects; Claude then performs the release review. Human work is
  * reserved for issues that survive the repair cycle.
+ *
+ * ── The severity contract ───────────────────────────────────────────────
+ *
+ * Only a CRITICAL finding that survives the repair budget blocks publication.
+ * Warnings that survive are returned as `advisoryIssues` and disclosed on the
+ * deal as conditions.
+ *
+ * This used to filter `severity !== "info"`, which made a warning exactly as
+ * fatal as a critical: the caller turned any non-empty list into a FatalError
+ * that discarded the entire commissioning run. Three artifact gates each
+ * behaved that way, and every one had to return an empty list for a bundle to
+ * publish.
+ *
+ * The production record is unambiguous about what that cost. Across the whole
+ * system: 916 runs, 0 published. Measured per-gate pass rates of 12/31 on
+ * business plans and 5/13 on feasibility studies — around 39% each, so about
+ * 6% for the conjunction. And since 2026-08-20 not one blocking finding was
+ * rated critical: three warnings, one on a business plan and two on
+ * feasibility studies, are the entire reason those runs died.
+ *
+ * A warning is the reviewer saying "a lender should know this", not "this
+ * must not ship". Discarding a complete commissioning package over one is a
+ * miscalibration, and it silently discarded the disclosure too — the finding
+ * went into the failure string rather than in front of the banker who needed
+ * it. persistArtifactFlags already writes these to the deal as conditions;
+ * they now survive to be read.
  */
 export async function finishInstitutionalArtifact(input: {
   artifactType: ArtifactType;
@@ -210,9 +247,14 @@ export async function finishInstitutionalArtifact(input: {
   for (let cycle = 0; cycle <= 3; cycle += 1) {
     const issues = await review({ ...input, sections, npiTagged });
     reviewPasses += 1;
+    // Repair still attempts everything above info — a warning worth fixing is
+    // worth fixing. What changed is what happens to one that survives.
     remaining = issues.filter((issue) => issue.severity !== "info");
     if (remaining.length === 0) {
-      return { sections, verdict: "pass", flaggedClaims: [], repaired, reviewPasses, reviewIssues: [] };
+      return {
+        sections, verdict: "pass", flaggedClaims: [], repaired, reviewPasses,
+        reviewIssues: [], advisoryIssues: [],
+      };
     }
     if (cycle === 3) break;
 
@@ -258,12 +300,20 @@ export async function finishInstitutionalArtifact(input: {
     repaired = true;
   }
 
+  // The repair budget is spent. Split what survived: criticals block, warnings
+  // are disclosed.
+  const blocking = remaining.filter((issue) => issue.severity === "critical");
+  const advisory = remaining.filter((issue) => issue.severity === "warning");
+
   return {
     sections,
-    verdict: "flagged",
+    verdict: blocking.length > 0 ? "flagged" : "pass",
+    // Every surviving finding is still persisted as a condition, blocking or
+    // not — the banker sees the warnings either way.
     flaggedClaims: remaining.map(({ claim, reason, severity }) => ({ claim, reason, severity })),
     repaired,
     reviewPasses,
-    reviewIssues: remaining,
+    reviewIssues: blocking,
+    advisoryIssues: advisory,
   };
 }

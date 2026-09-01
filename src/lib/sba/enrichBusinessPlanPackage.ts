@@ -39,7 +39,7 @@ export async function enrichBusinessPlanPackage(args: {
   bankId: string;
   packageId: string;
   sb: SB;
-}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean; flaggedClaims: FlaggedClaim[] }> {
+}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean; flaggedClaims: FlaggedClaim[]; advisoryCount: number }> {
   const { dealId, bankId, packageId, sb } = args;
 
   const { data: pkg } = await sb
@@ -48,7 +48,7 @@ export async function enrichBusinessPlanPackage(args: {
     .eq("id", packageId)
     .maybeSingle();
 
-  if (!pkg) return { verdict: null, repaired: false, flaggedClaims: [] };
+  if (!pkg) return { verdict: null, repaired: false, flaggedClaims: [], advisoryCount: 0 };
 
   // Narratives are composed from deterministic calculations plus inputs the
   // borrower explicitly confirmed. Review against that same evidence set so
@@ -86,7 +86,7 @@ export async function enrichBusinessPlanPackage(args: {
       verification_verdict: null,
       verification_flagged_claims: null,
     }).eq("id", packageId);
-    return { verdict: null, repaired: false, flaggedClaims: [] };
+    return { verdict: null, repaired: false, flaggedClaims: [], advisoryCount: 0 };
   }
 
   const facts = {
@@ -126,6 +126,7 @@ export async function enrichBusinessPlanPackage(args: {
     .eq("id", packageId);
   return {
     verdict: finished.verdict,
+    advisoryCount: finished.advisoryIssues.length,
     repaired: finished.repaired,
     flaggedClaims: finished.flaggedClaims,
   };

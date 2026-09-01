@@ -574,6 +574,9 @@ export async function generateTridentBundle(args: {
     // 3. Feasibility — call engine; for preview, re-render with redaction.
     let feasibilityPdfPath: string | null = null;
     let sourceFeasibilityId: string | null = null;
+    // Reviewer warnings that survived repair on the feasibility study. They do
+    // not block publication; the release manifest discloses them.
+    let feasibilityAdvisoryCount = 0;
     try {
       const resumedFeasibilityId =
         (existing.source_feasibility_id as string | null | undefined) ?? null;
@@ -615,7 +618,7 @@ export async function generateTridentBundle(args: {
           });
         }
         if (mode === "final" && sourceFeasibilityId && feasResult.composite) {
-          const feasibilityVerification = await reviewFeasibilityWithRetry({
+          const feasibilityVerification: Awaited<ReturnType<typeof reviewFeasibilityWithRetry>> = await reviewFeasibilityWithRetry({
             dealId,
             bankId: deal.bank_id,
             studyId: sourceFeasibilityId,
@@ -641,6 +644,7 @@ export async function generateTridentBundle(args: {
                 (findings ? ` — ${findings}` : ""),
             );
           }
+          feasibilityAdvisoryCount = feasibilityVerification.advisoryCount;
         }
         if (mode === "final" && sourceFeasibilityId) {
           const { data: feasibilityRow, error: feasibilityReadError } = await sb
@@ -790,6 +794,8 @@ export async function generateTridentBundle(args: {
         feasibilityVerdict: releaseFeasibility?.verification_verdict,
         feasibilityCompleteness: releaseFeasibility?.data_completeness,
         feasibilityMissingEvidence: missingFeasibilityEvidence,
+        businessPlanAdvisoryCount: businessPlanVerification?.advisoryCount ?? 0,
+        feasibilityAdvisoryCount: feasibilityAdvisoryCount,
         feasibilityCitationCount: citationCount,
         projectionsNarrative: releasePkg?.projections_assumptions_narrative,
         sourcesAndUses: releasePkg?.sources_and_uses,

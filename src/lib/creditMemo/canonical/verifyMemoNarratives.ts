@@ -60,6 +60,8 @@ export async function verifyMemoNarratives(args: {
   repaired: boolean;
   reviewPasses: number;
   reviewIssues: ReviewIssue[];
+  /** Warnings that survived repair; disclosed as conditions, not blocking. */
+  advisoryIssues: ReviewIssue[];
 }) | null> {
   const { dealId, bankId, memo, narratives, sb } = args;
 
@@ -91,5 +93,6 @@ export async function verifyMemoNarratives(args: {
     repaired: finished.repaired,
     reviewPasses: finished.reviewPasses,
     reviewIssues: finished.reviewIssues,
+    advisoryIssues: finished.advisoryIssues,
   };
 }

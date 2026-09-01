@@ -12,6 +12,8 @@ function release(overrides: Record<string, unknown> = {}) {
     businessPlanVerdict: "pass",
     feasibilityVerdict: "pass",
     feasibilityCompleteness: 0.9,
+    businessPlanAdvisoryCount: 0,
+    feasibilityAdvisoryCount: 0,
     feasibilityMissingEvidence: [],
     feasibilityCitationCount: 3,
     projectionsNarrative: Array.from({ length: 40 }, () => "word").join(" "),
@@ -82,4 +84,21 @@ test("blocks a ready spread with unresolved accuracy blockers", () => {
   });
   assert.equal(result.ok, false);
   assert.ok(result.reasons.includes("canonical_spread_accuracy_blocked"));
+});
+
+test("publishing with surviving reviewer warnings is disclosed, not silent", () => {
+  // Warnings no longer discard a run, so the release manifest has to say the
+  // artifacts shipped carrying them — otherwise the disclosure disappears.
+  const gate = release({ businessPlanAdvisoryCount: 1, feasibilityAdvisoryCount: 2 });
+
+  assert.equal(gate.ok, true, "advisories must not block release");
+  assert.ok(
+    gate.warnings.some((w) => w === "artifacts_published_with_3_disclosed_reviewer_advisories"),
+    `expected a disclosure warning, got ${JSON.stringify(gate.warnings)}`,
+  );
+});
+
+test("a clean run carries no advisory disclosure", () => {
+  const gate = release();
+  assert.ok(!gate.warnings.some((w) => w.includes("advisories")));
 });
