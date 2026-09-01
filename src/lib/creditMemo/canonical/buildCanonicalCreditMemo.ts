@@ -241,7 +241,20 @@ export async function buildCanonicalCreditMemo(args: {
    * so it can neither be forged nor replayed.
    */
   accessGrant?: DealBankAccessGrant;
-}): Promise<{ ok: true; memo: CanonicalCreditMemoV1 } | { ok: false; error: string }> {
+}): Promise<
+  | {
+      ok: true;
+      memo: CanonicalCreditMemoV1;
+      /**
+       * Required narrative fields the contract validator reported missing.
+       * The preflight fails on these; assembly records them rather than
+       * throwing, so a person gets one legible list instead of the first
+       * problem encountered.
+       */
+      contractBlockers: string[];
+    }
+  | { ok: false; error: string }
+> {
   try {
     const mode: MemoRenderMode = args.renderMode ?? "internal_diagnostic";
     const sb = supabaseAdmin();
@@ -2231,7 +2244,9 @@ export async function buildCanonicalCreditMemo(args: {
       },
     };
 
-    // Phase 74: validate memo narrative contract (non-fatal, observability only)
+    // Phase 74: validate the memo narrative contract. A "block" result is
+    // collected here and surfaced by the preflight — see below.
+    const contractBlockers: string[] = [];
     try {
       const { validateMemoNarrative } = await import(
         "@/lib/agentWorkflows/contracts/memoSection.contract"
@@ -2245,10 +2260,29 @@ export async function buildCanonicalCreditMemo(args: {
       };
       const validation = validateMemoNarrative(narrativeForValidation);
       if (!validation.ok && validation.severity === "block") {
-        console.warn("[buildCanonicalCreditMemo] memo narrative contract BLOCK:", validation.errors?.issues?.length, "issues");
+        // This used to log and continue, under the comment "Contract
+        // validation must never block memo generation". A validator that
+        // returns severity "block" and is wired to do nothing is not a
+        // validator — it left a non-deterministic reviewer as the only thing
+        // between a structurally incomplete memo and a lender.
+        //
+        // "block" here means a REQUIRED narrative field is absent, which is
+        // a defect in the memo rather than a judgement call, so it is
+        // recorded on the memo for the preflight to fail on. Recorded rather
+        // than thrown: this runs deep inside assembly, and the preflight is
+        // where a person gets one legible list of everything wrong.
+        contractBlockers.push(
+          ...(validation.errors?.issues ?? []).map(
+            (issue) => `${issue.path.join(".") || "narrative"}: ${issue.message}`,
+          ),
+        );
       }
-    } catch {
-      // Contract validation must never block memo generation
+    } catch (err) {
+      // A validator that itself throws is a bug in the validator, not evidence
+      // about the memo — record it rather than treating the memo as clean.
+      contractBlockers.push(
+        `memo narrative contract validation threw: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     // Narrative trust: sanitize borrower story fields at render time.
@@ -2284,7 +2318,7 @@ export async function buildCanonicalCreditMemo(args: {
       }
     }
 
-    return { ok: true, memo };
+    return { ok: true, memo, contractBlockers };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };
