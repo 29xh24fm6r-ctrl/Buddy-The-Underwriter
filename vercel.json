@@ -9,6 +9,10 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/brokerage/comms/run?limit=25",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/jobs/worker/tick?type=SPREADS&batch_size=3",
       "schedule": "*/10 * * * *"
     },

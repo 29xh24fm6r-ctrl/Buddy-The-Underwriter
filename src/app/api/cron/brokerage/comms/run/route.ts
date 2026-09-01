@@ -16,7 +16,14 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+/**
+ * The batch itself. Both verbs run it: POST keeps the existing contract for
+ * manual and scripted invocation, GET exists because Vercel Cron issues GET
+ * and nothing else — a POST-only route is why this sender, though complete,
+ * had never once been invoked in production. Every other scheduled cron in
+ * this repo exports GET for the same reason.
+ */
+async function runCommsCron(request: Request, limitOverride?: number) {
   // 1. Auth
   const auth = verifyCronSecret(request);
   if (!auth.authorized) {
@@ -34,9 +41,14 @@ export async function POST(request: Request) {
 
   const sb = supabaseAdmin() as any;
   const mode = getCommsMode();
-  let body: Record<string, any> = {};
-  try { body = await request.json(); } catch { /* empty ok */ }
-  const limit = parseCronLimit(body);
+  let limit: number;
+  if (limitOverride !== undefined) {
+    limit = limitOverride;
+  } else {
+    let body: Record<string, any> = {};
+    try { body = await request.json(); } catch { /* empty ok */ }
+    limit = parseCronLimit(body);
+  }
 
   try {
     await emitCronStarted(sb, mode, limit);
@@ -66,4 +78,18 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return runCommsCron(request);
+}
+
+/**
+ * Vercel Cron calls this. The limit rides in the query string because a cron
+ * GET carries no body; auth is the Authorization: Bearer header Vercel sends,
+ * which verifyCronSecret already accepts.
+ */
+export async function GET(request: Request) {
+  const raw = Number(new URL(request.url).searchParams.get("limit"));
+  return runCommsCron(request, parseCronLimit({ limit: Number.isFinite(raw) ? raw : undefined }));
 }

@@ -48,10 +48,61 @@ export async function buildLenderMessage(trigger: string, ctx: LenderMessageCont
   return { trigger, channel: overrides?.channel ?? (str(t?.channel) as LenderChannel) ?? fb.channel, subject: str(t?.subject) ?? fb.subject, body, recipient: overrides?.recipient ?? null, lenderBankId: ctx.lenderBankId };
 }
 
+/**
+ * Who a lender notification actually goes to, in one place.
+ *
+ * Precedence, most authoritative first:
+ *  1. The signer's notice address on the active marketplace agreement. That is
+ *     the contractual address, so it wins whenever it is set.
+ *  2. The CRM contacts on the lender's own organization record — the working
+ *     bankers we deal with day to day. Most partner banks are onboarded through
+ *     the CRM long before an agreement is signed, so without this fallback they
+ *     are unreachable.
+ *
+ * Contacts marked do_not_contact are never returned, and merged-away duplicate
+ * people are skipped. Step 2 is best-effort: a CRM read failure degrades to the
+ * agreement address rather than blocking the message.
+ */
 export async function getLenderCommsRecipients(lenderBankId: string, sb: SB): Promise<string[]> {
   const { data, error } = await sb.from("lender_marketplace_agreements").select("signed_by_email").eq("lender_bank_id", lenderBankId).eq("status", "active").limit(1).maybeSingle();
   assertDbOk(error, "recipient_read");
-  return data?.signed_by_email ? [String(data.signed_by_email)] : [];
+  const signer = str(data?.signed_by_email);
+  if (signer) return [signer];
+  return await crmLenderContactEmails(lenderBankId, sb);
+}
+
+async function crmLenderContactEmails(lenderBankId: string, sb: SB): Promise<string[]> {
+  try {
+    const { data: profiles, error: profileError } = await sb
+      .from("crm_lender_profiles")
+      .select("organization_id")
+      .eq("linked_lender_bank_id", lenderBankId);
+    if (profileError) return [];
+    const orgIds = Array.from(new Set((profiles ?? []).map((r: Row) => r.organization_id).filter(Boolean)));
+    if (!orgIds.length) return [];
+
+    const { data: people, error: peopleError } = await sb
+      .from("crm_people")
+      .select("email, do_not_contact, merged_into_id, created_at")
+      .in("organization_id", orgIds)
+      .order("created_at", { ascending: true });
+    if (peopleError) return [];
+
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const p of people ?? []) {
+      if (p.do_not_contact === true || p.merged_into_id) continue;
+      const email = str(p.email);
+      if (!email) continue;
+      const key = email.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(email);
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 export async function queueLenderMessage(trigger: string, ctx: LenderMessageContext, channel: LenderChannel, sb: SB): Promise<LenderQueueResult> {
