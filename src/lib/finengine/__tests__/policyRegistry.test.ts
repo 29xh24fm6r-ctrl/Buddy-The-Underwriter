@@ -15,10 +15,35 @@ describe("policyRegistry — resolution precedence (V1.1)", () => {
     assert.equal(r.effective, 1.35);
   });
 
-  it("institutional overlay wins when no tenant override", () => {
-    const r = resolvePolicy("dscr_floor", { productId: "SBA_7A_SMALL" });
-    assert.equal(r.institutionalOverlay, 1.2);
-    assert.equal(r.effective, 1.2); // overlay above the 1.10 floor
+  it("institutional overlay wins when no tenant override (non-SBA product)", () => {
+    // CI_TERM is institutional territory: no regulatory floor, 1.25 overlay.
+    const r = resolvePolicy("dscr_floor", { productId: "CI_TERM" });
+    assert.equal(r.institutionalOverlay, 1.25);
+    assert.equal(r.effective, 1.25);
+  });
+
+  // 2026-09-01 SOP alignment: Buddy underwrites SBA deals to the SBA's own
+  // published floor. An overlay above the SOP fails deals the SBA would
+  // accept, and produced fabricated "below policy minimum" exceptions in
+  // shipped memos.
+  it("SBA products carry NO institutional overlay — the SOP floor is the effective value", () => {
+    const small = resolvePolicy("dscr_floor", { productId: "SBA_7A_SMALL" });
+    assert.equal(small.institutionalOverlay, null);
+    assert.equal(small.effective, 1.1, "7(a) Small (≤$350K) — SOP 50 10 8 + Mar-2026 notices: 1.10x");
+    assert.match(small.citation, /5000-875701/);
+
+    const standard = resolvePolicy("dscr_floor", { productId: "SBA_7A_STANDARD" });
+    assert.equal(standard.institutionalOverlay, null);
+    assert.equal(standard.effective, 1.15, "Standard 7(a) — SOP 50 10 8: 1.15x");
+
+    const cdc = resolvePolicy("dscr_floor", { productId: "SBA_504" });
+    assert.equal(cdc.effective, 1.15, "504 — project-level coverage 1.15x");
+  });
+
+  it("with no product resolved, the default is the Standard 7(a) SOP floor", () => {
+    const r = resolvePolicy("dscr_floor");
+    assert.equal(r.effective, 1.15);
+    assert.match(r.citation, /SOP 50 10 8/);
   });
 
   it("falls back to the regulatory floor when no overlay/override", () => {
@@ -72,23 +97,25 @@ describe("policyRegistry — resolution precedence (V1.1)", () => {
     }
   });
 
-  // SPEC-BUDDY-FINANCIAL-ENGINE-ELITE-1 / SPEC-BROKERAGE-SBA-READY-V1: a
-  // business ≤24mo old requires the SOP's stricter projected-DSCR standard
-  // (1.25x) uniformly, regardless of 7(a) small/standard/504 product tier —
-  // this is the single source of truth src/lib/sba/newBusinessProtocol.ts
-  // now reads instead of hardcoding 1.25/1.10 locally.
-  it("isNewBusiness overrides byProduct for dscr_floor (uniform 1.25x, not the product tier's own floor)", () => {
+  // 2026-09-01 SOP alignment: the prior uniform 1.25x "new business projected
+  // DSCR" variant cited SOP 50 10 8 §B Ch.1; verification against the
+  // published SOP found no such standard. A startup carries its product's own
+  // floor (projections permitted) — the startup-specific SOP rule is the 10%
+  // equity injection, not an elevated coverage bar. The genuine upcoming
+  // 1.25x (SOP 50 10 8.1 Appendix 15) applies to change-of-ownership deals
+  // only, on a historical basis, for loan numbers issued 2026-10-01+ — a
+  // startup is not a change of ownership.
+  it("isNewBusiness does NOT elevate the DSCR floor — the product's SOP floor governs", () => {
     const small = resolvePolicy("dscr_floor", { productId: "SBA_7A_SMALL", isNewBusiness: true });
-    assert.equal(small.effective, 1.25);
-    assert.match(small.citation, /new business/i);
+    assert.equal(small.effective, 1.1, "a small 7(a) startup is governed at 1.10x, not a fabricated 1.25x");
 
     const standard = resolvePolicy("dscr_floor", { productId: "SBA_7A_STANDARD", isNewBusiness: true });
-    assert.equal(standard.effective, 1.25);
+    assert.equal(standard.effective, 1.15, "a standard 7(a) startup is governed at 1.15x");
   });
 
-  it("isNewBusiness=false (or unset) falls back to the normal byProduct resolution", () => {
+  it("isNewBusiness=false (or unset) resolves identically", () => {
     const r = resolvePolicy("dscr_floor", { productId: "SBA_7A_SMALL", isNewBusiness: false });
-    assert.equal(r.effective, 1.2); // unchanged from the existing byProduct test above
+    assert.equal(r.effective, 1.1);
   });
 
   it("isNewBusiness has no effect on an axis with no newBusiness variant (e.g. occupancy_min)", () => {
@@ -96,7 +123,7 @@ describe("policyRegistry — resolution precedence (V1.1)", () => {
     assert.equal(r.effective, 0.51); // unchanged — occupancy_min defines no newBusiness override
   });
 
-  it("a new-business tenant override still wins over the new-business floor (precedence unchanged)", () => {
+  it("a new-business tenant override still wins (precedence unchanged)", () => {
     const r = resolvePolicy("dscr_floor", { isNewBusiness: true, overrides: { dscr_floor: 1.4 } });
     assert.equal(r.effective, 1.4);
   });
