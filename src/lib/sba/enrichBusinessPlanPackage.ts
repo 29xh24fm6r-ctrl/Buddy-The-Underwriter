@@ -16,7 +16,7 @@ import "server-only";
  */
 
 import type { BusinessPlanPackageForVerify } from "./verifyBusinessPlanPackage";
-import { finishInstitutionalArtifact } from "@/lib/ai/frontierArtifactFactory";
+import { finishInstitutionalArtifact, reviewContentHash } from "@/lib/ai/frontierArtifactFactory";
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
 import type { FlaggedClaim } from "@/lib/ai/verify";
 
@@ -32,14 +32,16 @@ const PACKAGE_COLUMNS =
   // Audit fix (Borrower Intake Program review): franchise_section was
   // persisted by sbaPackageOrchestrator.ts but missing here, so it was
   // silently excluded from verifyBusinessPlanPackage.ts's fact-check.
-  "franchise_section";
+  "franchise_section, " +
+  // Needed to reuse a verdict already recorded against identical content.
+  "verification_verdict, verification_input_hash";
 
 export async function enrichBusinessPlanPackage(args: {
   dealId: string;
   bankId: string;
   packageId: string;
   sb: SB;
-}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean; flaggedClaims: FlaggedClaim[]; advisoryCount: number }> {
+}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean; flaggedClaims: FlaggedClaim[]; advisoryCount: number; reusedVerdict: boolean }> {
   const { dealId, bankId, packageId, sb } = args;
 
   const { data: pkg } = await sb
@@ -48,7 +50,7 @@ export async function enrichBusinessPlanPackage(args: {
     .eq("id", packageId)
     .maybeSingle();
 
-  if (!pkg) return { verdict: null, repaired: false, flaggedClaims: [], advisoryCount: 0 };
+  if (!pkg) return { verdict: null, repaired: false, flaggedClaims: [], advisoryCount: 0, reusedVerdict: false };
 
   // Narratives are composed from deterministic calculations plus inputs the
   // borrower explicitly confirmed. Review against that same evidence set so
@@ -86,7 +88,7 @@ export async function enrichBusinessPlanPackage(args: {
       verification_verdict: null,
       verification_flagged_claims: null,
     }).eq("id", packageId);
-    return { verdict: null, repaired: false, flaggedClaims: [], advisoryCount: 0 };
+    return { verdict: null, repaired: false, flaggedClaims: [], advisoryCount: 0, reusedVerdict: false };
   }
 
   const facts = {
@@ -107,8 +109,29 @@ export async function enrichBusinessPlanPackage(args: {
     base_year_data: typed.base_year_data,
     borrower_confirmed_assumptions: confirmedAssumptions,
   };
+  // Ratchet. A verdict already recorded against byte-identical content is a
+  // judgement on evidence that has not changed; re-reviewing it is a fresh
+  // roll of a ~39% die, which is why retries never accumulated. Only a `pass`
+  // is reusable — a previous block must be re-examined, since the repair
+  // budget may land differently.
+  const reviewIdentity = { artifactType: "business_plan" as const, facts, sections };
+  const contentHash = reviewContentHash(reviewIdentity);
+  if (
+    typed.verification_verdict === "pass" &&
+    typeof typed.verification_input_hash === "string" &&
+    typed.verification_input_hash === contentHash
+  ) {
+    return {
+      verdict: "pass" as const,
+      repaired: false,
+      flaggedClaims: [],
+      advisoryCount: 0,
+      reusedVerdict: true,
+    };
+  }
+
   const finished = await finishInstitutionalArtifact({
-    artifactType: "business_plan", facts, sections, dealId, npiTagged: true,
+    ...reviewIdentity, dealId, npiTagged: true,
   });
   await persistArtifactFlags({
     dealId, bankId, artifactType: "business_plan", sectionKey: "narratives",
@@ -122,6 +145,7 @@ export async function enrichBusinessPlanPackage(args: {
       ...repairedFields,
       verification_verdict: finished.verdict,
       verification_flagged_claims: finished.flaggedClaims,
+      verification_input_hash: finished.contentHash,
     })
     .eq("id", packageId);
   return {
@@ -129,5 +153,6 @@ export async function enrichBusinessPlanPackage(args: {
     advisoryCount: finished.advisoryIssues.length,
     repaired: finished.repaired,
     flaggedClaims: finished.flaggedClaims,
+    reusedVerdict: false,
   };
 }

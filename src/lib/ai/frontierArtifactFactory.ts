@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+
 import { runRole } from "./gateway";
 import type { ArtifactType } from "./artifactVerification";
 import type { FlaggedClaim } from "./verify";
@@ -25,6 +27,12 @@ export type FrontierArtifactResult = {
    * as conditions for banker sign-off rather than being discarded.
    */
   advisoryIssues: ReviewIssue[];
+  /**
+   * Hash of the exact (artifactType, facts, sections) the reviewer saw.
+   * Persisted with the verdict so a later run assembling identical content
+   * reuses the judgement instead of re-rolling it. See reviewContentHash.
+   */
+  contentHash: string;
 };
 
 export type ReviewIssue = {
@@ -228,6 +236,31 @@ async function review(input: {
  * it. persistArtifactFlags already writes these to the deal as conditions;
  * they now survive to be read.
  */
+/**
+ * Identity of a review: the artifact type, the evidence, and the prose.
+ *
+ * Two runs that produce byte-identical content have nothing new for a reviewer
+ * to judge, so re-reviewing is a fresh roll of a ~39% die on evidence that has
+ * not changed. Sections are hashed in key order so an incidental reordering
+ * does not read as different content, and the evidence is hashed as given
+ * (already a stable JSON string for the callers that pre-serialise it).
+ */
+export function reviewContentHash(input: {
+  artifactType: ArtifactType;
+  facts: Record<string, unknown> | string;
+  sections: ArtifactSection[];
+}): string {
+  const factsText = typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts);
+  const sectionsText = JSON.stringify(
+    [...input.sections]
+      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+      .map((s) => [s.key, s.text]),
+  );
+  return createHash("sha256")
+    .update(`${input.artifactType}\u0000${factsText}\u0000${sectionsText}`)
+    .digest("hex");
+}
+
 export async function finishInstitutionalArtifact(input: {
   artifactType: ArtifactType;
   facts: Record<string, unknown> | string;
@@ -236,6 +269,7 @@ export async function finishInstitutionalArtifact(input: {
   npiTagged?: boolean;
 }): Promise<FrontierArtifactResult> {
   const npiTagged = input.npiTagged ?? true;
+  const contentHash = reviewContentHash(input);
   let sections = input.sections;
   let repaired = false;
   let reviewPasses = 0;
@@ -253,7 +287,7 @@ export async function finishInstitutionalArtifact(input: {
     if (remaining.length === 0) {
       return {
         sections, verdict: "pass", flaggedClaims: [], repaired, reviewPasses,
-        reviewIssues: [], advisoryIssues: [],
+        reviewIssues: [], advisoryIssues: [], contentHash,
       };
     }
     if (cycle === 3) break;
@@ -315,5 +349,10 @@ export async function finishInstitutionalArtifact(input: {
     reviewPasses,
     reviewIssues: blocking,
     advisoryIssues: advisory,
+    // The hash of what was SUBMITTED. A repair rewrites the sections, so the
+    // published artifact may differ from what this hash covers; callers reuse
+    // a verdict only when the content they are about to submit matches, which
+    // is exactly this value.
+    contentHash,
   };
 }

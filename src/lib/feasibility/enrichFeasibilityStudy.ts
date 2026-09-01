@@ -12,7 +12,7 @@ import "server-only";
 
 import { loadDealGroundingSegments, attributeFeasibilityCitations, flagUncitedFeasibilityFields } from "./feasibilityCitations";
 import { auditNarrativeFigures } from "./narrativeFigureAudit";
-import { finishInstitutionalArtifact } from "@/lib/ai/frontierArtifactFactory";
+import { finishInstitutionalArtifact, reviewContentHash } from "@/lib/ai/frontierArtifactFactory";
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
 import type { CompositeFeasibilityScore, FeasibilityNarratives } from "./types";
 
@@ -69,19 +69,19 @@ export async function enrichFeasibilityStudy(args: {
   studyId: string;
   composite: CompositeFeasibilityScore;
   sb: SB;
-}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean; advisoryCount: number }> {
+}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean; advisoryCount: number; reusedVerdict: boolean }> {
   const { dealId, bankId, studyId, composite, sb } = args;
 
   const { data: studyRow } = await sb
     .from("buddy_feasibility_studies")
     .select(
-      "narratives, projections_package_id, market_demand_detail, financial_viability_detail, operational_readiness_detail, location_suitability_detail, flags, data_completeness",
+      "narratives, projections_package_id, market_demand_detail, financial_viability_detail, operational_readiness_detail, location_suitability_detail, flags, data_completeness, verification_verdict, verification_input_hash",
     )
     .eq("id", studyId)
     .maybeSingle();
 
   const narratives = (studyRow?.narratives ?? null) as FeasibilityNarratives | null;
-  if (!narratives) return { verdict: null, repaired: false, advisoryCount: 0 };
+  if (!narratives) return { verdict: null, repaired: false, advisoryCount: 0, reusedVerdict: false };
 
   const { segments, allUrls } = await loadDealGroundingSegments(dealId, sb);
   const citations = attributeFeasibilityCitations(narratives, segments, allUrls);
@@ -280,10 +280,25 @@ export async function enrichFeasibilityStudy(args: {
     );
   }
 
-  const finished = await finishInstitutionalArtifact({
-    artifactType: "feasibility",
+  // Ratchet — see enrichBusinessPlanPackage for the full account. A verdict
+  // already recorded against byte-identical content is a judgement on evidence
+  // that has not changed. Only a `pass` is reusable.
+  const reviewIdentity = {
+    artifactType: "feasibility" as const,
     facts: serializedFacts,
     sections,
+  };
+  const contentHash = reviewContentHash(reviewIdentity);
+  if (
+    studyRow?.verification_verdict === "pass" &&
+    typeof studyRow?.verification_input_hash === "string" &&
+    studyRow.verification_input_hash === contentHash
+  ) {
+    return { verdict: "pass" as const, repaired: false, advisoryCount: 0, reusedVerdict: true };
+  }
+
+  const finished = await finishInstitutionalArtifact({
+    ...reviewIdentity,
     dealId,
     npiTagged: true,
   });
@@ -302,6 +317,7 @@ export async function enrichFeasibilityStudy(args: {
       narratives: repairedNarratives,
       verification_verdict: finished.verdict,
       verification_flagged_claims: finished.flaggedClaims,
+      verification_input_hash: finished.contentHash,
     })
     .eq("id", studyId);
   // Warnings that survived repair publish with the study and are disclosed as
@@ -311,5 +327,6 @@ export async function enrichFeasibilityStudy(args: {
     verdict: finished.verdict,
     repaired: finished.repaired,
     advisoryCount: finished.advisoryIssues.length,
+    reusedVerdict: false,
   };
 }
