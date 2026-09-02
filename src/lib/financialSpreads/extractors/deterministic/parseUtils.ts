@@ -177,9 +177,21 @@ function buildLabelRegex(label: string | RegExp, global: boolean): RegExp {
  *      is the money-looking token, the "3" is the line number.
  *   2. Otherwise the first token that is not an IRS form/schedule reference.
  */
+/**
+ * A bare 1–2 digit integer with no money formatting ("2", "13", "16") sitting
+ * beside a label is an IRS line/box number, not an amount. Forms render the
+ * box number in its own cell and leave the amount cell empty when the box is
+ * blank ("Net rental real estate income (loss) | 2 |   |"), so the box number
+ * is the only numeric token in the window. Zero is still a real amount.
+ */
+export function isBareLineNumberToken(raw: string): boolean {
+  return /^\d{1,2}$/.test(raw.trim()) && Number(raw) !== 0;
+}
+
 function pickAmountToken(
   window: string,
   context: string,
+  opts?: { allowSmallIntegers?: boolean },
 ): { raw: string; value: number; endOffset: number } | null {
   const tokens: Array<{ raw: string; value: number; endOffset: number; money: boolean }> = [];
   const re = new RegExp(AMOUNT_TOKEN_RE.source, "g");
@@ -193,6 +205,7 @@ function pickAmountToken(
     if (value === null) continue;
     const money = looksLikeMoneyToken(raw);
     if (isLikelyReferenceNumber(value, context) && !money) continue;
+    if (!opts?.allowSmallIntegers && !money && isBareLineNumberToken(raw)) continue;
     tokens.push({ raw, value, endOffset: m.index + raw.length, money });
   }
   if (tokens.length === 0) return null;
@@ -211,7 +224,7 @@ function pickAmountToken(
 export function matchAmountAfterLabel(
   text: string,
   pattern: RegExp,
-  opts?: { maxLookahead?: number; crossLine?: boolean },
+  opts?: { maxLookahead?: number; crossLine?: boolean; allowSmallIntegers?: boolean },
 ): [string, string] | null {
   const r = findLabeledAmount(text, pattern, opts);
   if (r.value === null || !r.raw) return null;
@@ -231,7 +244,7 @@ export function matchAmountAfterLabel(
 export function findLabeledAmount(
   text: string,
   label: string | RegExp,
-  opts?: { maxLookahead?: number; crossLine?: boolean },
+  opts?: { maxLookahead?: number; crossLine?: boolean; allowSmallIntegers?: boolean },
 ): LabeledAmountResult {
   const results = findAllLabeledAmounts(text, label, { ...opts, limit: 1 });
   return results[0] ?? { value: null, snippet: null, raw: null };
@@ -243,7 +256,7 @@ export function findLabeledAmount(
 export function findAllLabeledAmounts(
   text: string,
   label: string | RegExp,
-  opts?: { maxLookahead?: number; crossLine?: boolean; limit?: number },
+  opts?: { maxLookahead?: number; crossLine?: boolean; limit?: number; allowSmallIntegers?: boolean },
 ): LabeledAmountResult[] {
   const maxLook = opts?.maxLookahead ?? 120;
   const re = buildLabelRegex(label, true);
@@ -268,7 +281,7 @@ export function findAllLabeledAmounts(
     const ctxEnd = Math.min(text.length, labelEnd + window.length + 40);
     const context = text.slice(ctxStart, ctxEnd);
 
-    const picked = pickAmountToken(window, context);
+    const picked = pickAmountToken(window, context, { allowSmallIntegers: opts?.allowSmallIntegers });
     if (!picked) continue;
 
     const snippet = (m[0] + window.slice(0, picked.endOffset)).replace(/\s+/g, " ").trim();

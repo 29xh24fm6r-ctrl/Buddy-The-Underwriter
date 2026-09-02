@@ -83,12 +83,12 @@ const M1_PATTERNS: LinePattern[] = [
 // ---------------------------------------------------------------------------
 
 const M2_PATTERNS: LinePattern[] = [
-  { key: "M2_RETAINED_EARNINGS_BEGIN", pattern: /(?:m-?2.*?line\s+1\b|balance.*?beginning\s+of\s+year).*?(\(?-?\$?\d[\d,]*(?:\.\d{0,2})?\)?)/i },
+  { key: "M2_RETAINED_EARNINGS_BEGIN", pattern: /(?:m-?2.*?line\s+1\b|balance.*?beginning\s+of\s+(?:tax\s+)?year).*?(\(?-?\$?\d[\d,]*(?:\.\d{0,2})?\)?)/i },
   { key: "M2_NET_INCOME_BOOKS", pattern: /(?:m-?2.*?line\s+2\b|net\s+income.*?per\s+books).*?(\(?-?\$?\d[\d,]*(?:\.\d{0,2})?\)?)/i },
   { key: "M2_OTHER_INCREASES", pattern: /(?:m-?2.*?line\s+3\b|other\s+increases).*?(\(?-?\$?\d[\d,]*(?:\.\d{0,2})?\)?)/i },
   { key: "M2_DISTRIBUTIONS", pattern: /(?:m-?2.*?line\s+5\b|distributions?).*?(\(?-?\$?\d[\d,]*(?:\.\d{0,2})?\)?)/i },
   { key: "M2_OTHER_DECREASES", pattern: /(?:m-?2.*?line\s+6\b|other\s+decreases).*?(\(?-?\$?\d[\d,]*(?:\.\d{0,2})?\)?)/i },
-  { key: "M2_RETAINED_EARNINGS_END", pattern: /(?:m-?2.*?line\s+7\b|balance.*?end\s+of\s+year).*?(\(?-?\$?\d[\d,]*(?:\.\d{0,2})?\)?)/i },
+  { key: "M2_RETAINED_EARNINGS_END", pattern: /(?:m-?2.*?line\s+[78]\b|balance.*?end\s+of\s+(?:tax\s+)?year).*?(\(?-?\$?\d[\d,]*(?:\.\d{0,2})?\)?)/i },
 ];
 
 // ---------------------------------------------------------------------------
@@ -134,10 +134,18 @@ export function extractScheduleM1(
   }
 
   // -- OCR regex --
+  // The line-number alternatives ("line 2", "depreciation", "amortization")
+  // are only meaningful inside the schedule itself; on a full 1120-S / 1065
+  // package they otherwise latch onto page-1 lines, Schedule K, or the filing
+  // instructions (Federal tax per books = total income, amortization = the
+  // tax year). Scope each pattern set to its section when the heading exists.
+  const m1Text = sliceScheduleSection(ocrText, "M-1") ?? ocrText;
+  const m2Text = sliceScheduleSection(ocrText, "M-2") ?? ocrText;
   for (const lp of allPatterns) {
     if (items.some((i) => i.key === lp.key)) continue;
     factsAttempted++;
-    const match = matchAmountAfterLabel(ocrText, lp.pattern);
+    const scoped = lp.key.startsWith("M2_") ? m2Text : m1Text;
+    const match = matchAmountAfterLabel(scoped, lp.pattern);
     if (match) {
       const val = parseMoney(match[1]);
       if (val !== null) {
@@ -159,6 +167,40 @@ export function extractScheduleM1(
     extractionPath,
     factsAttempted,
   };
+}
+
+/**
+ * Return the text of one Schedule M-x section: from its heading to the next
+ * schedule heading or page break. A heading is only trusted when the schedule's
+ * own line items follow it within a page (cross-reference tables also say
+ * "Schedule M-1"). Returns null when no such section exists so the caller can
+ * fall back to the whole document (single-schedule fixtures, loose OCR).
+ */
+export function sliceScheduleSection(text: string, which: "M-1" | "M-2"): string | null {
+  const n = which === "M-1" ? "1" : "2";
+  const heading = new RegExp(`schedule\\s+m[\\s-]?${n}\\b`, "gi");
+  const bodyMarker =
+    which === "M-1"
+      ? /net\s+income\s*(?:\(loss\))?\s*per\s+books|income\s+recorded\s+on\s+books|taxable\s+income/i
+      : /balance\s+at\s+beginning|distributions|balance\s+at\s+end/i;
+  // Boundaries are other M-schedule headings, page breaks and markdown
+  // headings only — M-1 line text itself cites "Schedule K, lines 1, 2 …".
+  const nextBoundary = new RegExp(
+    `schedule\\s+m[\\s-]?(?!${n}\\b)\\d\\b|\\[page\\s+\\d+\\]|^#\\s`,
+    "gim",
+  );
+  let m: RegExpExecArray | null;
+  while ((m = heading.exec(text)) !== null) {
+    const start = m.index;
+    const probe = text.slice(start, start + 4000);
+    if (!bodyMarker.test(probe)) continue;
+    nextBoundary.lastIndex = start + m[0].length;
+    const b = nextBoundary.exec(text);
+    const end = b ? b.index : Math.min(text.length, start + 6000);
+    const section = text.slice(start, end);
+    if (bodyMarker.test(section)) return section;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

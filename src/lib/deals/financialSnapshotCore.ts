@@ -368,6 +368,12 @@ export function selectRequiredMetrics(args: {
   return SNAPSHOT_REQUIRED_METRICS_V1;
 }
 
+function maxIso(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a >= b ? a : b;
+}
+
 export function buildEmptyMetric(): SnapshotMetricValue {
   return {
     value_num: null,
@@ -461,6 +467,43 @@ export function buildSnapshotFromFacts(args: {
         rejected: [],
         note: "computed_from_tax_return_components",
       });
+    }
+  }
+
+  // ── Computed fallback: loan-to-value from the loan request ────────────
+  // LTV_GROSS / LTV_NET facts are written by runCanonicalUnderwritingSynthesis,
+  // which only runs from its authenticated route — not from the spread-job
+  // recompute chain. A CRE snapshot therefore reported "ltv_gross missing"
+  // while carrying both the loan amount and the collateral value it needs.
+  {
+    const loan = byMetric["bank_loan_total"]?.value_num ?? null;
+    const ltvPairs: Array<["ltv_gross" | "ltv_net", "collateral_gross_value" | "collateral_net_value"]> = [
+      ["ltv_gross", "collateral_gross_value"],
+      ["ltv_net", "collateral_net_value"],
+    ];
+    for (const [metric, collateralMetric] of ltvPairs) {
+      if ((byMetric[metric]?.value_num ?? null) !== null) continue;
+      const collateral = byMetric[collateralMetric]?.value_num ?? null;
+      if (loan === null || collateral === null || !(collateral > 0) || !(loan >= 0)) continue;
+      const asOf = maxIso(byMetric["bank_loan_total"]?.as_of_date ?? null, byMetric[collateralMetric]?.as_of_date ?? null);
+      byMetric[metric] = {
+        value_num: Math.round((loan / collateral) * 10000) / 10000,
+        value_text: null,
+        as_of_date: asOf,
+        confidence: Math.min(
+          byMetric["bank_loan_total"]?.confidence ?? 0.8,
+          byMetric[collateralMetric]?.confidence ?? 0.8,
+        ),
+        source_type: "SPREAD",
+        source_ref: "computed:snapshot_fallback:v2",
+        provenance: {
+          source_type: "SPREAD",
+          source_ref: "computed:snapshot_fallback:v2",
+          extractor: "snapshot:ltv_fallback:v1",
+          calc: `${loan} / ${collateral}`,
+          components: { bank_loan_total: loan, [collateralMetric]: collateral },
+        },
+      };
     }
   }
 
