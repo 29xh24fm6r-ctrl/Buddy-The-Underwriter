@@ -3,7 +3,7 @@ import "server-only";
 import type { SpreadTemplate } from "@/lib/financialSpreads/templates/templateTypes";
 import type { FinancialFact, RenderedSpread, RenderedSpreadCellV2 } from "@/lib/financialSpreads/types";
 import { computedCell } from "@/lib/financialSpreads/formulas";
-import { factAsOfDate, factToCell, pickLatestFact } from "@/lib/financialSpreads/templateUtils";
+import { factAsOfDate, factToCell, pickAuthoritativeFact, pickLatestFact } from "@/lib/financialSpreads/templateUtils";
 import { GCF_PERSONAL_INCOME_COMPONENT_KEYS } from "@/lib/financialSpreads/gcfPersonalIncome";
 
 function maxIsoDate(a: string | null, b: string | null): string | null {
@@ -95,32 +95,35 @@ export function globalCashFlowTemplate(): SpreadTemplate {
       const facts = args.facts;
 
       // ── DEAL-level property facts ──────────────────────────────────────────
-      const cfaFact = pickLatestFact({
+      // Source-ranked (STRUCTURAL engines over SPREAD backfill echoes) — see
+      // pickAuthoritativeFact. Period-ranked selection let a stale backfilled
+      // CASH_FLOW_AVAILABLE outrank the canonical waterfall result.
+      const cfaFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "CASH_FLOW_AVAILABLE",
       });
-      const adsFact = pickLatestFact({
+      const adsFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "ANNUAL_DEBT_SERVICE",
       });
-      const adsStressedFact = pickLatestFact({
+      const adsStressedFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "ANNUAL_DEBT_SERVICE_STRESSED_300BPS",
       });
-      const dscrFact = pickLatestFact({
+      const dscrFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "DSCR",
       });
-      const dscrStressedFact = pickLatestFact({
+      const dscrStressedFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "DSCR_STRESSED_300BPS",
       });
-      const excessFact = pickLatestFact({
+      const excessFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "EXCESS_CASH_FLOW",

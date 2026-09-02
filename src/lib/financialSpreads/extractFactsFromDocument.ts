@@ -385,10 +385,15 @@ export async function extractFactsFromDocument(args: {
     }
   }
 
-  // ── Tax Return ─────────────────────────────────────────────────────────
+  // ── Tax Return (BUSINESS returns only) ────────────────────────────────
+  // Personal 1040s are handled exclusively by the Personal Income branch
+  // below. Running them through the business extractor wrote the guarantor's
+  // AGI as deal-level GROSS_RECEIPTS/TOTAL_INCOME and Schedule A "Interest
+  // paid" as business INTEREST_EXPENSE — which then out-ranked the 1120-S
+  // figures in the snapshot and fed the NCADS interest add-back.
   if (
     extractedText &&
-    ["IRS_1040", "IRS_1120", "IRS_1120S", "IRS_1065", "IRS_BUSINESS", "IRS_PERSONAL", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN", "PERSONAL_TAX_RETURN"].includes(normDocType)
+    ["IRS_1120", "IRS_1120S", "IRS_1065", "IRS_BUSINESS", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(normDocType)
   ) {
     extractorRan = true;
     const gp = await attemptGeminiPrimary("TAX_RETURN");

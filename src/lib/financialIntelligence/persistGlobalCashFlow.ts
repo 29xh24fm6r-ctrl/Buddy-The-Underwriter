@@ -218,6 +218,47 @@ export async function persistGlobalCashFlow(args: {
       }
     }
 
+    // ── 3b. Fallback: the deal itself as the operating entity ─────────────
+    // Conventional deals frequently reach underwriting with only the synthetic
+    // "Unassigned Business" placeholder in deal_entities and no company row in
+    // ownership_entities, while the canonical engines have already produced a
+    // deal-level CASH_FLOW_AVAILABLE (NCADS). Dropping the business here left
+    // global cash flow as personal income alone (DSCR 0.72x on a 2.98x deal).
+    // Treat the borrower as a single 100%-attributed operating entity; the
+    // base already reflects the D&A / interest add-backs, so no re-adds.
+    if (entities.length === 0) {
+      const dealCashFlow =
+        findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "NOI_TTM" }) ??
+        findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "EBITDA" }) ??
+        findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "CASH_FLOW_AVAILABLE" });
+
+      if (dealCashFlow !== null) {
+        const { data: dealRow } = await (sb as any)
+          .from("deals")
+          .select("name, borrower_name")
+          .eq("id", args.dealId)
+          .maybeSingle();
+        const borrowerName = String(dealRow?.borrower_name ?? dealRow?.name ?? "Borrower").trim() || "Borrower";
+
+        entities.push({
+          entityId: args.dealId,
+          entityName: borrowerName,
+          entityType: "OPERATING",
+          ownershipPct: 1.0,
+          netIncome: dealCashFlow,
+          depreciation: null,
+          interestExpense: null,
+          debtService: findFact({
+            factType: "FINANCIAL_ANALYSIS",
+            factKey: "ANNUAL_DEBT_SERVICE",
+          }),
+        });
+        notes.push(
+          `No named operating entity — used deal-level cash flow for "${borrowerName}" at 100% attribution`,
+        );
+      }
+    }
+
     if (entities.length === 0) {
       notes.push("No operating entities found — entity cash flow will be null");
     }

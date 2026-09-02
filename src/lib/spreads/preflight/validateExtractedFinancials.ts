@@ -53,14 +53,20 @@ export function validateBalanceSheet(
 ): ExtractionQualityResult {
   const totalAssets = findNumericFact(facts, "TOTAL_ASSETS");
   const totalLiabilities = findNumericFact(facts, "TOTAL_LIABILITIES");
-  const netWorth = findNumericFact(facts, "NET_WORTH");
+  // Business balance sheets (balanceSheetDeterministic) emit TOTAL_EQUITY;
+  // personal statements emit NET_WORTH. Treating only NET_WORTH as the equity
+  // side made every business balance sheet with equity above 5% of assets
+  // fail this check and lose its facts at the validation gate.
+  const netWorth =
+    findNumericFact(facts, "NET_WORTH") ?? findNumericFact(facts, "TOTAL_EQUITY");
+  const totalLiabilitiesAndEquity = findNumericFact(facts, "TOTAL_LIABILITIES_AND_EQUITY");
 
   // Insufficient data → PASSED (don't block on missing data)
   if (totalAssets == null) {
     return { status: "PASSED", reason_code: null, message: null };
   }
 
-  if (totalLiabilities == null && netWorth == null) {
+  if (totalLiabilities == null && netWorth == null && totalLiabilitiesAndEquity == null) {
     return { status: "PASSED", reason_code: null, message: null };
   }
 
@@ -73,9 +79,13 @@ export function validateBalanceSheet(
     };
   }
 
-  // Check balance: assets ≈ liabilities + equity
+  // Check balance: assets ≈ liabilities + equity. When only one side component
+  // was extracted, fall back to the statement's own "total liabilities and
+  // equity" line rather than comparing assets against half of the equation.
   const otherSide =
-    (totalLiabilities ?? 0) + (netWorth ?? 0);
+    totalLiabilities != null && netWorth != null
+      ? totalLiabilities + netWorth
+      : totalLiabilitiesAndEquity ?? (totalLiabilities ?? 0) + (netWorth ?? 0);
   const imbalance = Math.abs(totalAssets - otherSide) / totalAssets;
 
   if (imbalance > BS_BALANCE_TOLERANCE) {

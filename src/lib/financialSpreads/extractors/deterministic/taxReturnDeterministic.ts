@@ -125,7 +125,11 @@ const FORM_1120S_PATTERNS: LinePattern[] = [
   { key: "REPAIRS_MAINTENANCE", pattern: /(?:line\s+9\b|repairs\s+(?:and\s+)?maintenance).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "RENT_EXPENSE", pattern: /(?:line\s+11\b|\brents?\b(?:\s+(?:expense|paid))?).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "TAXES_LICENSES", pattern: /(?:line\s+12\b|taxes\s+(?:and\s+)?licenses).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
-  { key: "INTEREST_EXPENSE", pattern: /(?:line\s+13\b|interest\s+(?:expense|paid|deduction)|\binterest\b(?=\s*(?:\||\d))).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  // Line 13 "Interest (see instructions)" as a table row. Deliberately NOT the
+  // generic "interest expense" wording: page 1 asks "Does the corporation have
+  // business interest expense … attach Form 8990" and that sentence was being
+  // captured (value 8990). Null beats a wrong add-back.
+  { key: "INTEREST_EXPENSE", pattern: /(?:line\s+13\b|(?:^|\|)\s*interest\s*(?:\(see\s+instructions\))?\s*\|).*?(\$?[\d,]+(?:\.\d{0,2})?)/im },
   { key: "DEPRECIATION", pattern: /(?:line\s+14\b|depreciation).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "AMORTIZATION", pattern: /(?:amortization).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "OTHER_DEDUCTIONS", pattern: /(?:line\s+19\b|other\s+deductions).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
@@ -250,6 +254,15 @@ export async function extractTaxReturnDeterministic(
 
   let items: ExtractedLineItem[] = [];
   let path: ExtractionPath = "ocr_regex";
+
+  // A Form 1040 is a PERSONAL return: its "gross income" / "interest paid" /
+  // "total income" are the guarantor's, not the operating company's. The
+  // personal-income extractor owns 1040s (owner_type PERSONAL); emitting
+  // deal-level business keys from one corrupts revenue and the interest
+  // add-back. Refuse here regardless of how the caller classified the doc.
+  if (args.ocrText.trim() && detectIrsFormType(args.ocrText) === "1040") {
+    return { ok: true, factsWritten: 0, extractionPath: "ocr_regex" };
+  }
 
   // Structured assist path (primary for tax returns)
   if (args.structuredJson) {

@@ -26,6 +26,9 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 min (3 min lease + buffer)
+// Headroom kept between the spread extraction deadline and maxDuration so the
+// last document (up to ~50 s of Gemini latency) plus rendering still finish.
+const SPREADS_DEADLINE_MARGIN_MS = 75_000;
 
 /**
  * POST /api/jobs/worker/tick
@@ -57,6 +60,10 @@ export async function POST(req: NextRequest) {
   const batchSize = Math.min(10, Math.max(1, Number(batchParam ?? String(defaultBatch))));
 
   const leaseOwner = `worker-${Date.now()}`;
+  // Spread jobs re-extract documents under a time budget; give them this
+  // invocation's horizon so a job leased late in the tick stops before the
+  // platform kills the function (maxDuration) and loses the completion write.
+  const spreadsDeadlineAt = Date.now() + maxDuration * 1000 - SPREADS_DEADLINE_MARGIN_MS;
   const results: Array<Record<string, unknown>> = [];
   let failedSteps = 0;
 
@@ -115,7 +122,7 @@ export async function POST(req: NextRequest) {
         lockKey: WORKER_LOCK_KEYS.SPREADS_WORKER,
         workerName: "spreads-worker",
         run: async () => {
-          const r = await guardedSpreads({ leaseOwner, maxJobs: batchSize });
+          const r = await guardedSpreads({ leaseOwner, maxJobs: batchSize, deadlineAt: spreadsDeadlineAt });
           if (r.processed > 0) beat();
           return r;
         },
@@ -210,7 +217,11 @@ export async function POST(req: NextRequest) {
 
     // Process spread jobs when running ALL (after document jobs)
     if (type === "ALL") {
-      const spreadResult = await guardedSpreads({ leaseOwner, maxJobs: Math.max(1, batchSize) });
+      const spreadResult = await guardedSpreads({
+        leaseOwner,
+        maxJobs: Math.max(1, batchSize),
+        deadlineAt: spreadsDeadlineAt,
+      });
       if (spreadResult.ok && spreadResult.processed > 0) {
         beat();
         results.push({ type: "SPREADS", ...spreadResult });

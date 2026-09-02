@@ -13,7 +13,7 @@ import type {
   PureLineItem,
   ExtractionPath,
 } from "./types";
-import { parseMoney, resolveDocTaxYear } from "./parseUtils";
+import { parseMoney, resolveDocTaxYear, matchAmountAfterLabel } from "./parseUtils";
 import { extractFormFields } from "./structuredJsonParser";
 
 // ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ export function extractForm1125A(
   for (const lp of F1125A_PATTERNS) {
     if (items.some((i) => i.key === lp.key)) continue;
     factsAttempted++;
-    const match = ocrText.match(lp.pattern);
+    const match = matchAmountAfterLabel(ocrText, lp.pattern);
     if (match) {
       const val = parseMoney(match[1]);
       if (val !== null) {
