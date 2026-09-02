@@ -17,6 +17,7 @@ const eslintConfig = defineConfig([
     "public/pdfjs/**",
     "scripts/probes/**",
     "scripts/crm-fixture/fixture.js",
+    "scripts/crm-fixture/workspace.js",
   ]),
   {
     plugins: {

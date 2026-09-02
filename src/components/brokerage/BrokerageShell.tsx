@@ -4,6 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { brokerageColors, crmColors } from "./tokens";
+import { BrokerageStart } from "./BrokerageStart";
+import { useClerk } from "@clerk/nextjs";
+import { useState } from "react";
+import "./workspace.css";
+import { activeBrokerageWorkspaceLink } from "@/lib/brokerage/workspaceNavigation";
 
 /**
  * Nav rail + top bar shell for the brokerage system. Ported from the
@@ -26,10 +31,11 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Do the work",
     items: [
-      { label: "Command center", href: "/admin/brokerage", icon: "◈" },
-      { label: "Deals", href: "/admin/brokerage/pipeline", icon: "▦" },
-      { label: "Lenders", href: "/admin/brokerage/lenders", icon: "▤" },
-      { label: "CRM", href: "/admin/brokerage/crm", icon: "◇" },
+      { label: "Brokerage home", href: "/admin/brokerage", icon: "◈" },
+      { label: "Brokerage deals", href: "/admin/brokerage/pipeline", icon: "▦" },
+      { label: "CRM & follow-ups", href: "/admin/brokerage/crm", icon: "◇" },
+      { label: "Lender placements", href: "/admin/brokerage/crm/buyers", icon: "↗" },
+      { label: "Lender agreements", href: "/admin/brokerage/lenders", icon: "▤" },
     ],
   },
   {
@@ -77,13 +83,17 @@ function titleFor(pathname: string): [string, string] {
 }
 
 export function BrokerageShell({ children }: { children: ReactNode }) {
+  const { signOut } = useClerk();
+  const [accountError, setAccountError] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname() || "";
   const c = pathname.startsWith("/admin/brokerage/crm") ? crmColors : brokerageColors;
   const [title, subtitle] = titleFor(pathname);
+  const activeHref = activeBrokerageWorkspaceLink(pathname, NAV_GROUPS.flatMap(({ items }) => items));
 
   return (
     <div
-      className="brokerage-shell"
+      className="brokerage-shell sba-workspace-shell"
       style={{
         display: "flex",
         height: "100vh",
@@ -135,7 +145,7 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
           </div>
           <div style={{ lineHeight: 1.1 }}>
             <div style={{ fontFamily: "var(--font-brokerage-display)", fontWeight: 700, fontSize: 16, letterSpacing: 0.2 }}>
-              Buddy
+              Buddy SBA
             </div>
             <div
               style={{
@@ -147,12 +157,17 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
                 marginTop: 1,
               }}
             >
-              Brokerage
+              Team workspace
             </div>
           </div>
         </div>
 
-        <nav style={{ flex: 1, overflowY: "auto", padding: "14px 10px" }}>
+        <button className="sba-mobile-nav-toggle" aria-expanded={menuOpen} aria-controls="sba-navigation" onClick={() => setMenuOpen((open) => !open)}>
+          {menuOpen ? "Close workspace menu" : "Open workspace menu"}
+        </button>
+        <nav id="sba-navigation" className={menuOpen ? "sba-navigation-open" : ""} onClick={(event) => {
+          if ((event.target as Element).closest("a")) setMenuOpen(false);
+        }} style={{ flex: 1, overflowY: "auto", padding: "14px 10px" }}>
           {NAV_GROUPS.map((grp) => (
             <div key={grp.label} style={{ marginBottom: 16 }}>
               <div
@@ -168,13 +183,13 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
                 {grp.label}
               </div>
               {grp.items.map((it) => {
-                const active = it.href === "/admin/brokerage"
-                  ? pathname === it.href
-                  : pathname === it.href || pathname.startsWith(it.href + "/");
+                const active = it.href === activeHref;
                 return (
                   <Link
                     key={it.href}
                     href={it.href}
+                    prefetch={false}
+                    aria-current={active ? "page" : undefined}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -195,6 +210,17 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
               })}
             </div>
           ))}
+          <details>
+            <summary>Connected tools</summary>
+            <div className="sba-connected-tools">
+              <Link href="/deals" prefetch={false}>Bank underwriting workspace</Link>
+              <Link href="/documents" prefetch={false}>Bank document library</Link>
+              <Link href="/servicing" prefetch={false}>Servicing</Link>
+              <Link href="/admin" prefetch={false}>Platform admin</Link>
+              <Link href="/command" prefetch={false}>Platform command</Link>
+              <Link href="/settings" prefetch={false}>Settings</Link>
+            </div>
+          </details>
         </nav>
 
         <div style={{ padding: "12px 14px", borderTop: `1px solid ${c.border}`, display: "flex", alignItems: "center", gap: 10 }}>
@@ -215,11 +241,11 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
               color: c.brassBright,
             }}
           >
-            MP
+            B
           </div>
           <div style={{ flex: 1, lineHeight: 1.2, overflow: "hidden" }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: c.paper, whiteSpace: "nowrap" }}>Buddy Brokerage</div>
-            <div style={{ fontSize: 10, color: c.textMuted }}>Founder · Owner</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: c.paper, whiteSpace: "nowrap" }}>Buddy SBA</div>
+            <div style={{ fontSize: 10, color: c.textMuted }}>Brokerage operations</div>
           </div>
         </div>
       </aside>
@@ -245,9 +271,17 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
             </div>
             {subtitle && <div style={{ fontSize: 11, color: c.textMuted, marginTop: 1 }}>{subtitle}</div>}
           </div>
+          <Link href="/profile">My profile</Link>
+          <button className="sba-sign-out" onClick={() => {
+            void signOut({ redirectUrl: "/" }).catch(() => setAccountError("Sign out failed. Please try again."));
+          }}>Sign out</button>
         </header>
 
-        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>{children}</div>
+        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+          {accountError && <p role="alert">{accountError}</p>}
+          {pathname === "/admin/brokerage" && <BrokerageStart />}
+          {children}
+        </div>
       </main>
     </div>
   );

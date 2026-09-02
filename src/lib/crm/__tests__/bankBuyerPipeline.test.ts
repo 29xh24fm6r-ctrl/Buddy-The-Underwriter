@@ -91,7 +91,8 @@ test("off-platform deals can be recorded directly in the bank submission ledger"
 
 test("CRM navigation and activity stay clear on every nested workspace", () => {
   assert.match(shell, /sort\(\(\[a\], \[b\]\) => b\.length - a\.length\)/);
-  assert.match(shell, /it\.href === "\/admin\/brokerage"/);
+  assert.match(shell, /activeBrokerageWorkspaceLink\(pathname,/);
+  assert.match(shell, /it\.href === activeHref/);
   assert.match(crmTabs, /Contacts/);
   assert.match(crmTabs, /Deal partners/);
   assert.match(crmTabs, /aria-current/);

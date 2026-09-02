@@ -124,3 +124,5 @@ data/reference/*.tmp.json
 /.swc
 /scripts/crm-fixture/fixture.js
 /scripts/crm-fixture/fixture.css
+/scripts/crm-fixture/workspace.js
+/scripts/crm-fixture/workspace.css
