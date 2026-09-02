@@ -14,6 +14,7 @@ import {
   detectIrsFormType,
   parseMoney,
   isLikelyReferenceNumber,
+  looksLikeMoneyToken,
   type IrsFormType,
 } from "./parseUtils";
 import {
@@ -102,6 +103,36 @@ const FORM_1120_PATTERNS: LinePattern[] = [
   { key: "TOTAL_DEDUCTIONS", pattern: /(?:line\s+27|total\s+deductions).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "TAXABLE_INCOME", pattern: /(?:line\s+(?:28|30)|taxable\s+income).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "NET_INCOME", pattern: /(?:net\s+income|net\s+profit).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+];
+
+/**
+ * Form 1120-S label patterns. The S-corp page 1 is NOT the C-corp page 1:
+ * line 6 = total income, 7 = officer comp, 8 = salaries, 11 = rents, 13 =
+ * interest, 14 = depreciation, 20 = total deductions, 21 = ORDINARY BUSINESS
+ * INCOME (there is no "taxable income" line). Reusing the 1120 patterns mapped
+ * "line 27/28" text to the wrong keys and never produced ORDINARY_BUSINESS_INCOME,
+ * which is the waterfall's preferred pass-through income base.
+ */
+const FORM_1120S_PATTERNS: LinePattern[] = [
+  { key: "RETURNS_ALLOWANCES", pattern: /(?:line\s+1b|returns?\s+and\s+allowances?).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "NET_SALES_REVENUE", pattern: /(?:line\s+1c|net\s+(?:sales|receipts)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "GROSS_RECEIPTS", pattern: /(?:line\s+1a?\b|gross\s+receipts).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "COST_OF_GOODS_SOLD", pattern: /(?:line\s+2\b|cost\s+of\s+goods\s+sold|COGS).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "GROSS_PROFIT", pattern: /(?:line\s+3\b|gross\s+profit).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "TOTAL_INCOME", pattern: /(?:line\s+6\b|total\s+income).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "OFFICER_COMPENSATION", pattern: /(?:line\s+7\b|officer\s+compensation|compensation\s+of\s+officers?).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "SALARIES_WAGES", pattern: /(?:line\s+8\b|salaries\s+(?:and\s+)?wages).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "REPAIRS_MAINTENANCE", pattern: /(?:line\s+9\b|repairs\s+(?:and\s+)?maintenance).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "RENT_EXPENSE", pattern: /(?:line\s+11\b|\brents?\b(?:\s+(?:expense|paid))?).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "TAXES_LICENSES", pattern: /(?:line\s+12\b|taxes\s+(?:and\s+)?licenses).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "INTEREST_EXPENSE", pattern: /(?:line\s+13\b|interest\s+(?:expense|paid|deduction)|\binterest\b(?=\s*(?:\||\d))).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "DEPRECIATION", pattern: /(?:line\s+14\b|depreciation).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "AMORTIZATION", pattern: /(?:amortization).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "OTHER_DEDUCTIONS", pattern: /(?:line\s+19\b|other\s+deductions).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "TOTAL_DEDUCTIONS", pattern: /(?:line\s+20\b|total\s+deductions).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "ORDINARY_BUSINESS_INCOME", pattern: /(?:line\s+21\b|ordinary\s+(?:business\s+)?income).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "NET_INCOME", pattern: /(?:net\s+income|net\s+profit).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "DISTRIBUTIONS", pattern: /(?:distributions?\s+(?:to|paid)|\bdistributions\b).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
 ];
 
 const FORM_1065_PATTERNS: LinePattern[] = [
@@ -502,6 +533,13 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
     // Skip duplicate keys (first match wins)
     if (items.some((i) => i.factKey === key)) continue;
 
+    // Guard: a bare 1–2 digit token beside an IRS label is a line/column
+    // number ("Cost of labor | 3"), not a dollar amount. Real tax-return line
+    // items are formatted with grouping commas or are >= $100. Zero is kept
+    // (a genuinely blank line is a legitimate $0).
+    const raw = result.raw ?? "";
+    if (result.value !== 0 && Math.abs(result.value) < 100 && !looksLikeMoneyToken(raw)) continue;
+
     items.push({
       factKey: key,
       value: result.value,
@@ -571,6 +609,25 @@ const IRS_LINE_MAP_1120: Record<string, string> = {
   "28": "TAXABLE_INCOME", "30": "TAXABLE_INCOME",
 };
 
+/** Form 1120-S page 1 line numbers (differ from Form 1120). */
+const IRS_LINE_MAP_1120S: Record<string, string> = {
+  "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1b": "RETURNS_ALLOWANCES", "1c": "NET_SALES_REVENUE",
+  "2": "COST_OF_GOODS_SOLD",
+  "3": "GROSS_PROFIT",
+  "6": "TOTAL_INCOME",
+  "7": "OFFICER_COMPENSATION",
+  "8": "SALARIES_WAGES",
+  "9": "REPAIRS_MAINTENANCE",
+  "11": "RENT_EXPENSE",
+  "12": "TAXES_LICENSES",
+  "13": "INTEREST_EXPENSE",
+  "14": "DEPRECIATION",
+  "15": "DEPLETION",
+  "19": "OTHER_DEDUCTIONS",
+  "20": "TOTAL_DEDUCTIONS",
+  "21": "ORDINARY_BUSINESS_INCOME",
+};
+
 const IRS_LINE_MAP_1040: Record<string, string> = {
   "1": "WAGES_W2",
   "2b": "INTEREST_INCOME",
@@ -598,7 +655,8 @@ function getLineMap(formType: IrsFormType, _text: string): Record<string, string
   // and its line numbers are the ones we need to map.
   switch (formType) {
     case "1065": return IRS_LINE_MAP_1065;
-    case "1120": case "1120S": return IRS_LINE_MAP_1120;
+    case "1120": return IRS_LINE_MAP_1120;
+    case "1120S": return IRS_LINE_MAP_1120S;
     case "1040": return IRS_LINE_MAP_1040;
     default: return { ...IRS_LINE_MAP_1065, ...IRS_LINE_MAP_1120 };
   }
@@ -692,8 +750,9 @@ function selectPatterns(formType: IrsFormType): LinePattern[] {
     case "1040":
       return [...FORM_1040_PATTERNS, ...GENERIC_TAX_PATTERNS];
     case "1120":
-    case "1120S":
       return [...FORM_1120_PATTERNS, ...GENERIC_TAX_PATTERNS];
+    case "1120S":
+      return [...FORM_1120S_PATTERNS, ...GENERIC_TAX_PATTERNS];
     case "1065":
       return [...FORM_1065_PATTERNS, ...GENERIC_TAX_PATTERNS];
     case "SCHEDULE_C":

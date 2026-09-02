@@ -117,7 +117,6 @@ deal_financial_facts.period_year
 deal_financial_facts.updated_at
 deal_financial_facts.value_num
 deal_intake.id
-deal_loan_requests.loan_amount
 deal_message_drafts.meta
 deal_mitigants.due_at
 deal_mitigants.title

@@ -618,5 +618,15 @@
     "name": "buddy_feasibility_studies.verification_input_hash",
     "type": "column",
     "migration": "20260901130001_artifact_verification_input_hash.sql"
+  },
+  {
+    "name": "find_orphan_spreads",
+    "type": "function",
+    "migration": "20260902120000_find_orphan_spreads_rendered_exclusion.sql"
+  },
+  {
+    "name": "find_rendered_stale_spreads",
+    "type": "function",
+    "migration": "20260902120000_find_orphan_spreads_rendered_exclusion.sql"
   }
 ]

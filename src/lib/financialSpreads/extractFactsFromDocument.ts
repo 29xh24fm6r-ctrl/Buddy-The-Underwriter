@@ -18,6 +18,7 @@ import { extractPfs } from "@/lib/financialSpreads/extractors/pfsExtractor";
 import { extractIncomeStatementDeterministic } from "@/lib/financialSpreads/extractors/deterministic/incomeStatementDeterministic";
 import { extractBalanceSheetDeterministic } from "@/lib/financialSpreads/extractors/deterministic/balanceSheetDeterministic";
 import { extractTaxReturnDeterministic } from "@/lib/financialSpreads/extractors/deterministic/taxReturnDeterministic";
+import { findDateInFilename } from "@/lib/financialSpreads/extractors/deterministic/parseUtils";
 import { extractRentRollDeterministic } from "@/lib/financialSpreads/extractors/deterministic/rentRollDeterministic";
 import { extractPersonalIncomeDeterministic } from "@/lib/financialSpreads/extractors/deterministic/personalIncomeDeterministic";
 import { extractPfsDeterministic } from "@/lib/financialSpreads/extractors/deterministic/pfsDeterministic";
@@ -197,7 +198,7 @@ export async function extractFactsFromDocument(args: {
   // Always fetch deal_documents for doc_year (period resolution) + doc_type fallback + storage info
   const { data: dealDoc } = await sb
     .from("deal_documents")
-    .select("document_type, ai_doc_type, canonical_type, doc_year, storage_bucket, storage_path, mime_type")
+    .select("document_type, ai_doc_type, canonical_type, doc_year, storage_bucket, storage_path, mime_type, original_filename, statement_period")
     .eq("id", args.documentId)
     .maybeSingle();
 
@@ -243,10 +244,15 @@ export async function extractFactsFromDocument(args: {
     ocrText: extractedText,
   };
 
+  const originalFilename: string | null = dealDoc?.original_filename ? String(dealDoc.original_filename) : null;
+  const statementPeriod: string | null = dealDoc?.statement_period ? String(dealDoc.statement_period) : null;
+
   const deterministicArgs = {
     ...baseArgs,
     structuredJson: structuredJson ?? undefined,
     docYear,
+    originalFilename,
+    statementPeriod,
   };
 
   // ── Native PDF download (best-effort for Gemini native input) ─────────
@@ -726,10 +732,14 @@ export async function extractFactsFromDocument(args: {
   // Extractors resolve periods from OCR text with docYear as fallback.
   // If any facts still landed on the sentinel date (1900-01-01), correct
   // them now using docYear so multi-year columns render correctly.
-  if (docYear && factsWritten > 0) {
+  // A statement date encoded in the upload filename ("IS 6-30-2026 …") beats
+  // the doc-year fallback: the doc-year path stamps …-12-31, which turned a
+  // 6-month YTD P&L into a "complete" fiscal year downstream.
+  const filenameDate = findDateInFilename(originalFilename);
+  if ((filenameDate || docYear) && factsWritten > 0) {
     try {
-      const periodStart = `${docYear}-01-01`;
-      const periodEnd = `${docYear}-12-31`;
+      const periodStart = filenameDate ?? `${docYear}-01-01`;
+      const periodEnd = filenameDate ?? `${docYear}-12-31`;
       await (sb as any)
         .from("deal_financial_facts")
         .update({ fact_period_start: periodStart, fact_period_end: periodEnd })

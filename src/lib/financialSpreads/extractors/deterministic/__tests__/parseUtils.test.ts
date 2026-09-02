@@ -7,6 +7,11 @@ import {
   looksLikeMoneyToken,
   findLabeledAmount,
   parseMoney,
+  normalizeLabelPatternSource,
+  findInterimPeriodHeader,
+  findDateInFilename,
+  findDateOnDocument,
+  resolveDocDate,
 } from "../parseUtils";
 
 // ── isLikelyReferenceNumber ───────────────────────────────────────────────
@@ -123,4 +128,111 @@ test("parseMoney: parenthetical negative", () => {
 
 test("parseMoney: plain number", () => {
   assert.equal(parseMoney("1040"), 1040);
+});
+
+// ── SPEC-EXTRACTION-LABEL-AMOUNT-INTEGRITY-1 ─────────────────────────────
+// Label patterns that carry their OWN trailing amount capture used to make the
+// outer amount group backtrack onto the last digit (325,810 → 32581) or pick
+// the IRS line number that precedes the amount ("line 1c | 3 | 997,082" → 3).
+
+const AMOUNT_CAPTURE = /(?:line\s+9|total\s+income).*?(\$?[\d,]+(?:\.\d{0,2})?)/i;
+
+test("findLabeledAmount: label with embedded amount capture keeps every digit", () => {
+  const r = findLabeledAmount("|  Total income | 325,810  |", AMOUNT_CAPTURE);
+  assert.equal(r.value, 325810);
+  assert.equal(r.raw, "325,810");
+});
+
+test("findLabeledAmount: prefers the money-looking token over a preceding line number", () => {
+  const r = findLabeledAmount(
+    "Net sales line 1c | 3 | 997,082",
+    /(?:line\s+1c|net\s+(?:sales|receipts)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i,
+  );
+  assert.equal(r.value, 997082);
+});
+
+test("findLabeledAmount: six-digit amounts survive (863,403 not 86340)", () => {
+  const r = findLabeledAmount(
+    "|  Total deductions | 863,403  |",
+    /(?:line\s+27|total\s+deductions).*?(\$?[\d,]+(?:\.\d{0,2})?)/i,
+  );
+  assert.equal(r.value, 863403);
+});
+
+test("findLabeledAmount: OCR column with line number before amount", () => {
+  const r = findLabeledAmount(
+    "Salaries and wages (less employment credits) | 8 | 418,019",
+    /(?:line\s+13|salaries\s+(?:and\s+)?wages).*?(\$?[\d,]+(?:\.\d{0,2})?)/i,
+  );
+  assert.equal(r.value, 418019);
+});
+
+test("findLabeledAmount: trailing schedule reference after the amount is ignored", () => {
+  const r = findLabeledAmount(
+    "Net income (loss) per books | 106,319 | 5",
+    /(?:net\s+income|net\s+profit).*?(\$?[\d,]+(?:\.\d{0,2})?)/i,
+  );
+  assert.equal(r.value, 106319);
+});
+
+test("findLabeledAmount: plain label without capture still picks the first token", () => {
+  const r = findLabeledAmount("Cost of labor | 3", /cost\s+of\s+labor/i);
+  assert.equal(r.value, 3);
+  assert.equal(r.raw, "3");
+});
+
+test("findLabeledAmount: percent column does not shadow the dollar column", () => {
+  const r = findLabeledAmount("|  Services | $ 684,399.71 | 100.00  |", /\bservices\b/i);
+  assert.equal(r.value, 684399.71);
+});
+
+test("normalizeLabelPatternSource: strips trailing amount capture and de-captures groups", () => {
+  const src = normalizeLabelPatternSource(
+    /(?:line\s+(?:8|12)|business\s+income|schedule\s+C\s+(?:net|income)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i.source,
+  );
+  assert.equal(src, "(?:line\\s+(?:8|12)|business\\s+income|schedule\\s+C\\s+(?:net|income))");
+  const textCapture = normalizeLabelPatternSource(/(?:filing\s+status)\s*(single|married)/i.source);
+  assert.equal(textCapture, "(?:filing\\s+status)\\s*(?:single|married)");
+});
+
+// ── Interim period headers / filename dates ───────────────────────────────
+
+test("findInterimPeriodHeader: six months ended → ISO range", () => {
+  assert.equal(
+    findInterimPeriodHeader("# Buff Guys\n\n## Income Statement\n\nFor the six months ended June 30, 2026\n"),
+    "2026-01-01 to 2026-06-30",
+  );
+});
+
+test("findInterimPeriodHeader: numeric months + US date", () => {
+  assert.equal(findInterimPeriodHeader("For the 3 months ending 3/31/2026"), "2026-01-01 to 2026-03-31");
+});
+
+test("findInterimPeriodHeader: year ended → full year range", () => {
+  assert.equal(findInterimPeriodHeader("For the year ended December 31, 2025"), "2025-01-01 to 2025-12-31");
+});
+
+test("findInterimPeriodHeader: period ended without a month count → end date only", () => {
+  assert.equal(findInterimPeriodHeader("For the period ended September 30, 2025"), "2025-09-30");
+});
+
+test("findInterimPeriodHeader: no header → null", () => {
+  assert.equal(findInterimPeriodHeader("Total income 325,810"), null);
+});
+
+test("findDateOnDocument: standalone header date on a balance sheet", () => {
+  assert.equal(findDateOnDocument("# Buff Guys\n\n## Balance Sheet\n\nJune 30, 2026\n\n| Assets |"), "2026-06-30");
+});
+
+test("findDateInFilename: M-D-YYYY, M.D.YYYY and YYYY-MM-DD forms", () => {
+  assert.equal(findDateInFilename("IS 6-30-2026 Atlanta Ceramic.pdf"), "2026-06-30");
+  assert.equal(findDateInFilename("BS_12.31.2025.pdf"), "2025-12-31");
+  assert.equal(findDateInFilename("pl-2026-03-31-draft.xlsx"), "2026-03-31");
+  assert.equal(findDateInFilename("BTR 2025 ATLCC.pdf"), null);
+  assert.equal(findDateInFilename(null), null);
+});
+
+test("resolveDocDate: filename date beats the doc-year fallback", () => {
+  assert.equal(resolveDocDate("no dates here", 2026, { originalFilename: "IS 6-30-2026.pdf" }), "2026-06-30");
+  assert.equal(resolveDocDate("no dates here", 2026), "2026");
 });

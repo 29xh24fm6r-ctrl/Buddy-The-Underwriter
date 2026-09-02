@@ -1285,7 +1285,7 @@ export async function runMission(
               bankerCertifiedEvidence: {
                 hasStory: !!(subject.business_description && subject.business_description.trim().length > 0),
                 hasManagement: (subject.principals?.length ?? 0) > 0,
-                hasFinancials: subject.annual_revenue != null,
+                hasFinancials: subject.annual_revenue != null || (subject.has_financial_statements ?? false),
               },
               // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: provenance.
               managementBasis: bieResult.management_basis,
@@ -1301,8 +1301,13 @@ export async function runMission(
                 hasIndustryDescription: !!subject.naics_description,
                 hasBusinessDescription: !!(subject.business_description && subject.business_description.trim().length > 0),
                 hasCustomerAnchors: !!subject.customer_anchors,
+                hasProductsServices: !!subject.products_services,
+                hasCompetitivePosition: !!subject.competitive_position,
                 hasRevenue: subject.annual_revenue != null,
+                hasDscr: subject.has_dscr ?? false,
+                hasFinancialStatements: subject.has_financial_statements ?? false,
                 hasLoanRequest: !!(subject.loan_purpose || subject.loan_amount),
+                hasCollateral: subject.has_collateral ?? false,
                 privateCompanyMode: subject.private_company_mode ?? false,
               },
               annualRevenue: subject.annual_revenue ?? null,

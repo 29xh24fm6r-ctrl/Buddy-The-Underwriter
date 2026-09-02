@@ -81,7 +81,91 @@ export function looksLikeMoneyToken(rawMatch: string): boolean {
 export type LabeledAmountResult = {
   value: number | null;
   snippet: string | null;
+  /** The raw numeric token that produced `value` (e.g. "$1,234.56", "8"). */
+  raw?: string | null;
 };
+
+/** A numeric token as it appears in OCR text (money or bare integer). */
+const AMOUNT_TOKEN_RE = /\$?\(?-?[0-9][0-9,]*(?:\.[0-9]{1,2})?\)?/g;
+
+/**
+ * Many extractor label patterns were written as full line matchers that end in
+ * their own amount capture, e.g. `/(?:line\s+1c|net\s+sales).*?(\$?[\d,]+(?:\.\d{0,2})?)/i`.
+ * When such a pattern is embedded as the LABEL of the labeled-amount regex, the
+ * embedded `[\d,]+` swallows the amount and the outer amount group is forced to
+ * backtrack onto the last digit — "325,810" became 32581 (trailing digit
+ * dropped) and "line 1c | 3 | 997,082" became 3 (the IRS line number).
+ *
+ * Normalize the label: strip a trailing `.*?(<amount>)` capture and turn any
+ * remaining capturing groups into non-capturing ones so group indices are stable.
+ */
+export function normalizeLabelPatternSource(source: string): string {
+  let src = source;
+
+  // Strip a trailing lazy-gap + amount capture group: `.*?(` ... `)` where the
+  // group body is a numeric matcher (contains `\d` or `[0-9]`).
+  const tailIdx = src.lastIndexOf(".*?(");
+  if (tailIdx >= 0 && src.endsWith(")")) {
+    const body = src.slice(tailIdx + 4, -1);
+    const isNumericBody = /\\d|\[0-9\]|\[\\d,\]/.test(body);
+    if (isNumericBody) src = src.slice(0, tailIdx);
+  }
+
+  // Capturing `(` → non-capturing `(?:` (skip escaped parens and existing `(?`).
+  let out = "";
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === "\\") {
+      out += ch + (src[i + 1] ?? "");
+      i++;
+      continue;
+    }
+    if (ch === "(" && src[i + 1] !== "?") {
+      out += "(?:";
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function buildLabelRegex(label: string | RegExp, global: boolean): RegExp {
+  const labelPat =
+    label instanceof RegExp ? normalizeLabelPatternSource(label.source) : escapeRegex(label);
+  let flags = label instanceof RegExp ? label.flags.replace("g", "") : "i";
+  if (global) flags += "g";
+  return new RegExp(`(${labelPat})`, flags);
+}
+
+/**
+ * Pick the best numeric token inside a lookahead window that follows a label.
+ *
+ * Preference order:
+ *   1. The first token that LOOKS like money ($, comma grouping, decimals,
+ *      parenthetical negative, or 5+ digits). IRS/OCR tables commonly render
+ *      the line number BEFORE the amount ("line 1c | 3 | 997,082"); the amount
+ *      is the money-looking token, the "3" is the line number.
+ *   2. Otherwise the first token that is not an IRS form/schedule reference.
+ */
+function pickAmountToken(
+  window: string,
+  context: string,
+): { raw: string; value: number; endOffset: number } | null {
+  const tokens: Array<{ raw: string; value: number; endOffset: number; money: boolean }> = [];
+  const re = new RegExp(AMOUNT_TOKEN_RE.source, "g");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(window)) !== null) {
+    const raw = m[0];
+    const value = parseMoney(raw);
+    if (value === null) continue;
+    const money = looksLikeMoneyToken(raw);
+    if (isLikelyReferenceNumber(value, context) && !money) continue;
+    tokens.push({ raw, value, endOffset: m.index + raw.length, money });
+  }
+  if (tokens.length === 0) return null;
+  const preferred = tokens.find((t) => t.money) ?? tokens[0];
+  return { raw: preferred.raw, value: preferred.value, endOffset: preferred.endOffset };
+}
 
 /**
  * Find a dollar amount near a label in text.
@@ -98,37 +182,8 @@ export function findLabeledAmount(
   label: string | RegExp,
   opts?: { maxLookahead?: number; crossLine?: boolean },
 ): LabeledAmountResult {
-  const maxLook = opts?.maxLookahead ?? 120;
-  const labelPat =
-    label instanceof RegExp ? label.source : escapeRegex(label);
-  const flags = label instanceof RegExp ? label.flags.replace("g", "") : "i";
-
-  // Character class for lookahead: same-line only or cross-line
-  const gapClass = opts?.crossLine ? "[\\s\\S]" : "[^\\n\\r]";
-
-  // Match label, then capture a dollar amount within maxLookahead chars
-  const re = new RegExp(
-    `(${labelPat})${gapClass}{0,${maxLook}}?(\\$?\\(?-?[0-9][0-9,]*(?:\\.[0-9]{1,2})?\\)?)`,
-    flags,
-  );
-  const m = re.exec(text);
-  if (!m) return { value: null, snippet: null };
-
-  const rawMatch = m[2];
-  const value = parseMoney(rawMatch);
-  if (value === null) return { value: null, snippet: null };
-
-  // Guard: reject IRS form/schedule reference numbers.
-  // Use a ±40 char window around the match for context (captures "Form 1065" before label).
-  const ctxStart = Math.max(0, m.index - 40);
-  const ctxEnd = Math.min(text.length, m.index + m[0].length + 40);
-  const context = text.slice(ctxStart, ctxEnd);
-  if (isLikelyReferenceNumber(value, context) && !looksLikeMoneyToken(rawMatch)) {
-    return { value: null, snippet: null };
-  }
-
-  const snippet = m[0].replace(/\s+/g, " ").trim();
-  return { value, snippet };
+  const results = findAllLabeledAmounts(text, label, { ...opts, limit: 1 });
+  return results[0] ?? { value: null, snippet: null, raw: null };
 }
 
 /**
@@ -137,39 +192,37 @@ export function findLabeledAmount(
 export function findAllLabeledAmounts(
   text: string,
   label: string | RegExp,
-  opts?: { maxLookahead?: number; crossLine?: boolean },
+  opts?: { maxLookahead?: number; crossLine?: boolean; limit?: number },
 ): LabeledAmountResult[] {
   const maxLook = opts?.maxLookahead ?? 120;
-  const labelPat =
-    label instanceof RegExp ? label.source : escapeRegex(label);
-  const flags = label instanceof RegExp
-    ? (label.flags.includes("g") ? label.flags : label.flags + "g")
-    : "gi";
-
-  const gapClass = opts?.crossLine ? "[\\s\\S]" : "[^\\n\\r]";
-
-  const re = new RegExp(
-    `(${labelPat})${gapClass}{0,${maxLook}}?(\\$?\\(?-?[0-9][0-9,]*(?:\\.[0-9]{1,2})?\\)?)`,
-    flags,
-  );
-
+  const re = buildLabelRegex(label, true);
   const results: LabeledAmountResult[] = [];
+
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    const rawMatch = m[2];
-    const value = parseMoney(rawMatch);
-    if (value === null) continue;
-
-    // Guard: reject IRS form/schedule reference numbers
-    const ctxStart = Math.max(0, m.index - 40);
-    const ctxEnd = Math.min(text.length, m.index + m[0].length + 40);
-    const context = text.slice(ctxStart, ctxEnd);
-    if (isLikelyReferenceNumber(value, context) && !looksLikeMoneyToken(rawMatch)) {
+    if (m[0].length === 0) {
+      re.lastIndex++;
       continue;
     }
+    const labelEnd = m.index + m[0].length;
+    let window = text.slice(labelEnd, labelEnd + maxLook);
+    if (!opts?.crossLine) {
+      const nl = window.search(/[\n\r]/);
+      if (nl >= 0) window = window.slice(0, nl);
+    }
 
-    const snippet = m[0].replace(/\s+/g, " ").trim();
-    results.push({ value, snippet });
+    // Use a ±40 char window around the label for reference-number context
+    // (captures "Form 1065" before the label).
+    const ctxStart = Math.max(0, m.index - 40);
+    const ctxEnd = Math.min(text.length, labelEnd + window.length + 40);
+    const context = text.slice(ctxStart, ctxEnd);
+
+    const picked = pickAmountToken(window, context);
+    if (!picked) continue;
+
+    const snippet = (m[0] + window.slice(0, picked.endOffset)).replace(/\s+/g, " ").trim();
+    results.push({ value: picked.value, snippet, raw: picked.raw });
+    if (opts?.limit && results.length >= opts.limit) break;
   }
   return results;
 }
@@ -258,6 +311,15 @@ function splitTableRow(line: string): string[] {
  * Returns YYYY-MM-DD or null.
  */
 export function findDateOnDocument(text: string): string | null {
+  // Interim statement headers: "For the six months ended June 30, 2026",
+  // "For the 6 months ending 6/30/2026", "For the period ended March 31, 2026".
+  // These carry the period END; a "<N> months" prefix also gives the START, so
+  // return an ISO range that normalizePeriod() understands. Without this the
+  // extractor fell through to the doc-year fallback and stamped a 6-month YTD
+  // P&L as the full fiscal year (…-12-31).
+  const interim = findInterimPeriodHeader(text);
+  if (interim) return interim;
+
   // ISO format: 2024-01-15
   const isoMatch = text.match(
     /(?:as\s+of|date|effective|period\s+end(?:ing)?)[:\s]*(\d{4}-\d{2}-\d{2})/i,
@@ -290,6 +352,101 @@ export function findDateOnDocument(text: string): string | null {
   const fallback = text.slice(0, 500).match(/\b(\d{4}-\d{2}-\d{2})\b/);
   if (fallback) return fallback[1];
 
+  // Fallback: a standalone "Month DD, YYYY" in the document header (balance
+  // sheets and P&Ls print the as-of date under the title with no keyword).
+  const headerDate = text.slice(0, 600).match(
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\.?\s+(\d{1,2}),?\s+(\d{4})\b/i,
+  );
+  if (headerDate) {
+    const mo = monthNameToNum(headerDate[1]);
+    if (mo) return `${headerDate[3]}-${pad2(mo)}-${headerDate[2].padStart(2, "0")}`;
+  }
+
+  return null;
+}
+
+const WORD_NUMBERS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  nine: 9, ten: 10, eleven: 11, twelve: 12,
+};
+
+/**
+ * Detect an interim-period header and return an ISO date or ISO range.
+ *
+ *   "For the six months ended June 30, 2026"     → "2026-01-01 to 2026-06-30"
+ *   "For the 3 months ending 3/31/2026"          → "2026-01-01 to 2026-03-31"
+ *   "For the period ended September 30, 2025"    → "2025-09-30"
+ *   "For the year ended December 31, 2025"       → "2025-01-01 to 2025-12-31"
+ *
+ * Only the END date is required; the start is derived from "<N> months" or
+ * "year" when present. Exported for tests.
+ */
+export function findInterimPeriodHeader(text: string): string | null {
+  const head = text.slice(0, 1500);
+  const re =
+    /(?:for\s+the\s+)?(?:(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[\s-]+months?|(year)|(?:period|quarter))\s+(?:then\s+)?end(?:ed|ing)\s+(?:on\s+)?((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\.?\s+\d{1,2},?\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}-\d{2}-\d{2})/i;
+  const m = head.match(re);
+  if (!m) return null;
+
+  const end = parseLooseDate(m[3]);
+  if (!end) return null;
+
+  let months: number | null = null;
+  if (m[1]) {
+    const w = m[1].toLowerCase();
+    months = WORD_NUMBERS[w] ?? Number(w);
+    if (!Number.isFinite(months) || months <= 0 || months > 12) months = null;
+  } else if (m[2]) {
+    months = 12;
+  }
+  if (months === null) return end;
+
+  // Start = first day of the month `months - 1` months before the end month.
+  const [y, mo] = end.split("-").map(Number);
+  const startIdx = mo - months; // 0-based month index of the start
+  const startY = y + Math.floor(startIdx / 12);
+  const startM = ((startIdx % 12) + 12) % 12 + 1;
+  return `${startY}-${pad2(startM)}-01 to ${end}`;
+}
+
+/** Parse "June 30, 2026" | "6/30/2026" | "2026-06-30" → "2026-06-30". */
+function parseLooseDate(raw: string): string | null {
+  const s = raw.trim();
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return s;
+  const us = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (us) return `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+  const named = s.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\.?\s+(\d{1,2}),?\s+(\d{4})$/i);
+  if (named) {
+    const mo = monthNameToNum(named[1]);
+    if (mo) return `${named[3]}-${pad2(mo)}-${named[2].padStart(2, "0")}`;
+  }
+  return null;
+}
+
+/**
+ * Derive an as-of / period-end date from an upload's filename, e.g.
+ * "IS 6-30-2026 Atlanta Ceramic.pdf" → "2026-06-30", "BS_12.31.2025.pdf" →
+ * "2025-12-31". Bankers routinely encode the statement date in the filename
+ * when the document body prints none. Exported for tests.
+ */
+export function findDateInFilename(filename: string | null | undefined): string | null {
+  if (!filename) return null;
+  const name = filename.replace(/\.[a-z0-9]{2,4}$/i, "");
+  const us = name.match(/(?:^|[^\d])(\d{1,2})[-./](\d{1,2})[-./](\d{4})(?!\d)/);
+  if (us) {
+    const mo = Number(us[1]);
+    const d = Number(us[2]);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      return `${us[3]}-${pad2(mo)}-${pad2(d)}`;
+    }
+  }
+  const iso = name.match(/(?:^|[^\d])(\d{4})[-._](\d{2})[-._](\d{2})(?!\d)/);
+  if (iso) {
+    const mo = Number(iso[2]);
+    const d = Number(iso[3]);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  }
   return null;
 }
 
@@ -436,9 +593,12 @@ export function detectIrsFormType(text: string): IrsFormType {
 export function resolveDocDate(
   text: string,
   docYear?: number | null,
+  opts?: { originalFilename?: string | null },
 ): string | null {
   const dateStr = findDateOnDocument(text);
   if (dateStr) return dateStr;
+  const fromFilename = findDateInFilename(opts?.originalFilename);
+  if (fromFilename) return fromFilename;
   if (docYear && docYear >= 1990 && docYear <= 2100) return String(docYear);
   return null;
 }

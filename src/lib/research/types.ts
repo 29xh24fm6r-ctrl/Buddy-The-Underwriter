@@ -55,6 +55,15 @@ export type MissionSubject = {
   customer_anchors?: string | null;
   private_company_mode?: boolean;
   has_banker_certified_anchor?: boolean;
+  // Loan-file evidence signals for the research completion gate. These are
+  // FACTS ON FILE (deal_financial_facts / deal_collateral_items / deal_documents),
+  // not research output — the gate's "Financial statements / DSCR / Collateral"
+  // items read false for every deal until they were wired through here.
+  products_services?: string | null;
+  competitive_position?: string | null;
+  has_dscr?: boolean;
+  has_financial_statements?: boolean;
+  has_collateral?: boolean;
 };
 
 export type ResearchMission = {

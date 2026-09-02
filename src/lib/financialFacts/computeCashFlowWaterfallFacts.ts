@@ -53,7 +53,45 @@ const INPUT_FACT_KEYS = [
   // read ONLY for the advisory QoE materiality flag — never fed to the waterfall.
   "OTHER_INCOME",
   "OTHER_DEDUCTIONS",
+  // Owner-occupied CRE purchase rent add-back (see resolveRentAddback).
+  "RENT_EXPENSE",
 ];
+
+/**
+ * Owner-occupied CRE PURCHASE: rent paid for the building being acquired is
+ * replaced by the proposed debt service, so the period's RENT_EXPENSE is added
+ * back to cash flow available. Applies ONLY to a purchase request with
+ * occupancy OWNER_OCCUPIED; refinances, investor property and non-RE requests
+ * get no add-back. Never throws.
+ */
+async function resolveRentAddback(
+  sb: ReturnType<typeof supabaseAdmin>,
+  dealId: string,
+  rentExpense: number | null,
+): Promise<{ amount: number; reason: string } | null> {
+  if (rentExpense === null || !Number.isFinite(rentExpense) || rentExpense <= 0) return null;
+  try {
+    const { data: rows } = await (sb as any)
+      .from("deal_loan_requests")
+      .select("product_type, occupancy_type, status, request_number")
+      .eq("deal_id", dealId)
+      .order("request_number", { ascending: false })
+      .limit(5);
+    const active = ((rows ?? []) as Array<{ product_type?: string | null; occupancy_type?: string | null; status?: string | null }>)
+      .find((r) => !["withdrawn", "declined"].includes(String(r.status ?? "")));
+    if (!active) return null;
+    const product = String(active.product_type ?? "").toUpperCase();
+    const occupancy = String(active.occupancy_type ?? "").toUpperCase();
+    if (product !== "CRE_PURCHASE" || occupancy !== "OWNER_OCCUPIED") return null;
+    return {
+      amount: rentExpense,
+      reason:
+        "Owner-occupied CRE purchase: rent on the acquired premises is replaced by the proposed debt service; period RENT_EXPENSE added back.",
+    };
+  } catch {
+    return null;
+  }
+}
 
 export type ComputeCashFlowWaterfallResult =
   | { ok: true; period: string; ncads: number | null; wrote: number }
@@ -185,7 +223,8 @@ export async function computeCashFlowWaterfallFacts(args: {
 
     // 3. Build waterfall input (reuses ebitdaEngine base + ownerCompTreatment).
     const { slate } = await loadDealMethodology(dealId, bankId);
-    const built = buildWaterfallInputFromFacts(factMap, slate);
+    const rentAddback = await resolveRentAddback(sb, dealId, factMap["RENT_EXPENSE"] ?? null);
+    const built = buildWaterfallInputFromFacts(factMap, slate, { rentAddback });
 
     // No income base → NCADS would be fabricated from addbacks alone (e.g. just D&A).
     // Emit a labeled diagnostic instead of fake precision.

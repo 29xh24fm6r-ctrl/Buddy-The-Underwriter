@@ -168,7 +168,7 @@ export async function buildDealFinancialSnapshotForBank(args: {
   // active truth: banker overrides/provides (MANUAL), spreads, extractions.
   // The selectBestFact() priority (MANUAL > STRUCTURAL > SPREAD > DOC_EXTRACT)
   // ensures banker-resolved values win when present.
-  const [factsRes, rrRes, dealModeRes] = await Promise.all([
+  const [factsRes, rrRes, dealModeRes, loanReqRes] = await Promise.all([
     (sb as any)
       .from("deal_financial_facts")
       .select("*")
@@ -189,6 +189,14 @@ export async function buildDealFinancialSnapshotForBank(args: {
           .select("deal_mode, deal_type")
           .eq("id", args.dealId)
           .maybeSingle(),
+    // Active loan request: product + occupancy decide which metrics a CRE deal
+    // actually needs (owner-occupied → business cash flow, not property NOI).
+    (sb as any)
+      .from("deal_loan_requests")
+      .select("product_type, occupancy_type, status, request_number")
+      .eq("deal_id", args.dealId)
+      .order("request_number", { ascending: false })
+      .limit(5),
   ]);
 
   if (factsRes.error) {
@@ -206,8 +214,15 @@ export async function buildDealFinancialSnapshotForBank(args: {
 
   const dealMode = args.dealMode ?? (dealModeRes.data as any)?.deal_mode ?? "full_underwrite";
   const dealType: string | null = (dealModeRes.data as any)?.deal_type ?? null;
+  const loanRequests = ((loanReqRes as any)?.data ?? []) as Array<{
+    product_type?: string | null; occupancy_type?: string | null; status?: string | null;
+  }>;
+  const loanRequest =
+    loanRequests.find((lr) => !["withdrawn", "declined"].includes(String(lr.status ?? ""))) ??
+    loanRequests[0] ??
+    null;
 
-  const base = buildSnapshotFromFacts({ facts, metricSpecs: metricSpecsV1(), waltYears, dealMode, dealType });
+  const base = buildSnapshotFromFacts({ facts, metricSpecs: metricSpecsV1(), waltYears, dealMode, dealType, loanRequest });
 
   // SPEC-FINANCIAL-ANALYSIS-CANONICAL-ENGINE-AND-ADS-MATERIALIZATION-1: re-project
   // the canonical/certified engine values (the SAME selectors the GCF page and
