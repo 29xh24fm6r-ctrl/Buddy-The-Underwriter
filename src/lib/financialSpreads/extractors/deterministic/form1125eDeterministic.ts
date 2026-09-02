@@ -13,7 +13,7 @@ import type {
   PureLineItem,
   ExtractionPath,
 } from "./types";
-import { parseMoney, resolveDocTaxYear } from "./parseUtils";
+import { parseMoney, resolveDocTaxYear, matchAmountAfterLabel } from "./parseUtils";
 import { extractFormFields } from "./structuredJsonParser";
 
 // ---------------------------------------------------------------------------
@@ -175,7 +175,7 @@ export function extractForm1125E(
 
   if (!items.some((i) => i.key === "F1125E_COMPENSATION")) {
     factsAttempted++;
-    const compMatch = ocrText.match(COMPENSATION_PATTERN);
+    const compMatch = matchAmountAfterLabel(ocrText, COMPENSATION_PATTERN);
     if (compMatch) {
       const val = parseMoney(compMatch[1]);
       if (val !== null) {
@@ -191,7 +191,7 @@ export function extractForm1125E(
 
   // -- Total compensation --
   factsAttempted++;
-  const totalMatch = ocrText.match(TOTAL_COMP_PATTERN);
+  const totalMatch = matchAmountAfterLabel(ocrText, TOTAL_COMP_PATTERN);
   if (totalMatch) {
     const val = parseMoney(totalMatch[1]);
     if (val !== null) {

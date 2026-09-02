@@ -15,7 +15,7 @@ import type {
   PureLineItem,
   ExtractionPath,
 } from "./types";
-import { parseMoney, resolveDocTaxYear } from "./parseUtils";
+import { parseMoney, resolveDocTaxYear, matchAmountAfterLabel } from "./parseUtils";
 import { extractFormFields } from "./structuredJsonParser";
 
 // ---------------------------------------------------------------------------
@@ -205,7 +205,7 @@ export function extractForm8825(
   // -- OCR regex — gross rents --
   if (!items.some((i) => i.key === "F8825_GROSS_RENTS")) {
     factsAttempted++;
-    const rentsMatch = ocrText.match(GROSS_RENTS_PATTERN);
+    const rentsMatch = matchAmountAfterLabel(ocrText, GROSS_RENTS_PATTERN);
     if (rentsMatch) {
       const val = parseMoney(rentsMatch[1]);
       if (val !== null) {
@@ -223,7 +223,7 @@ export function extractForm8825(
   for (const lp of EXPENSE_PATTERNS) {
     if (items.some((i) => i.key === lp.key)) continue;
     factsAttempted++;
-    const match = ocrText.match(lp.pattern);
+    const match = matchAmountAfterLabel(ocrText, lp.pattern);
     if (match) {
       const val = parseMoney(match[1]);
       if (val !== null) {
@@ -239,7 +239,7 @@ export function extractForm8825(
 
   // -- OCR regex — totals (all properties) --
   factsAttempted++;
-  const totalRentsMatch = ocrText.match(TOTAL_GROSS_RENTS_PATTERN);
+  const totalRentsMatch = matchAmountAfterLabel(ocrText, TOTAL_GROSS_RENTS_PATTERN);
   if (totalRentsMatch) {
     const val = parseMoney(totalRentsMatch[1]);
     if (val !== null) {
@@ -253,7 +253,7 @@ export function extractForm8825(
   }
 
   factsAttempted++;
-  const totalDeprecMatch = ocrText.match(TOTAL_DEPRECIATION_PATTERN);
+  const totalDeprecMatch = matchAmountAfterLabel(ocrText, TOTAL_DEPRECIATION_PATTERN);
   if (totalDeprecMatch) {
     const val = parseMoney(totalDeprecMatch[1]);
     if (val !== null) {
@@ -267,7 +267,7 @@ export function extractForm8825(
   }
 
   factsAttempted++;
-  const totalNetMatch = ocrText.match(TOTAL_NET_INCOME_PATTERN);
+  const totalNetMatch = matchAmountAfterLabel(ocrText, TOTAL_NET_INCOME_PATTERN);
   if (totalNetMatch) {
     const val = parseMoney(totalNetMatch[1]);
     if (val !== null) {

@@ -8,7 +8,7 @@ import {
   type ExtractionResult,
 } from "../shared";
 import type { DeterministicExtractorArgs, ExtractionPath } from "./types";
-import { findLabeledAmount, resolveDocTaxYear } from "./parseUtils";
+import { findLabeledAmount, looksLikeMoneyToken, resolveDocTaxYear } from "./parseUtils";
 import {
   extractEntitiesFlat,
   entityToMoney,
@@ -90,13 +90,18 @@ const VALID_LINE_KEYS = new Set([
 // ---------------------------------------------------------------------------
 
 const LABEL_PATTERNS: Array<{ key: string; pattern: RegExp }> = [
-  { key: "WAGES_W2", pattern: /(?:line\s+1\b|wages,?\s+salaries,?\s+(?:and\s+)?tips).*?(\$?[\d,]+(?:\.\d{2})?)/i },
+  // "line 1" alone matched instruction text ("line 1. If line 3 is more than
+  // line 1" → 1) and unrelated schedules. Require the wages label itself;
+  // return summaries print it as "Salaries & wages".
+  { key: "WAGES_W2", pattern: /(?:wages,?\s+salaries,?\s+(?:and\s+)?tips|salaries\s*(?:&|and)\s*wages|\bwages\b\s*(?:\||\$|\d)).*?(\$?[\d,]+(?:\.\d{2})?)/i },
   { key: "INTEREST_INCOME", pattern: /(?:line\s+2b|taxable\s+interest).*?(\$?[\d,]+(?:\.\d{2})?)/i },
   { key: "DIVIDEND_INCOME", pattern: /(?:line\s+3b|(?:qualified\s+)?dividends?).*?(\$?[\d,]+(?:\.\d{2})?)/i },
   { key: "CAPITAL_GAINS", pattern: /(?:line\s+7|capital\s+gain).*?(\$?[\d,]+(?:\.\d{2})?)/i },
   { key: "SCHED_C_NET", pattern: /(?:line\s+(?:8|12)|schedule\s+C|business\s+(?:income|profit)).*?(\$?[\d,]+(?:\.\d{2})?)/i },
   { key: "SCHED_E_NET", pattern: /(?:line\s+(?:5|17)|schedule\s+E|rental.*?income|supplemental\s+income).*?(\$?[\d,]+(?:\.\d{2})?)/i },
-  { key: "K1_ORDINARY_INCOME", pattern: /(?:K[\s-]?1|ordinary\s+(?:business\s+)?income\s+from\s+(?:partnership|S\s+corp)).*?(\$?[\d,]+(?:\.\d{2})?)/i },
+  // A bare "K-1" token matched the Schedule E column header "(see Schedule
+  // K-1) | (j) Section 179" and returned 179. Require an income label.
+  { key: "K1_ORDINARY_INCOME", pattern: /(?:ordinary\s+(?:business\s+)?income\s+from\s+(?:partnership|S\s+corp)|schedule\s+K[\s-]?1\s+(?:ordinary\s+)?(?:business\s+)?income|nonpassive\s+income\s+from\s+schedule\s+K[\s-]?1|partnership(?:s)?\s+(?:and\s+)?S\s+corporations?\s+(?:income|total)).*?(\$?[\d,]+(?:\.\d{2})?)/i },
   { key: "SOCIAL_SECURITY", pattern: /(?:line\s+6[ab]|social\s+security\s+benefit).*?(\$?[\d,]+(?:\.\d{2})?)/i },
   { key: "IRA_DISTRIBUTIONS", pattern: /(?:line\s+4[ab]|IRA\s+distributions?|pension|annuit).*?(\$?[\d,]+(?:\.\d{2})?)/i },
   { key: "OTHER_INCOME", pattern: /(?:line\s+(?:8|10)|other\s+income).*?(\$?[\d,]+(?:\.\d{2})?)/i },
@@ -303,6 +308,11 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
     const result = findLabeledAmount(text, pattern);
     if (result.value === null) continue;
     if (items.some((i) => i.factKey === key)) continue;
+
+    // Bare 1–2 digit tokens beside a return label are line/column numbers,
+    // not dollar amounts (same guard as the business extractor).
+    const raw = result.raw ?? "";
+    if (result.value !== 0 && Math.abs(result.value) < 100 && !looksLikeMoneyToken(raw)) continue;
 
     items.push({
       factKey: key,

@@ -11,7 +11,7 @@ import type {
   PureLineItem,
   ExtractionPath,
 } from "./types";
-import { parseMoney, resolveDocTaxYear } from "./parseUtils";
+import { parseMoney, resolveDocTaxYear, matchAmountAfterLabel } from "./parseUtils";
 import { extractEntitiesFlat, extractFormFields, entityToMoney } from "./structuredJsonParser";
 
 // ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ export function extractK1(
     if (items.some((i) => i.key === bp.key)) continue;
 
     factsAttempted++;
-    const match = ocrText.match(bp.pattern);
+    const match = matchAmountAfterLabel(ocrText, bp.pattern);
     if (match) {
       const val = parseMoney(match[1]);
       if (val !== null) {
@@ -186,7 +186,7 @@ export function extractK1(
   for (const cap of CAP_ACCOUNT_PATTERNS) {
     if (items.some((i) => i.key === cap.key)) continue;
     factsAttempted++;
-    const match = ocrText.match(cap.pattern);
+    const match = matchAmountAfterLabel(ocrText, cap.pattern);
     if (match) {
       const val = parseMoney(match[1]);
       if (val !== null) {

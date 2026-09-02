@@ -12,6 +12,7 @@ import {
   findDateInFilename,
   findDateOnDocument,
   resolveDocDate,
+  matchAmountAfterLabel,
 } from "../parseUtils";
 
 // ── isLikelyReferenceNumber ───────────────────────────────────────────────
@@ -235,4 +236,42 @@ test("findDateInFilename: M-D-YYYY, M.D.YYYY and YYYY-MM-DD forms", () => {
 test("resolveDocDate: filename date beats the doc-year fallback", () => {
   assert.equal(resolveDocDate("no dates here", 2026, { originalFilename: "IS 6-30-2026.pdf" }), "2026-06-30");
   assert.equal(resolveDocDate("no dates here", 2026), "2026");
+});
+
+// ── matchAmountAfterLabel (schedule extractors) ──────────────────────────
+
+test("matchAmountAfterLabel: line number between label and amount is skipped", () => {
+  const m = matchAmountAfterLabel(
+    "Distributions (attach statement if required) | **16 | 12,500",
+    /(?:box\s+(?:16[d]?|19[a]?)\b|(?:cash\s+)?distributions?).*?(\(?-?\$?\d[\d,]*(?:\.\d{0,2})?\)?)/i,
+  );
+  assert.ok(m);
+  assert.equal(m![1], "12,500");
+  assert.equal(parseMoney(m![1]), 12500);
+});
+
+test("matchAmountAfterLabel: `[:\\s]*(amount)` shaped pattern still resolves", () => {
+  const m = matchAmountAfterLabel(
+    "Amount of compensation: $185,000",
+    /(?:amount\s+of\s+compensation|compensation)[:\s]*(\(?-?\$?\d[\d,]*(?:\.\d{0,2})?\)?)/i,
+  );
+  assert.ok(m);
+  assert.equal(parseMoney(m![1]), 185000);
+});
+
+test("matchAmountAfterLabel: no amount → null", () => {
+  assert.equal(matchAmountAfterLabel("Beginning capital account", /beginning\s+capital\s+account.*?(\(?-?\$?\d[\d,]*)/i), null);
+});
+
+test("normalizeLabelPatternSource: strips `[:\\s]*(numeric)` tails too", () => {
+  assert.equal(
+    normalizeLabelPatternSource(/(?:amount\s+of\s+compensation|compensation)[:\s]*(\(?-?\$?\d[\d,]*(?:\.\d{0,2})?\)?)/i.source),
+    "(?:amount\\s+of\\s+compensation|compensation)",
+  );
+});
+
+test("findLabeledAmount: Form 8990 reference is not an interest amount", () => {
+  const text = "Does the corporation have business interest expense. If \"Yes,\" complete and attach Form 8990, | 12";
+  const r = findLabeledAmount(text, /interest\s+(?:expense|paid|deduction)/i);
+  assert.notEqual(r.value, 8990);
 });

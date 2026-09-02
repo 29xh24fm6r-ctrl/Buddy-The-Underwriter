@@ -48,6 +48,9 @@ const IRS_REFERENCE_NUMBERS = new Set([
   5884, 6198, 6251, 6252, 6765,
   7203, 8283, 8332, 8396, 8582, 8606, 8801, 8839, 8863, 8880, 8889,
   8910, 8936, 8959, 8960, 8962, 990,
+  // Form 8990 (business interest expense limitation) — referenced on 1120/1120-S
+  // page 1 ("attach Form 8990") right after the words "interest expense".
+  8990,
 ]);
 
 const IRS_CONTEXT_RE = /\b(form|schedule|line|omb|irs|attach|see|ref|page)\b/i;
@@ -85,8 +88,11 @@ export type LabeledAmountResult = {
   raw?: string | null;
 };
 
-/** A numeric token as it appears in OCR text (money or bare integer). */
-const AMOUNT_TOKEN_RE = /\$?\(?-?[0-9][0-9,]*(?:\.[0-9]{1,2})?\)?/g;
+/**
+ * A numeric token as it appears in OCR text (money or bare integer).
+ * Accepts both "$(1,234)" and "($1,234)" parenthetical-negative orderings.
+ */
+const AMOUNT_TOKEN_RE = /\(?-?\$?\(?-?[0-9][0-9,]*(?:\.[0-9]{1,2})?\)?/g;
 
 /**
  * Many extractor label patterns were written as full line matchers that end in
@@ -102,13 +108,37 @@ const AMOUNT_TOKEN_RE = /\$?\(?-?[0-9][0-9,]*(?:\.[0-9]{1,2})?\)?/g;
 export function normalizeLabelPatternSource(source: string): string {
   let src = source;
 
-  // Strip a trailing lazy-gap + amount capture group: `.*?(` ... `)` where the
-  // group body is a numeric matcher (contains `\d` or `[0-9]`).
-  const tailIdx = src.lastIndexOf(".*?(");
-  if (tailIdx >= 0 && src.endsWith(")")) {
-    const body = src.slice(tailIdx + 4, -1);
-    const isNumericBody = /\\d|\[0-9\]|\[\\d,\]/.test(body);
-    if (isNumericBody) src = src.slice(0, tailIdx);
+  // Strip a trailing amount capture group `( ... )` whose body is a numeric
+  // matcher (contains `\d` or `[0-9]`), together with the gap that precedes it
+  // (`.*?`, `\s*`, `\s+`, `[:\s]*`, …). Handles both `.*?(\$?[\d,]+…)` and
+  // `[:\s]*(\(?-?\$?\d[\d,]*…)` shapes used across the extractors.
+  if (src.endsWith(")")) {
+    // Walk back to the `(` that opens the final group (skip escaped parens).
+    let depth = 0;
+    let open = -1;
+    for (let i = src.length - 1; i >= 0; i--) {
+      const ch = src[i];
+      const escaped = i > 0 && src[i - 1] === "\\";
+      if (escaped) continue;
+      if (ch === ")") depth++;
+      else if (ch === "(") {
+        depth--;
+        if (depth === 0) {
+          open = i;
+          break;
+        }
+      }
+    }
+    if (open > 0 && src[open + 1] !== "?") {
+      const body = src.slice(open + 1, -1);
+      const isNumericBody = /\\d|\[0-9\]|\[\\d,\]/.test(body);
+      if (isNumericBody) {
+        let head = src.slice(0, open);
+        // Drop the gap token(s) immediately before the group.
+        head = head.replace(/(?:\.\*\?|\\s[*+]?|\[[^\]]*\][*+?]?|\s)+$/, "");
+        if (head.length > 0) src = head;
+      }
+    }
   }
 
   // Capturing `(` → non-capturing `(?:` (skip escaped parens and existing `(?`).
@@ -155,7 +185,10 @@ function pickAmountToken(
   const re = new RegExp(AMOUNT_TOKEN_RE.source, "g");
   let m: RegExpExecArray | null;
   while ((m = re.exec(window)) !== null) {
-    const raw = m[0];
+    // Trailing list punctuation ("8990," / "1,234.") is not part of the amount
+    // and must not make a bare number look comma-grouped.
+    const raw = m[0].replace(/[,.]+$/, "");
+    if (!raw) continue;
     const value = parseMoney(raw);
     if (value === null) continue;
     const money = looksLikeMoneyToken(raw);
@@ -165,6 +198,24 @@ function pickAmountToken(
   if (tokens.length === 0) return null;
   const preferred = tokens.find((t) => t.money) ?? tokens[0];
   return { raw: preferred.raw, value: preferred.value, endOffset: preferred.endOffset };
+}
+
+/**
+ * Drop-in replacement for `text.match(labelWithAmountCapture)` used by the
+ * schedule extractors: returns `[snippet, rawAmountToken]` (same shape the
+ * callers read as `m[0]` / `m[1]`) or null. Unlike a raw lazy match, the amount
+ * is chosen by findLabeledAmount's token policy, so an IRS line number sitting
+ * between the label and the amount ("Distributions | 16 | 12,500") is no longer
+ * returned as the amount.
+ */
+export function matchAmountAfterLabel(
+  text: string,
+  pattern: RegExp,
+  opts?: { maxLookahead?: number; crossLine?: boolean },
+): [string, string] | null {
+  const r = findLabeledAmount(text, pattern, opts);
+  if (r.value === null || !r.raw) return null;
+  return [r.snippet ?? r.raw, r.raw];
 }
 
 /**
