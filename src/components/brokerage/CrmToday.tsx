@@ -1,23 +1,30 @@
-import React from "react";
+"use client";
+
+import React, { useState } from "react";
 import Link from "next/link";
 import { CRM_ROOT, prioritizeTasks, taskDueLabel } from "@/lib/crm/experience";
 import type { FocusTask } from "@/lib/crm/experience";
+import { CrmActivityComposer } from "./CrmActivityComposer";
 
 type Relationship = { id: string; name: string; lastActivityAt: string | null; health: string };
 type Activity = { id: string; title: string | null; kind: string; organizationId: string | null; organizationName: string | null };
 
-export function CrmToday({ loading, error, tasks, relationships, activity, onRetry, now }: {
+export function CrmToday({ loading, error, tasks, relationships, activity, onRetry, now, organizations = [] }: {
   loading: boolean; error: string | null; tasks: FocusTask[]; relationships: Relationship[]; activity: Activity[]; onRetry: () => void; now: number;
+  organizations?: { id: string; name: string }[];
 }) {
-  if (loading) return <div className="crm-experience crm-empty" role="status">Gathering your follow-ups and relationship activity…</div>;
-  if (error) return <div className="crm-experience crm-empty" role="alert"><h2>We couldn’t load your day</h2><p>Your CRM records haven’t changed. Try again to see current work.</p><button className="crm-button" onClick={onRetry}>Try again</button></div>;
+  const [selected, setSelected] = useState("");
+  const selectedOrganization = organizations.find(org => org.id === selected);
+  if (loading && !organizations.length) return <div className="crm-experience crm-empty" role="status">Gathering your follow-ups and relationship activity…</div>;
+  if (error) return <div className="crm-experience crm-empty" role="alert"><h2>We couldn’t load your day</h2><p>Try again to see current work. This overview could not be refreshed.</p><button className="crm-button" onClick={onRetry}>Try again</button></div>;
   const sortedTasks = prioritizeTasks(tasks);
   return (
     <div className="crm-experience">
       <section className="crm-focus-banner" aria-labelledby="crm-focus-title">
-        <div><p className="crm-eyebrow">Your next move</p><h2 id="crm-focus-title">{tasks.length || relationships.length ? "Good relationships start with a follow-up." : "Make room for your next opportunity."}</h2><p>{tasks.length} open tasks shown · {relationships.length} relationships suggested</p><p className="crm-small">Overview of the latest 500 CRM activities and up to 8 check-in suggestions, not a complete task inventory. Check Pipeline for lead follow-ups and Lender network for placements.</p><button className="crm-text-link" onClick={onRetry}>Refresh overview</button></div>
+        <div><h2 id="crm-focus-title">Your relationship workbench</h2><p>{tasks.length} open tasks shown · {relationships.length} check-in suggestions</p><details><summary className="crm-small">What’s included?</summary><p className="crm-small">Overview of the latest 500 CRM activities and up to 8 check-in suggestions, not a complete task inventory. Check Pipeline for lead follow-ups and Lender network for placements.</p></details><button className="crm-text-link" onClick={onRetry}>Refresh overview</button></div>
         <Link className="crm-button" href={`${CRM_ROOT}/leads`} prefetch={false}>Review lead pipeline →</Link>
       </section>
+      <details className="crm-quick-capture"><summary>+ Record activity or set a follow-up</summary><label>Choose a relationship<select value={selected} onChange={e => setSelected(e.target.value)}><option value="">Select a company…</option>{organizations.map(org => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>{selectedOrganization && <CrmActivityComposer key={selected} organizationId={selected} organizationName={selectedOrganization.name} onSaved={onRetry} />}{!organizations.length && <p>No companies available. Open Relationships to add one.</p>}</details>
       <div className="crm-today-grid">
         <section className="crm-panel" aria-labelledby="crm-tasks-title"><div className="crm-panel-heading"><h2 id="crm-tasks-title">Follow-ups & tasks</h2><span className="crm-count">{tasks.length}</span></div><p className="crm-panel-hint">Due dates first. Open a relationship to review the task in context.</p>
           {sortedTasks.length ? <ul className="crm-work-list">{sortedTasks.map((task) => <li key={task.id}><div><span className="crm-badge">{taskDueLabel(task.due_at, now)}</span><h3>{task.title || "Untitled task"}</h3><p>{task.organizationName || "No linked organization"}</p></div>{task.organizationId ? <Link className="crm-text-link" href={`${CRM_ROOT}/${task.organizationId}`} prefetch={false}>Open relationship →</Link> : <span className="crm-small">No organization link available</span>}</li>)}</ul> : <div className="crm-empty"><span aria-hidden="true">✓</span><h3>No open tasks in this overview</h3><p>Keep momentum: review leads or plan your next relationship check-in.</p></div>}

@@ -6,6 +6,9 @@ import { CrmTabs } from "@/components/brokerage/CrmTabs";
 import { RelationshipIntelligencePanel } from "@/components/brokerage/RelationshipIntelligencePanel";
 import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
 import { US_STATES } from "@/lib/crm/geography";
+import { useCrmExperience } from "./CrmExperienceProvider";
+import { CrmActivityComposer } from "./CrmActivityComposer";
+import { hasLenderWorkspace } from "@/lib/crm/activityDraft";
 
 type Tab = "overview" | "people" | "marketplace" | "appetite" | "deals" | "activity";
 type Json = Record<string, any>;
@@ -72,6 +75,7 @@ function personName(p: Json) { return [p.preferred_name || p.first_name, p.last_
 function dealName(d: Json | null) { return d?.display_name || d?.borrower_name || d?.name || "Untitled deal"; }
 
 export function OrganizationWorkspace({ orgId }: { orgId: string }) {
+  const { enabled } = useCrmExperience();
   const [data, setData] = useState<Json | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [panel, setPanel] = useState<"contact" | "organization" | "marketplace" | "appetite" | null>(null);
@@ -211,25 +215,27 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
   const people = data?.people || [];
   const profile = data?.lenderProfile;
   const submissions = data?.lenderSubmissions || [];
-  const isLender = org?.organization_type === "lender" || !!profile;
+  const isLender = hasLenderWorkspace(org?.organization_type, profile, submissions.length);
+  const showLending = !enabled || isLender;
   const setup = useMemo(() => [
     { done: org?.organization_type && org.organization_type !== "other", label: "Identify organization type", action: () => setPanel("organization") },
-    { done: people.length > 0, label: "Add a primary banker or contact", action: () => setPanel("contact") },
-    { done: submissions.length > 0, label: "Send and track the first deal", href: `/admin/brokerage/crm/buyers?organizationId=${orgId}&new=submission` },
-  ], [org, people.length, submissions.length]);
+    { done: people.length > 0, label: showLending ? "Add a primary banker or contact" : "Add a primary contact", action: () => setPanel("contact") },
+    ...(showLending ? [{ done: submissions.length > 0, label: "Send and track the first deal", href: `/admin/brokerage/crm/buyers?organizationId=${orgId}&new=submission` }] : []),
+  ], [org, orgId, people.length, submissions.length, showLending]);
   const complete = setup.filter(x => x.done).length;
 
   if (!data && !error) return <div style={{ padding: 24, color: c.textMuted }}>Loading relationship workspace…</div>;
   if (!data) return <div style={{ padding: 24, color: c.brick }}>{error}</div>;
 
   const tabItems: Array<[Tab, string, number | null]> = [
-    ["overview", "Overview", null], ["people", "People", people.length], ["marketplace", "Marketplace", null], ["appetite", "Lending appetite", null],
-    ["deals", "Deals", submissions.length], ["activity", "Activity", data.activities?.length || 0],
+    ["overview", "Overview", null], ["people", "People", people.length],
+    ...(showLending ? [["marketplace", "Marketplace", null], ["appetite", "Lending appetite", null], ["deals", "Deals", submissions.length]] as Array<[Tab, string, number | null]> : []),
+    ["activity", "Activity", data.activities?.length || 0],
   ];
 
   return <div style={{ padding: "18px 24px 48px", maxWidth: 1180 }}>
     <CrmTabs />
-    <Link href="/admin/brokerage/crm" style={{ color: c.textMuted, fontSize: 11.5, textDecoration: "none" }}>← All organizations</Link>
+    <Link href={enabled ? "/admin/brokerage/crm?view=relationships" : "/admin/brokerage/crm"} style={{ color: c.textMuted, fontSize: 11.5, textDecoration: "none" }}>← All organizations</Link>
 
     <div style={{ margin: "14px 0 18px", display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-start" }}>
       <div style={{ flex: "1 1 420px" }}>
@@ -245,15 +251,16 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
         </div>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        <Button onClick={() => setPanel("contact")} primary>+ Add banker / contact</Button>
+        <Button onClick={() => setPanel("contact")} primary>{showLending ? "+ Add banker / contact" : "+ Add contact"}</Button>
         <Button onClick={() => setPanel("organization")}>Edit organization</Button>
-        <Button onClick={() => setPanel("marketplace")}>{profile?.marketplace_role ? "Marketplace status" : "Add to marketplace"}</Button>
+        {showLending && <><Button onClick={() => setPanel("marketplace")}>{profile?.marketplace_role ? "Marketplace status" : "Add to marketplace"}</Button>
         <Button onClick={() => setPanel("appetite")}>{profile ? "Edit appetite" : "Set lending appetite"}</Button>
-        <Link href={`/admin/brokerage/crm/buyers?organizationId=${orgId}&new=submission`} style={{ textDecoration: "none" }}><Button>Send a deal</Button></Link>
+        <Link href={`/admin/brokerage/crm/buyers?organizationId=${orgId}&new=submission`} style={{ textDecoration: "none" }}><Button>Send a deal</Button></Link></>}
       </div>
     </div>
 
     {error && <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12 }}>{error}</div>}
+    {enabled && <details className="crm-quick-capture"><summary>+ Add note · Log call · Log meeting · Set follow-up</summary><CrmActivityComposer key={orgId} organizationId={orgId} organizationName={org.name} onSaved={() => { void load(); }} /></details>}
 
     {complete < setup.length && <div style={{ background: "linear-gradient(100deg, rgba(184,144,91,.12), rgba(184,144,91,.035))", border: "1px solid rgba(184,144,91,.28)", borderRadius: 9, padding: 14, marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 10 }}><strong style={{ color: c.paper, fontSize: 13 }}>Finish setting up this relationship</strong><span style={{ color: c.brassBright, fontSize: 11 }}>{complete} of {setup.length} complete</span></div>
@@ -275,7 +282,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
       <Card title="People at this organization" action={<button onClick={() => setPanel("contact")} style={{ border: 0, background: "none", color: c.brassBright, cursor: "pointer", fontSize: 11 }}>+ Add contact</button>}>
         {people.length ? people.slice(0, 4).map((p: Json) => <Person key={p.id} person={p} />) : <Empty>No contacts yet. Add the banker, credit officer, decision-maker, or referral contact you work with.</Empty>}
       </Card>
-      <Card title="Marketplace participation" action={<button onClick={() => setPanel("marketplace")} style={{ border: 0, background: "none", color: c.brassBright, cursor: "pointer", fontSize: 11 }}>{profile?.marketplace_role ? "Edit" : "Set up"}</button>}>
+      {showLending && <><Card title="Marketplace participation" action={<button onClick={() => setPanel("marketplace")} style={{ border: 0, background: "none", color: c.brassBright, cursor: "pointer", fontSize: 11 }}>{profile?.marketplace_role ? "Edit" : "Set up"}</button>}>
         <MarketplaceSummary profile={profile} />
       </Card>
       <Card title="What this bank buys" action={<button onClick={() => setPanel("appetite")} style={{ border: 0, background: "none", color: c.brassBright, cursor: "pointer", fontSize: 11 }}>{profile ? "Edit" : "Set up"}</button>}>
@@ -288,13 +295,14 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
           <Metric label="Closed" value={submissions.filter((x: Json) => x.status === "closed").length} />
         </div>
       </Card>
+      </>}
       <Card title="Organization details">
         <Details org={org} />
       </Card>
       <RelationshipIntelligencePanel organizationId={orgId} />
     </div>}
 
-    {tab === "people" && <Card title="Bankers and contacts" action={<Button onClick={() => setPanel("contact")} primary>+ Add contact</Button>}>
+    {tab === "people" && <Card title={showLending ? "Bankers and contacts" : "People and contacts"} action={<Button onClick={() => setPanel("contact")} primary>+ Add contact</Button>}>
       {people.length ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10 }}>{people.map((p: Json) => <Person key={p.id} person={p} card />)}</div> : <Empty>No people are associated yet. Add a person here and Buddy will link them to {org.name} automatically.</Empty>}
     </Card>}
 
@@ -315,9 +323,9 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
       </div>)}
     </Card>}
 
-    {tab === "activity" && <div style={{ display: "grid", gridTemplateColumns: "minmax(300px,1fr) minmax(280px,.7fr)", gap: 14 }}>
-      <Card title="Add a note"><textarea style={{ ...field(), minHeight: 100, resize: "vertical" }} placeholder="What happened? Include context and next steps…" value={note} onChange={e => setNote(e.target.value)} /><div style={{ marginTop: 9 }}><Button onClick={logNote} primary disabled={busy || !note.trim()}>Save note</Button></div></Card>
-      <Card title="Relationship history">{data.activities?.length ? data.activities.map((a: Json) => <div key={a.id} style={{ padding: "9px 0", borderBottom: `1px solid ${c.divider}` }}><div style={{ color: c.paper, fontSize: 11.5 }}>{a.title || a.kind}</div><div style={{ color: c.textMuted, fontSize: 10, marginTop: 3 }}>{new Date(a.happens_at).toLocaleString()}</div></div>) : <Empty>No activity yet.</Empty>}</Card>
+    {tab === "activity" && <div style={{ display: "grid", gridTemplateColumns: enabled ? "minmax(0,1fr)" : "minmax(300px,1fr) minmax(280px,.7fr)", gap: 14 }}>
+      {!enabled && <Card title="Add a note"><textarea style={{ ...field(), minHeight: 100, resize: "vertical" }} placeholder="What happened? Include context and next steps…" value={note} onChange={e => setNote(e.target.value)} /><div style={{ marginTop: 9 }}><Button onClick={logNote} primary disabled={busy || !note.trim()}>Save note</Button></div></Card>}
+      <Card title="Relationship history">{data.activities?.length ? data.activities.map((a: Json) => <div key={a.id} style={{ padding: "12px 0", borderBottom: `1px solid ${c.divider}` }}><div style={{ color: c.paper, fontSize: 13 }}>{a.title || a.kind}</div>{enabled && <><div style={{ color: c.textMuted, fontSize: 12 }}>{a.kind === "task" ? `${a.completed_at ? "Completed" : "Open follow-up"}${a.due_at ? ` · Due ${new Date(a.due_at).toLocaleString()}` : " · No due date"}` : a.kind.replaceAll("_", " ")}</div>{typeof a.properties?.body === "string" && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 13 }}>{a.properties.body}</p>}</>}<div style={{ color: c.textMuted, fontSize: 11, marginTop: 3 }}>{new Date(a.happens_at).toLocaleString()}</div></div>) : <Empty>No activity yet.</Empty>}</Card>
     </div>}
   </div>;
 }
