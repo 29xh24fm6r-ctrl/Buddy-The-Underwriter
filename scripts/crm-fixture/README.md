@@ -11,3 +11,9 @@ npx --yes esbuild@0.25.9 scripts/crm-fixture/index.tsx --bundle --outfile=script
 Open `index.html` with a browser that permits local-file assets. Generated JS/CSS are ignored. For agent-browser, use an isolated session and `--allow-file-access`; close that session after checking.
 
 Coverage: Today, task inventory, companies, people, pipeline intake, and quick-record drawers. Other full-page destinations are not modeled. `window.crmFixture.failNextSave()` injects one failed mutation for draft-retention testing. This cannot verify production auth, backend policies, or durable persistence.
+
+For the brokerage navigation/layout fixture, substitute `workspace.tsx` and
+`workspace.js` in the build command above, then open `workspace.html`. This
+renders the real shell and home workflow links but does not render operational
+page contents. Every network request is rejected. Use desktop and mobile widths
+to check the expandable workspace menu and its destination selection.

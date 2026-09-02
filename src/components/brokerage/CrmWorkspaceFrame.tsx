@@ -14,6 +14,7 @@ import { CrmActivityComposer } from "./CrmActivityComposer";
 import { CrmTaskControl } from "./CrmTaskControl";
 import { confirmCrmDiscard } from "./useCrmDraftGuard";
 import { useClerk } from "@clerk/nextjs";
+import { BROKERAGE_WORKSPACE_LINKS } from "@/lib/brokerage/workspaceNavigation";
 
 type RecordTarget = {
   id: string;
@@ -81,16 +82,22 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
     >
       <div className="crm-unified">
         <aside className="crm-rail">
-          <Link href={CRM_ROOT} className="crm-brand">
+          <Link href="/admin/brokerage" className="crm-brand">
             <span>B</span>
             <div>
-              buddy<span className="crm-brand-caption">RELATIONSHIP OS</span>
+              buddy<span className="crm-brand-caption">SBA BROKERAGE</span>
             </div>
           </Link>
           <button className="crm-search-launch" onClick={() => setSearch(true)}>
             ⌕ Search CRM <kbd>Ctrl K</kbd>
           </button>
-          <p className="crm-rail-label">YOUR WORKSPACE</p>
+          <p className="crm-rail-label">YOUR BROKERAGE</p>
+          <nav aria-label="Buddy SBA workspace">
+            {BROKERAGE_WORKSPACE_LINKS.filter(({ href }) => !href.includes("/crm")).map(({ label, href }) => (
+              <Link key={href} href={href} prefetch={false}>{label}</Link>
+            ))}
+          </nav>
+          <p className="crm-rail-label">CRM & RELATIONSHIPS</p>
           <nav aria-label="CRM workspace">
             {links.map(([label, href, icon]) => (
               <Link
@@ -112,9 +119,8 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
               <summary>More Buddy tools</summary>
               <nav aria-label="Other Buddy tools">
                 {[
-                  ["Deals & underwriting", "/deals"],
-                  ["Documents", "/documents"],
-                  ["Brokerage command", "/admin/brokerage"],
+                  ["Bank underwriting workspace", "/deals"],
+                  ["Bank document library", "/documents"],
                   ["Servicing", "/servicing"],
                   ["Admin", "/admin"],
                   ["Command", "/command"],
@@ -133,9 +139,9 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
         <div className="crm-workspace-body">
           <div className="crm-topline">
             <span>
-              Buddy CRM{" "}
+              <Link href="/admin/brokerage">Buddy SBA</Link>{" "}
               <span className="crm-topline-muted">
-                / Your brokerage workspace
+                / CRM & relationships
               </span>
             </span>
             <div className="crm-account-actions">
