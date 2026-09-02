@@ -72,3 +72,28 @@ describe("SPEC-BANKER-FLOW-FIX-BATCH-1 guards", () => {
     assert.ok(VERTEX_SRC.includes("getVertexApiHost()"));
   });
 });
+
+// ── Deal-level operating entity fallback (deal audit round 2) ────────────────
+
+test("persistGlobalCashFlow falls back to the deal itself as the operating entity", () => {
+  assert.ok(
+    GCF_SRC.includes("3b. Fallback: the deal itself as the operating entity"),
+    "persistGlobalCashFlow must carry the deal-level operating entity fallback",
+  );
+  const idx = GCF_SRC.indexOf("3b. Fallback: the deal itself as the operating entity");
+  const block = GCF_SRC.slice(idx, idx + 2500);
+  assert.ok(block.includes('factKey: "CASH_FLOW_AVAILABLE"'), "fallback must read the canonical deal-level cash flow");
+  assert.ok(block.includes("entityId: args.dealId"), "fallback entity must be keyed by the deal id");
+  assert.ok(block.includes("ownershipPct: 1.0"), "fallback entity must be attributed at 100%");
+  assert.ok(block.includes("depreciation: null"), "fallback must not re-add D&A onto an already grossed-up base");
+});
+
+test("GLOBAL_CASH_FLOW template ranks deal-level analysis facts by source, not period", () => {
+  const tpl = readFileSync(resolve(__dirname, "../../financialSpreads/templates/globalCashFlow.ts"), "utf-8");
+  const start = tpl.indexOf("DEAL-level property facts");
+  const end = tpl.indexOf("const cfaCell = factToCell(cfaFact);");
+  assert.ok(start > 0 && end > start, "expected the DEAL-level fact block");
+  const block = tpl.slice(start, end);
+  assert.ok(!block.includes("pickLatestFact("), "DEAL-level analysis facts must not use period-only ranking");
+  assert.equal((block.match(/pickAuthoritativeFact\(/g) ?? []).length, 6, "all six DEAL-level picks must be source-ranked");
+});
