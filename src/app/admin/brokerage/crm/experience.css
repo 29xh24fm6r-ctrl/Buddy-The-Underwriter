@@ -7,18 +7,18 @@
 .crm-primary-nav a:hover, .crm-secondary-nav a:hover { background: #ece7dd; }
 .crm-primary-nav a[aria-current] { color: white; background: #263e34; }
 .crm-secondary-nav a[aria-current] { background: #e6eee8; color: #244e38; }
-.crm-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; padding: 28px 0 20px; }
+.crm-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0 8px; }
 .crm-experience h1 { font-size: clamp(26px, 3vw, 34px); font-weight: 650; letter-spacing: -.8px; margin: 2px 0 6px; }
 .crm-experience h2 { font-size: 19px; font-weight: 650; margin: 0; }
 .crm-experience h3 { font-size: 15px; font-weight: 600; margin: 7px 0 4px; }
 .crm-experience p { color: #59635e; font-size: 14px; line-height: 1.6; margin: 0; }
 .crm-experience .crm-eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 1.7px; font-weight: 650; color: #53665b; }
-.crm-workspace-header { margin-bottom: 24px; }
+.crm-workspace-header { margin-bottom: 12px; }
 .crm-button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 11px 18px; border: 1px solid #263e34; border-radius: 9px; background: #263e34; color: white !important; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; white-space: nowrap; }
 .crm-button:hover { background: #365745; }
 .crm-button-secondary { background: white; color: #263e34 !important; border-color: #cec6b8; }
 .crm-button-secondary:hover { background: #e6eee8; }
-.crm-focus-banner { background: #e9efe7; border: 1px solid #d0ddce; border-radius: 16px; padding: 26px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 24px; margin-bottom: 24px; }
+.crm-focus-banner { background: #e9efe7; border: 1px solid #d0ddce; border-radius: 12px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
 .crm-focus-banner h2 { font-size: clamp(21px, 2.2vw, 28px); margin: 8px 0; max-width: 600px; }
 .crm-experience .crm-small { font-size: 12px; color: #59635e; }
 .crm-today-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; align-items: start; }
@@ -44,3 +44,18 @@
 .crm-quick-views button[aria-pressed=true] { background: #e6eee8; border-color: #526e5c; color: #244e38; }
 @media (max-width: 760px) { .crm-today-grid { grid-template-columns: minmax(0, 1fr); } .crm-focus-banner { padding: 20px; } .crm-primary-nav a { padding: 10px 12px; } }
 @media (prefers-reduced-motion: reduce) { .crm-experience a, .crm-experience button { transition: none; } }
+.brokerage-shell:has(.crm-workspace-header) { height: auto !important; min-height: calc(100dvh - 80px); overflow: visible !important; }
+.brokerage-shell:has(.crm-workspace-header) > main { overflow: visible !important; }
+.brokerage-shell:has(.crm-workspace-header) > main > div { overflow: visible !important; }
+.brokerage-shell:has(.crm-workspace-header) .brokerage-shell-title { display: none !important; }
+body:has(.crm-workspace-header) .app-nav-spacer { display: none; }
+.crm-composer { padding: 18px; margin-bottom: 16px; border: 1px solid #d0ddce; border-radius: 12px; background: white; }
+.crm-composer fieldset { border: 0; padding: 12px 0 0; min-width: 0; }
+.crm-composer label, .crm-quick-capture > label { display: grid; gap: 6px; font-size: 13px; margin: 10px 0; }
+.crm-composer :is(input, textarea), .crm-quick-capture select { width: 100%; padding: 10px; border: 1px solid #cec6b8; border-radius: 7px; background: white; color: #20242b; font: inherit; box-sizing: border-box; }
+.crm-composer .crm-button { margin-top: 12px; }
+.crm-composer [role=alert] { color: #9d3028; }
+.crm-composer [role=status] { color: #245b3d; padding-top: 12px; }
+.crm-quick-capture { background: white; border: 1px solid #d0ddce; border-radius: 10px; padding: 12px 18px; margin-bottom: 14px; }
+.crm-quick-capture summary { cursor: pointer; font-weight: 600; color: #263e34; }
+@media (max-width: 760px) { .brokerage-shell:has(.crm-workspace-header) { flex-direction: column; } .brokerage-shell:has(.crm-workspace-header) > aside { width: 100% !important; max-height: 180px; } }

@@ -251,7 +251,7 @@ export default function BrokerageCrmPage() {
   }
 
   if (enabled && section === "today") {
-    return <div style={{ padding: "18px 24px 40px" }}><CrmTabs /><CrmToday loading={loading} error={error} tasks={openTasks} relationships={needsAttention} activity={displayActivity} onRetry={() => void load()} now={snapshotNow} /></div>;
+    return <div style={{ padding: "18px 24px 40px" }}><CrmTabs /><CrmToday loading={loading} error={error} tasks={openTasks} relationships={needsAttention} activity={displayActivity} organizations={orgs} onRetry={() => void load()} now={snapshotNow} /></div>;
   }
 
   return (

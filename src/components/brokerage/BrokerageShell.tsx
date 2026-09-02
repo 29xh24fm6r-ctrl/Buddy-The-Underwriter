@@ -83,6 +83,7 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
 
   return (
     <div
+      className="brokerage-shell"
       style={{
         display: "flex",
         height: "100vh",
@@ -226,6 +227,7 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
       {/* Main */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         <header
+          className="brokerage-shell-title"
           style={{
             flex: "none",
             height: 60,

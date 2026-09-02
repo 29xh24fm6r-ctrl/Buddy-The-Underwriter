@@ -29,7 +29,7 @@ export function ConditionalHeroBar() {
         <HeroBar />
         <ProfileCompletionBanner />
       </div>
-      <div className="h-16" />
+      <div className="app-nav-spacer h-16" />
     </>
   );
 }
