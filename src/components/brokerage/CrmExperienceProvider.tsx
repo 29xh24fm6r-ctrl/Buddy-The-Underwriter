@@ -4,11 +4,12 @@ import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { crmSection } from "@/lib/crm/experience";
+import { CrmWorkspaceFrame } from "./CrmWorkspaceFrame";
 
 const CrmExperienceContext = createContext(false);
 
 export function CrmExperienceProvider({ enabled, children }: { enabled: boolean; children: ReactNode }) {
-  return <CrmExperienceContext.Provider value={enabled}>{children}</CrmExperienceContext.Provider>;
+  return <CrmExperienceContext.Provider value={enabled}>{enabled ? <CrmWorkspaceFrame>{children}</CrmWorkspaceFrame> : children}</CrmExperienceContext.Provider>;
 }
 
 export function useCrmExperience() {

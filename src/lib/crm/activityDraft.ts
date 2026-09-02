@@ -18,8 +18,10 @@ export function hasLenderWorkspace(type: string, profile: unknown, submissionCou
   return type === "lender" || Boolean(profile) || submissionCount > 0;
 }
 
-export async function saveActivityDraft(organizationId: string, draft: ActivityDraft, request: typeof fetch = fetch) {
-  const payload = activityPayload(organizationId, draft);
+export async function saveActivityDraft(organizationId: string, draft: ActivityDraft, request: typeof fetch = fetch, targetKind: "organization" | "person" | "lead" = "organization") {
+  const original = activityPayload(organizationId, draft);
+  const { organizationId: id, ...fields } = original;
+  const payload = { ...fields, [targetKind === "person" ? "personId" : targetKind === "lead" ? "leadId" : "organizationId"]: id };
   const response = await request("/api/admin/brokerage/crm/activities", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
   });

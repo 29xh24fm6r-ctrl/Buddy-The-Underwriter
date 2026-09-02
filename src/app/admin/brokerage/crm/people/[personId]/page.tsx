@@ -5,6 +5,10 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { crmColors as c } from "@/components/brokerage/tokens";
 import { CommsPanel } from "@/components/brokerage/CommsPanel";
+import { useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
+import { CrmCompanyPicker } from "@/components/brokerage/CrmCompanyPicker";
+import { CrmActivityComposer } from "@/components/brokerage/CrmActivityComposer";
+import { CrmTaskControl } from "@/components/brokerage/CrmTaskControl";
 
 type Person = {
   id: string;
@@ -38,6 +42,9 @@ type DealRole = {
 };
 
 type Activity = {
+  due_at?: string | null;
+  completed_at?: string | null;
+  properties?: { body?: string };
   id: string;
   kind: string;
   happens_at: string;
@@ -58,6 +65,7 @@ function inputStyle(): CSSProperties {
 
 export default function CrmPersonDetailPage({ params }: { params: Promise<{ personId: string }> }) {
   const { personId } = usePromise(params);
+  const workspace = useCrmWorkspace();
 
   const [person, setPerson] = useState<Person | null>(null);
   const [orgRoles, setOrgRoles] = useState<OrgRole[]>([]);
@@ -105,7 +113,7 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [personId]);
+  }, [personId, workspace?.revision]);
 
   async function linkToOrg() {
     if (!linkOrgId.trim()) return;
@@ -129,6 +137,7 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
   }
 
   async function unlink(roleId: string) {
+    if (!window.confirm("Remove this person's company connection? Their person record and history will remain.")) return;
     try {
       const res = await fetch(`/api/admin/brokerage/crm/people/${personId}?roleId=${roleId}`, { method: "DELETE" });
       const json = await res.json();
@@ -154,7 +163,7 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
   const activeRoles = orgRoles.filter((r) => r.is_active);
 
   return (
-    <div style={{ padding: "18px 24px 40px", maxWidth: 1000 }}>
+    <div className={workspace ? "crm-record-page" : undefined} style={{ padding: "18px 24px 40px", maxWidth: 1000 }}>
       <Link href="/admin/brokerage/crm/people" style={{ fontSize: 11.5, color: c.textMuted, marginBottom: 14, display: "inline-block" }}>
         ← All people
       </Link>
@@ -172,7 +181,8 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      {workspace && <details className="crm-quick-capture"><summary>+ Add a note or schedule a follow-up</summary><CrmActivityComposer organizationId={personId} organizationName={name} targetKind="person" onSaved={() => void load()} /></details>}
+      <div className="crm-record-columns" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ padding: "13px 16px", borderBottom: `1px solid ${c.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 15 }}>Organizations</span>
@@ -186,12 +196,12 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
 
           {showLink && (
             <div style={{ padding: 14, borderBottom: `1px solid ${c.border}` }}>
-              <input
+              {workspace ? <CrmCompanyPicker value={linkOrgId} onChange={setLinkOrgId} /> : <input
                 style={inputStyle()}
                 placeholder="Organization ID (copy from its detail page URL)"
                 value={linkOrgId}
                 onChange={(e) => setLinkOrgId(e.target.value)}
-              />
+              />}
               <select
                 value={linkRole}
                 onChange={(e) => setLinkRole(e.target.value)}
@@ -212,7 +222,7 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
           )}
 
           {activeRoles.length === 0 ? (
-            <div style={{ padding: 20, fontSize: 12, color: c.textMuted, textAlign: "center" }}>Not linked to any organization yet — this is the whole point of PR1: one person, many orgs.</div>
+            <div style={{ padding: 20, fontSize: 12, color: c.textMuted, textAlign: "center" }}>Connect this person to a company to keep their roles and relationships together.</div>
           ) : (
             activeRoles.map((r) => (
               <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 16px", borderBottom: `1px solid ${c.divider}` }}>
@@ -263,6 +273,7 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
               activities.slice(0, 15).map((a) => (
                 <div key={a.id} style={{ padding: "11px 16px", borderBottom: `1px solid ${c.divider}` }}>
                   <div style={{ fontSize: 12, color: c.paper }}>{a.title ?? a.kind}</div>
+                  {workspace && <>{a.properties?.body && <p>{a.properties.body}</p>}{a.kind === "task" && <CrmTaskControl id={a.id} completed={!!a.completed_at} dueAt={a.due_at} onSaved={() => void load()} />}</>}
                   <div style={{ fontSize: 10.5, color: c.textMuted, marginTop: 2 }}>{new Date(a.happens_at).toLocaleString()}</div>
                 </div>
               ))

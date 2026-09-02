@@ -7,7 +7,9 @@ import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
 import { RefinedStamp } from "@/components/brokerage/StatusStamp";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
 import { useCrmExperience } from "@/components/brokerage/CrmExperienceProvider";
-import { CrmToday } from "@/components/brokerage/CrmToday";
+import { CrmHomeWorkbench as CrmToday } from "@/components/brokerage/CrmHomeWorkbench";
+import { useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
+import { CrmCompanyCards } from "@/components/brokerage/CrmCompanyCards";
 
 /**
  * CRM command center — not a list, a dashboard. Summary tiles, a
@@ -136,6 +138,7 @@ function Tile({ label, value, accent }: { label: string; value: string; accent: 
 
 export default function BrokerageCrmPage() {
   const { enabled, section } = useCrmExperience();
+  const workspace = useCrmWorkspace();
   const [snapshotNow, setSnapshotNow] = useState(0);
   const [healthFilter, setHealthFilter] = useState(false);
   const [orgs, setOrgs] = useState<Organization[]>([]);
@@ -211,7 +214,7 @@ export default function BrokerageCrmPage() {
       .then((res) => res.json())
       .then((json) => { if (json?.ok) setTeam(json.team ?? []); })
       .catch(() => {});
-  }, []);
+  }, [workspace?.revision]);
 
   const ownerName = useMemo(() => {
     const map: Record<string, string> = {};
@@ -342,12 +345,13 @@ export default function BrokerageCrmPage() {
       </div>
 
       </>}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+      <div className={enabled ? "crm-company-intro" : undefined} style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div>
-          <div style={{ color: c.paper, fontFamily: "var(--font-brokerage-display)", fontSize: 18, fontWeight: 650 }}>{enabled ? "Company directory" : "Relationship directory"}</div>
+          <h1 className={enabled ? "crm-company-heading" : undefined} style={{ color: c.paper, fontFamily: "var(--font-brokerage-display)", fontSize: 18, fontWeight: 650 }}>{enabled ? "Your companies" : "Relationship directory"}</h1>
           <div style={{ color: c.textMuted, fontSize: 11.5, marginTop: 3 }}>Banks, bankers, referral partners, borrowers, and every organization you work with.</div>
         </div>
         <button
+          className={enabled ? "crm-company-add" : undefined}
           onClick={() => setShowForm((s) => !s)}
           style={{
             background: `linear-gradient(150deg, ${c.brassBright}, ${c.brass})`,
@@ -360,7 +364,7 @@ export default function BrokerageCrmPage() {
             cursor: "pointer",
           }}
         >
-          {showForm ? "Cancel" : "+ Add organization"}
+          {showForm ? "Cancel" : enabled ? "+ Add company" : "+ Add organization"}
         </button>
       </div>
 
@@ -422,7 +426,7 @@ export default function BrokerageCrmPage() {
 
       {/* Organizations table */}
       {enabled && !loading && !error ? <p className="crm-panel-hint" role="status">Showing {filteredOrgs.length} of {orgs.length} companies. Filters combine; choose All companies to reset.</p> : null}
-      <div className={enabled ? "crm-directory-table" : undefined}>
+      {enabled ? <CrmCompanyCards companies={filteredOrgs} owners={ownerName} loading={loading} error={error} onRetry={load} /> : <div>
       <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
         <div
           style={{
@@ -511,6 +515,7 @@ export default function BrokerageCrmPage() {
         )}
       </div>
       </div>
+      }
     </div>
   );
 }

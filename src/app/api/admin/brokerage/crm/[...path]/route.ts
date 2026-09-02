@@ -122,8 +122,10 @@ async function dispatch(method: Method, req: NextRequest, ctx: Ctx) {
 
   switch (route.key) {
     case "activities":
+      if (method === "GET") return (await import("./_handlers/activities")).GET(req);
       if (method === "POST") return (await import("./_handlers/activities")).POST(req);
-      return METHOD_NOT_ALLOWED(["POST"]);
+      if (method === "PATCH") return (await import("./_handlers/activities")).PATCH(req);
+      return METHOD_NOT_ALLOWED(["GET", "POST", "PATCH"]);
     case "deals-search":
       if (method === "GET") return (await import("./_handlers/deals-search")).GET(req);
       return METHOD_NOT_ALLOWED(["GET"]);

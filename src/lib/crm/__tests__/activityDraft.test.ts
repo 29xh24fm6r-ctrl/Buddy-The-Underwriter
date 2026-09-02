@@ -3,6 +3,19 @@ import assert from "node:assert/strict";
 import { activityPayload, saveActivityDraft, hasLenderWorkspace, type ActivityDraft } from "../activityDraft";
 const draft: ActivityDraft = { kind: "note", title: "  Called Dana  ", body: "  Discussed referral  ", due: "" };
 
+test("person and lead activity capture writes exactly one canonical target", async () => {
+  for (const kind of ["organization", "person", "lead"] as const) {
+    const request: typeof fetch = async (_url, init) => {
+      const payload=JSON.parse(String(init?.body));
+      const keys=["organizationId","personId","leadId","dealId"].filter(key=>key in payload);
+      assert.deepEqual(keys,[`${kind}Id`]);
+      assert.equal(payload[`${kind}Id`],"record");
+      return Response.json({ok:true,activity:{id:"saved"}});
+    };
+    assert.equal(await saveActivityDraft("record",draft,request,kind),"saved");
+  }
+});
+
 test("activity writes one canonical organization target and trims text", () => {
   assert.deepEqual(activityPayload("org-1", draft), { organizationId: "org-1", kind: "note", title: "Called Dana", properties: { body: "Discussed referral" } });
 });

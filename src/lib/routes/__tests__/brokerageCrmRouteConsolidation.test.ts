@@ -17,7 +17,7 @@ const DISPATCHER = resolve(CRM_ROOT, "[...path]/route.ts");
 const HANDLER_ROOT = resolve(CRM_ROOT, "[...path]/_handlers");
 
 const CONTRACT = [
-  { route: "activities", handler: "activities", methods: ["POST"] },
+  { route: "activities", handler: "activities", methods: ["GET", "POST", "PATCH"] },
   { route: "deals-search", handler: "deals-search", methods: ["GET"] },
   { route: "dedup", handler: "dedup", methods: ["GET", "POST"] },
   { route: "intelligence", handler: "intelligence", methods: ["GET"] },
@@ -48,7 +48,7 @@ function walkRouteFiles(directory: string): string[] {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) routes.push(...walkRouteFiles(path));
     else if (entry.name === "route.ts" || entry.name === "route.tsx") {
-      routes.push(relative(CRM_ROOT, path));
+      routes.push(relative(CRM_ROOT, path).replaceAll("\\", "/"));
     }
   }
   return routes.sort();
