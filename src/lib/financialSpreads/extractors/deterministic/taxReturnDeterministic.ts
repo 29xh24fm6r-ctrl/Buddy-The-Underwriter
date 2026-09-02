@@ -129,7 +129,9 @@ const FORM_1120S_PATTERNS: LinePattern[] = [
   // generic "interest expense" wording: page 1 asks "Does the corporation have
   // business interest expense … attach Form 8990" and that sentence was being
   // captured (value 8990). Null beats a wrong add-back.
-  { key: "INTEREST_EXPENSE", pattern: /(?:line\s+13\b|(?:^|\|)\s*interest\s*(?:\(see\s+instructions\))?\s*\|).*?(\$?[\d,]+(?:\.\d{0,2})?)/im },
+  // Row layouts render the line number before the label ("|  13 Interest (see
+  // instructions) | 13 | 1,004  |") or after it; accept both.
+  { key: "INTEREST_EXPENSE", pattern: /(?:line\s+13\b|(?:^|\|)\s*(?:13\s+)?interest\s*(?:\(see\s+instructions\))?\s*\|).*?(\$?[\d,]+(?:\.\d{0,2})?)/im },
   { key: "DEPRECIATION", pattern: /(?:line\s+14\b|depreciation).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "AMORTIZATION", pattern: /(?:amortization).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "OTHER_DEDUCTIONS", pattern: /(?:line\s+19\b|other\s+deductions).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },

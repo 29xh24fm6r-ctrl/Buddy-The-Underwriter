@@ -97,3 +97,11 @@ test("GLOBAL_CASH_FLOW template ranks deal-level analysis facts by source, not p
   assert.ok(!block.includes("pickLatestFact("), "DEAL-level analysis facts must not use period-only ranking");
   assert.equal((block.match(/pickAuthoritativeFact\(/g) ?? []).length, 6, "all six DEAL-level picks must be source-ranked");
 });
+
+test("GLOBAL_CASH_FLOW template computes global DSCR the way computeGlobalCashFlow does", () => {
+  const tpl = readFileSync(resolve(__dirname, "../../financialSpreads/templates/globalCashFlow.ts"), "utf-8");
+  // Cash available is before debt service; debt service appears only in the denominator.
+  assert.ok(tpl.includes("(personalIncome.value ?? 0) + (propertyNoi ?? 0)"), "cash available must be personal income + property NOI");
+  assert.ok(tpl.includes('"GLOBAL_CASH_FLOW / PROPERTY_DS"'), "global DSCR must divide global cash flow by property debt service once");
+  assert.ok(!tpl.includes('"CASH_AVAILABLE / TOTAL_DS"'), "net-of-DS cash must not be divided by DS again");
+});

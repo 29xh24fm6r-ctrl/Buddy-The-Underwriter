@@ -177,9 +177,32 @@ test("findLabeledAmount: trailing schedule reference after the amount is ignored
 });
 
 test("findLabeledAmount: plain label without capture still picks the first token", () => {
-  const r = findLabeledAmount("Cost of labor | 3", /cost\s+of\s+labor/i);
-  assert.equal(r.value, 3);
-  assert.equal(r.raw, "3");
+  const r = findLabeledAmount("Cost of labor | 312", /cost\s+of\s+labor/i);
+  assert.equal(r.value, 312);
+  assert.equal(r.raw, "312");
+});
+
+test("findLabeledAmount: a bare 1–2 digit token beside a label is a line/box number, not an amount", () => {
+  // K-1 box with no value: the box number is the only numeric token.
+  const blank = findLabeledAmount("|  Net rental real estate income (loss) | 2 |   |", /net\s+rental\s+real\s+estate/i);
+  assert.equal(blank.value, null);
+  // Zero is still a real amount.
+  const zero = findLabeledAmount("|  Total S Corporation taxes | 0  |", /total s corporation taxes/i);
+  assert.equal(zero.value, 0);
+  // Opt-in for callers whose values legitimately are small counts.
+  const counted = findLabeledAmount("Cost of labor | 3", /cost\s+of\s+labor/i, { allowSmallIntegers: true });
+  assert.equal(counted.value, 3);
+  // Money-formatted small amounts are never rejected.
+  const money = findLabeledAmount("Bank charges | $12", /bank\s+charges/i);
+  assert.equal(money.value, 12);
+});
+
+test("matchAmountAfterLabel: 1120-S row with the line number before and after the label", () => {
+  const row = "|   |  13 Interest (see instructions) | 13 | 1,004  |\n| Interest income | 163 |";
+  const pat = /(?:line\s+13\b|(?:^|\|)\s*(?:13\s+)?interest\s*(?:\(see\s+instructions\))?\s*\|).*?(\$?[\d,]+(?:\.\d{0,2})?)/im;
+  const m = matchAmountAfterLabel(row, pat);
+  assert.ok(m);
+  assert.equal(m[1], "1,004");
 });
 
 test("findLabeledAmount: percent column does not shadow the dollar column", () => {
