@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { crmColors as c } from "@/components/brokerage/tokens";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
+import { useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
 
 type Person = {
   id: string;
@@ -30,6 +31,8 @@ function inputStyle() {
 }
 
 export default function CrmPeoplePage() {
+  const workspace = useCrmWorkspace();
+  const requestId = useRef(0);
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,24 +43,29 @@ export default function CrmPeoplePage() {
   const [saving, setSaving] = useState(false);
 
   async function load(query?: string) {
+    const request = ++requestId.current;
     setLoading(true);
     try {
       const url = query ? `/api/admin/brokerage/crm/people?q=${encodeURIComponent(query)}` : "/api/admin/brokerage/crm/people";
       const res = await fetch(url);
       const json = await res.json();
+      if (request !== requestId.current) return;
       if (!res.ok || !json.ok) throw new Error(json.error ?? "load failed");
       setPeople(json.people ?? []);
       setError(null);
     } catch (e: any) {
+      if (request !== requestId.current) return;
       setError(e?.message ?? "load failed");
     } finally {
-      setLoading(false);
+      if (request === requestId.current) setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    const invalidate = () => { requestId.current++; };
+    const timer = setTimeout(() => { void load(q); }, 200);
+    return () => { clearTimeout(timer); invalidate(); };
+  }, [q, workspace?.revision]);
 
   async function createPerson() {
     if (!form.firstName.trim() && !form.lastName.trim() && !form.email.trim()) {
@@ -92,6 +100,7 @@ export default function CrmPeoplePage() {
   return (
     <div style={{ padding: "18px 24px 40px" }}>
       <CrmTabs />
+      {workspace && <header className="crm-page-intro"><div><p className="crm-eyebrow">PEOPLE, NOT JUST CONTACTS</p><h1>Your people</h1><p>One person, every company connection, and the whole conversation.</p></div></header>}
 
       {error && (
         <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, fontSize: 12, padding: 12, borderRadius: 6, marginBottom: 16 }}>
@@ -103,10 +112,11 @@ export default function CrmPeoplePage() {
         <input
           style={{ ...inputStyle(), maxWidth: 320 }}
           placeholder="Search people by name or email…"
+          aria-label="Search people by name or email"
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
-            load(e.target.value);
+            setLoading(true);
           }}
         />
         <div style={{ flex: 1 }} />
@@ -137,7 +147,7 @@ export default function CrmPeoplePage() {
         </div>
       )}
 
-      <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+      <div className={workspace ? "crm-people-grid" : undefined} style={workspace ? undefined : { background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
         {loading ? (
           <div style={{ padding: 20, fontSize: 12, color: c.textMuted, textAlign: "center" }}>Loading…</div>
         ) : people.length === 0 ? (
@@ -147,6 +157,7 @@ export default function CrmPeoplePage() {
         ) : (
           people.map((p) => {
             const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || "(unnamed)";
+            if (workspace) return <article key={p.id} className="crm-company-card"><header><span className="crm-avatar">{name.slice(0, 2).toUpperCase()}</span><span className="crm-badge">{p.contact_status.replaceAll("_", " ")}</span></header><button className="crm-record-title" onClick={() => workspace.openRecord({ id: p.id, name, kind: "person" })}>{name}</button><p>{p.job_title || "Role not recorded"}</p><p>{p.email || p.phone || "Add contact details in the full record"}</p><footer><span>{p.last_contacted_at ? `Last contact ${new Date(p.last_contacted_at).toLocaleDateString()}` : "No contact recorded"}</span><Link href={`/admin/brokerage/crm/people/${p.id}`}>Full record ↗</Link></footer></article>;
             return (
               <Link
                 key={p.id}

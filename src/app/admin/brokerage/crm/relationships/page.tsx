@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { crmColors as c } from "@/components/brokerage/tokens";
+import { useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
 
 type Relationship = {
@@ -19,6 +20,8 @@ type Relationship = {
 };
 
 export default function CrmRelationshipsPage() {
+  const workspace = useCrmWorkspace();
+  const [search, setSearch] = useState("");
   const [relationships, setRelationships] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +40,8 @@ export default function CrmRelationshipsPage() {
   return (
     <div style={{ padding: "18px 24px 40px" }}>
       <CrmTabs />
+      {workspace && <header className="crm-page-intro"><div><p className="crm-eyebrow">CONNECT THE DOTS</p><h1>Deal connections</h1><p>The people and companies behind each opportunity.</p></div></header>}
+      <label className="crm-template-search">Find a connection<input value={search} onChange={e => setSearch(e.target.value)} placeholder="Company, person, deal or role" /></label>
 
       <div style={{ fontSize: 12.5, color: c.textSecondary, marginBottom: 16 }}>
         Every external party (referral source, CPA, attorney, title company, etc.) attached to a deal.
@@ -58,8 +63,8 @@ export default function CrmRelationshipsPage() {
             No external parties attached to any deal yet — add one from a deal's page or an organization's detail page.
           </div>
         ) : (
-          relationships.map((r) => (
-            <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 16px", borderBottom: `1px solid ${c.divider}` }}>
+          relationships.filter(r => [r.personName,r.organizationName,r.dealLabel,r.role.replaceAll("_"," ")].some(v => v?.toLowerCase().includes(search.toLowerCase()))).map((r) => (
+            <div className="crm-connection-row" key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 16px", borderBottom: `1px solid ${c.divider}` }}>
               <div>
                 <span style={{ fontSize: 12.5, color: c.paper }}>
                   {r.organizationId ? (
@@ -72,7 +77,7 @@ export default function CrmRelationshipsPage() {
                 </span>
                 <span style={{ fontSize: 10.5, color: c.textMuted, marginLeft: 8 }}>{r.role.replace("_", " ")}</span>
               </div>
-              <span style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 11, color: c.brassBright }}>{r.dealLabel}</span>
+              <Link href={`/deals/${r.dealId}`} style={{fontSize:13, color:c.brassBright}}>{r.dealLabel} ↗</Link>
             </div>
           ))
         )}

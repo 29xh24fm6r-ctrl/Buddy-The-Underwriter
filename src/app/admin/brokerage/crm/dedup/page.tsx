@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { crmColors as c } from "@/components/brokerage/tokens";
+import { useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
 
 type Candidate<T> = { a: T; b: T; confidence: number; reasons: string[] };
@@ -11,6 +12,8 @@ function personLabel(p: any) {
 }
 
 export default function CrmDedupPage() {
+  const workspace = useCrmWorkspace();
+  const lock = useRef(false);
   const [tab, setTab] = useState<"people" | "organizations">("people");
   const [candidates, setCandidates] = useState<Array<Candidate<any>>>([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +41,11 @@ export default function CrmDedupPage() {
   }, [tab]);
 
   async function merge(sourceId: string, targetId: string) {
-    if (!window.confirm("Merge these two records? The source stays in history (soft-merged, never deleted) and can be reviewed in the merge log.")) return;
+    if (lock.current) return;
+    const pair = candidates.find(c => [c.a.id, c.b.id].includes(sourceId));
+    const survivor = pair && (pair.a.id === targetId ? pair.a : pair.b);
+    if (!window.confirm(`Keep ${survivor ? label(survivor) : "the selected record"} and merge the other record into it? Review both records first. This changes their connections; the source remains in merge history.`)) return;
+    lock.current = true;
     setMerging(sourceId);
     try {
       const res = await fetch("/api/admin/brokerage/crm/dedup", {
@@ -52,7 +59,7 @@ export default function CrmDedupPage() {
     } catch (e: any) {
       setError(e?.message ?? "merge failed");
     } finally {
-      setMerging(null);
+      lock.current = false; setMerging(null);
     }
   }
 
@@ -61,12 +68,13 @@ export default function CrmDedupPage() {
   return (
     <div style={{ padding: "18px 24px 40px" }}>
       <CrmTabs />
+      {workspace && <header className="crm-page-intro"><div><p className="crm-eyebrow">A NETWORK YOU CAN TRUST</p><h1>Duplicate review</h1><p>Compare the evidence. Choose the record to keep. You stay in control.</p></div></header>}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         {(["people", "organizations"] as const).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            disabled={!!merging} onClick={() => setTab(t)}
             style={{
               fontSize: 12,
               padding: "6px 12px",
@@ -95,11 +103,11 @@ export default function CrmDedupPage() {
       <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
         {loading ? (
           <div style={{ padding: 20, fontSize: 12, color: c.textMuted, textAlign: "center" }}>Loading…</div>
-        ) : candidates.length === 0 ? (
+        ) : error ? <p role="alert">Duplicate review is unavailable. <button onClick={load}>Retry</button></p> : candidates.length === 0 ? (
           <div style={{ padding: 20, fontSize: 12, color: c.textMuted, textAlign: "center" }}>No likely duplicates found.</div>
         ) : (
           candidates.map((cand, i) => (
-            <div key={i} style={{ padding: "13px 16px", borderBottom: `1px solid ${c.divider}` }}>
+            <div className="crm-duplicate-card" key={i} style={{ padding: "13px 16px", borderBottom: `1px solid ${c.divider}` }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ fontSize: 12.5, color: c.paper }}>
                   <strong>{label(cand.a)}</strong> ↔ <strong>{label(cand.b)}</strong>
@@ -109,17 +117,18 @@ export default function CrmDedupPage() {
                 </span>
               </div>
               <div style={{ fontSize: 10.5, color: c.textMuted, marginTop: 4 }}>{cand.reasons.join(", ")}</div>
-              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                {workspace && [cand.a,cand.b].map(row => <button key={row.id} onClick={() => workspace.openRecord({id:row.id, name:label(row), kind:tab === "people" ? "person" : "organization"})}>Review {label(row)} ↗</button>)}
                 <button
                   onClick={() => merge(cand.b.id, cand.a.id)}
-                  disabled={merging === cand.b.id}
+                  disabled={!!merging}
                   style={{ background: c.borderStrong, border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 5, padding: "5px 10px", fontSize: 11, cursor: "pointer", opacity: merging === cand.b.id ? 0.4 : 1 }}
                 >
                   Merge into {label(cand.a)}
                 </button>
                 <button
                   onClick={() => merge(cand.a.id, cand.b.id)}
-                  disabled={merging === cand.a.id}
+                  disabled={!!merging}
                   style={{ background: c.borderStrong, border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 5, padding: "5px 10px", fontSize: 11, cursor: "pointer", opacity: merging === cand.a.id ? 0.4 : 1 }}
                 >
                   Merge into {label(cand.b)}

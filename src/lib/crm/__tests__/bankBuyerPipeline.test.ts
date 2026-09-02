@@ -29,7 +29,8 @@ test("API gates access and records lifecycle history", () => {
 });
 
 test("operator surface includes bank appetite, banker, placement, and closing workflows", () => {
-  for (const copy of ["Bank buyer network", "Add a bank relationship", "Send a deal", "Deal distribution ledger", "Final closed amount"]) assert.match(page, new RegExp(copy, "i"));
+  for (const copy of ["Lender network", "Add a bank relationship", "Record a placement", "Placement tracker", "Final closed amount"]) assert.match(page, new RegExp(copy, "i"));
+  assert.match(page, /Confirm status/);
 });
 
 
@@ -62,9 +63,13 @@ test("bank records keep contacts, marketplace access, appetite, and deals in one
 
 test("CRM uses a scoped high-contrast light theme", () => {
   assert.match(tokens, /export const crmColors/);
-  assert.match(tokens, /ink: "#F7F5F0"/);
-  assert.match(tokens, /card: "#FFFFFF"/);
-  assert.match(tokens, /paper: "#20242B"/);
+  assert.match(tokens, /ink: "var\(--crm-ink, #F7F5F0\)"/);
+  assert.match(tokens, /card: "var\(--crm-card, #FFFFFF\)"/);
+  assert.match(tokens, /paper: "var\(--crm-paper, #20242B\)"/);
+  const unified = readFileSync("src/app/admin/brokerage/crm/unified.css", "utf8");
+  assert.match(unified, /\.crm-unified\s*\{\s*--crm-ink:\s*#f5f7fa/);
+  assert.match(unified, /--crm-paper:\s*#18263c/);
+  assert.match(tokens, /ink: "#0E1013"/); // Other brokerage surfaces keep their palette.
   assert.match(shell, /pathname\.startsWith\("\/admin\/brokerage\/crm"\) \? crmColors : brokerageColors/);
   assert.match(page, /crmColors as c/);
   assert.match(organizationPage, /crmColors as c/);

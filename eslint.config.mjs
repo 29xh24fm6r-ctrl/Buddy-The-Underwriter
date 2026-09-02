@@ -16,6 +16,7 @@ const eslintConfig = defineConfig([
     // Vendor/third-party code:
     "public/pdfjs/**",
     "scripts/probes/**",
+    "scripts/crm-fixture/fixture.js",
   ]),
   {
     plugins: {

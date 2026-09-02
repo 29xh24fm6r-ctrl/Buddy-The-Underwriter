@@ -1,4 +1,4 @@
-import "server-only";
+// Pure stage definitions are shared with the UI. Mutating commands remain server-only.
 
 /**
  * Lead stage machine — SPEC-BROKERAGE-OPERATING-SYSTEM-V1 PR2 §4.1.

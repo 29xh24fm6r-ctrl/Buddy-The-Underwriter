@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { crmColors as c } from "@/components/brokerage/tokens";
+import { CrmModal, useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
+import { useCrmDraftGuard } from "@/components/brokerage/useCrmDraftGuard";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
 
 const TRIGGER_KEYS = [
@@ -27,6 +29,8 @@ function inputStyle() {
 }
 
 export default function CrmTemplatesPage() {
+  const workspace = useCrmWorkspace();
+  const [search, setSearch] = useState("");
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +39,7 @@ export default function CrmTemplatesPage() {
   const [body, setBody] = useState("");
   const [saving, setSaving] = useState(false);
 
+  useCrmDraftGuard(Boolean(editing));
   async function load() {
     setLoading(true);
     try {
@@ -84,6 +89,8 @@ export default function CrmTemplatesPage() {
   return (
     <div style={{ padding: "18px 24px 40px" }}>
       <CrmTabs />
+      {workspace && <header className="crm-page-intro"><div><p className="crm-eyebrow">A PERSONAL TOUCH, EVERY TIME</p><h1>Message library</h1><p>Reusable starting points for the conversations that move lending forward. Saving a template does not send a message.</p></div></header>}
+      <label className="crm-template-search">Find a message<input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by purpose, such as documents or referral" /></label>
 
       <div style={{ fontSize: 12.5, color: c.textSecondary, marginBottom: 16 }}>
         Message templates support <code>{"{{merge_field}}"}</code> substitution. Each trigger has an independent email and SMS version.
@@ -99,11 +106,11 @@ export default function CrmTemplatesPage() {
         <div style={{ padding: 20, fontSize: 12, color: c.textMuted, textAlign: "center" }}>Loading…</div>
       ) : (
         <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
-          {TRIGGER_KEYS.map((key) => {
+          {TRIGGER_KEYS.filter(key => key.replaceAll("_", " ").includes(search.toLowerCase())).map((key) => {
             const emailTemplate = templates.find((t) => t.trigger_key === key && t.channel === "email");
             const smsTemplate = templates.find((t) => t.trigger_key === key && t.channel === "sms");
             return (
-              <div key={key} style={{ padding: "12px 16px", borderBottom: `1px solid ${c.divider}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div className="crm-template-card" key={key} style={{ padding: "12px 16px", borderBottom: `1px solid ${c.divider}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ fontSize: 12.5, color: c.paper }}>{key.replace(/_/g, " ")}</div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={() => startEdit(key, "email")} style={{ fontSize: 10.5, padding: "4px 9px", borderRadius: 4, border: `1px solid ${c.border}`, background: emailTemplate ? "rgba(184,144,91,.12)" : "transparent", color: emailTemplate ? c.brassBright : c.textMuted, cursor: "pointer" }}>
@@ -120,17 +127,17 @@ export default function CrmTemplatesPage() {
       )}
 
       {editing && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 20, width: 480 }}>
+        <CrmModal title="Edit message template" className="crm-template-dialog" onClose={() => setEditing(null)}>
+          <div data-crm-dirty="true" style={{ background: c.card, padding: 20 }}>
             <div style={{ fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
               {editing.triggerKey.replace(/_/g, " ")} — {editing.channel}
             </div>
             {editing.channel === "email" && (
-              <input style={{ ...inputStyle(), marginBottom: 8 }} placeholder="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
+              <input style={{ ...inputStyle(), marginBottom: 8 }} aria-label="Message subject" placeholder="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
             )}
-            <textarea style={{ ...inputStyle(), minHeight: 140 }} placeholder="Body — use {{first_name}} etc. for merge fields" value={body} onChange={(e) => setBody(e.target.value)} />
+            <textarea style={{ ...inputStyle(), minHeight: 140 }} aria-label="Message body" placeholder="Body — use {{first_name}} etc. for merge fields" value={body} onChange={(e) => setBody(e.target.value)} />
             <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
-              <button onClick={() => setEditing(null)} style={{ background: "transparent", border: `1px solid ${c.border}`, color: c.textSecondary, borderRadius: 5, padding: "7px 12px", fontSize: 11.5, cursor: "pointer" }}>
+              <button onClick={() => { if (window.confirm("Discard this template draft?")) setEditing(null); }} disabled={saving} style={{ background: "transparent", border: `1px solid ${c.border}`, color: c.textSecondary, borderRadius: 5, padding: "7px 12px", fontSize: 11.5, cursor: "pointer" }}>
                 Cancel
               </button>
               <button onClick={save} disabled={saving || !body.trim()} style={{ background: "rgba(184,144,91,.15)", border: `1px solid rgba(184,144,91,.4)`, color: c.brassBright, borderRadius: 5, padding: "7px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", opacity: saving || !body.trim() ? 0.5 : 1 }}>
@@ -138,7 +145,7 @@ export default function CrmTemplatesPage() {
               </button>
             </div>
           </div>
-        </div>
+        </CrmModal>
       )}
     </div>
   );

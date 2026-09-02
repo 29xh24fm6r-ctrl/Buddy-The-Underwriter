@@ -7,6 +7,7 @@ import { RelationshipIntelligencePanel } from "@/components/brokerage/Relationsh
 import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
 import { US_STATES } from "@/lib/crm/geography";
 import { useCrmExperience } from "./CrmExperienceProvider";
+import { CrmTaskControl } from "./CrmTaskControl";
 import { CrmActivityComposer } from "./CrmActivityComposer";
 import { hasLenderWorkspace } from "@/lib/crm/activityDraft";
 
@@ -233,7 +234,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
     ["activity", "Activity", data.activities?.length || 0],
   ];
 
-  return <div style={{ padding: "18px 24px 48px", maxWidth: 1180 }}>
+  return <div className={enabled ? "crm-record-page" : undefined} style={{ padding: "18px 24px 48px", maxWidth: 1180 }}>
     <CrmTabs />
     <Link href={enabled ? "/admin/brokerage/crm?view=relationships" : "/admin/brokerage/crm"} style={{ color: c.textMuted, fontSize: 11.5, textDecoration: "none" }}>← All organizations</Link>
 
@@ -299,7 +300,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
       <Card title="Organization details">
         <Details org={org} />
       </Card>
-      <RelationshipIntelligencePanel organizationId={orgId} />
+      {enabled ? <details className="crm-surface"><summary>Relationship insights & advanced tools</summary><RelationshipIntelligencePanel organizationId={orgId} /></details> : <RelationshipIntelligencePanel organizationId={orgId} />}
     </div>}
 
     {tab === "people" && <Card title={showLending ? "Bankers and contacts" : "People and contacts"} action={<Button onClick={() => setPanel("contact")} primary>+ Add contact</Button>}>
@@ -325,7 +326,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
 
     {tab === "activity" && <div style={{ display: "grid", gridTemplateColumns: enabled ? "minmax(0,1fr)" : "minmax(300px,1fr) minmax(280px,.7fr)", gap: 14 }}>
       {!enabled && <Card title="Add a note"><textarea style={{ ...field(), minHeight: 100, resize: "vertical" }} placeholder="What happened? Include context and next steps…" value={note} onChange={e => setNote(e.target.value)} /><div style={{ marginTop: 9 }}><Button onClick={logNote} primary disabled={busy || !note.trim()}>Save note</Button></div></Card>}
-      <Card title="Relationship history">{data.activities?.length ? data.activities.map((a: Json) => <div key={a.id} style={{ padding: "12px 0", borderBottom: `1px solid ${c.divider}` }}><div style={{ color: c.paper, fontSize: 13 }}>{a.title || a.kind}</div>{enabled && <><div style={{ color: c.textMuted, fontSize: 12 }}>{a.kind === "task" ? `${a.completed_at ? "Completed" : "Open follow-up"}${a.due_at ? ` · Due ${new Date(a.due_at).toLocaleString()}` : " · No due date"}` : a.kind.replaceAll("_", " ")}</div>{typeof a.properties?.body === "string" && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 13 }}>{a.properties.body}</p>}</>}<div style={{ color: c.textMuted, fontSize: 11, marginTop: 3 }}>{new Date(a.happens_at).toLocaleString()}</div></div>) : <Empty>No activity yet.</Empty>}</Card>
+      <Card title="Relationship history">{data.activities?.length ? data.activities.map((a: Json) => <div key={a.id} style={{ padding: "12px 0", borderBottom: `1px solid ${c.divider}` }}><div style={{ color: c.paper, fontSize: 13 }}>{a.title || a.kind}</div>{enabled && <><div style={{ color: c.textMuted, fontSize: 12 }}>{a.kind === "task" ? `${a.completed_at ? "Completed" : "Open follow-up"}${a.due_at ? ` · Due ${new Date(a.due_at).toLocaleString()}` : " · No due date"}` : a.kind.replaceAll("_", " ")}</div>{a.kind === "task" && <CrmTaskControl id={a.id} completed={!!a.completed_at} dueAt={a.due_at} onSaved={() => void load()} />}{typeof a.properties?.body === "string" && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 13 }}>{a.properties.body}</p>}</>}<div style={{ color: c.textMuted, fontSize: 11, marginTop: 3 }}>{new Date(a.happens_at).toLocaleString()}</div></div>) : <Empty>No activity yet.</Empty>}</Card>
     </div>}
   </div>;
 }
