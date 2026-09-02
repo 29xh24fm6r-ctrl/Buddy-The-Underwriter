@@ -44,11 +44,21 @@ function isFiscalYearEnd(periodEnd: string): boolean {
  * never derived from a stub quarter. Returns null when no complete FY is on file
  * (caller emits a labeled diagnostic — no fabricated precision).
  */
-export function selectCompleteFiscalYearPeriod(facts: PeriodFact[]): string | null {
+export function selectCompleteFiscalYearPeriod(
+  facts: PeriodFact[],
+  opts?: { today?: string },
+): string | null {
+  // A fiscal year whose end date is still in the future cannot be COMPLETE. A
+  // YTD interim statement whose period could not be resolved from the document
+  // falls back to `FY<doc_year>` (…-12-31) and would otherwise be mistaken for a
+  // full year — the 6-month YTD net income was then divided by 12 months of
+  // debt service (DSCR 0.37x on a 6-month numerator).
+  const today = opts?.today ?? new Date().toISOString().slice(0, 10);
   const candidates = new Set<string>();
   for (const f of facts) {
     if (!f.fact_period_end || f.fact_value_num === null) continue;
     if (!isFiscalYearEnd(f.fact_period_end)) continue;
+    if (f.fact_period_end > today) continue;
     if ((BASE_INCOME_KEYS as readonly string[]).includes(f.fact_key)) {
       candidates.add(f.fact_period_end);
     }
@@ -68,6 +78,8 @@ export type WaterfallInputBuild = {
     qoe_net: number | null;
     owner_benefit_excess_comp: number | null;
     owner_comp_note: string;
+    rent_addback: number | null;
+    rent_addback_note: string | null;
     tax_provision: number | null;
     maintenance_capex: number | null;
     is_pass_through: boolean;
@@ -85,9 +97,22 @@ const num = (m: FactMap, k: string): number | null => {
  * (computeTotalDebtService), so annualDebtServiceTotal is left null here — this
  * writer is responsible only for NCADS / CASH_FLOW_AVAILABLE.
  */
+export type WaterfallInputOptions = {
+  /**
+   * Owner-occupied CRE PURCHASE: the borrower stops paying rent on the building
+   * it is buying, and the proposed mortgage replaces that occupancy cost. Rent
+   * for the analysis period is added back (Step 5 addbackRentNormalization) so
+   * NCADS is measured against the SAME debt service that replaces the rent.
+   * Standard owner-occupied purchase treatment; never applied to refinances,
+   * investor property or non-RE requests.
+   */
+  rentAddback?: { amount: number; reason: string } | null;
+};
+
 export function buildWaterfallInputFromFacts(
   factMap: FactMap,
   slate?: MethodologySlate,
+  opts?: WaterfallInputOptions,
 ): WaterfallInputBuild {
   const form = classifyEntityTaxForm(factMap);
   const ebitda = computeEbitda(factMap, toEngineFormType(form), slate);
@@ -119,7 +144,10 @@ export function buildWaterfallInputFromFacts(
     addbackHomeOffice: null,
     addbackPersonalTravelMeals: null,
     addbackFamilyCompensation: null,
-    addbackRentNormalization: null,
+    addbackRentNormalization:
+      opts?.rentAddback && Number.isFinite(opts.rentAddback.amount) && opts.rentAddback.amount > 0
+        ? opts.rentAddback.amount
+        : null,
     normalizedTaxProvision: taxProvision,
     maintenanceCapex,
     annualDebtServiceTotal: null,
@@ -142,6 +170,8 @@ export function buildWaterfallInputFromFacts(
         nrIncome !== null || nrExpense !== null ? (nrExpense ?? 0) - (nrIncome ?? 0) : null,
       owner_benefit_excess_comp: comp.addback > 0 ? comp.addback : null,
       owner_comp_note: comp.note,
+      rent_addback: input.addbackRentNormalization,
+      rent_addback_note: input.addbackRentNormalization !== null ? (opts?.rentAddback?.reason ?? null) : null,
       tax_provision: taxProvision,
       maintenance_capex: maintenanceCapex,
       is_pass_through: isPassThrough,

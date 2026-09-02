@@ -210,7 +210,21 @@ type CallGeminiGroundedArgs<T> = {
   // text; returns a salvaged value or null. The original parse diagnostic is
   // preserved either way.
   repair?: { strategy: string; fn: (clean: string) => T | null };
+  /**
+   * Output budget for this thread. The synthesis thread consumes ~26k prompt
+   * chars and emits a large JSON document; at the 8192 default the Gemini 3.x
+   * thinking budget alone exhausted the window and the model returned ZERO
+   * characters with finishReason=MAX_TOKENS (observed on committee-depth
+   * missions). Threads that emit big documents pass a larger budget.
+   */
+  maxOutputTokens?: number;
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  timeoutMs?: number;
 };
+
+const DEFAULT_THREAD_MAX_OUTPUT_TOKENS = 8192;
+/** Hard ceiling for the one-shot MAX_TOKENS retry (Gemini Flash output cap). */
+const MAX_THREAD_OUTPUT_TOKENS = 32768;
 
 /**
  * Call Gemini for a single BIE thread against a specific model. Internal —
@@ -271,10 +285,11 @@ async function callGeminiGroundedWithModel<T>(
       prompt: args.prompt,
       modelOverride: model,
       temperature: 0.1,
-      maxOutputTokens: 8192,
+      maxOutputTokens: args.maxOutputTokens ?? DEFAULT_THREAD_MAX_OUTPUT_TOKENS,
+      thinkingLevel: args.thinkingLevel,
       useSearchGrounding: args.useGrounding,
       responseSchema: args.useGrounding ? undefined : { type: "object" },
-      timeoutMs: 60_000,
+      timeoutMs: args.timeoutMs ?? 60_000,
       disableFailover: true,
     });
 
@@ -480,7 +495,33 @@ async function callGeminiGroundedWithModel<T>(
 export async function callGeminiGrounded<T>(
   args: CallGeminiGroundedArgs<T>,
 ): Promise<GeminiGroundedResult<T>> {
-  const primary = await callGeminiGroundedWithModel<T>(GEMINI_MODEL, args);
+  let primary = await callGeminiGroundedWithModel<T>(GEMINI_MODEL, args);
+
+  // Output-window exhaustion: the model produced NO usable text because the
+  // (thinking + answer) budget ran out. Retry ONCE with a doubled output budget
+  // and minimal thinking — the answer itself is what we need, not the
+  // reasoning trace. Never loops: a second MAX_TOKENS is returned as-is.
+  const exhaustedOutputWindow =
+    !primary.diagnostic.ok &&
+    primary.diagnostic.error_type === "finish_reason" &&
+    primary.diagnostic.finish_reason === "MAX_TOKENS";
+  if (exhaustedOutputWindow) {
+    const currentBudget = args.maxOutputTokens ?? DEFAULT_THREAD_MAX_OUTPUT_TOKENS;
+    if (currentBudget < MAX_THREAD_OUTPUT_TOKENS) {
+      const retryBudget = Math.min(currentBudget * 2, MAX_THREAD_OUTPUT_TOKENS);
+      console.warn(
+        `[BIE:${args.logTag}] MAX_TOKENS with ${currentBudget} output tokens — ` +
+        `retrying once with ${retryBudget} tokens and minimal thinking`,
+      );
+      const retry = await callGeminiGroundedWithModel<T>(GEMINI_MODEL, {
+        ...args,
+        maxOutputTokens: retryBudget,
+        thinkingLevel: "minimal",
+        timeoutMs: Math.max(args.timeoutMs ?? 60_000, 120_000),
+      });
+      primary = { ...retry, diagnostic: { ...retry.diagnostic, retried: true } };
+    }
+  }
 
   const isLikelyModelRetirement =
     !primary.diagnostic.ok &&
@@ -1401,6 +1442,14 @@ Return ONLY valid JSON:
 
   const gr = await callGeminiGrounded<CreditSynthesis>({
     prompt, apiKey, sources, logTag: "synthesis", thread: "synthesis", useGrounding: false,
+    // The synthesis output is a multi-section JSON document (thesis, outlooks,
+    // conditions, triggers …). At the 8192 default the model exhausted the
+    // window before emitting a single character (finishReason=MAX_TOKENS,
+    // response_chars=0) and the mission failed the completion gate with
+    // "Synthesis thread failed — no credit thesis produced".
+    maxOutputTokens: 16384,
+    thinkingLevel: "low",
+    timeoutMs: 120_000,
   });
   return { result: gr.result, sourceUrls: gr.sourceUrls, segments: gr.segments, diagnostic: gr.diagnostic };
 }

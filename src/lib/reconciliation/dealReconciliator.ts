@@ -7,7 +7,7 @@ import type { ReconciliationCheck, DealReconciliationSummary } from "./types";
 import { checkK1ToEntity } from "./k1ToEntityCheck";
 import { checkBalanceSheet } from "./balanceSheetCheck";
 import { checkMultiYearTrend } from "./multiYearTrendCheck";
-import { checkOwnershipIntegrity } from "./ownershipIntegrityCheck";
+import { checkOwnershipIntegrity, normalizeOwnershipFraction } from "./ownershipIntegrityCheck";
 
 type FactRow = {
   fact_key: string;
@@ -97,7 +97,9 @@ export async function reconcileDeal(
     // 3. K1_TO_ENTITY — check if we have OBI and K1 facts
     const entityObi = allFacts["ORDINARY_BUSINESS_INCOME"] ?? null;
     const k1Income = allFacts["K1_ORDINARY_INCOME"] ?? null;
-    const k1Pct = allFacts["K1_OWNERSHIP_PCT"] ?? null;
+    // K1_OWNERSHIP_PCT is extracted on the percent scale (100 = sole owner);
+    // every check below reasons in fractions.
+    const k1Pct = normalizeOwnershipFraction(allFacts["K1_OWNERSHIP_PCT"] ?? null);
 
     if (entityObi !== null && (k1Income !== null || k1Pct !== null)) {
       const k1Allocations = [];

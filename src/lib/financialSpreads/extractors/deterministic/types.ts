@@ -24,6 +24,10 @@ export type DeterministicExtractorArgs = {
   ownerEntityId?: string | null;
   /** Document year from deal_documents.doc_year — fallback when OCR date extraction fails */
   docYear?: number | null;
+  /** Upload filename (deal_documents.original_filename) — a statement date encoded in the name is used before the doc-year fallback */
+  originalFilename?: string | null;
+  /** deal_documents.statement_period (e.g. "YTD", "CURRENT", "ANNUAL") — advisory period hint */
+  statementPeriod?: string | null;
 };
 
 export type DeterministicExtractionResult = ExtractionResult & {
