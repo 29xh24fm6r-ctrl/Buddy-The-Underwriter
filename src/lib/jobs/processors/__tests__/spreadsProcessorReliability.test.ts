@@ -169,3 +169,34 @@ test("Gemini OCR has per-model timeout protection", () => {
     "Must handle timeout errors to try next model",
   );
 });
+
+// ---------------------------------------------------------------------------
+// Extraction time budget — the re-extraction loop must not outlive the tick
+// ---------------------------------------------------------------------------
+
+test("spread job extraction loop is budgeted and resumes via meta.extract_progress", () => {
+  const src = readFile("src/lib/jobs/processors/spreadsProcessor.ts");
+  assert.ok(src.includes("resolveExtractionDeadline("), "extraction loop must derive a deadline");
+  assert.ok(src.includes("shouldDeferExtraction("), "extraction loop must check the deadline per document");
+  assert.ok(src.includes("SPREAD_JOB_REQUEUED_EXTRACTION_BUDGET"), "budget re-queue must emit an Aegis event");
+
+  // The self re-queue must be CAS-guarded exactly like completion.
+  const idx = src.indexOf("extract_progress: progress");
+  assert.ok(idx > 0, "re-queue must persist extract_progress in meta");
+  const block = src.slice(idx, idx + 400);
+  assert.ok(block.includes('.eq("status", "RUNNING")'), "budget re-queue must CAS on status RUNNING");
+  assert.ok(block.includes('.eq("lease_owner", leaseOwner)'), "budget re-queue must CAS on lease_owner");
+});
+
+test("worker tick passes its maxDuration horizon to the spreads worker", () => {
+  const src = readFile("src/app/api/jobs/worker/tick/route.ts");
+  assert.ok(
+    /const\s+spreadsDeadlineAt\s*=\s*Date\.now\(\)\s*\+\s*maxDuration\s*\*\s*1000\s*-\s*SPREADS_DEADLINE_MARGIN_MS/.test(src),
+    "tick must compute spreadsDeadlineAt from maxDuration",
+  );
+  const calls = src.match(/guardedSpreads\(\{[^}]*\}\)/gs) ?? [];
+  assert.ok(calls.length >= 2, "expected both guardedSpreads call sites");
+  for (const call of calls) {
+    assert.ok(call.includes("deadlineAt: spreadsDeadlineAt"), `guardedSpreads call must pass deadlineAt: ${call}`);
+  }
+});

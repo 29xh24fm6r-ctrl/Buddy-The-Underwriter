@@ -229,3 +229,40 @@ describe("D3: Consistency Checks", () => {
     assert.equal(result.status, "PASSED");
   });
 });
+
+// ── Business balance sheets: TOTAL_EQUITY is the equity side ─────────
+
+describe("validateBalanceSheet — business balance sheet keys", () => {
+  it("accepts TOTAL_EQUITY as the equity side (balanceSheetDeterministic emits no NET_WORTH)", () => {
+    // BS 6-30-2026 Atlanta Ceramic.pdf — assets 119,952.24; liabilities 63,064.79; equity 56,887.45
+    const facts: FactForValidation[] = [
+      { fact_key: "TOTAL_ASSETS", fact_value_num: 119_952.24, fact_value_text: null, fact_type: "BALANCE_SHEET" },
+      { fact_key: "TOTAL_LIABILITIES", fact_value_num: 63_064.79, fact_value_text: null, fact_type: "BALANCE_SHEET" },
+      { fact_key: "TOTAL_EQUITY", fact_value_num: 56_887.45, fact_value_text: null, fact_type: "BALANCE_SHEET" },
+      { fact_key: "TOTAL_LIABILITIES_AND_EQUITY", fact_value_num: 119_952.24, fact_value_text: null, fact_type: "BALANCE_SHEET" },
+    ];
+    const gate = runValidationGate({ docType: "BALANCE_SHEET", facts });
+    assert.equal(gate.result.status, "PASSED", gate.result.message ?? "");
+  });
+
+  it("still flags a business balance sheet whose equity does not close", () => {
+    const facts: FactForValidation[] = [
+      { fact_key: "TOTAL_ASSETS", fact_value_num: 1000, fact_value_text: null, fact_type: "BALANCE_SHEET" },
+      { fact_key: "TOTAL_LIABILITIES", fact_value_num: 600, fact_value_text: null, fact_type: "BALANCE_SHEET" },
+      { fact_key: "TOTAL_EQUITY", fact_value_num: 200, fact_value_text: null, fact_type: "BALANCE_SHEET" },
+    ];
+    const gate = runValidationGate({ docType: "BALANCE_SHEET", facts });
+    assert.equal(gate.result.status, "SUSPECT");
+    assert.equal(gate.result.reason_code, "BS_IMBALANCE");
+  });
+
+  it("falls back to the statement's own total liabilities and equity when one side is missing", () => {
+    const facts: FactForValidation[] = [
+      { fact_key: "TOTAL_ASSETS", fact_value_num: 1000, fact_value_text: null, fact_type: "BALANCE_SHEET" },
+      { fact_key: "TOTAL_LIABILITIES", fact_value_num: 600, fact_value_text: null, fact_type: "BALANCE_SHEET" },
+      { fact_key: "TOTAL_LIABILITIES_AND_EQUITY", fact_value_num: 1000, fact_value_text: null, fact_type: "BALANCE_SHEET" },
+    ];
+    const gate = runValidationGate({ docType: "BALANCE_SHEET", facts });
+    assert.equal(gate.result.status, "PASSED", gate.result.message ?? "");
+  });
+});

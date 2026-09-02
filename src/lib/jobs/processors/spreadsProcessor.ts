@@ -16,8 +16,31 @@ import { evaluatePrereq } from "@/lib/financialSpreads/evaluatePrereq";
 import { resolveOwnerType } from "@/lib/financialSpreads/resolveOwnerType";
 import { detectMachineReadabilitySignals } from "@/lib/extraction/detectMachineReadabilitySignals";
 import type { DealBankAccessGrant } from "@/lib/tenant/ensureDealBankAccess";
+import {
+  nextExtractProgress,
+  planExtraction,
+  resolveExtractionBudgetMs,
+  resolveExtractionDeadline,
+  shouldDeferExtraction,
+} from "./spreadExtractionBudget";
 
 const LEASE_MS = 3 * 60 * 1000;
+
+/**
+ * Wall-clock budget for the per-document re-extraction loop inside one lease.
+ * See spreadExtractionBudget.ts — when it is spent the job re-queues itself
+ * with its progress in meta.extract_progress and resumes on the next lease.
+ */
+const EXTRACTION_BUDGET_MS = resolveExtractionBudgetMs();
+
+export type ProcessSpreadJobOptions = {
+  /**
+   * Absolute epoch-ms after which no further document extraction may start.
+   * The worker tick passes its own maxDuration horizon so a job leased late in
+   * an invocation cannot run into the platform timeout.
+   */
+  deadlineAt?: number;
+};
 
 function uniq<T>(arr: T[]) {
   return Array.from(new Set(arr));
@@ -73,7 +96,11 @@ const SPREAD_EVENT_KEY: Record<string, string> = {
   GLOBAL_CASH_FLOW: "spread.global.completed",
 };
 
-export async function processSpreadJob(jobId: string, leaseOwner: string) {
+export async function processSpreadJob(
+  jobId: string,
+  leaseOwner: string,
+  options: ProcessSpreadJobOptions = {},
+) {
   const sb = supabaseAdmin();
   const leaseUntil = new Date(Date.now() + LEASE_MS).toISOString();
 
@@ -134,6 +161,11 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     // merges subsequent jobs into the first job, keeping only the first doc's ID.
     // Extracting from one doc while ignoring the other 8 is the root cause of
     // MISSING fact_type across TAX_RETURN, BALANCE_SHEET, PERSONAL_INCOME, etc.
+    //
+    // The loop is time-budgeted: Gemini-primary extraction costs 5–50 s per
+    // document and the worker tick dies at Vercel's maxDuration. When the budget
+    // is spent the job re-queues itself with the finished document ids in
+    // meta.extract_progress and the next lease resumes with the rest.
     {
       const { data: activeDocs } = await (sb as any)
         .from("deal_documents")
@@ -142,29 +174,29 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         .eq("bank_id", bankId)
         .eq("is_active", true);
 
-      const EXTRACTABLE_DOC_TYPES = new Set([
-        "FINANCIAL_STATEMENT", "INCOME_STATEMENT", "OPERATING_STATEMENT",
-        "BALANCE_SHEET", "RENT_ROLL",
-        "IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS",
-        "IRS_1040", "IRS_PERSONAL", "K1",
-        "BUSINESS_TAX_RETURN", "TAX_RETURN", "PERSONAL_TAX_RETURN",
-        "PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413",
-        "TERM_SHEET", "LOI", "CLOSING_STATEMENT",
-        "APPRAISAL", "COLLATERAL_SCHEDULE",
-      ]);
+      const extractionStartedAt = Date.now();
+      const extractionDeadline = resolveExtractionDeadline({
+        startedAt: extractionStartedAt,
+        budgetMs: EXTRACTION_BUDGET_MS,
+        deadlineAt: options.deadlineAt,
+      });
+      const plan = planExtraction({ activeDocs: activeDocs ?? [], meta: jobMeta });
+      const doneDocIds: string[] = [...plan.done];
+      let docsExtracted = plan.done.length;
+      let deferredDocIds: string[] = [];
 
-      let docsExtracted = 0;
-      for (const doc of activeDocs ?? []) {
-        const docType = (
-          doc.canonical_type ?? doc.ai_doc_type ?? doc.document_type ?? ""
-        ).toUpperCase();
-        if (!docType || !EXTRACTABLE_DOC_TYPES.has(docType)) continue;
+      for (let i = 0; i < plan.remaining.length; i++) {
+        const doc = plan.remaining[i];
+        if (shouldDeferExtraction({ index: i, now: Date.now(), deadline: extractionDeadline })) {
+          deferredDocIds = plan.remaining.slice(i).map((d) => d.id);
+          break;
+        }
         try {
           await extractFactsFromDocument({
             dealId,
             bankId,
-            documentId: String(doc.id),
-            docTypeHint: docType,
+            documentId: doc.id,
+            docTypeHint: doc.docType,
           });
           docsExtracted++;
         } catch (extractErr: any) {
@@ -173,6 +205,84 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
             extractErr?.message,
           );
         }
+        doneDocIds.push(doc.id);
+      }
+
+      if (deferredDocIds.length > 0) {
+        const progress = nextExtractProgress({
+          prior: plan.progress,
+          cycleStartedAt: extractionStartedAt,
+          done: doneDocIds,
+        });
+        const { count: requeueCount } = await (sb as any)
+          .from("deal_spread_jobs")
+          .update({
+            status: "QUEUED",
+            next_run_at: new Date().toISOString(),
+            lease_owner: null,
+            leased_until: null,
+            error: null,
+            meta: { ...jobMeta, extract_progress: progress },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", jobId)
+          .eq("status", "RUNNING")
+          .eq("lease_owner", leaseOwner)
+          .select("id", { count: "exact", head: true });
+
+        if ((requeueCount ?? 0) === 0) {
+          // Lease lost mid-extraction (observer reclaim or a concurrent worker).
+          // Whoever owns the job now will redo the loop; do not render on a
+          // partial fact set under a lease we no longer hold.
+          return { ok: false as const, error: "lease_lost_during_extraction" };
+        }
+
+        writeSystemEvent({
+          event_type: "info",
+          severity: "info",
+          source_system: "spreads_processor",
+          source_job_id: jobId,
+          source_job_table: "deal_spread_jobs",
+          deal_id: dealId,
+          bank_id: bankId,
+          error_code: "SPREAD_JOB_REQUEUED_EXTRACTION_BUDGET",
+          error_message: `Re-queued after ${Math.round((Date.now() - extractionStartedAt) / 1000)}s: ${doneDocIds.length}/${plan.extractable.length} documents extracted, ${deferredDocIds.length} remaining`,
+          payload: {
+            jobId, dealId,
+            budgetMs: EXTRACTION_BUDGET_MS,
+            deadlineAt: options.deadlineAt ?? null,
+            extracted: doneDocIds,
+            remaining: deferredDocIds,
+            resumes: progress.resumes,
+          },
+        }).catch(() => {});
+
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "spread.inputs.partial",
+          uiState: "working",
+          uiMessage: `Financial facts extracted from ${doneDocIds.length} of ${plan.extractable.length} active document(s) — continuing on the next worker tick`,
+          meta: { jobId, docsExtracted, remaining: deferredDocIds.length, resumes: progress.resumes },
+        });
+
+        return {
+          ok: true as const,
+          jobId,
+          requeuedForExtractionBudget: true as const,
+          remainingDocs: deferredDocIds.length,
+        };
+      }
+
+      if (plan.progress) {
+        // Cycle complete — drop the progress marker so a later re-queue of this
+        // job (late merge, retry) extracts every document again.
+        delete (jobMeta as Record<string, unknown>).extract_progress;
+        await (sb as any)
+          .from("deal_spread_jobs")
+          .update({ meta: { ...jobMeta }, updated_at: new Date().toISOString() })
+          .eq("id", jobId)
+          .eq("lease_owner", leaseOwner);
       }
 
       await logLedgerEvent({
@@ -181,7 +291,13 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         eventKey: "spread.inputs.collected",
         uiState: "working",
         uiMessage: `Financial facts extracted from ${docsExtracted} of ${(activeDocs ?? []).length} active document(s)`,
-        meta: { jobId, docsExtracted, sourceDocumentId, totalActiveDocs: (activeDocs ?? []).length },
+        meta: {
+          jobId,
+          docsExtracted,
+          sourceDocumentId,
+          totalActiveDocs: (activeDocs ?? []).length,
+          resumedFromProgress: Boolean(plan.progress),
+        },
       });
     }
 
@@ -1626,7 +1742,10 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
   }
 }
 
-export async function processNextSpreadJob(leaseOwner: string = "worker-1") {
+export async function processNextSpreadJob(
+  leaseOwner: string = "worker-1",
+  options: ProcessSpreadJobOptions = {},
+) {
   const sb = supabaseAdmin();
 
   const { data: jobs, error: queueError } = await (sb as any)
@@ -1652,5 +1771,5 @@ export async function processNextSpreadJob(leaseOwner: string = "worker-1") {
     return { ok: false as const, idle: true as const, error: "No jobs available" };
   }
 
-  return await processSpreadJob(String(jobs[0].id), leaseOwner);
+  return await processSpreadJob(String(jobs[0].id), leaseOwner, options);
 }
