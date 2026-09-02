@@ -23,6 +23,10 @@ test("primary workspace links resolve to existing staff pages, not the bank deal
   }
 });
 test("lender placements is selected instead of the parent CRM destination", () => {
+  assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage"), "/admin/brokerage");
+  assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage/pipeline/new"), "/admin/brokerage/pipeline");
+  assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage/unlisted"), undefined);
+  assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage/crm-other"), undefined);
   assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage/crm/buyers"), "/admin/brokerage/crm/buyers");
   assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage/crm/people"), "/admin/brokerage/crm");
   assert.equal(activeBrokerageWorkspaceLink("/deals"), undefined);
