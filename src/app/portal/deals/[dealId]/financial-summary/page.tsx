@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, use } from "react";
+import { ratioToPercentString } from "@/lib/deals/snapshotFormat";
 
 function glowCard() {
   return "rounded-2xl border border-white/10 bg-white/5 shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_0_40px_rgba(56,189,248,0.12)]";
@@ -14,9 +15,9 @@ function fmtCurrency(n: number | null | undefined) {
   return `$${n.toFixed(0)}`;
 }
 
+// Snapshot occupancy_pct is a 0–1 ratio; format as a percentage.
 function fmtPct(n: number | null | undefined) {
-  if (typeof n !== "number") return "—";
-  return `${n.toFixed(0)}%`;
+  return ratioToPercentString(n, 0);
 }
 
 type SummaryResponse = {

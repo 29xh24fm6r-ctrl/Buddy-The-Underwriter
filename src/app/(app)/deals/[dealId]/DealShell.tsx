@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import { FeasibilityScoreCapsule } from "@/components/feasibility/FeasibilityScoreCapsule";
 import { resolveDealLabel, dealLabel as buildDealLabel } from "@/lib/deals/dealLabel";
+import { ratioToPercentString } from "@/lib/deals/snapshotFormat";
 import { Icon } from "@/components/ui/Icon";
 import { JourneyRail } from "@/components/journey/JourneyRail";
 import { TestApplicationBanner } from "@/components/qa/TestApplicationBanner";
@@ -19,9 +20,9 @@ function fmtNum(n: number, digits = 2) {
   return Number.isFinite(n) ? n.toFixed(digits) : "—";
 }
 
+// Snapshot ratio metrics (LTV, occupancy) are 0–1; format as a percentage.
 function fmtPct(n: number) {
-  if (!Number.isFinite(n)) return "—";
-  return `${n.toFixed(0)}%`;
+  return ratioToPercentString(n, 0);
 }
 
 function fmtCurrencyCompact(n: number) {
@@ -67,6 +68,11 @@ function FinancialSnapshotCapsule({ dealId }: { dealId: string }) {
 
   const missingCount = s.missing_required_keys?.length ?? 0;
   const ready = missingCount === 0 && (s.completeness_pct ?? 0) >= 99.9;
+  // A null metric that is not in missing_required_keys is not required for
+  // this deal type (e.g. NOI / occupancy / rent on an owner-occupied CRE deal):
+  // show "N/A" rather than a "Pending" that contradicts the Ready badge.
+  const emptyLabel = (key: string) =>
+    (s.missing_required_keys ?? []).includes(key as any) ? "Pending" : "N/A";
   const badge = ready
     ? "bg-emerald-600/20 text-emerald-300 border-emerald-500/30"
     : "bg-amber-600/20 text-amber-200 border-amber-500/30";
@@ -114,13 +120,13 @@ function FinancialSnapshotCapsule({ dealId }: { dealId: string }) {
 
       <SnapMetric
         label="DSCR"
-        value={dscr == null ? "Pending" : fmtNum(dscr, 2)}
+        value={dscr == null ? emptyLabel("dscr") : fmtNum(dscr, 2)}
         title={dscrStressed == null ? undefined : `Stressed (+300bps): ${fmtNum(dscrStressed, 2)}`}
       />
-      <SnapMetric label="NOI" value={noi == null ? "Pending" : fmtCurrencyCompact(noi)} title="TTM" />
+      <SnapMetric label="NOI" value={noi == null ? emptyLabel("noi_ttm") : fmtCurrencyCompact(noi)} title="TTM" />
       <SnapMetric
         label={ltvNet == null && ltvGross != null ? "LTV (gross)" : "LTV"}
-        value={ltvNet != null ? fmtPct(ltvNet) : ltvGross != null ? fmtPct(ltvGross) : "Pending"}
+        value={ltvNet != null ? fmtPct(ltvNet) : ltvGross != null ? fmtPct(ltvGross) : emptyLabel("ltv_gross")}
         title={
           ltvNet != null && ltvGross != null
             ? `Gross LTV: ${fmtPct(ltvGross)}`
@@ -129,8 +135,8 @@ function FinancialSnapshotCapsule({ dealId }: { dealId: string }) {
               : undefined
         }
       />
-      <SnapMetric label="Occ" value={occ == null ? "Pending" : fmtPct(occ)} />
-      <SnapMetric label="Rent/mo" value={rent == null ? "Pending" : fmtCurrencyCompact(rent)} />
+      <SnapMetric label="Occ" value={occ == null ? emptyLabel("occupancy_pct") : fmtPct(occ)} />
+      <SnapMetric label="Rent/mo" value={rent == null ? emptyLabel("in_place_rent_mo") : fmtCurrencyCompact(rent)} />
       <SnapMetric label="As of" value={s.as_of_date ?? "—"} />
     </div>
   );

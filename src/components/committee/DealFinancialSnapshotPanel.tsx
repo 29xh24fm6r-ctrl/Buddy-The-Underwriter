@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import useSWR from "swr";
 import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
 import { useFinancialSnapshot } from "@/hooks/useFinancialSnapshot";
+import { ratioToPercentString } from "@/lib/deals/snapshotFormat";
 import type { DealFinancialSnapshotV1, SnapshotMetricName, SnapshotMetricValue } from "@/lib/deals/financialSnapshotCore";
 
 const fetcher = async (url: string) => {
@@ -23,8 +24,9 @@ function fmtCurrency(n: number) {
   return `$${n.toFixed(0)}`;
 }
 
+// Snapshot *_pct / ltv_* metrics are 0–1 ratios; format as a percentage.
 function fmtPct(n: number) {
-  return `${n.toFixed(0)}%`;
+  return ratioToPercentString(n, 1);
 }
 
 function fmtRatio(n: number) {

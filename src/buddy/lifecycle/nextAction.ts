@@ -365,9 +365,12 @@ export function getBlockerFixAction(
       // readiness uses for missing_research_quality_gate, so both layers agree
       // on one existing route. (SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1 /
       // SPEC-UNDERWRITE-RESEARCH-GATE-END-TO-END-1)
+      // The #research-gate fragment targets the ResearchGateActionPanel so the
+      // CTA scrolls to the actual Run / Re-run Research button when the banker
+      // is already on /underwrite (a same-page link otherwise does nothing).
       return {
         label: "Run research",
-        href: `/deals/${dealId}/underwrite`,
+        href: `/deals/${dealId}/underwrite#research-gate`,
       };
 
     case "open_fact_conflicts":

@@ -56,6 +56,22 @@ export async function readResearchRunFailure(response: Response): Promise<string
   return correlationId ? `${base} Reference: ${correlationId}` : base;
 }
 
+/**
+ * A 200 with `duplicate: true` means runMission reused an existing mission for
+ * the same run_key and started nothing. Surface that instead of a silent no-op.
+ */
+export async function readResearchRunDuplicate(response: Response): Promise<string | null> {
+  try {
+    const payload = (await response.clone().json()) as Record<string, unknown>;
+    if (payload?.duplicate === true) {
+      return "An identical research mission already exists for this deal, so nothing new was started. Use Re-run Research to force a fresh mission.";
+    }
+  } catch {
+    // Non-JSON success body — nothing to surface.
+  }
+  return null;
+}
+
 export default function AnalystWorkbench({ dealId }: Props) {
   const [state, setState] = useState<WorkbenchState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,14 +142,26 @@ export default function AnalystWorkbench({ dealId }: Props) {
     }
   }, [dealId, fetchState, fetchResearch]);
 
-  const runResearch = useCallback(async () => {
+  const runResearch = useCallback(async (opts?: { rerun?: boolean }) => {
     setPending("run");
     setResearchError(null);
     try {
       // runMission completes synchronously server-side (up to ~5 min).
-      const response = await fetch(`/api/deals/${dealId}/research/run`, { method: "POST" });
+      // "Re-run Research" (failed / gate-failed mission) must force a fresh
+      // mission: a plain run is idempotent on run_key and silently reuses the
+      // existing mission, so the button appeared to do nothing.
+      const response = await fetch(
+        `/api/deals/${dealId}/research/run`,
+        opts?.rerun
+          ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force_rerun: true }) }
+          : { method: "POST" },
+      );
       const failure = await readResearchRunFailure(response);
       if (failure) setResearchError(failure);
+      else {
+        const duplicate = await readResearchRunDuplicate(response);
+        if (duplicate) setResearchError(duplicate);
+      }
     } catch (error) {
       setResearchError(error instanceof Error ? error.message : "Research could not be started. Please retry.");
     } finally {
