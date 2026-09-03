@@ -380,10 +380,19 @@ async function triggerPostExtractionOps(
     console.error("[doc-extraction] materializeFactsFromArtifacts failed", { dealId, docId, error: e?.message });
   }
 
-  // 3. Recompute deal readiness
+  // 3. Recompute deal readiness. This worker has no Clerk session, so the
+  //    readiness refresh it schedules must carry a service-verified deal/bank
+  //    grant; without one the refresh is refused as tenant_mismatch.
   try {
-    const { recomputeDealReady } = await import("@/lib/deals/readiness");
-    await recomputeDealReady(dealId);
+    const [{ recomputeDealReady }, { ensureDealBankAccessForService }] = await Promise.all([
+      import("@/lib/deals/readiness"),
+      import("@/lib/tenant/ensureDealBankAccess"),
+    ]);
+    const serviceAccess = await ensureDealBankAccessForService(dealId, bankId);
+    await recomputeDealReady(dealId, {
+      actorId: "system:doc_extraction",
+      accessGrant: serviceAccess.ok ? serviceAccess.grant : undefined,
+    });
   } catch (e: any) {
     console.error("[doc-extraction] recomputeDealReady failed", { dealId, docId, error: e?.message });
   }
