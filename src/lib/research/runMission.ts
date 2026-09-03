@@ -576,7 +576,17 @@ export async function runMission(
   // 8-thread BIE pass — every time. checkExistingMission() is the fast,
   // non-racy path; createMission()'s unique-constraint handling below is the
   // race-safe backstop for concurrent requests that both pass this check.
-  const runKey = generateRunKey({ deal_id: dealId, mission_type: missionType, subject, depth });
+  const baseRunKey = generateRunKey({ deal_id: dealId, mission_type: missionType, subject, depth });
+  // A forced re-run must get its own run_key. The unique index
+  // buddy_research_missions_run_key_active_idx (deal_id, run_key) WHERE status
+  // IN (queued, running, complete) otherwise rejects the insert while the
+  // previous COMPLETE mission holds the key, and createMission() turns that
+  // unique violation into { duplicate: true } — so "Re-run Research" on a
+  // gate-failed mission silently started nothing. Suffixing the key keeps the
+  // plain-run idempotency intact and lets the forced run create a fresh row.
+  const runKey = opts?.forceRerun
+    ? `${baseRunKey}:rerun:${Date.now().toString(36)}`
+    : baseRunKey;
 
   // GOVERNANCE (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): the AI Use
   // Case Registry's "restricted" designation was previously enforced only on

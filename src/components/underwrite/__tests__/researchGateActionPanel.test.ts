@@ -240,6 +240,22 @@ describe("rail 'Run research' starts the mission itself (one click, no second bu
     assert.equal(rail.label, "Run research");
   });
 
+  it("research_stalled (the blocker the unified readiness layer raises) is the same one-click action", () => {
+    const fix = getBlockerFixAction({ code: "research_stalled", message: "x" } as unknown as LifecycleBlocker, DEAL);
+    assert.ok(fix && "action" in fix);
+    assert.equal((fix as { action: string }).action, "research.run");
+    assert.equal((fix as { fallbackHref?: string }).fallbackHref, `/deals/${DEAL}/underwrite#research-gate`);
+    const state = {
+      stage: "underwrite_in_progress",
+      lastAdvancedAt: null,
+      blockers: [{ code: "research_stalled", message: "x" }],
+      derived: {},
+    } as unknown as Parameters<typeof getNextAction>[0];
+    const rail = buildJourneyPrimaryAction(state, DEAL);
+    assert.equal(rail.intent, "runnable");
+    assert.equal(rail.serverAction, "run_research");
+  });
+
   it("run_research posts to /research/run with force_rerun", () => {
     assert.equal(endpointFor("run_research", DEAL), `/api/deals/${DEAL}/research/run`);
     assert.match(STAGE_ROW, /run_research: \{ force_rerun: true \}/);
@@ -255,5 +271,21 @@ describe("rail 'Run research' starts the mission itself (one click, no second bu
     assert.match(WORKBENCH, /addEventListener\(RAIL_ACTION_EVENT/);
     assert.match(WORKBENCH, /detail\.actionType !== "run_research"/);
     assert.match(WORKBENCH, /ev\.preventDefault\(\);\s*void runResearch\(\{ rerun: true \}\)/);
+  });
+});
+
+
+describe("forced re-run creates a fresh mission despite the active run_key unique index", () => {
+  const RUN_MISSION = fs.readFileSync(
+    path.resolve(__dirname, "..", "..", "..", "lib", "research", "runMission.ts"),
+    "utf8",
+  );
+
+  it("forceRerun derives a distinct run_key instead of reusing the completed mission's key", () => {
+    // The unique index (deal_id, run_key) WHERE status IN (queued, running,
+    // complete) rejects a second insert with the same key while the old
+    // COMPLETE mission exists, and createMission() reports it as duplicate.
+    assert.match(RUN_MISSION, /const runKey = opts\?\.forceRerun\s*\?\s*`\$\{baseRunKey\}:rerun:/);
+    assert.match(RUN_MISSION, /const baseRunKey = generateRunKey\(/);
   });
 });
