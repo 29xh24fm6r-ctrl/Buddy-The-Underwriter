@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LifecycleState } from "@/buddy/lifecycle/model";
 
-const DEFAULT_REVALIDATE_MS = 30_000;
-
 type CacheEntry = {
   state: LifecycleState | null;
   fetchedAt: number;
@@ -39,6 +37,7 @@ export type UseJourneyStateResult = {
 
 export type UseJourneyStateOptions = {
   initialState?: LifecycleState | null;
+  /** @deprecated Journey state is event-driven; retained for caller compatibility. */
   revalidateMs?: number;
 };
 
@@ -55,14 +54,14 @@ async function fetchLifecycle(dealId: string): Promise<LifecycleState | null> {
  * Subscribes to a deal's lifecycle state.
  *
  * - Uses a module-level cache so multiple consumers share fetches.
- * - Polls every revalidateMs (default 30s) while the document is visible.
- * - Stops polling when the tab is hidden; refetches on visibility return / window focus.
+ * - Refetches after explicit mutation invalidations and on visibility/focus.
+ * - Does not run a background polling loop.
  */
 export function useJourneyState(
   dealId: string,
   options?: UseJourneyStateOptions,
 ): UseJourneyStateResult {
-  const { initialState = null, revalidateMs = DEFAULT_REVALIDATE_MS } = options ?? {};
+  const { initialState = null } = options ?? {};
 
   const seeded = cache.get(dealId)?.state ?? initialState ?? null;
   const [state, setState] = useState<LifecycleState | null>(seeded);
@@ -70,7 +69,6 @@ export function useJourneyState(
   const [error, setError] = useState<Error | null>(null);
 
   const inflightRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refetch = useCallback(async () => {
     if (!dealId) return;
@@ -97,40 +95,15 @@ export function useJourneyState(
     }
   }, [dealId, initialState]);
 
-  // Polling loop with visibility/focus integration.
+  // Event-driven refresh with visibility/focus convergence.
   useEffect(() => {
     if (!dealId) return;
 
-    let cancelled = false;
-
-    const clearTimer = () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-
-    const schedule = () => {
-      clearTimer();
-      if (revalidateMs <= 0) return;
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      timerRef.current = setTimeout(async () => {
-        if (cancelled) return;
-        await refetch();
-        if (!cancelled) schedule();
-      }, revalidateMs);
-    };
-
-    void refetch().then(() => {
-      if (!cancelled) schedule();
-    });
+    void refetch();
 
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
         void refetch();
-        schedule();
-      } else {
-        clearTimer();
       }
     };
 
@@ -158,8 +131,6 @@ export function useJourneyState(
     }
 
     return () => {
-      cancelled = true;
-      clearTimer();
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", onVisibility);
       }
@@ -168,7 +139,7 @@ export function useJourneyState(
         window.removeEventListener(LIFECYCLE_INVALIDATE_EVENT, onInvalidate);
       }
     };
-  }, [dealId, refetch, revalidateMs]);
+  }, [dealId, refetch]);
 
   return { state, loading, error, refetch };
 }

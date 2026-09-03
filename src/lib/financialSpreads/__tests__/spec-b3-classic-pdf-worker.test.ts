@@ -6,6 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { completeRecomputeSpreadTypes } from "@/lib/jobs/processors/spreadExecutionPolicy";
 
 const REPO_ROOT = resolve(__dirname, "..", "..", "..", "..");
 
@@ -102,18 +103,13 @@ test("[spec-b3-v11] CLASSIC_PDF template render throws (not template-based)", ()
   assert.match(tplBlock, /throw new Error/, "CLASSIC_PDF template render must throw");
 });
 
-// ── V-12: triggerCanonicalRecompute enqueues CLASSIC_PDF separately ────────
+// ── V-12: triggerCanonicalRecompute requests CLASSIC_PDF atomically ───────
 
-test("[spec-b3-v12] triggerCanonicalRecompute enqueues CLASSIC_PDF as separate job", () => {
-  const body = read("src/lib/financialFacts/triggerCanonicalRecompute.ts");
-  // Find the CLASSIC_PDF enqueue — must be a SEPARATE enqueueSpreadRecompute call
-  const classicIdx = body.indexOf("CLASSIC_PDF");
-  assert.ok(classicIdx > 0, "Must reference CLASSIC_PDF");
-
-  // Must be in a separate try/catch block from the main enqueue
-  const nearbyBlock = body.slice(Math.max(0, classicIdx - 300), classicIdx + 800);
-  assert.match(nearbyBlock, /try/, "CLASSIC_PDF enqueue must be in its own try block");
-  assert.match(nearbyBlock, /non-fatal/, "CLASSIC_PDF enqueue failure must be non-fatal");
+test("[spec-b3-v12] canonical recompute includes CLASSIC_PDF in one request", () => {
+  assert.deepEqual(
+    completeRecomputeSpreadTypes(["STANDARD", "GLOBAL_CASH_FLOW"]),
+    ["STANDARD", "GLOBAL_CASH_FLOW", "CLASSIC_PDF"],
+  );
 });
 
 // ── V-13: lifecycle stage-transition hook ──────────────────────────────────

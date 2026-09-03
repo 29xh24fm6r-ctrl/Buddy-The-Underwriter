@@ -48,6 +48,8 @@ export type GeminiExtractionResult = {
   model: string;
   promptVersion: string;
   failureReason?: string;
+  /** True when the document/input/engine tuple already has an owned run. */
+  reused?: boolean;
 };
 
 // ---------------------------------------------------------------------------

@@ -397,14 +397,19 @@ export async function runRole(
     }
 
     const latencyMs = Date.now() - start;
-    const actualTokens = result.tokensIn + result.tokensOut;
+    // Gemini reports invisible reasoning separately from candidate output.
+    // Count it in governance and the durable ledger so budget enforcement
+    // reflects the provider's real output-window consumption.
+    const governedOutputTokens =
+      result.tokensOut + Math.max(0, result.thoughtsTokenCount ?? 0);
+    const actualTokens = result.tokensIn + governedOutputTokens;
     try {
       await requireLedgered({
         role,
         provider: step.provider,
         model,
         tokensIn: result.tokensIn,
-        tokensOut: result.tokensOut,
+        tokensOut: governedOutputTokens,
         latencyMs,
         dealId,
         purpose: request.purpose,

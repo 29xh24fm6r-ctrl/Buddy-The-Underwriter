@@ -1,7 +1,6 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { extractFactsFromDocument } from "@/lib/financialSpreads/extractFactsFromDocument";
 import { renderSpread } from "@/lib/financialSpreads/renderSpread";
 import { backfillCanonicalFactsFromSpreads } from "@/lib/financialFacts/backfillFromSpreads";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
@@ -17,28 +16,14 @@ import { resolveOwnerType } from "@/lib/financialSpreads/resolveOwnerType";
 import { detectMachineReadabilitySignals } from "@/lib/extraction/detectMachineReadabilitySignals";
 import type { DealBankAccessGrant } from "@/lib/tenant/ensureDealBankAccess";
 import { materializeDealStructureFacts } from "@/lib/loanRequests/materializeDealStructureFacts";
-import {
-  nextExtractProgress,
-  planExtraction,
-  resolveExtractionBudgetMs,
-  resolveExtractionDeadline,
-  shouldDeferExtraction,
-} from "./spreadExtractionBudget";
+import { decideSpreadInput, planSpreadRenderPhases } from "./spreadExecutionPolicy";
 
 const LEASE_MS = 3 * 60 * 1000;
 
-/**
- * Wall-clock budget for the per-document re-extraction loop inside one lease.
- * See spreadExtractionBudget.ts — when it is spent the job re-queues itself
- * with its progress in meta.extract_progress and resumes on the next lease.
- */
-const EXTRACTION_BUDGET_MS = resolveExtractionBudgetMs();
-
 export type ProcessSpreadJobOptions = {
   /**
-   * Absolute epoch-ms after which no further document extraction may start.
-   * The worker tick passes its own maxDuration horizon so a job leased late in
-   * an invocation cannot run into the platform timeout.
+   * Retained for caller compatibility. Spread recompute is facts-only and no
+   * longer starts document extraction work.
    */
   deadlineAt?: number;
 };
@@ -100,8 +85,9 @@ const SPREAD_EVENT_KEY: Record<string, string> = {
 export async function processSpreadJob(
   jobId: string,
   leaseOwner: string,
-  options: ProcessSpreadJobOptions = {},
+  _options: ProcessSpreadJobOptions = {},
 ) {
+  void _options;
   const sb = supabaseAdmin();
   const leaseUntil = new Date(Date.now() + LEASE_MS).toISOString();
 
@@ -157,150 +143,17 @@ export async function processSpreadJob(
       meta: { jobId, spreadTypes: requested, sourceDocumentId },
     });
 
-    // Always extract from ALL active financial documents.
-    // source_document_id is unreliable after job merging — enqueueSpreadRecompute
-    // merges subsequent jobs into the first job, keeping only the first doc's ID.
-    // Extracting from one doc while ignoring the other 8 is the root cause of
-    // MISSING fact_type across TAX_RETURN, BALANCE_SHEET, PERSONAL_INCOME, etc.
-    //
-    // The loop is time-budgeted: Gemini-primary extraction costs 5–50 s per
-    // document and the worker tick dies at Vercel's maxDuration. When the budget
-    // is spent the job re-queues itself with the finished document ids in
-    // meta.extract_progress and the next lease resumes with the rest.
-    {
-      const { data: activeDocs } = await (sb as any)
-        .from("deal_documents")
-        .select("id, canonical_type, ai_doc_type, document_type")
-        .eq("deal_id", dealId)
-        .eq("bank_id", bankId)
-        .eq("is_active", true);
-
-      const extractionStartedAt = Date.now();
-      const extractionDeadline = resolveExtractionDeadline({
-        startedAt: extractionStartedAt,
-        budgetMs: EXTRACTION_BUDGET_MS,
-        deadlineAt: options.deadlineAt,
-      });
-      const plan = planExtraction({ activeDocs: activeDocs ?? [], meta: jobMeta });
-      const doneDocIds: string[] = [...plan.done];
-      let docsExtracted = plan.done.length;
-      let deferredDocIds: string[] = [];
-
-      for (let i = 0; i < plan.remaining.length; i++) {
-        const doc = plan.remaining[i];
-        if (shouldDeferExtraction({ index: i, now: Date.now(), deadline: extractionDeadline })) {
-          deferredDocIds = plan.remaining.slice(i).map((d) => d.id);
-          break;
-        }
-        try {
-          await extractFactsFromDocument({
-            dealId,
-            bankId,
-            documentId: doc.id,
-            docTypeHint: doc.docType,
-          });
-          docsExtracted++;
-        } catch (extractErr: any) {
-          console.warn(
-            `[spreadsProcessor] extract failed for ${doc.id}:`,
-            extractErr?.message,
-          );
-        }
-        doneDocIds.push(doc.id);
-      }
-
-      if (deferredDocIds.length > 0) {
-        const progress = nextExtractProgress({
-          prior: plan.progress,
-          cycleStartedAt: extractionStartedAt,
-          done: doneDocIds,
-        });
-        const { count: requeueCount } = await (sb as any)
-          .from("deal_spread_jobs")
-          .update({
-            status: "QUEUED",
-            next_run_at: new Date().toISOString(),
-            lease_owner: null,
-            leased_until: null,
-            error: null,
-            meta: { ...jobMeta, extract_progress: progress },
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", jobId)
-          .eq("status", "RUNNING")
-          .eq("lease_owner", leaseOwner)
-          .select("id", { count: "exact", head: true });
-
-        if ((requeueCount ?? 0) === 0) {
-          // Lease lost mid-extraction (observer reclaim or a concurrent worker).
-          // Whoever owns the job now will redo the loop; do not render on a
-          // partial fact set under a lease we no longer hold.
-          return { ok: false as const, error: "lease_lost_during_extraction" };
-        }
-
-        writeSystemEvent({
-          event_type: "info",
-          severity: "info",
-          source_system: "spreads_processor",
-          source_job_id: jobId,
-          source_job_table: "deal_spread_jobs",
-          deal_id: dealId,
-          bank_id: bankId,
-          error_code: "SPREAD_JOB_REQUEUED_EXTRACTION_BUDGET",
-          error_message: `Re-queued after ${Math.round((Date.now() - extractionStartedAt) / 1000)}s: ${doneDocIds.length}/${plan.extractable.length} documents extracted, ${deferredDocIds.length} remaining`,
-          payload: {
-            jobId, dealId,
-            budgetMs: EXTRACTION_BUDGET_MS,
-            deadlineAt: options.deadlineAt ?? null,
-            extracted: doneDocIds,
-            remaining: deferredDocIds,
-            resumes: progress.resumes,
-          },
-        }).catch(() => {});
-
-        await logLedgerEvent({
-          dealId,
-          bankId,
-          eventKey: "spread.inputs.partial",
-          uiState: "working",
-          uiMessage: `Financial facts extracted from ${doneDocIds.length} of ${plan.extractable.length} active document(s) — continuing on the next worker tick`,
-          meta: { jobId, docsExtracted, remaining: deferredDocIds.length, resumes: progress.resumes },
-        });
-
-        return {
-          ok: true as const,
-          jobId,
-          requeuedForExtractionBudget: true as const,
-          remainingDocs: deferredDocIds.length,
-        };
-      }
-
-      if (plan.progress) {
-        // Cycle complete — drop the progress marker so a later re-queue of this
-        // job (late merge, retry) extracts every document again.
-        delete (jobMeta as Record<string, unknown>).extract_progress;
-        await (sb as any)
-          .from("deal_spread_jobs")
-          .update({ meta: { ...jobMeta }, updated_at: new Date().toISOString() })
-          .eq("id", jobId)
-          .eq("lease_owner", leaseOwner);
-      }
-
-      await logLedgerEvent({
-        dealId,
-        bankId,
-        eventKey: "spread.inputs.collected",
-        uiState: "working",
-        uiMessage: `Financial facts extracted from ${docsExtracted} of ${(activeDocs ?? []).length} active document(s)`,
-        meta: {
-          jobId,
-          docsExtracted,
-          sourceDocumentId,
-          totalActiveDocs: (activeDocs ?? []).length,
-          resumedFromProgress: Boolean(plan.progress),
-        },
-      });
-    }
+    // Parse-once boundary: spread recompute consumes persisted facts only.
+    // Upload/document processing owns OCR and extraction. Recompute must remain
+    // deterministic, fast, and zero-token regardless of how often it is run.
+    await logLedgerEvent({
+      dealId,
+      bankId,
+      eventKey: "spread.inputs.reused",
+      uiState: "working",
+      uiMessage: "Using persisted financial facts (no document re-extraction)",
+      meta: { jobId, sourceDocumentId },
+    });
 
     const runId = jobId; // canonical run identifier for CAS ownership
 
@@ -323,45 +176,21 @@ export async function processSpreadJob(
     const heartbeatExists = (heartbeatRes.count ?? 0) > 0;
     const rentRollRowCount = rentRollRes.count ?? 0;
 
-    if (factsVis.total === 0 && !heartbeatExists) {
-      // Timing race — extraction hasn't run yet. Bounded retry.
-      const preflightRetries = typeof jobMeta.preflight_retries === "number" ? jobMeta.preflight_retries : 0;
+    const inputDecision = decideSpreadInput({
+      visibleFactCount: factsVis.total,
+      heartbeatExists,
+    });
 
-      if (preflightRetries < 5) {
-        const backoffMs = Math.min(15_000 * Math.pow(2, preflightRetries), 120_000);
-        const nextRunAt = new Date(Date.now() + backoffMs).toISOString();
-        await (sb as any)
-          .from("deal_spread_jobs")
-          .update({
-            status: "QUEUED",
-            next_run_at: nextRunAt,
-            meta: { ...jobMeta, preflight_retries: preflightRetries + 1 },
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", jobId);
-
-        writeSystemEvent({
-          event_type: "info",
-          severity: "info",
-          source_system: "spreads_processor",
-          source_job_id: jobId,
-          source_job_table: "deal_spread_jobs",
-          deal_id: dealId,
-          bank_id: bankId,
-          error_code: "SPREAD_JOB_DEFERRED_WAITING_ON_EXTRACTION",
-          error_message: `Deferred spread job (retry ${preflightRetries + 1}/5): no facts and no extraction heartbeat yet`,
-          payload: { jobId, dealId, preflightRetries: preflightRetries + 1 },
-        }).catch(() => {});
-
-        return { ok: true as const, jobId, deferred: true as const };
-      }
-
-      // Max retries exceeded
+    if (inputDecision === "missing") {
+      // Extraction is owned by the document workflow. A spread worker must not
+      // poll or requeue waiting for it because doing so recreates the runaway
+      // loop. Fail visibly; the document workflow will enqueue a fresh facts-
+      // only recompute after it persists the extraction heartbeat.
       await (sb as any)
         .from("deal_spread_jobs")
         .update({
           status: "FAILED",
-          error: "NO_FACTS_AFTER_RETRIES: extraction never produced facts after 5 attempts",
+          error: "NO_PERSISTED_FACTS: document extraction has not completed",
           updated_at: new Date().toISOString(),
         })
         .eq("id", jobId);
@@ -375,15 +204,15 @@ export async function processSpreadJob(
         deal_id: dealId,
         bank_id: bankId,
         error_class: "permanent",
-        error_code: "SPREAD_JOB_NO_FACTS_TIMEOUT",
-        error_message: "Spread job abandoned after 5 preflight retries — no extraction heartbeat found",
-        payload: { jobId, dealId },
+        error_code: "SPREAD_JOB_NO_PERSISTED_FACTS",
+        error_message: "Spread job refused: document workflow has not persisted financial facts",
+        payload: { jobId, dealId, retryable_by: "document_workflow" },
       }).catch(() => {});
 
-      return { ok: false as const, error: "NO_FACTS_AFTER_RETRIES" };
+      return { ok: false as const, error: "NO_PERSISTED_FACTS" };
     }
 
-    if (factsVis.total === 0 && heartbeatExists) {
+    if (inputDecision === "heartbeat_only") {
       // Extraction ran but produced 0 visible facts — gather diagnostics before emitting
 
       // Load doc metadata for all docs that have a heartbeat record
@@ -537,7 +366,9 @@ export async function processSpreadJob(
       }).catch(() => {});
     }
 
-    for (const spreadType of readyTypes) {
+    const renderPlan = planSpreadRenderPhases(readyTypes);
+
+    for (const spreadType of renderPlan.initial) {
       // ── CLASSIC_PDF: dispatch to dedicated worker ────────────────────────
       // CLASSIC_PDF uses its own render pipeline (PDFKit, not template-based).
       // It handles preflight, rendering, and persistence internally.
@@ -790,45 +621,6 @@ export async function processSpreadJob(
         meta: { jobId, spreadType },
       });
 
-      // PR5d — canonical.recompute.spread_rendered (GLOBAL_CASH_FLOW only)
-      if (spreadType === "GLOBAL_CASH_FLOW") {
-        try {
-          const { data: gcfSpread } = await (sb as any)
-            .from("deal_spreads")
-            .select("rendered_json, status")
-            .eq("deal_id", dealId)
-            .eq("bank_id", bankId)
-            .eq("spread_type", "GLOBAL_CASH_FLOW")
-            .order("updated_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          const gcfRows = gcfSpread?.rendered_json?.rows ?? [];
-          const dscrRow = (gcfRows as any[]).find((r: any) => r.key === "DSCR");
-          const dscrRowValue = dscrRow?.values?.[0]?.value ?? null;
-          const gcfDscrRow = (gcfRows as any[]).find((r: any) => r.key === "GCF_DSCR");
-          const triggerReasonForSpread = typeof (jobMeta as any).triggerReason === "string"
-            ? (jobMeta as any).triggerReason
-            : "unknown";
-          void logLedgerEvent({
-            dealId, bankId,
-            eventKey: "canonical.recompute.spread_rendered",
-            uiState: dscrRowValue != null ? "done" : "working",
-            uiMessage: dscrRowValue != null
-              ? `GCF spread: DSCR=${dscrRowValue}`
-              : "GCF spread rendered but DSCR row is null",
-            meta: {
-              triggerReason: triggerReasonForSpread,
-              spreadType: "GLOBAL_CASH_FLOW",
-              spreadStatus: gcfSpread?.status ?? "unknown",
-              dscrRowValue,
-              hasGlobalDscrRow: !!gcfDscrRow,
-              notes: ["rendered_at_chain_step_2", "facts_written_after_render", "next_render_will_pick_up_new_facts"],
-            },
-          }).catch(() => {});
-        } catch {
-          // Canonical spread_rendered event is fire-and-forget
-        }
-      }
     }
 
     // Deal-structure facts (loan total, project cost, equity, collateral gross /
@@ -1178,21 +970,13 @@ export async function processSpreadJob(
       });
     }
 
-    // SPEC-FOUNDATION-V1 PR5g — Within-job GLOBAL_CASH_FLOW re-render.
-    // The first GLOBAL_CASH_FLOW render at chain step 2 reads facts BEFORE
-    // backfill (step 3), aggregator (step 4), computeTotalDebtService (step 5),
-    // and persistGlobalCashFlow (step 6) populate canonical facts. Re-render
-    // now so the spread's rendered_json reflects current fact state within
-    // this same job. renderSpread is idempotent via upsert. This deliberately
-    // bypasses the CAS claim flow — the spread is already in `ready` state
-    // owned by this job, and CAS protects against concurrent processors, not
-    // intentional repeat renders within one job's lease.
-    if (completedTypes.has("GLOBAL_CASH_FLOW" as SpreadType)) {
+    // Render GCF exactly once, after every canonical numeric writer has run.
+    if (renderPlan.finalGlobalCashFlow) {
       try {
-        const { renderSpread: renderSpreadAgain } = await import(
+        const { renderSpread: renderFinalGlobalCashFlow } = await import(
           "@/lib/financialSpreads/renderSpread"
         );
-        const secondRender = await renderSpreadAgain({
+        const finalRender = await renderFinalGlobalCashFlow({
           dealId,
           bankId,
           spreadType: "GLOBAL_CASH_FLOW" as SpreadType,
@@ -1204,53 +988,41 @@ export async function processSpreadJob(
           ownerType: resolveOwnerType("GLOBAL_CASH_FLOW" as SpreadType, ownerType),
           ownerEntityId: ownerEntityId,
         });
-        if ((secondRender as any).ok) {
+        if ((finalRender as any).ok) {
+          completedTypes.add("GLOBAL_CASH_FLOW");
+          reconcileAegisFindingsForSpread({
+            dealId,
+            bankId,
+            spreadType: "GLOBAL_CASH_FLOW",
+            newStatus: "ready",
+          }).catch(() => {});
           void logLedgerEvent({
             dealId,
             bankId,
-            eventKey: "canonical.recompute.spread_rerendered",
+            eventKey: "canonical.recompute.spread_rendered",
             uiState: "done",
-            uiMessage: "GLOBAL_CASH_FLOW re-rendered with canonical facts",
+            uiMessage: "GLOBAL_CASH_FLOW rendered with canonical facts",
             meta: {
               triggerReason: typeof (jobMeta as any).triggerReason === "string"
                 ? (jobMeta as any).triggerReason
                 : "unknown",
               spreadType: "GLOBAL_CASH_FLOW",
-              renderPass: 2,
-              notes: ["rendered_after_canonical_chain", "facts_now_current"],
+              renderPass: 1,
+              notes: ["rendered_once_after_canonical_chain", "facts_current"],
             },
           }).catch(() => {});
         } else {
           console.warn(
-            "[spreadsProcessor] GLOBAL_CASH_FLOW second render returned non-ok",
-            { dealId, jobId, error: (secondRender as any).error },
+            "[spreadsProcessor] final GLOBAL_CASH_FLOW render returned non-ok",
+            { dealId, jobId, error: (finalRender as any).error },
           );
         }
       } catch (rerenderErr: any) {
         console.warn(
-          "[spreadsProcessor] GLOBAL_CASH_FLOW second render threw (non-fatal)",
+          "[spreadsProcessor] final GLOBAL_CASH_FLOW render threw (non-fatal)",
           { dealId, jobId, error: rerenderErr?.message },
         );
       }
-    }
-
-    // SPEC-FOUNDATION-V1 PR5b — trigger canonical GLOBAL_CASH_FLOW recompute
-    // after the full canonical chain completes (backfill → aggregator → TDS → GCF).
-    // The debounce inside triggerCanonicalRecompute coalesces rapid re-triggers
-    // within 5s. This ensures the GLOBAL_CASH_FLOW spread picks up any facts
-    // written during this processing batch.
-    try {
-      const { triggerCanonicalRecompute } = await import(
-        "@/lib/financialFacts/triggerCanonicalRecompute"
-      );
-      void triggerCanonicalRecompute({
-        dealId,
-        bankId,
-        reason: "extraction_batch_complete",
-        meta: { jobId },
-      });
-    } catch {
-      // Canonical recompute trigger is best-effort.
     }
 
     // SPEC-FOUNDATION-V1 PR5i — Assert canonical chain invariants (observed, not enforced).

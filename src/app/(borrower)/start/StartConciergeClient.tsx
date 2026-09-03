@@ -21,7 +21,6 @@ import { shouldPersistChapterMove } from "@/lib/borrower/chapterNavigation";
 import type { FieldProgress } from "@/lib/sba/forms/borrowerFieldProgress";
 import type { DealVerificationState } from "@/components/borrower/intake/IntakeReviewStep";
 
-const JOURNEY_POLL_MS = 20_000;
 const VOICE_TURN_REFRESH_DELAY_MS = 2_500;
 
 const BOOTSTRAP_STEP_LABELS: Record<string, string> = {
@@ -119,22 +118,13 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
     scoreData: null,
     eligibilityUnresolved: [],
   });
-  const consecutiveErrorsRef = useRef(0);
-
   const refresh = useCallback(
     async (id: string) => {
       try {
         const res = await fetch(`/api/brokerage/deals/${id}/seal-status`);
-        if (!res.ok) {
-          consecutiveErrorsRef.current += 1;
-          return;
-        }
+        if (!res.ok) return;
         const json = await res.json();
-        if (!json?.ok) {
-          consecutiveErrorsRef.current += 1;
-          return;
-        }
-        consecutiveErrorsRef.current = 0;
+        if (!json?.ok) return;
         setStatus({
           hasDealId: true,
           progressPct: json.fieldProgress?.determinable && json.fieldProgress.requiredTotal > 0
@@ -157,35 +147,25 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
             ? json.eligibilityUnresolved
             : [],
         });
-      } catch {
-        consecutiveErrorsRef.current += 1;
-      }
+      } catch {}
     },
     [],
   );
 
-  const sealedRef = useRef(false);
-  useEffect(() => {
-    sealedRef.current = status.sealed;
-  }, [status.sealed]);
-
   useEffect(() => {
     if (!dealId) return;
-    void refresh(dealId);
-    let handle: ReturnType<typeof setTimeout>;
-    let stopped = false;
-    function schedule() {
-      if (stopped) return;
-      const errors = consecutiveErrorsRef.current;
-      const sealed = sealedRef.current;
-      const interval = sealed ? 60_000 : errors > 0 ? Math.min(JOURNEY_POLL_MS * 2 ** errors, 120_000) : JOURNEY_POLL_MS;
-      handle = setTimeout(() => {
-        if (stopped) return;
-        void refresh(dealId!).then(schedule);
-      }, interval);
-    }
-    schedule();
-    return () => { stopped = true; clearTimeout(handle); };
+    const initialRefresh = window.setTimeout(() => void refresh(dealId), 0);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh(dealId);
+    };
+    const onFocus = () => void refresh(dealId);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearTimeout(initialRefresh);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [dealId, refresh]);
 
   const refreshSoon = useCallback(() => {

@@ -25,9 +25,9 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 min (3 min lease + buffer)
-// Headroom kept between the spread extraction deadline and maxDuration so the
-// last document (up to ~50 s of Gemini latency) plus rendering still finish.
+export const maxDuration = 300; // spread recompute is facts-only and fits one lease
+// Compatibility horizon passed to the worker; document extraction no longer
+// runs inside spread recompute.
 const SPREADS_DEADLINE_MARGIN_MS = 75_000;
 
 /**
@@ -60,9 +60,7 @@ export async function POST(req: NextRequest) {
   const batchSize = Math.min(10, Math.max(1, Number(batchParam ?? String(defaultBatch))));
 
   const leaseOwner = `worker-${Date.now()}`;
-  // Spread jobs re-extract documents under a time budget; give them this
-  // invocation's horizon so a job leased late in the tick stops before the
-  // platform kills the function (maxDuration) and loses the completion write.
+  // Keep a completion horizon for worker compatibility and lease safety.
   const spreadsDeadlineAt = Date.now() + maxDuration * 1000 - SPREADS_DEADLINE_MARGIN_MS;
   const results: Array<Record<string, unknown>> = [];
   let failedSteps = 0;

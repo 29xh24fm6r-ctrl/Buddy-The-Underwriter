@@ -2,7 +2,7 @@
  * Spread Preflight Retry — Invariant Tests
  *
  * Verifies the processor-level preflight logic:
- * - 0 facts + no heartbeat → bounded retry (max 5)
+ * - 0 facts + no heartbeat → fail visibly without a retry loop
  * - 0 facts + heartbeat → MISSING_UPSTREAM_FACTS error
  * - Per-spread prereq evaluation in processor source
  * - Retry counter is persisted (not in-memory)
@@ -24,41 +24,13 @@ describe("spread preflight retry", () => {
     );
   });
 
-  it("processor implements bounded retry with max 5 attempts", () => {
+  it("does not own extraction retries when persisted facts are absent", () => {
     assert.ok(
-      processorSrc.includes("preflight_retries"),
-      "spreadsProcessor must track preflight_retries",
+      processorSrc.includes("SPREAD_JOB_NO_PERSISTED_FACTS"),
+      "spreadsProcessor must expose the missing persisted-input state",
     );
-    assert.ok(
-      processorSrc.includes("< 5"),
-      "spreadsProcessor must bound retries at 5",
-    );
-  });
-
-  it("retry counter is persisted via job meta (not in-memory)", () => {
-    // The retry counter must be stored in the job's meta field and persisted back
-    assert.ok(
-      processorSrc.includes("preflight_retries: preflightRetries + 1"),
-      "spreadsProcessor must persist incremented preflight_retries in job meta",
-    );
-    assert.ok(
-      processorSrc.includes('meta: { ...jobMeta, preflight_retries'),
-      "spreadsProcessor must write preflight_retries back to job meta",
-    );
-  });
-
-  it("emits SPREAD_JOB_DEFERRED_WAITING_ON_EXTRACTION on timing-race retry", () => {
-    assert.ok(
-      processorSrc.includes("SPREAD_JOB_DEFERRED_WAITING_ON_EXTRACTION"),
-      "spreadsProcessor must emit SPREAD_JOB_DEFERRED_WAITING_ON_EXTRACTION event",
-    );
-  });
-
-  it("emits SPREAD_JOB_NO_FACTS_TIMEOUT when retries exhausted", () => {
-    assert.ok(
-      processorSrc.includes("SPREAD_JOB_NO_FACTS_TIMEOUT"),
-      "spreadsProcessor must emit SPREAD_JOB_NO_FACTS_TIMEOUT event",
-    );
+    assert.ok(!processorSrc.includes("preflight_retries"));
+    assert.ok(!processorSrc.includes("SPREAD_JOB_DEFERRED_WAITING_ON_EXTRACTION"));
   });
 
   it("emits EXTRACTION_ZERO_FACTS when heartbeat exists but 0 visible facts", () => {

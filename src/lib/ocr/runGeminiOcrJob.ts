@@ -117,24 +117,30 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
   const tried: string[] = [];
 
   const OCR_TIMEOUT_MS = 120_000; // 120s per model attempt
+  const OCR_MAX_OUTPUT_TOKENS = 32_768;
 
   for (const modelName of modelCandidates) {
     tried.push(modelName);
 
     try {
-      // SPEC-M1.1: routed through the AI gateway (runRole, "generator" role,
+      // SPEC-M1.1: routed through the AI gateway (runRole, "extractor" role,
       // authMode: "vertex", inlineData for the file bytes). Model is
       // selected per-attempt inside this file's own same-provider fallback
       // loop — a genuinely different reliability strategy than the
       // gateway's own cross-provider failover chain, kept here rather than
       // folded into runRole(). timeoutMs replaces the manual Promise.race.
-      const result = await runRole("generator", {
+      const result = await runRole("extractor", {
         purpose: "gemini_ocr",
         prompt,
         modelOverride: modelName,
         authMode: "vertex",
         inlineData: [{ mimeType: normalizedMimeType, data: base64 }],
         timeoutMs: OCR_TIMEOUT_MS,
+        maxOutputTokens: OCR_MAX_OUTPUT_TOKENS,
+        // OCR text is useful page-by-page even if an unusually long file
+        // reaches the explicit ceiling. Persist the partial text once rather
+        // than throwing and resending the same PDF through every fallback.
+        allowTruncatedOutput: true,
       });
 
       const text = result.text.trim();

@@ -151,8 +151,8 @@ async function updateMissionStatus(
     updates.completed_at = new Date().toISOString();
   }
 
-  if (errorMessage) {
-    updates.error_message = errorMessage;
+  if (status === "complete" || status === "failed") {
+    updates.error_message = errorMessage ?? null;
   }
 
   await supabase
@@ -976,28 +976,12 @@ export async function runMission(
       await checkpointStage(missionId, "narrative_compilation", { sections_count: narrativeSectionsCount });
     }
 
-    // 12. Mark mission as complete
-    //
-    // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): previously this
-    // unconditionally marked "complete" with no distinguishing signal even
-    // when every source failed to fetch and the mission produced zero facts
-    // and zero narrative sections — indistinguishable in the DB from a
-    // genuinely successful mission except by an operator manually comparing
-    // counts. status stays "complete" (the process legitimately finished
-    // without throwing), but error_message now records the degraded-output
-    // signal so it's queryable/visible without inventing a new status value
-    // (the DB CHECK constraint on `status` doesn't allow one without a
-    // migration, which this fix deliberately avoids).
+    // Completion is deliberately deferred until BIE and its quality-gate row
+    // have reached a terminal state. A serverless timeout must never leave a
+    // mission claiming success while its committee gate is still absent.
     const hadNoOutput = persistedFacts.length === 0 && narrativeSectionsCount === 0;
-    await updateMissionStatus(
-      missionId,
-      "complete",
-      hadNoOutput
-        ? `degraded: 0 facts, 0 narrative sections from ${persistedSources.length} source(s) — legacy pipeline produced no usable output`
-        : undefined,
-    );
 
-    // 12b. Buddy Intelligence Engine — runs after mission is marked complete (non-fatal)
+    // 12b. Buddy Intelligence Engine — terminal gate is written before completion
     //
     // Resumable missions (round 4): if a previous attempt already ran BIE to
     // full completion — hallucination guard, narrative upsert, claim ledger,
@@ -1430,8 +1414,22 @@ export async function runMission(
           // instead of just reusing thread results.
           await saveBieCheckpoint(missionId, extractBieThreadResults(bieResult), true);
         } else {
-          console.log("[runMission] BIE skipped: minimal quality (no usable company name or NAICS)");
+          console.log("[runMission] BIE completed with minimal quality");
+          await writeDegradedQualityGate(
+            missionId,
+            dealId,
+            "bie_minimal_quality",
+            "Buddy Intelligence Engine returned no usable research threads",
+          );
         }
+      } else if (subjectLockResult.ok) {
+        console.log("[runMission] BIE skipped: no usable company name or NAICS");
+        await writeDegradedQualityGate(
+          missionId,
+          dealId,
+          "insufficient_subject",
+          "Buddy Intelligence Engine skipped because the mission had no usable company name or NAICS",
+        );
       }
     } catch (bieErr: any) {
       console.warn("[runMission] BIE step failed (non-fatal):", bieErr?.message);
@@ -1469,9 +1467,19 @@ export async function runMission(
         }
       }
     } catch (err: any) {
-      // Non-fatal — mission is already marked complete
+      // Non-fatal — the mission has not yet been marked complete.
       console.warn("[runMission] research→flag bridge failed (non-fatal)", err?.message);
     }
+
+    // The mission is terminal only after the quality gate has either been
+    // persisted normally or explicitly degraded on every non-happy path.
+    await updateMissionStatus(
+      missionId,
+      "complete",
+      hadNoOutput
+        ? `degraded: 0 facts, 0 narrative sections from ${persistedSources.length} source(s) — legacy pipeline produced no usable output`
+        : undefined,
+    );
 
     return {
       ok: true,
