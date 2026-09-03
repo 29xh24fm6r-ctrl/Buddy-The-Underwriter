@@ -1,12 +1,110 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import type { LifecycleBlocker, LifecycleStage } from "@/buddy/lifecycle/model";
 import { STAGE_LABELS } from "@/buddy/lifecycle/model";
 import type { NextAction } from "@/buddy/lifecycle/nextAction";
 import { getBlockerFixAction } from "@/buddy/lifecycle/nextAction";
 import type { StageStep } from "@/lib/journey/stageSteps";
 import { StageStepList } from "./StageStepList";
+import { runCockpitAction } from "./actions/runCockpitAction";
+import type { ServerActionType } from "./actions/actionTypes";
+
+/**
+ * Window event the rail fires before POSTing a one-click action itself. A
+ * surface that owns the action's progress UI (e.g. AnalystWorkbench for
+ * run_research) listens, calls preventDefault() and runs it in place, so the
+ * banker sees the same pending / running state as the panel's own button.
+ */
+export const RAIL_ACTION_EVENT = "buddy:rail-action";
+export type RailActionEventDetail = { dealId: string; actionType: ServerActionType };
+
+/** Request body per one-click action. */
+const ACTION_PAYLOAD: Partial<Record<ServerActionType, Record<string, unknown>>> = {
+  // A completed / failed mission must not be silently reused (run_key idempotency).
+  run_research: { force_rerun: true },
+};
+
+const PENDING_LABEL: Partial<Record<ServerActionType, string>> = {
+  run_research: "Running research…",
+  generate_snapshot: "Generating snapshot…",
+};
+
+function RunnableActionButton({
+  action,
+  dealId,
+  serverAction,
+  href,
+  className,
+}: {
+  action: NextAction;
+  dealId: string;
+  serverAction: ServerActionType;
+  href: string;
+  className: string;
+}) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onClick = async () => {
+    if (pending) return;
+    setError(null);
+    // Let an on-page owner (the workbench research panel) run it with its own
+    // progress UI. It cancels the event when it takes over.
+    if (typeof window !== "undefined") {
+      const ev = new CustomEvent<RailActionEventDetail>(RAIL_ACTION_EVENT, {
+        cancelable: true,
+        detail: { dealId, actionType: serverAction },
+      });
+      const handled = !window.dispatchEvent(ev);
+      if (handled) {
+        router.push(href);
+        return;
+      }
+    }
+    setPending(true);
+    const result = await runCockpitAction(
+      { intent: "runnable", label: action.label, actionType: serverAction, payload: ACTION_PAYLOAD[serverAction], href },
+      dealId,
+    );
+    setPending(false);
+    if (!result.ok) {
+      setError(result.errorMessage ?? "Action failed");
+      return;
+    }
+    router.push(href);
+    router.refresh();
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={pending}
+        aria-label={action.label}
+        aria-busy={pending || undefined}
+        className={`${className} bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60`}
+      >
+        {pending ? (
+          <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+        ) : null}
+        {pending ? PENDING_LABEL[serverAction] ?? "Working…" : action.label}
+      </button>
+      {error ? (
+        <p role="alert" className="mt-1 text-[11px] text-rose-200">
+          {error}{" "}
+          <Link href={href} prefetch={false} className="underline">
+            Open the panel
+          </Link>
+        </p>
+      ) : null}
+    </>
+  );
+}
 
 export type StageStatus = "complete" | "current" | "next" | "locked" | "skipped";
 
@@ -85,9 +183,23 @@ function ActionButton({ action, dealId }: { action: NextAction; dealId: string }
     );
   }
 
-  // navigate / advance / runnable — all surface a link to action.href when present.
-  // SPEC-01 keeps this presentation-only; running server actions is deferred.
   const href = action.href ?? `/deals/${dealId}/cockpit`;
+
+  // runnable with a known server action — the rail runs it (one click), then
+  // lands the banker on the surface that shows its progress.
+  if (action.intent === "runnable" && action.serverAction) {
+    return (
+      <RunnableActionButton
+        action={action}
+        dealId={dealId}
+        serverAction={action.serverAction}
+        href={href}
+        className={baseClasses}
+      />
+    );
+  }
+
+  // navigate / advance (and runnable without a server action) — a link to action.href.
   return (
     <Link
       href={href}
@@ -111,9 +223,10 @@ function BlockerChip({
   const baseClasses =
     "mt-1 block w-full rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-left text-[11px] text-amber-200";
 
-  if (fix && "href" in fix && fix.href) {
+  const chipHref = fix ? (fix.href ?? fix.fallbackHref ?? null) : null;
+  if (fix && chipHref) {
     return (
-      <Link href={fix.href} prefetch={false} className={`${baseClasses} hover:bg-amber-500/20`}>
+      <Link href={chipHref} prefetch={false} className={`${baseClasses} hover:bg-amber-500/20`}>
         <span className="font-semibold">{blocker.message}</span>
         <span className="ml-1 text-amber-300/80">→ {fix.label}</span>
       </Link>

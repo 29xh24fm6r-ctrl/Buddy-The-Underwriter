@@ -270,6 +270,7 @@ describe("SPEC-05 V13 — every ServerActionType has an explicit endpoint mappin
     generate_snapshot: "/api/deals/deal-1/financial-snapshot/recompute",
     run_ai_classification: "/api/deals/deal-1/artifacts/process",
     send_reminder: "/api/deals/deal-1/notifications/remind",
+    run_research: "/api/deals/deal-1/research/run",
   };
   for (const [actionType, expected] of Object.entries(expectedMap) as [
     ServerActionType,

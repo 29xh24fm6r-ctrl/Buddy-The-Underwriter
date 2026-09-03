@@ -14,7 +14,9 @@ import * as path from "node:path";
 
 import { deriveResearchGatePhase } from "../researchGatePhase";
 import { EMPTY_RESEARCH_GATE_SNAPSHOT, type ResearchGateSnapshot } from "../researchGateTypes";
-import { getBlockerFixAction } from "../../../buddy/lifecycle/nextAction";
+import { getBlockerFixAction, getNextAction } from "../../../buddy/lifecycle/nextAction";
+import { buildJourneyPrimaryAction } from "../../../lib/journey/journeyActionProjection";
+import { endpointFor } from "../../journey/actions/runCockpitAction";
 import type { LifecycleBlocker } from "../../../buddy/lifecycle/model";
 
 const DEAL = "dc52c626-0000-0000-0000-000000000000";
@@ -82,8 +84,9 @@ describe("research blocker routing", () => {
       message: "Research quality gate must pass",
     } as unknown as LifecycleBlocker;
     const action = getBlockerFixAction(blocker, DEAL);
-    assert.ok(action && "href" in action, "expected an href fix action");
-    assert.equal((action as { href: string }).href, `/deals/${DEAL}/underwrite#research-gate`);
+    assert.ok(action && "action" in action, "expected a one-click fix action");
+    assert.equal((action as { action: string }).action, "research.run");
+    assert.equal((action as { fallbackHref?: string }).fallbackHref, `/deals/${DEAL}/underwrite#research-gate`);
     assert.equal(action.label, "Run research");
   });
 });
@@ -212,5 +215,45 @@ describe("Re-run Research forces a fresh mission (idempotent /run silently reuse
 
   it("panel exposes the #research-gate anchor the lifecycle CTA deep-links to", () => {
     assert.match(PANEL, /id="research-gate"/);
+  });
+});
+
+
+describe("rail 'Run research' starts the mission itself (one click, no second button)", () => {
+  const STAGE_ROW = fs.readFileSync(path.resolve(__dirname, "..", "..", "journey", "StageRow.tsx"), "utf8");
+  const WORKBENCH = fs.readFileSync(path.resolve(__dirname, "..", "AnalystWorkbench.tsx"), "utf8");
+
+  it("lifecycle next action for the research blocker is runnable run_research with the panel as href", () => {
+    const state = {
+      stage: "underwrite_in_progress",
+      lastAdvancedAt: null,
+      blockers: [{ code: "missing_research_quality_gate", message: "x" }],
+      derived: {},
+    } as unknown as Parameters<typeof getNextAction>[0];
+    const a = getNextAction(state, DEAL);
+    assert.equal(a.intent, "runnable");
+    assert.equal(a.serverAction, "run_research");
+    assert.equal(a.href, `/deals/${DEAL}/underwrite#research-gate`);
+    const rail = buildJourneyPrimaryAction(state, DEAL);
+    assert.equal(rail.intent, "runnable");
+    assert.equal(rail.serverAction, "run_research");
+    assert.equal(rail.label, "Run research");
+  });
+
+  it("run_research posts to /research/run with force_rerun", () => {
+    assert.equal(endpointFor("run_research", DEAL), `/api/deals/${DEAL}/research/run`);
+    assert.match(STAGE_ROW, /run_research: \{ force_rerun: true \}/);
+  });
+
+  it("the rail renders a real button for runnable server actions and hands off to an on-page owner first", () => {
+    assert.match(STAGE_ROW, /action\.intent === "runnable" && action\.serverAction/);
+    assert.match(STAGE_ROW, /new CustomEvent<RailActionEventDetail>\(RAIL_ACTION_EVENT/);
+    assert.match(STAGE_ROW, /runCockpitAction\(/);
+  });
+
+  it("the workbench takes over run_research from the rail with its own pending UI", () => {
+    assert.match(WORKBENCH, /addEventListener\(RAIL_ACTION_EVENT/);
+    assert.match(WORKBENCH, /detail\.actionType !== "run_research"/);
+    assert.match(WORKBENCH, /ev\.preventDefault\(\);\s*void runResearch\(\{ rerun: true \}\)/);
   });
 });

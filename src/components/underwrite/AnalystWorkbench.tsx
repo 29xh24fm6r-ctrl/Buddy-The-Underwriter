@@ -17,6 +17,7 @@ import ResearchGateActionPanel, {
 } from "./ResearchGateActionPanel";
 import type { ResearchGateSnapshot, ResearchGatePending } from "./researchGateTypes";
 import { fetchResearchGateSnapshot } from "./fetchResearchGateSnapshot";
+import { RAIL_ACTION_EVENT, type RailActionEventDetail } from "@/components/journey/StageRow";
 
 interface WorkbenchState {
   deal: { id: string; dealName: string; borrowerLegalName: string; bankName: string; lifecycleStage: string; dealMode: "quick_look" | "full_underwrite"; isQuickLook: boolean };
@@ -169,6 +170,20 @@ export default function AnalystWorkbench({ dealId }: Props) {
       setPending(null);
     }
   }, [dealId, fetchState, fetchResearch]);
+
+  // The journey rail's "Run research" fires RAIL_ACTION_EVENT before POSTing
+  // itself. Take it over here so the research gate panel shows the same
+  // pending → running → result flow as its own Re-run Research button.
+  useEffect(() => {
+    const onRailAction = (ev: Event) => {
+      const detail = (ev as CustomEvent<RailActionEventDetail>).detail;
+      if (!detail || detail.actionType !== "run_research" || detail.dealId !== dealId) return;
+      ev.preventDefault();
+      void runResearch({ rerun: true });
+    };
+    window.addEventListener(RAIL_ACTION_EVENT, onRailAction);
+    return () => window.removeEventListener(RAIL_ACTION_EVENT, onRailAction);
+  }, [dealId, runResearch]);
 
   // SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1: apply a banker/analyst review
   // action to a committee evidence task, then refresh the research snapshot so

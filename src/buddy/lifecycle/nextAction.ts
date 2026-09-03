@@ -14,7 +14,8 @@ export type ServerActionType =
   | "generate_snapshot"
   | "generate_packet"
   | "run_ai_classification"
-  | "send_reminder";
+  | "send_reminder"
+  | "run_research";
 
 /**
  * Maps a FixAction.action string (see getBlockerFixAction) to the one-click
@@ -24,7 +25,17 @@ export type ServerActionType =
  */
 const SERVER_ACTION_MAP: Record<string, ServerActionType> = {
   "financial_snapshot.recompute": "generate_snapshot",
+  // POST /api/deals/[dealId]/research/run { force_rerun: true } — the rail's
+  // "Run research" starts the mission itself instead of linking to a page
+  // where the banker has to find a second button.
+  "research.run": "run_research",
 };
+
+/** The one-click server action a fix action maps to, if any. */
+export function serverActionForFix(fix: FixAction | null | undefined): ServerActionType | null {
+  if (!fix || !("action" in fix) || typeof fix.action !== "string") return null;
+  return SERVER_ACTION_MAP[fix.action] ?? null;
+}
 
 /**
  * The next action a user should take.
@@ -89,6 +100,7 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
             label: fix.label,
             intent: "runnable",
             serverAction,
+            href: fix.fallbackHref,
             description: top.message,
           };
         }
@@ -96,7 +108,7 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
       const href =
         "href" in fix && typeof fix.href === "string"
           ? fix.href
-          : `/deals/${dealId}/cockpit`;
+          : fix.fallbackHref ?? `/deals/${dealId}/cockpit`;
       return {
         label: fix.label,
         href,
@@ -222,8 +234,15 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
  * @returns Object with label and href for the fix action
  */
 export type FixAction =
-  | { label: string; href: string; action?: undefined; secondary?: { label: string; action: string } }
-  | { label: string; action: string; href?: undefined; secondary?: { label: string; action: string } };
+  | { label: string; href: string; action?: undefined; fallbackHref?: undefined; secondary?: { label: string; action: string } }
+  | {
+      label: string;
+      action: string;
+      href?: undefined;
+      /** Where to send the banker when the action runs (or cannot run): the surface that shows its progress. */
+      fallbackHref?: string;
+      secondary?: { label: string; action: string };
+    };
 
 export function getBlockerFixAction(
   blocker: LifecycleBlocker,
@@ -365,12 +384,14 @@ export function getBlockerFixAction(
       // readiness uses for missing_research_quality_gate, so both layers agree
       // on one existing route. (SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1 /
       // SPEC-UNDERWRITE-RESEARCH-GATE-END-TO-END-1)
-      // The #research-gate fragment targets the ResearchGateActionPanel so the
-      // CTA scrolls to the actual Run / Re-run Research button when the banker
-      // is already on /underwrite (a same-page link otherwise does nothing).
+      // "research.run" is a one-click server action (POST /research/run with
+      // force_rerun) so the rail button starts the mission itself. The
+      // #research-gate fragment targets the ResearchGateActionPanel, which
+      // shows the mission's progress, and is the fallback destination.
       return {
         label: "Run research",
-        href: `/deals/${dealId}/underwrite#research-gate`,
+        action: "research.run",
+        fallbackHref: `/deals/${dealId}/underwrite#research-gate`,
       };
 
     case "open_fact_conflicts":

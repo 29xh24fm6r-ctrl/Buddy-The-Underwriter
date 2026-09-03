@@ -13,7 +13,8 @@ export type ServerActionType =
   | "generate_snapshot"
   | "generate_packet"
   | "run_ai_classification"
-  | "send_reminder";
+  | "send_reminder"
+  | "run_research";
 
 export type CockpitActionIntent = "navigate" | "runnable" | "fix_blocker";
 

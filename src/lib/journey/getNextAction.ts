@@ -24,6 +24,7 @@ const SUPPORTED_SERVER_ACTIONS: ReadonlySet<string> = new Set<ServerActionType>(
   "generate_packet",
   "run_ai_classification",
   "send_reminder",
+  "run_research",
 ]);
 
 function toServerActionType(t: LifecycleServerActionType | undefined): ServerActionType | null {

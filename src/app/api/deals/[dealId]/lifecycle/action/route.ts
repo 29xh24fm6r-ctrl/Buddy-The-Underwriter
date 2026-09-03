@@ -136,6 +136,21 @@ export async function POST(
         );
       }
 
+      case "run_research":
+      case "research.run": {
+        // One-click "Run research" from the cockpit / journey rail. Delegate to
+        // the canonical research run handler (same auth, rate limit and
+        // subject resolution) with force_rerun so a completed or failed
+        // mission is not silently reused.
+        const { POST: runResearch } = await import("../../research/[action]/_handlers/run");
+        const forwarded = new NextRequest(req.url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ force_rerun: true }),
+        });
+        return runResearch(forwarded, { params: Promise.resolve({ dealId, action: "run" }) });
+      }
+
       default:
         return NextResponse.json(
           { ok: false, error: `Unknown action: ${action}` },
