@@ -2,6 +2,8 @@
 // All types for the builder data model, sections, and state.
 // 53A.1 additions: collateral valuation, LTV, equity policy, owner prefill, readiness targets.
 
+import type { CollateralType } from "@/lib/collateral/collateralTypes";
+
 export type LoanType =
   | "term_loan"
   | "line_of_credit"
@@ -26,14 +28,18 @@ export type EntityType =
 
 export type GuarantyType = "full" | "limited" | "springing" | "environmental";
 
-export type CollateralType =
-  | "real_estate"
-  | "equipment"
-  | "accounts_receivable"
-  | "inventory"
-  | "blanket_lien"
-  | "vehicle"
-  | "other";
+/**
+ * Collateral types come from src/lib/collateral/collateralTypes.ts, the one
+ * contract the credit memo and the advance-rate table also read.
+ *
+ * This was a third private copy of that vocabulary, and it had drifted the
+ * same way the memo's rate table had before #1022: `blanket_lien` and `other`
+ * only, with no `ucc_lien`, `general`, `insurance_backed` or `purchase_target`
+ * — so the builder's own types could not represent four of the six values the
+ * document classifiers emit, and production `deal_collateral_items` already
+ * holds `ucc_lien` rows this type claimed were impossible.
+ */
+export type { CollateralType };
 
 export type ProceedsCategory =
   | "equipment"
