@@ -273,3 +273,19 @@ describe("rail 'Run research' starts the mission itself (one click, no second bu
     assert.match(WORKBENCH, /ev\.preventDefault\(\);\s*void runResearch\(\{ rerun: true \}\)/);
   });
 });
+
+
+describe("forced re-run creates a fresh mission despite the active run_key unique index", () => {
+  const RUN_MISSION = fs.readFileSync(
+    path.resolve(__dirname, "..", "..", "..", "lib", "research", "runMission.ts"),
+    "utf8",
+  );
+
+  it("forceRerun derives a distinct run_key instead of reusing the completed mission's key", () => {
+    // The unique index (deal_id, run_key) WHERE status IN (queued, running,
+    // complete) rejects a second insert with the same key while the old
+    // COMPLETE mission exists, and createMission() reports it as duplicate.
+    assert.match(RUN_MISSION, /const runKey = opts\?\.forceRerun\s*\?\s*`\$\{baseRunKey\}:rerun:/);
+    assert.match(RUN_MISSION, /const baseRunKey = generateRunKey\(/);
+  });
+});
