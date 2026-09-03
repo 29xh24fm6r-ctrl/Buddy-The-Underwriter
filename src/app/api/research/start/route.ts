@@ -22,13 +22,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rateLimit } from "@/lib/api/rateLimit";
-import { runMission } from "@/lib/research/runMission";
+import { startResearchMission } from "@/lib/research/startResearchMission";
 import { isValidNaicsCode } from "@/lib/research/sourceDiscovery";
 import type { MissionType, MissionSubject, MissionDepth } from "@/lib/research/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // BIE runs up to 7 Gemini calls — needs headroom
+export const maxDuration = 60;
 
 // Correlation ID for tracing
 function getCorrelationId(): string {
@@ -136,26 +136,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Run the mission (this will be async in production, but for now we run synchronously)
-    // In production, this would queue the mission and return immediately
-    const result = await runMission(body.deal_id, missionType, subject, {
+    const result = await startResearchMission({
+      dealId: body.deal_id,
+      missionType,
+      subject,
       depth,
       bankId: access.bankId,
       userId: access.userId,
     });
 
     return NextResponse.json(
-      {
-        ok: result.ok,
-        mission_id: result.mission_id,
-        sources_count: result.sources_count,
-        facts_count: result.facts_count,
-        inferences_count: result.inferences_count,
-        narrative_sections: result.narrative_sections,
-        duration_ms: result.duration_ms,
-        error: result.error,
-      },
-      { status: 200, headers }
+      result,
+      { status: result.ok ? 202 : 500, headers }
     );
   } catch (error) {
     console.error(`[${correlationId}] Research start error:`, error);

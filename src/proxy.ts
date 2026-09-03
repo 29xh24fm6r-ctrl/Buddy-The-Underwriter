@@ -238,9 +238,13 @@ export default process.env.BUDDY_LOS_PROVIDER_ONLY === "true"
 export const config = {
   matcher: [
     // Run on everything except static assets and worker endpoints.
+    // Workflow callbacks must reach the Workflow runtime directly. Worker and
+    // cron endpoints are authenticated by their own bearer-secret checks, not
+    // Clerk sessions. Excluding these namespaces prevents Clerk from rejecting
+    // the request before the owning runtime can authenticate it.
     // /api/workers/* are cron/worker endpoints authenticated via CRON_SECRET,
     // not Clerk sessions. Excluding them prevents Clerk from rejecting
     // unauthenticated cron requests before the route handler runs.
-    "/((?!_next|api/workers/|.*\\..*).*)",
+    "/((?!_next|\\.well-known/workflow/|api/workers/|api/jobs/|api/cron/|.*\\..*).*)",
   ],
 };

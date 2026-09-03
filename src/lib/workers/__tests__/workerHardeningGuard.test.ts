@@ -217,5 +217,11 @@ test("vercel.json: outbox crons match expected schedules", () => {
   assert.equal(byPathPrefix("/api/pulse/cron-forward-ledger").schedule, "*/5 * * * *");
   assert.equal(byPathPrefix("/api/artifacts/process").schedule, "*/5 * * * *");
 
-  assert.equal(byPathPrefix("/api/jobs/worker/tick").schedule, "*/10 * * * *");
+  // One ALL worker owns spreads as well as document jobs. The redundant
+  // SPREADS-only cron was removed, so this remains the sole queue cadence.
+  assert.equal(byPathPrefix("/api/jobs/worker/tick").schedule, "*/2 * * * *");
+  assert.equal(
+    cfg.crons.filter((c: any) => String(c.path).startsWith("/api/jobs/worker/tick")).length,
+    1,
+  );
 });

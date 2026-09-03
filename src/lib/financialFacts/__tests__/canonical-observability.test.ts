@@ -94,13 +94,14 @@ test("[pr5d-7] all five canonical events are fire-and-forget (void or .catch)", 
 
 // ── Spread render timing notes ─────────────────────────────────────────────
 
-test("[pr5d-8] spread_rendered event captures timing context (rendered_at_chain_step_2)", () => {
+test("[pr5d-8] spread_rendered records the single post-chain render", () => {
   const body = read();
   assert.match(
     body,
-    /rendered_at_chain_step_2/,
-    "spread_rendered event must include 'rendered_at_chain_step_2' note documenting the timing gap.",
+    /rendered_once_after_canonical_chain/,
+    "spread_rendered must document that GCF is rendered once after canonical facts settle.",
   );
+  assert.doesNotMatch(body, /rendered_at_chain_step_2/);
 });
 
 // ── Ordering guards ────────────────────────────────────────────────────────
@@ -120,7 +121,7 @@ test("[pr5d-9] canonical events appear in correct chain order", () => {
   assert.ok(gcfIdx > tdsIdx, "GCF event must come after TDS");
 });
 
-test("[pr5d-10] spread_rendered event is emitted before backfill (renders at chain step 2)", () => {
+test("[pr5d-10] spread_rendered event is emitted after the canonical chain", () => {
   const body = read();
   const stripped = body.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
   const spreadIdx = stripped.indexOf("canonical.recompute.spread_rendered");
@@ -128,8 +129,8 @@ test("[pr5d-10] spread_rendered event is emitted before backfill (renders at cha
   assert.ok(spreadIdx > 0, "spread_rendered event not found");
   assert.ok(backfillIdx > 0, "backfill event not found");
   assert.ok(
-    spreadIdx < backfillIdx,
-    "spread_rendered must appear BEFORE backfill in source (renders at chain step 2, before step 3+).",
+    spreadIdx > backfillIdx,
+    "spread_rendered must appear after backfill so GCF cannot publish stale numbers.",
   );
 });
 

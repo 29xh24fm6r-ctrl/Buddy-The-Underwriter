@@ -102,30 +102,6 @@ test("permanent errors skip retry and go straight to FAILED", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Fix 7: Exponential preflight backoff
-// ---------------------------------------------------------------------------
-
-test("preflight backoff is exponential (not fixed 30s)", () => {
-  const src = readFile("src/lib/jobs/processors/spreadsProcessor.ts");
-
-  // Must contain exponential backoff formula
-  assert.ok(
-    src.includes("Math.pow(2, preflightRetries)"),
-    "Preflight backoff must use Math.pow(2, preflightRetries) for exponential",
-  );
-
-  // Must NOT contain fixed 30_000 for preflight
-  const preflightSection = src.slice(
-    src.indexOf("preflightRetries < 5"),
-    src.indexOf("preflightRetries < 5") + 300,
-  );
-  assert.ok(
-    !preflightSection.includes("30_000"),
-    "Preflight must NOT use fixed 30_000ms delay",
-  );
-});
-
-// ---------------------------------------------------------------------------
 // Fix 4: backfillFromSpreads returns ok:false on all-fail
 // ---------------------------------------------------------------------------
 
@@ -170,23 +146,9 @@ test("Gemini OCR has per-model timeout protection", () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// Extraction time budget — the re-extraction loop must not outlive the tick
-// ---------------------------------------------------------------------------
-
-test("spread job extraction loop is budgeted and resumes via meta.extract_progress", () => {
-  const src = readFile("src/lib/jobs/processors/spreadsProcessor.ts");
-  assert.ok(src.includes("resolveExtractionDeadline("), "extraction loop must derive a deadline");
-  assert.ok(src.includes("shouldDeferExtraction("), "extraction loop must check the deadline per document");
-  assert.ok(src.includes("SPREAD_JOB_REQUEUED_EXTRACTION_BUDGET"), "budget re-queue must emit an Aegis event");
-
-  // The self re-queue must be CAS-guarded exactly like completion.
-  const idx = src.indexOf("extract_progress: progress");
-  assert.ok(idx > 0, "re-queue must persist extract_progress in meta");
-  const block = src.slice(idx, idx + 400);
-  assert.ok(block.includes('.eq("status", "RUNNING")'), "budget re-queue must CAS on status RUNNING");
-  assert.ok(block.includes('.eq("lease_owner", leaseOwner)'), "budget re-queue must CAS on lease_owner");
-});
+// Spread input behavior is exercised directly in spreadExecutionPolicy.test.
+// The obsolete extraction-loop source guard was intentionally deleted: spread
+// recompute no longer owns extraction or a requeue cursor.
 
 test("worker tick passes its maxDuration horizon to the spreads worker", () => {
   const src = readFile("src/app/api/jobs/worker/tick/route.ts");

@@ -119,6 +119,11 @@ function getDocTypeConfig(
   }
 }
 
+/** Cheap preflight used before downloading native PDF bytes. */
+export function isGeminiExtractionSupportedDocType(normDocType: string): boolean {
+  return getDocTypeConfig(normDocType.trim().toUpperCase()) !== null;
+}
+
 // ---------------------------------------------------------------------------
 // Failure-reason → standardized failure-code mapping (Phase 84 T-04)
 // ---------------------------------------------------------------------------
@@ -178,7 +183,7 @@ export async function extractWithGeminiPrimary(args: {
   const ledgerStart = Date.now();
   let runId: string | null = null;
   try {
-    const { run } = await createExtractionRun({
+    const { run, reused } = await createExtractionRun({
       dealId: args.dealId,
       documentId: args.documentId,
       ocrText: args.ocrText ?? "",
@@ -188,6 +193,21 @@ export async function extractWithGeminiPrimary(args: {
       structuredModel: MODEL_EXTRACTION,
     });
     runId = run.id;
+    if (reused) {
+      // The run ledger is the document-version idempotency authority. A
+      // succeeded run means its facts were already persisted; a recent running
+      // run means another worker owns the provider call. In either case, never
+      // call Gemini again from this invocation.
+      return {
+        ok: true,
+        items: [],
+        rawResponse: null,
+        latencyMs: Date.now() - ledgerStart,
+        model: run.structured_model ?? MODEL_EXTRACTION,
+        promptVersion: run.prompt_version ?? "",
+        reused: true,
+      };
+    }
     await markRunRunning(run.id);
   } catch (ledgerErr) {
     console.warn("[GeminiDocumentExtractor] run ledger create failed (non-fatal)", {
@@ -202,19 +222,26 @@ export async function extractWithGeminiPrimary(args: {
   ): Promise<void> => {
     if (!runId) return;
     try {
+      // A schema-valid zero-item response is a completed extraction outcome,
+      // not a transient transport failure. Recording it as failed caused the
+      // same immutable document to be resent on every later orchestration.
+      const terminalReusable =
+        result.ok || result.failureReason === "zero_items_parsed";
       await finalizeExtractionRun({
         runId,
         dealId: args.dealId,
         documentId: args.documentId,
-        status: result.ok ? "succeeded" : "failed",
-        failureCode: result.ok ? null : mapFailureReasonToCode(result.failureReason),
+        status: terminalReusable ? "succeeded" : "failed",
+        failureCode: terminalReusable ? null : mapFailureReasonToCode(result.failureReason),
         // SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1: surface the raw failure reason
         // (including any `empty_response:<finishReason>` suffix) so the
         // ledger row carries diagnostic detail instead of NULL.
         // FinalizeRunArgs.failureDetail is Record<string, unknown> | null, so
         // we wrap the string in an object keyed by failure_reason_raw.
-        failureDetail: result.ok
-          ? null
+        failureDetail: terminalReusable
+          ? result.failureReason === "zero_items_parsed"
+            ? { terminal_outcome: "zero_items_parsed" }
+            : null
           : { failure_reason_raw: result.failureReason ?? null },
         outputHash: result.ok && result.items.length > 0
           ? computeRunOutputHash(result.items)

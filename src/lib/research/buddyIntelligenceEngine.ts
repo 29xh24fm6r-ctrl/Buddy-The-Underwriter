@@ -24,6 +24,7 @@
 
 import "server-only";
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { NarrativeSection } from "./types";
 import { MODEL_RESEARCH, MODEL_RESEARCH_FALLBACK } from "@/lib/ai/models";
 import { closeTruncatedJson } from "./truncatedJson";
@@ -36,6 +37,14 @@ import {
 import { repairGenericJson, GENERIC_JSON_REPAIR_STRATEGY } from "./geminiJsonRepair";
 import { attributeSegmentsToText } from "./citationAttribution";
 import { planBIEThreadReuse } from "./bieThreadReuse";
+
+const DEFAULT_MISSION_DEADLINE_MS = 7 * 60_000;
+const missionDeadline = new AsyncLocalStorage<number>();
+
+function remainingMissionMs(): number | null {
+  const deadlineAt = missionDeadline.getStore();
+  return deadlineAt == null ? null : Math.max(0, deadlineAt - Date.now());
+}
 
 // ============================================================================
 // Gemini API caller — returns grounding metadata alongside parsed result
@@ -313,7 +322,12 @@ async function callGeminiGroundedWithModel<T>(
   // are not reconstructable from a thrown error string and are omitted
   // (both are informational fields, not read anywhere for control flow).
   try {
-    const result = await runRole("generator", {
+    const requestedTimeoutMs = args.timeoutMs ?? 60_000;
+    const remainingMs = remainingMissionMs();
+    if (remainingMs !== null && remainingMs <= 1_000) {
+      throw new DOMException("research_mission_deadline_exceeded", "AbortError");
+    }
+    const result = await runRole("research", {
       purpose: `bie_${args.thread}`,
       prompt: args.prompt,
       modelOverride: model,
@@ -322,7 +336,10 @@ async function callGeminiGroundedWithModel<T>(
       thinkingLevel: args.thinkingLevel,
       useSearchGrounding: args.useGrounding,
       responseSchema: args.useGrounding ? undefined : { type: "object" },
-      timeoutMs: args.timeoutMs ?? 60_000,
+      timeoutMs:
+        remainingMs === null
+          ? requestedTimeoutMs
+          : Math.max(1_000, Math.min(requestedTimeoutMs, remainingMs)),
       disableFailover: true,
       allowTruncatedOutput: args.salvageTruncated === true,
     });
@@ -1524,6 +1541,9 @@ For each check: if a contradiction is found, report: "CHECK [X]: [finding]". If 
 
 Return ONLY valid JSON:
 {
+  "entity_validation_passed": true/false,
+  "management_profiles_validated": true/false,
+  "validation_notes": "summary of what validation checks found — any flags raised",
   "executive_credit_thesis": "2–3 paragraphs grounded in research findings — no generic statements",
   "repayment_strengths": ["specific strength with evidence"],
   "core_vulnerabilities": ["specific risk with evidence"],
@@ -1548,10 +1568,7 @@ Return ONLY valid JSON:
   "five_year_outlook": "paragraph: base case, downside case, strategic position at 5-year mark",
   "contradictions_and_uncertainties": ["specific inconsistency or UNVALIDATED_MANAGEMENT_PROFILE flags"],
   "evidence_quality_summary": "brief paragraph: entity confidence, principal confirmation rate, source quality, key gaps",
-  "research_quality_score": "Strong" | "Moderate" | "Limited",
-  "entity_validation_passed": true/false,
-  "management_profiles_validated": true/false,
-  "validation_notes": "summary of what validation checks found — any flags raised"
+  "research_quality_score": "Strong" | "Moderate" | "Limited"
 }`;
 
   const gr = await callGeminiGrounded<CreditSynthesis>({
@@ -1633,7 +1650,8 @@ async function runWithRetry<T>(
   runner: () => Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }>,
 ): Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
   const first = await runner();
-  if (!first.diagnostic.ok && isRetryableBIEDiagnostic(first.diagnostic)) {
+  const hasRetryTime = (remainingMissionMs() ?? Number.POSITIVE_INFINITY) > 5_000;
+  if (!first.diagnostic.ok && isRetryableBIEDiagnostic(first.diagnostic) && hasRetryTime) {
     console.warn(`[BIE] ${first.diagnostic.thread} failed retryably (${first.diagnostic.error_type}) — retrying once`);
     const retry = await runner();
     if (retry.diagnostic.ok) {
@@ -1645,7 +1663,7 @@ async function runWithRetry<T>(
   return first;
 }
 
-export async function runBuddyIntelligenceEngine(
+async function runBuddyIntelligenceEngineInternal(
   input: BIEInput,
   opts?: { previousThreadResults?: BIEPreviousThreadResults },
 ): Promise<BIEResult> {
@@ -1917,6 +1935,21 @@ export async function runBuddyIntelligenceEngine(
     thread_diagnostics,
     compiled_at: new Date().toISOString(),
   };
+}
+
+export async function runBuddyIntelligenceEngine(
+  input: BIEInput,
+  opts?: {
+    previousThreadResults?: BIEPreviousThreadResults;
+    deadlineMs?: number;
+  },
+): Promise<BIEResult> {
+  const deadlineAt = Date.now() + Math.max(30_000, opts?.deadlineMs ?? DEFAULT_MISSION_DEADLINE_MS);
+  return missionDeadline.run(deadlineAt, () =>
+    runBuddyIntelligenceEngineInternal(input, {
+      previousThreadResults: opts?.previousThreadResults,
+    }),
+  );
 }
 
 // ============================================================================

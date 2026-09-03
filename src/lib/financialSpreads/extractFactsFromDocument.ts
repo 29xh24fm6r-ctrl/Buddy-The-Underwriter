@@ -235,6 +235,7 @@ export async function extractFactsFromDocument(args: {
   let factsWritten = 0;
   let extractionPath: string | null = null;
   let extractorRan = false;
+  let reusedGeminiFacts = false;
 
   // ── Extractor args ──────────────────────────────────────────────────────
   const baseArgs = {
@@ -255,10 +256,13 @@ export async function extractFactsFromDocument(args: {
     statementPeriod,
   };
 
-  // ── Native PDF download (best-effort for Gemini native input) ─────────
+  // ── Lazy native PDF download (only after deterministic extraction fails) ─
   let pdfBase64: string | undefined;
   let pdfMimeType: string | undefined;
-  if (useGeminiPrimary && dealDoc?.storage_bucket && dealDoc?.storage_path) {
+  let pdfLoadAttempted = false;
+  async function loadPdfForGemini(): Promise<void> {
+    if (pdfLoadAttempted || !dealDoc?.storage_bucket || !dealDoc?.storage_path) return;
+    pdfLoadAttempted = true;
     try {
       const { downloadPrivateObject } = await import("@/lib/storage/adminStorage");
       const bytes = await downloadPrivateObject({
@@ -289,9 +293,13 @@ export async function extractFactsFromDocument(args: {
       return { succeeded: false, factsWritten: 0 };
     }
     try {
-      const { extractWithGeminiPrimary } = await import(
+      const { extractWithGeminiPrimary, isGeminiExtractionSupportedDocType } = await import(
         "@/lib/financialSpreads/extractors/gemini/geminiDocumentExtractor"
       );
+      if (!isGeminiExtractionSupportedDocType(normDocType)) {
+        return { succeeded: false, factsWritten: 0 };
+      }
+      await loadPdfForGemini();
       const gemResult = await extractWithGeminiPrimary({
         dealId: args.dealId,
         bankId: args.bankId,
@@ -302,6 +310,10 @@ export async function extractFactsFromDocument(args: {
         pdfBase64,
         mimeType: pdfMimeType,
       });
+      if (gemResult.reused) {
+        reusedGeminiFacts = true;
+        return { succeeded: true, factsWritten: 0 };
+      }
       if (gemResult.ok && gemResult.items.length > 0) {
         const { writeFactsBatch } = await import(
           "@/lib/financialSpreads/extractors/shared"
@@ -342,46 +354,44 @@ export async function extractFactsFromDocument(args: {
     ["FINANCIAL_STATEMENT", "INCOME_STATEMENT", "OPERATING_STATEMENT"].includes(normDocType)
   ) {
     extractorRan = true;
-    const gp = await attemptGeminiPrimary("INCOME_STATEMENT");
-    if (gp.succeeded) {
-      factsWritten += gp.factsWritten;
-      extractionPath = "gemini_primary";
-    } else {
-      try {
-        if (useDeterministic) {
-          const result = await extractIncomeStatementDeterministic(deterministicArgs);
-          factsWritten += result.factsWritten;
-          extractionPath = result.extractionPath;
-        } else {
+    try {
+      if (useDeterministic) {
+        const result = await extractIncomeStatementDeterministic(deterministicArgs);
+        factsWritten += result.factsWritten;
+        extractionPath = result.extractionPath;
+        if (result.factsWritten === 0) {
+          const gp = await attemptGeminiPrimary("INCOME_STATEMENT");
+          factsWritten += gp.factsWritten;
+          if (gp.succeeded) extractionPath = gp.factsWritten > 0 ? "gemini_primary" : "gemini_primary_reused";
+        }
+      } else {
           const result = await extractIncomeStatement(baseArgs);
           factsWritten += result.factsWritten;
-        }
-      } catch (err) {
-        console.error("[extractFactsFromDocument] incomeStatement failed:", err);
       }
+    } catch (err) {
+      console.error("[extractFactsFromDocument] incomeStatement failed:", err);
     }
   }
 
   // ── Balance Sheet ──────────────────────────────────────────────────────
   if (extractedText && normDocType === "BALANCE_SHEET") {
     extractorRan = true;
-    const gp = await attemptGeminiPrimary("BALANCE_SHEET");
-    if (gp.succeeded) {
-      factsWritten += gp.factsWritten;
-      extractionPath = "gemini_primary";
-    } else {
-      try {
-        if (useDeterministic) {
-          const result = await extractBalanceSheetDeterministic(deterministicArgs);
-          factsWritten += result.factsWritten;
-          extractionPath = result.extractionPath;
-        } else {
+    try {
+      if (useDeterministic) {
+        const result = await extractBalanceSheetDeterministic(deterministicArgs);
+        factsWritten += result.factsWritten;
+        extractionPath = result.extractionPath;
+        if (result.factsWritten === 0) {
+          const gp = await attemptGeminiPrimary("BALANCE_SHEET");
+          factsWritten += gp.factsWritten;
+          if (gp.succeeded) extractionPath = gp.factsWritten > 0 ? "gemini_primary" : "gemini_primary_reused";
+        }
+      } else {
           const result = await extractBalanceSheet(baseArgs);
           factsWritten += result.factsWritten;
-        }
-      } catch (err) {
-        console.error("[extractFactsFromDocument] balanceSheet failed:", err);
       }
+    } catch (err) {
+      console.error("[extractFactsFromDocument] balanceSheet failed:", err);
     }
   }
 
@@ -396,23 +406,22 @@ export async function extractFactsFromDocument(args: {
     ["IRS_1120", "IRS_1120S", "IRS_1065", "IRS_BUSINESS", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"].includes(normDocType)
   ) {
     extractorRan = true;
-    const gp = await attemptGeminiPrimary("TAX_RETURN");
-    if (gp.succeeded) {
-      factsWritten += gp.factsWritten;
-      extractionPath = "gemini_primary";
-    } else {
-      try {
-        if (useDeterministic) {
-          const result = await extractTaxReturnDeterministic(deterministicArgs);
-          factsWritten += result.factsWritten;
-          extractionPath = result.extractionPath;
-        } else {
+    try {
+      if (useDeterministic) {
+        const result = await extractTaxReturnDeterministic(deterministicArgs);
+        factsWritten += result.factsWritten;
+        extractionPath = result.extractionPath;
+        if (result.factsWritten === 0) {
+          const gp = await attemptGeminiPrimary("TAX_RETURN");
+          factsWritten += gp.factsWritten;
+          if (gp.succeeded) extractionPath = gp.factsWritten > 0 ? "gemini_primary" : "gemini_primary_reused";
+        }
+      } else {
           const result = await extractTaxReturn(baseArgs);
           factsWritten += result.factsWritten;
-        }
-      } catch (err) {
-        console.error("[extractFactsFromDocument] taxReturn failed:", err);
       }
+    } catch (err) {
+      console.error("[extractFactsFromDocument] taxReturn failed:", err);
     }
 
     // Persist resolved tax year to document_artifacts (backfill NULL gap)
@@ -434,23 +443,22 @@ export async function extractFactsFromDocument(args: {
   // ── Rent Roll ──────────────────────────────────────────────────────────
   if (extractedText && normDocType === "RENT_ROLL") {
     extractorRan = true;
-    const gp = await attemptGeminiPrimary("RENT_ROLL");
-    if (gp.succeeded) {
-      factsWritten += gp.factsWritten;
-      extractionPath = "gemini_primary";
-    } else {
-      try {
-        if (useDeterministic) {
-          const result = await extractRentRollDeterministic(deterministicArgs);
-          factsWritten += result.factsWritten;
-          extractionPath = result.extractionPath;
-        } else {
+    try {
+      if (useDeterministic) {
+        const result = await extractRentRollDeterministic(deterministicArgs);
+        factsWritten += result.factsWritten;
+        extractionPath = result.extractionPath;
+        if (result.factsWritten === 0) {
+          const gp = await attemptGeminiPrimary("RENT_ROLL");
+          factsWritten += gp.factsWritten;
+          if (gp.succeeded) extractionPath = gp.factsWritten > 0 ? "gemini_primary" : "gemini_primary_reused";
+        }
+      } else {
           const result = await extractRentRoll(baseArgs);
           factsWritten += result.factsWritten;
-        }
-      } catch (err) {
-        console.error("[extractFactsFromDocument] rentRoll failed:", err);
       }
+    } catch (err) {
+      console.error("[extractFactsFromDocument] rentRoll failed:", err);
     }
   }
 
@@ -541,33 +549,33 @@ export async function extractFactsFromDocument(args: {
       }
     }
 
-    // Try Gemini primary first — now passing owner context so facts land as PERSONAL-owned
-    const gp = await attemptGeminiPrimary("PERSONAL_FINANCIAL_STATEMENT", {
-      ownerType: "PERSONAL",
-      ownerEntityId,
-    });
-    if (gp.succeeded) {
-      factsWritten += gp.factsWritten;
-      extractionPath = "gemini_primary";
-    } else {
-      try {
-        if (useDeterministic) {
-          const result = await extractPfsDeterministic({
-            ...deterministicArgs,
+    // Deterministic first. Gemini is an escalation only when the parser yields
+    // no usable facts, and the run ledger prevents duplicate escalation.
+    try {
+      if (useDeterministic) {
+        const result = await extractPfsDeterministic({
+          ...deterministicArgs,
+          ownerEntityId,
+        });
+        factsWritten += result.factsWritten;
+        extractionPath = result.extractionPath;
+        if (result.factsWritten === 0) {
+          const gp = await attemptGeminiPrimary("PERSONAL_FINANCIAL_STATEMENT", {
+            ownerType: "PERSONAL",
             ownerEntityId,
           });
-          factsWritten += result.factsWritten;
-          extractionPath = result.extractionPath;
-        } else {
+          factsWritten += gp.factsWritten;
+          if (gp.succeeded) extractionPath = gp.factsWritten > 0 ? "gemini_primary" : "gemini_primary_reused";
+        }
+      } else {
           const result = await extractPfs({
             ...baseArgs,
             ownerEntityId,
           });
           factsWritten += result.factsWritten;
-        }
-      } catch (err) {
-        console.error("[extractFactsFromDocument] pfs failed:", err);
       }
+    } catch (err) {
+      console.error("[extractFactsFromDocument] pfs failed:", err);
     }
   }
 
@@ -599,36 +607,34 @@ export async function extractFactsFromDocument(args: {
   // ── Commercial Lease ───────────────────────────────────────────────────
   if (extractedText && normDocType === "COMMERCIAL_LEASE") {
     extractorRan = true;
-    const gp = await attemptGeminiPrimary("COMMERCIAL_LEASE");
-    if (gp.succeeded) {
-      factsWritten += gp.factsWritten;
-      extractionPath = "gemini_primary";
-    } else {
-      try {
-        const result = await extractCommercialLeaseDeterministic(deterministicArgs);
-        factsWritten += result.factsWritten;
-        extractionPath = result.extractionPath;
-      } catch (err) {
-        console.error("[extractFactsFromDocument] commercialLease failed:", err);
+    try {
+      const result = await extractCommercialLeaseDeterministic(deterministicArgs);
+      factsWritten += result.factsWritten;
+      extractionPath = result.extractionPath;
+      if (result.factsWritten === 0) {
+        const gp = await attemptGeminiPrimary("COMMERCIAL_LEASE");
+        factsWritten += gp.factsWritten;
+        if (gp.succeeded) extractionPath = gp.factsWritten > 0 ? "gemini_primary" : "gemini_primary_reused";
       }
+    } catch (err) {
+      console.error("[extractFactsFromDocument] commercialLease failed:", err);
     }
   }
 
   // ── Credit Memo (prior loan / existing relationship) ───────────────────
   if (extractedText && normDocType === "CREDIT_MEMO") {
     extractorRan = true;
-    const gp = await attemptGeminiPrimary("CREDIT_MEMO");
-    if (gp.succeeded) {
-      factsWritten += gp.factsWritten;
-      extractionPath = "gemini_primary";
-    } else {
-      try {
-        const result = await extractCreditMemoDeterministic(deterministicArgs);
-        factsWritten += result.factsWritten;
-        extractionPath = result.extractionPath;
-      } catch (err) {
-        console.error("[extractFactsFromDocument] creditMemo failed:", err);
+    try {
+      const result = await extractCreditMemoDeterministic(deterministicArgs);
+      factsWritten += result.factsWritten;
+      extractionPath = result.extractionPath;
+      if (result.factsWritten === 0) {
+        const gp = await attemptGeminiPrimary("CREDIT_MEMO");
+        factsWritten += gp.factsWritten;
+        if (gp.succeeded) extractionPath = gp.factsWritten > 0 ? "gemini_primary" : "gemini_primary_reused";
       }
+    } catch (err) {
+      console.error("[extractFactsFromDocument] creditMemo failed:", err);
     }
   }
 
@@ -680,7 +686,7 @@ export async function extractFactsFromDocument(args: {
   }
 
   // ── Aegis: EXTRACTION_ZERO_FACTS finding ───────────────────────────────
-  if (extractorRan && factsWritten === 0 && extractedText.length > 100) {
+  if (extractorRan && factsWritten === 0 && !reusedGeminiFacts && extractedText.length > 100) {
     writeSystemEvent({
       event_type: "warning",
       severity: "warning",
@@ -991,5 +997,5 @@ export async function extractFactsFromDocument(args: {
     // Non-fatal
   }
 
-  return { ok: true as const, factsWritten: factsWritten + 1 };
+  return { ok: true as const, factsWritten, heartbeatWritten: true as const };
 }
