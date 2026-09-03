@@ -195,10 +195,19 @@ describe("Re-run Research forces a fresh mission (idempotent /run silently reuse
     assert.ok(!/rerun: true/.test(m![0]), "first run must not force a rerun");
   });
 
-  it("workbench POSTs /research/rerun when rerun is requested and surfaces duplicate reuse", () => {
-    assert.match(WORKBENCH, /opts\?\.rerun \? "rerun" : "run"/);
-    assert.match(WORKBENCH, /\/api\/deals\/\$\{dealId\}\/research\/\$\{action\}/);
+  it("workbench posts force_rerun to /research/run when rerun is requested and surfaces duplicate reuse", () => {
+    assert.match(WORKBENCH, /\/api\/deals\/\$\{dealId\}\/research\/run/);
+    assert.match(WORKBENCH, /opts\?\.rerun[\s\S]{0,200}force_rerun: true/);
     assert.match(WORKBENCH, /payload\?\.duplicate === true/);
+  });
+
+  it("run handler honors the force_rerun body flag", () => {
+    const RUN = fs.readFileSync(
+      path.resolve(__dirname, "..", "..", "..", "app", "api", "deals", "[dealId]", "research", "[action]", "_handlers", "run.ts"),
+      "utf8",
+    );
+    assert.match(RUN, /if \(body\.force_rerun === true\) forceRerun = true;/);
+    assert.match(RUN, /forceRerun,\s*\}\);/);
   });
 
   it("panel exposes the #research-gate anchor the lifecycle CTA deep-links to", () => {

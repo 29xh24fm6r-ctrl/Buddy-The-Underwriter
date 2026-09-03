@@ -147,11 +147,15 @@ export default function AnalystWorkbench({ dealId }: Props) {
     setResearchError(null);
     try {
       // runMission completes synchronously server-side (up to ~5 min).
-      // "Re-run Research" (failed / gate-failed mission) must POST /research/rerun:
-      // plain /run is idempotent on run_key and silently reuses the existing
-      // mission, so the button appeared to do nothing.
-      const action = opts?.rerun ? "rerun" : "run";
-      const response = await fetch(`/api/deals/${dealId}/research/${action}`, { method: "POST" });
+      // "Re-run Research" (failed / gate-failed mission) must force a fresh
+      // mission: a plain run is idempotent on run_key and silently reuses the
+      // existing mission, so the button appeared to do nothing.
+      const response = await fetch(
+        `/api/deals/${dealId}/research/run`,
+        opts?.rerun
+          ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force_rerun: true }) }
+          : { method: "POST" },
+      );
       const failure = await readResearchRunFailure(response);
       if (failure) setResearchError(failure);
       else {

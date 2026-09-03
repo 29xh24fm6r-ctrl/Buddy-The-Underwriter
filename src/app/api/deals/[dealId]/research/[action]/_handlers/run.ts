@@ -7,9 +7,13 @@
  * Returns mission_id and status — runs to completion (up to 60s).
  *
  * Body (optional JSON):
- *   { mission_type?: MissionType, depth?: MissionDepth }
+ *   { mission_type?: MissionType, depth?: MissionDepth, force_rerun?: boolean }
  *
  * Defaults: mission_type = "industry_landscape", depth = "committee"
+ *
+ * force_rerun: true (or the "rerun"/"re-run" action alias) bypasses the run_key
+ * idempotency short-circuit and starts a fresh mission. The UI posts the body
+ * flag from "Re-run Research" so it keeps a single /research/run call path.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -38,7 +42,7 @@ export async function POST(
     // completed — bypass the run_key idempotency short-circuit in that case.
     // Plain "run" stays idempotent. See
     // specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1 (idempotency).
-    const forceRerun = action === "rerun" || action === "re-run";
+    let forceRerun = action === "rerun" || action === "re-run";
 
     if (!uuidRegex.test(dealId)) {
       return NextResponse.json(
@@ -85,6 +89,7 @@ export async function POST(
       const body = await req.json();
       if (body.mission_type) missionType = body.mission_type;
       if (body.depth) depth = body.depth;
+      if (body.force_rerun === true) forceRerun = true;
     } catch {
       // No body or invalid JSON — use defaults
     }
