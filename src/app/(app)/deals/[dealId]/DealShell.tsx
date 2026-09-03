@@ -119,9 +119,15 @@ function FinancialSnapshotCapsule({ dealId }: { dealId: string }) {
       />
       <SnapMetric label="NOI" value={noi == null ? "Pending" : fmtCurrencyCompact(noi)} title="TTM" />
       <SnapMetric
-        label="LTV"
-        value={ltvNet == null ? "Pending" : fmtPct(ltvNet)}
-        title={ltvGross == null ? undefined : `Gross LTV: ${fmtPct(ltvGross)}`}
+        label={ltvNet == null && ltvGross != null ? "LTV (gross)" : "LTV"}
+        value={ltvNet != null ? fmtPct(ltvNet) : ltvGross != null ? fmtPct(ltvGross) : "Pending"}
+        title={
+          ltvNet != null && ltvGross != null
+            ? `Gross LTV: ${fmtPct(ltvGross)}`
+            : ltvGross != null
+              ? "Net LTV pending — no net collateral value on file"
+              : undefined
+        }
       />
       <SnapMetric label="Occ" value={occ == null ? "Pending" : fmtPct(occ)} />
       <SnapMetric label="Rent/mo" value={rent == null ? "Pending" : fmtCurrencyCompact(rent)} />

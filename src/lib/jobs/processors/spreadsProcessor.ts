@@ -16,6 +16,7 @@ import { evaluatePrereq } from "@/lib/financialSpreads/evaluatePrereq";
 import { resolveOwnerType } from "@/lib/financialSpreads/resolveOwnerType";
 import { detectMachineReadabilitySignals } from "@/lib/extraction/detectMachineReadabilitySignals";
 import type { DealBankAccessGrant } from "@/lib/tenant/ensureDealBankAccess";
+import { materializeDealStructureFacts } from "@/lib/loanRequests/materializeDealStructureFacts";
 import {
   nextExtractProgress,
   planExtraction,
@@ -829,6 +830,23 @@ export async function processSpreadJob(
         }
       }
     }
+
+    // Deal-structure facts (loan total, project cost, equity, collateral gross /
+    // net / discounted, LTV, coverage) from the loan request and collateral
+    // schedule. Only the manual synthesis route wrote these before, so the memo
+    // readiness adapter reported "partial" on every automatically driven deal.
+    const structure = await materializeDealStructureFacts({ dealId, bankId });
+    await logLedgerEvent({
+      dealId, bankId,
+      eventKey: structure.ok ? "facts.deal_structure.completed" : "facts.deal_structure.failed",
+      uiState: structure.ok ? "done" : "error",
+      uiMessage: structure.ok
+        ? `${structure.factsWritten} deal-structure facts materialized (loan, collateral, sources & uses)`
+        : `Deal-structure facts failed: ${(structure as any).error}`,
+      meta: structure.ok
+        ? { jobId, factsWritten: structure.factsWritten, keys: structure.keys, notes: structure.notes }
+        : { jobId, error: (structure as any).error },
+    });
 
     // Materialize canonical facts from rendered spreads
     const backfill = await backfillCanonicalFactsFromSpreads({ dealId, bankId });
