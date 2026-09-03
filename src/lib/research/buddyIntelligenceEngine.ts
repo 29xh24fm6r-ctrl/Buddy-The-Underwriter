@@ -183,7 +183,16 @@ export function describeThreadDiagnostic(d: BIEThreadDiagnostic): string {
  * to change a content-policy refusal or a systematically malformed
  * response (which already went through a repair pass at generation time).
  */
+export function isBudgetExhaustedDiagnostic(d: BIEThreadDiagnostic): boolean {
+  // The AI gateway refuses the call before any provider request when the
+  // role's daily token budget is spent; it surfaces here as a thrown error
+  // (network_error). Re-running the thread cannot succeed until the UTC day
+  // rolls over or the budget is raised, and burns the remaining budget.
+  return /token budget exceeded/i.test(d.json_parse_error ?? "");
+}
+
 export function isRetryableBIEDiagnostic(d: BIEThreadDiagnostic): boolean {
+  if (isBudgetExhaustedDiagnostic(d)) return false;
   switch (d.error_type) {
     case "network_error":
     case "empty_candidate":
@@ -594,25 +603,35 @@ export async function callGeminiGrounded<T>(
     }
   }
 
-  // Still truncated after the retry (or no retry possible): use the repaired
-  // partial document rather than reporting "no output". The diagnostic keeps
-  // finish_reason=MAX_TOKENS + truncated so the salvage stays auditable.
-  const stillTruncated =
-    !primary.diagnostic.ok &&
-    primary.diagnostic.error_type === "finish_reason" &&
-    primary.diagnostic.finish_reason === "MAX_TOKENS";
-  if (stillTruncated && args.salvageTruncated) {
-    const salvage = primary.truncatedSalvage ?? firstAttempt.truncatedSalvage ?? null;
-    if (salvage !== null) {
-      console.warn(`[BIE:${args.logTag}] using repaired partial JSON from the truncated reply`);
+  // The final attempt failed — truncated again, or the retry never ran /
+  // was refused (daily token budget, network). If either attempt left a
+  // repairable partial document, use it rather than reporting "no output".
+  // The diagnostic keeps the truncated attempt's finish_reason=MAX_TOKENS +
+  // truncated so the salvage stays auditable, and records the retry's own
+  // failure when that differs.
+  if (!primary.diagnostic.ok && args.salvageTruncated) {
+    const salvageSource =
+      primary.truncatedSalvage != null ? primary
+      : firstAttempt.truncatedSalvage != null ? firstAttempt
+      : null;
+    if (salvageSource) {
+      const retryFailure =
+        salvageSource !== primary && primary.diagnostic.error_type !== "finish_reason"
+          ? ` (retry failed: ${primary.diagnostic.error_type}${primary.diagnostic.json_parse_error ? ` — ${primary.diagnostic.json_parse_error.slice(0, 120)}` : ""})`
+          : "";
+      console.warn(`[BIE:${args.logTag}] using repaired partial JSON from the truncated reply${retryFailure}`);
       return {
-        ...primary,
-        result: salvage,
+        ...salvageSource,
+        result: salvageSource.truncatedSalvage as T,
         diagnostic: {
-          ...primary.diagnostic,
+          ...salvageSource.diagnostic,
           ok: true,
+          retried: primary.diagnostic.retried === true || salvageSource !== primary,
           repaired: true,
           repair_strategy: "truncated_json_close",
+          ...(retryFailure
+            ? { json_parse_error: `retry_failed:${primary.diagnostic.error_type}:${(primary.diagnostic.json_parse_error ?? "").slice(0, 160)}` }
+            : {}),
         },
       };
     }

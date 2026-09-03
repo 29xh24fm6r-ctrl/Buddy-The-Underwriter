@@ -169,6 +169,35 @@ describe("callGeminiGrounded diagnostics", () => {
     assert.equal(r.diagnostic.retried, true);
   });
 
+  it("salvageTruncated: first attempt truncated, retry refused by the daily budget → salvage still used", async () => {
+    mockFetchSequence([
+      () => ({
+        ok: true, status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: '{"executive_credit_thesis": "Solid operator", "b": "cu' }] }, finishReason: "MAX_TOKENS" }] }),
+      }),
+      // The gateway refuses the retry before any provider call (budget spent).
+      () => { throw new Error('daily token budget exceeded for role "generator" (1961061 consumed + 0 reserved + 88038 requested / 2000000)'); },
+    ]);
+    const r = await call({ salvageTruncated: true, maxOutputTokens: 16384 });
+    assert.equal((r.result as any)?.executive_credit_thesis, "Solid operator");
+    assert.equal(r.diagnostic.ok, true);
+    assert.equal(r.diagnostic.repaired, true);
+    assert.equal(r.diagnostic.truncated, true);
+    assert.equal(r.diagnostic.finish_reason, "MAX_TOKENS");
+    assert.match(r.diagnostic.json_parse_error ?? "", /retry_failed:network_error:.*token budget exceeded/);
+  });
+
+  it("budget exhaustion is not a retryable thread failure", () => {
+    const d = {
+      thread: "synthesis", ok: false, error_type: "network_error",
+      json_parse_error: 'daily token budget exceeded for role "generator" (1961061 consumed + 0 reserved + 88038 requested / 2000000)',
+      prompt_chars: 1, source_count: 0, model: "m", created_at: "now",
+    } as any;
+    assert.equal(bie.isBudgetExhaustedDiagnostic(d), true);
+    assert.equal(bie.isRetryableBIEDiagnostic(d), false);
+    assert.equal(bie.isRetryableBIEDiagnostic({ ...d, json_parse_error: "ECONNRESET" }), true);
+  });
+
   it("without salvageTruncated a MAX_TOKENS reply is still discarded (strict threads)", async () => {
     mockFetch(() => ({
       ok: true, status: 200,
