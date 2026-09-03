@@ -240,6 +240,22 @@ describe("rail 'Run research' starts the mission itself (one click, no second bu
     assert.equal(rail.label, "Run research");
   });
 
+  it("research_stalled (the blocker the unified readiness layer raises) is the same one-click action", () => {
+    const fix = getBlockerFixAction({ code: "research_stalled", message: "x" } as unknown as LifecycleBlocker, DEAL);
+    assert.ok(fix && "action" in fix);
+    assert.equal((fix as { action: string }).action, "research.run");
+    assert.equal((fix as { fallbackHref?: string }).fallbackHref, `/deals/${DEAL}/underwrite#research-gate`);
+    const state = {
+      stage: "underwrite_in_progress",
+      lastAdvancedAt: null,
+      blockers: [{ code: "research_stalled", message: "x" }],
+      derived: {},
+    } as unknown as Parameters<typeof getNextAction>[0];
+    const rail = buildJourneyPrimaryAction(state, DEAL);
+    assert.equal(rail.intent, "runnable");
+    assert.equal(rail.serverAction, "run_research");
+  });
+
   it("run_research posts to /research/run with force_rerun", () => {
     assert.equal(endpointFor("run_research", DEAL), `/api/deals/${DEAL}/research/run`);
     assert.match(STAGE_ROW, /run_research: \{ force_rerun: true \}/);

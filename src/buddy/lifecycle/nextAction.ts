@@ -469,13 +469,15 @@ export function getBlockerFixAction(
       };
 
     case "research_stalled":
+      // Same one-click server action as missing_research_quality_gate: the
+      // rail starts the mission itself. SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1:
+      // /deals/[dealId]/research does not exist (404); the fallback is the
+      // canonical /underwrite research panel, the same destination memo
+      // readiness uses, so both layers agree on one existing route.
       return {
         label: "Run research",
-        // SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1: /deals/[dealId]/research does
-        // not exist (404). Route to the canonical /underwrite page — the same
-        // destination memo readiness uses for missing_research_quality_gate — so
-        // both layers agree on one existing route.
-        href: `/deals/${dealId}/underwrite`,
+        action: "research.run",
+        fallbackHref: `/deals/${dealId}/underwrite#research-gate`,
       };
 
     case "financial_snapshot_stale_recovery":
