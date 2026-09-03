@@ -83,7 +83,7 @@ describe("research blocker routing", () => {
     } as unknown as LifecycleBlocker;
     const action = getBlockerFixAction(blocker, DEAL);
     assert.ok(action && "href" in action, "expected an href fix action");
-    assert.equal((action as { href: string }).href, `/deals/${DEAL}/underwrite`);
+    assert.equal((action as { href: string }).href, `/deals/${DEAL}/underwrite#research-gate`);
     assert.equal(action.label, "Run research");
   });
 });
@@ -174,5 +174,34 @@ describe("no duplicate research source of truth", () => {
     for (const p of candidates) {
       assert.equal(fs.existsSync(p), false, `unexpected research page route at ${p}`);
     }
+  });
+});
+
+describe("Re-run Research forces a fresh mission (idempotent /run silently reused the old one)", () => {
+  const PANEL = fs.readFileSync(path.resolve(__dirname, "..", "ResearchGateActionPanel.tsx"), "utf8");
+  const WORKBENCH = fs.readFileSync(path.resolve(__dirname, "..", "AnalystWorkbench.tsx"), "utf8");
+
+  it("every Re-run Research button passes { rerun: true }", () => {
+    const rerunButtons = PANEL.match(/label="Re-run Research"[\s\S]{0,200}?onClick=\{([^}]*\})?[^}]*\}/g) ?? [];
+    assert.ok(rerunButtons.length >= 2, "expected the failed and gate_failed Re-run buttons");
+    for (const b of rerunButtons) {
+      assert.match(b, /onRunResearch\(\{ rerun: true \}\)/, `Re-run button must force a fresh mission: ${b}`);
+    }
+  });
+
+  it("the initial Run Research button stays idempotent (no rerun flag)", () => {
+    const m = PANEL.match(/label="Run Research"[\s\S]{0,200}?onClick=\{([^}]*)\}/);
+    assert.ok(m, "expected the no_mission Run Research button");
+    assert.ok(!/rerun: true/.test(m![0]), "first run must not force a rerun");
+  });
+
+  it("workbench POSTs /research/rerun when rerun is requested and surfaces duplicate reuse", () => {
+    assert.match(WORKBENCH, /opts\?\.rerun \? "rerun" : "run"/);
+    assert.match(WORKBENCH, /\/api\/deals\/\$\{dealId\}\/research\/\$\{action\}/);
+    assert.match(WORKBENCH, /payload\?\.duplicate === true/);
+  });
+
+  it("panel exposes the #research-gate anchor the lifecycle CTA deep-links to", () => {
+    assert.match(PANEL, /id="research-gate"/);
   });
 });

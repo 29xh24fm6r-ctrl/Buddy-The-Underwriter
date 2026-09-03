@@ -32,7 +32,9 @@ test("Run research routes to the canonical /underwrite page (not the 404 /resear
     DEAL,
   );
   assert.equal(action.label, "Run research");
-  assert.equal((action as any).href, `/deals/${DEAL}/underwrite`);
+  // Deep-links to the ResearchGateActionPanel anchor so a same-page click scrolls
+  // to the Run / Re-run Research button instead of doing nothing.
+  assert.equal((action as any).href, `/deals/${DEAL}/underwrite#research-gate`);
   assert.ok(
     !/\/research\b/.test((action as any).href),
     "must not target the non-existent /research route",
@@ -72,14 +74,14 @@ test("getNextAction and memo readiness agree on the research destination", () =>
     "utf8",
   );
   assert.ok(
-    /code:\s*"missing_research_quality_gate"[\s\S]{0,160}fixPath:\s*`\/deals\/\$\{dealId\}\/underwrite`/.test(
+    /code:\s*"missing_research_quality_gate"[\s\S]{0,160}fixPath:\s*`\/deals\/\$\{dealId\}\/underwrite#research-gate`/.test(
       readinessSrc,
     ),
     "memo readiness research fixPath must be /underwrite",
   );
   assert.equal(
     (action as any).href,
-    `/deals/${DEAL}/underwrite`,
+    `/deals/${DEAL}/underwrite#research-gate`,
     "rail and memo readiness must point at the same /underwrite destination",
   );
 });

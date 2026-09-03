@@ -77,15 +77,17 @@ interface Props {
   workspaceReady: boolean;
   pending: ResearchGatePending;
   onInitialize: () => void;
-  onRunResearch: () => void;
+  /** `rerun` forces a fresh mission (bypasses run_key idempotency). */
+  onRunResearch: (opts?: { rerun?: boolean }) => void;
   // SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1
   onReviewTask?: ReviewTaskHandler;
 }
 
 const Shell = ({ children }: { children: React.ReactNode }) => (
   <div
+    id="research-gate"
     data-testid="research-gate-panel"
-    className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-6 space-y-4"
+    className="scroll-mt-24 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-6 space-y-4"
   >
     <div className="flex items-center gap-2">
       <span className="inline-flex h-6 items-center rounded-full bg-amber-500/15 px-2 text-[11px] font-semibold uppercase tracking-wide text-amber-300">
@@ -171,7 +173,7 @@ export default function ResearchGateActionPanel({
           label="Run Research"
           busyLabel="Running research…"
           busy={pending === "run"}
-          onClick={onRunResearch}
+          onClick={() => onRunResearch()}
         />
       </Shell>
     );
@@ -205,7 +207,7 @@ export default function ResearchGateActionPanel({
           label="Re-run Research"
           busyLabel="Running research…"
           busy={pending === "run"}
-          onClick={onRunResearch}
+          onClick={() => onRunResearch({ rerun: true })}
         />
       </Shell>
     );
@@ -286,7 +288,7 @@ export default function ResearchGateActionPanel({
         label="Re-run Research"
         busyLabel="Running research…"
         busy={pending === "run"}
-        onClick={onRunResearch}
+        onClick={() => onRunResearch({ rerun: true })}
       />
     </Shell>
   );
