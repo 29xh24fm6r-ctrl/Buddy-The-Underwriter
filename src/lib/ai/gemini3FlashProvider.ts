@@ -12,6 +12,7 @@
  */
 
 import "server-only";
+import { snapshotGuidanceBlock } from "@/lib/ai/snapshotGuidance";
 import { z } from "zod";
 import {
   RiskOutputSchema,
@@ -142,6 +143,8 @@ export class Gemini3FlashProvider implements AIProvider {
         "Return ONLY valid JSON that matches the RiskOutput schema.",
         evidenceRulesBlock(),
         "",
+        snapshotGuidanceBlock(),
+        "",
         "OUTPUT STYLE:",
         "- grade: bond-style grade string (e.g. 'B+', 'BB-', 'A').",
         "- baseRateBps and riskPremiumBps: integer basis points.",
@@ -176,6 +179,8 @@ export class Gemini3FlashProvider implements AIProvider {
         "You are Buddy, generating credit memo content to fill into a structured canonical template.",
         "Return ONLY valid JSON that matches the MemoOutput schema.",
         evidenceRulesBlock(),
+        "",
+        snapshotGuidanceBlock(),
         "",
         "MEMO RULES:",
         "- Professional credit memo tone. Short paragraphs. No fluff.",

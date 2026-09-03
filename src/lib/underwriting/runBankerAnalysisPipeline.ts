@@ -26,6 +26,13 @@ import type {
 import type { DealReconciliationSummary } from "@/lib/reconciliation/types";
 import type { writeEvent as WriteEventFn } from "@/lib/ledger/writeEvent";
 import type { logPipelineLedger as LogPipelineLedgerFn } from "@/lib/pipeline/logPipelineLedger";
+import {
+  buildAiDealSnapshot,
+  type AiSnapshotBusinessContext,
+  type AiSnapshotCanonicalSource,
+  type AiSnapshotFactRow,
+  type AiSnapshotManagementProfile,
+} from "./aiDealSnapshot";
 
 assertServerOnly();
 
@@ -351,7 +358,9 @@ export async function runBankerAnalysisPipeline(
     ids.reconciliationStatus = reconSummary.overallStatus;
 
     // 8. Risk run ─────────────────────────────────────────────────────────
-    const dealSnapshot = await buildDealSnapshotForAi(sb, input.dealId, input.bankId);
+    const dealSnapshot = await buildDealSnapshotForAi(sb, input.dealId, input.bankId, {
+      reconciliationStatus: reconSummary.overallStatus,
+    });
     let riskOutput: RiskOutput;
     try {
       riskOutput = await provider.generateRisk({
@@ -889,12 +898,18 @@ async function upsertCommitteeReadySignal(
   return { ok: true };
 }
 
-async function buildDealSnapshotForAi(
+export async function buildDealSnapshotForAi(
   sb: SupabaseClient,
   dealId: string,
   bankId: string,
+  opts: { reconciliationStatus?: "CLEAN" | "FLAGS" | "CONFLICTS" | null } = {},
 ): Promise<Record<string, any>> {
-  const [dealRes, loanReqRes, factsRes, docsRes] = await Promise.all([
+  // Assembly lives in aiDealSnapshot.ts (pure, unit-tested). This function
+  // only loads rows. The snapshot carries the canonical underwriting metrics
+  // (financial_snapshots) and separates complete fiscal years from interim
+  // statements so the generators never read a six-month YTD figure as a
+  // full-year collapse.
+  const [dealRes, loanReqRes, factsRes, docsRes, snapRes, storyRes, mgmtRes] = await Promise.all([
     sb
       .from("deals")
       .select("entity_type, borrower_id, loan_amount, borrower_name, state")
@@ -902,14 +917,14 @@ async function buildDealSnapshotForAi(
       .maybeSingle(),
     sb
       .from("deal_loan_requests")
-      .select("loan_purpose, purpose, requested_amount, product_type")
+      .select("loan_purpose, purpose, requested_amount, product_type, occupancy_type")
       .eq("deal_id", dealId)
       .order("request_number", { ascending: false })
       .limit(1)
       .maybeSingle(),
     sb
       .from("deal_financial_facts")
-      .select("fact_key, fact_value_num, fact_period_end")
+      .select("fact_key, fact_type, fact_value_num, fact_period_start, fact_period_end, owner_type")
       .eq("deal_id", dealId)
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected"),
@@ -919,34 +934,77 @@ async function buildDealSnapshotForAi(
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .limit(50),
+    sb
+      .from("financial_snapshots")
+      .select("snapshot_json, created_at")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    sb
+      .from("deal_borrower_story")
+      .select(
+        "business_description, products_services, customers, competitive_position, key_risks, banker_notes, naics_code, naics_description, legal_name, dba, website, hq_city, hq_state",
+      )
+      .eq("deal_id", dealId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    sb
+      .from("deal_management_profiles")
+      .select("person_name, title, ownership_pct, years_experience, industry_experience")
+      .eq("deal_id", dealId)
+      .limit(10),
   ]);
 
   const deal = (dealRes.data as any) ?? {};
   const loanReq = (loanReqRes.data as any) ?? {};
+  const story = (storyRes.data as any) ?? null;
 
   let borrowerName: string | null = deal.borrower_name ?? null;
   let naicsCode: string | null = null;
+  let borrowerRow: any = null;
   if (deal.borrower_id) {
     const { data: bRow } = await sb
       .from("borrowers")
-      .select("legal_name, naics_code")
+      .select("legal_name, naics_code, naics_description, dba, website, year_founded, employee_count, city, state")
       .eq("id", deal.borrower_id)
       .maybeSingle();
+    borrowerRow = bRow ?? null;
     borrowerName = (bRow as any)?.legal_name ?? borrowerName;
     naicsCode = (bRow as any)?.naics_code ?? null;
   }
 
-  const facts: Record<string, number | null> = {};
-  const yearsSet = new Set<number>();
-  for (const row of (factsRes.data ?? []) as any[]) {
-    if (!row.fact_period_end || row.fact_value_num == null) continue;
-    const year = new Date(row.fact_period_end).getFullYear();
-    if (year < 2000 || year > 2100) continue;
-    if (!String(row.fact_key).startsWith("PFS_")) yearsSet.add(year);
-    facts[`${row.fact_key}_${year}`] = row.fact_value_num;
-  }
-  const years = Array.from(yearsSet).sort((a, b) => a - b);
-  const latestYear = years[years.length - 1] ?? null;
+  const business: AiSnapshotBusinessContext | null =
+    story || borrowerRow
+      ? {
+          legalName: story?.legal_name ?? borrowerRow?.legal_name ?? null,
+          dba: story?.dba ?? borrowerRow?.dba ?? null,
+          naicsCode: story?.naics_code ?? borrowerRow?.naics_code ?? null,
+          naicsDescription: story?.naics_description ?? borrowerRow?.naics_description ?? null,
+          businessDescription: story?.business_description ?? null,
+          productsServices: story?.products_services ?? null,
+          customers: story?.customers ?? null,
+          competitivePosition: story?.competitive_position ?? null,
+          keyRisks: story?.key_risks ?? null,
+          bankerNotes: story?.banker_notes ?? null,
+          website: story?.website ?? borrowerRow?.website ?? null,
+          hqCity: story?.hq_city ?? borrowerRow?.city ?? null,
+          hqState: story?.hq_state ?? borrowerRow?.state ?? null,
+          yearFounded: borrowerRow?.year_founded ?? null,
+          employeeCount: borrowerRow?.employee_count ?? null,
+        }
+      : null;
+
+  const management: AiSnapshotManagementProfile[] = ((mgmtRes.data ?? []) as any[])
+    .filter((m) => m?.person_name)
+    .map((m) => ({
+      name: String(m.person_name),
+      title: m.title ?? null,
+      ownershipPct: typeof m.ownership_pct === "number" ? m.ownership_pct : null,
+      yearsExperience: typeof m.years_experience === "number" ? m.years_experience : null,
+      industryExperience: m.industry_experience ?? null,
+    }));
 
   const evidenceIndex = ((docsRes.data ?? []) as any[]).map((d) => ({
     docId: d.id,
@@ -954,31 +1012,21 @@ async function buildDealSnapshotForAi(
     kind: "pdf" as const,
   }));
 
-  return {
+  return buildAiDealSnapshot({
     dealId,
-    borrowerName: borrowerName ?? "Unknown Borrower",
+    borrowerName,
     entityType: deal.entity_type ?? null,
     state: deal.state ?? null,
     naicsCode,
     loanAmount: loanReq.requested_amount ?? deal.loan_amount ?? null,
     loanPurpose: loanReq.loan_purpose ?? loanReq.purpose ?? null,
     productType: loanReq.product_type ?? null,
-    yearsAvailable: years,
-    latestYear,
-    grossReceipts: latestYear
-      ? facts[`GROSS_RECEIPTS_${latestYear}`] ?? facts[`TOTAL_REVENUE_${latestYear}`] ?? null
-      : null,
-    ebitda: latestYear ? facts[`EBITDA_${latestYear}`] ?? null : null,
-    netIncome: latestYear
-      ? facts[`NET_INCOME_${latestYear}`] ?? facts[`ORDINARY_BUSINESS_INCOME_${latestYear}`] ?? null
-      : null,
-    totalAssets: latestYear ? facts[`TOTAL_ASSETS_${latestYear}`] ?? null : null,
-    totalLiabilities: latestYear ? facts[`TOTAL_LIABILITIES_${latestYear}`] ?? null : null,
-    revenueTrend: years.reduce<Record<string, number | null>>((acc, y) => {
-      acc[String(y)] =
-        facts[`GROSS_RECEIPTS_${y}`] ?? facts[`TOTAL_REVENUE_${y}`] ?? null;
-      return acc;
-    }, {}),
+    occupancyType: loanReq.occupancy_type ?? null,
+    facts: ((factsRes.data ?? []) as any[]) as AiSnapshotFactRow[],
+    canonical: ((snapRes.data as any)?.snapshot_json ?? null) as AiSnapshotCanonicalSource | null,
+    reconciliationStatus: opts.reconciliationStatus ?? null,
+    business,
+    management,
     evidenceIndex,
-  };
+  });
 }
