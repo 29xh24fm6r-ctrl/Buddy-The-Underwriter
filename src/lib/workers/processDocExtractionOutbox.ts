@@ -227,14 +227,22 @@ export async function processClaimedExtractionRows(
         });
       }
 
-      // Post-extraction: trigger deal-level recomputation (idempotent, best-effort)
-      void triggerPostExtractionOps(dealId, bankId, docId).catch((e) => {
+      // Post-extraction: trigger deal-level recomputation (idempotent, best-effort).
+      // Awaited on purpose: this worker runs inside a serverless function that
+      // is frozen as soon as the handler returns, so fire-and-forget work here
+      // only progressed when a later invocation happened to thaw the instance
+      // (observed as spread runs stuck at "queued" for minutes and the deal
+      // showing "generating" across cron gaps). The handler's maxDuration is
+      // 300 s; orchestration and fact materialization take seconds.
+      try {
+        await triggerPostExtractionOps(dealId, bankId, docId);
+      } catch (e: any) {
         console.error("[doc-extraction] post-extraction ops failed (non-fatal)", {
           dealId,
           docId,
           error: e?.message,
         });
-      });
+      }
 
       void writeEvent({
         dealId,
