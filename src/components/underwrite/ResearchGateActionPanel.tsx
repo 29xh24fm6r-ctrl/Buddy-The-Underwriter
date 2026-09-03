@@ -223,6 +223,15 @@ export default function ResearchGateActionPanel({
             ? "Research cleared for preliminary underwriting; committee-grade remains blocked."
             : "Research completed but is not yet ready for preliminary underwriting."}
         </p>
+        {/* The primary action sits at the top of the card: the lifecycle CTA
+            deep-links to #research-gate, and the blocker / evidence sections
+            below can run several screens long, which buried the button. */}
+        <PrimaryButton
+          label="Re-run Research"
+          busyLabel="Running research…"
+          busy={pending === "run"}
+          onClick={() => onRunResearch({ rerun: true })}
+        />
         {/* SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 7:
             decision readiness — preliminary vs committee, with explicit blockers. */}
         <DecisionReadiness readiness={readiness} />
@@ -284,12 +293,6 @@ export default function ResearchGateActionPanel({
           </div>
         ) : null}
       </div>
-      <PrimaryButton
-        label="Re-run Research"
-        busyLabel="Running research…"
-        busy={pending === "run"}
-        onClick={() => onRunResearch({ rerun: true })}
-      />
     </Shell>
   );
 }
