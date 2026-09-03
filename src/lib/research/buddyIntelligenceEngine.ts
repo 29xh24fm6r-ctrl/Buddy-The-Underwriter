@@ -26,6 +26,7 @@ import "server-only";
 
 import type { NarrativeSection } from "./types";
 import { MODEL_RESEARCH, MODEL_RESEARCH_FALLBACK } from "@/lib/ai/models";
+import { closeTruncatedJson } from "./truncatedJson";
 import { runRole } from "@/lib/ai/gateway";
 import {
   repairManagementJson,
@@ -98,6 +99,11 @@ export type BIEThreadDiagnostic = {
   // first attempt failed with a transient error and a second attempt was
   // made immediately, before returning to the caller).
   retried?: boolean;
+  /** The model hit maxOutputTokens; reply text was kept for salvage (see salvageTruncated). */
+  truncated?: boolean;
+  /** Gemini usageMetadata: answer tokens vs. reasoning tokens (both share the output window). */
+  output_tokens?: number | null;
+  thoughts_tokens?: number | null;
   prompt_chars: number;
   response_chars?: number | null;
   source_count: number;
@@ -196,6 +202,13 @@ type GeminiGroundedResult<T> = {
   sourceUrls: string[];           // all URLs from groundingChunks
   segments: GroundingSegment[];   // text segment → source URL mappings
   diagnostic: BIEThreadDiagnostic; // Phase 1: never-silent failure record
+  /**
+   * When the reply was cut off at maxOutputTokens and salvageTruncated was
+   * requested: the partial document closed by closeTruncatedJson (or null when
+   * unrepairable). callGeminiGrounded prefers a clean retry and falls back to
+   * this only when the retry is truncated too.
+   */
+  truncatedSalvage?: T | null;
 };
 
 type CallGeminiGroundedArgs<T> = {
@@ -220,11 +233,22 @@ type CallGeminiGroundedArgs<T> = {
   maxOutputTokens?: number;
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
   timeoutMs?: number;
+  /**
+   * Keep a MAX_TOKENS reply and repair the cut-off JSON when even the retry at
+   * the output ceiling is truncated. Only for threads whose consumer copes with
+   * absent fields (synthesis); grounded fact threads must stay strict.
+   */
+  salvageTruncated?: boolean;
 };
 
 const DEFAULT_THREAD_MAX_OUTPUT_TOKENS = 8192;
-/** Hard ceiling for the one-shot MAX_TOKENS retry (Gemini Flash output cap). */
-const MAX_THREAD_OUTPUT_TOKENS = 32768;
+/**
+ * Hard ceiling for the one-shot MAX_TOKENS retry: the Gemini 3.x output cap.
+ * The committee-depth synthesis document overflowed 32768 on production
+ * (both attempts finished MAX_TOKENS with the reply discarded), so the retry
+ * now goes straight to the ceiling instead of merely doubling.
+ */
+const MAX_THREAD_OUTPUT_TOKENS = 65536;
 
 /**
  * Call Gemini for a single BIE thread against a specific model. Internal —
@@ -291,7 +315,12 @@ async function callGeminiGroundedWithModel<T>(
       responseSchema: args.useGrounding ? undefined : { type: "object" },
       timeoutMs: args.timeoutMs ?? 60_000,
       disableFailover: true,
+      allowTruncatedOutput: args.salvageTruncated === true,
     });
+    const usageDiag = {
+      output_tokens: typeof result.tokensOut === "number" ? result.tokensOut : null,
+      thoughts_tokens: typeof result.thoughtsTokenCount === "number" ? result.thoughtsTokenCount : null,
+    };
 
     const groundingMeta = (result.groundingMetadata as Record<string, unknown>) ?? {};
 
@@ -320,6 +349,42 @@ async function callGeminiGroundedWithModel<T>(
 
     const text = result.text;
     const clean = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+
+    // Output window exhausted but the reply text was kept (salvageTruncated).
+    // Report it as the same MAX_TOKENS failure the retry logic keys on, and
+    // carry the repaired partial document for callGeminiGrounded to use if
+    // the retry at the ceiling is truncated as well.
+    if (result.truncated) {
+      let salvage: T | null = null;
+      try {
+        salvage = JSON.parse(closeTruncatedJson(clean)) as T;
+      } catch {
+        salvage = null;
+      }
+      console.warn(
+        `[BIE:${args.logTag}] reply truncated at maxOutputTokens ` +
+        `(${text.length} chars, ${usageDiag.output_tokens ?? "?"} answer tokens, ` +
+        `${usageDiag.thoughts_tokens ?? "?"} thinking tokens) — ` +
+        `${salvage ? "partial JSON repairable" : "partial JSON not repairable"}`,
+      );
+      return {
+        result: null,
+        sourceUrls: chunkUrls,
+        segments,
+        truncatedSalvage: salvage,
+        diagnostic: baseDiag({
+          ok: false,
+          error_type: "finish_reason",
+          finish_reason: "MAX_TOKENS",
+          truncated: true,
+          raw_text_preview: clean.slice(0, 300),
+          response_chars: text.length,
+          source_count: chunkUrls.length,
+          ...usageDiag,
+        }),
+      };
+    }
+
     let parsed: T;
     try {
       parsed = JSON.parse(clean) as T;
@@ -352,6 +417,7 @@ async function callGeminiGroundedWithModel<T>(
               source_count: chunkUrls.length,
               repaired: true,
               repair_strategy: args.repair.strategy,
+              ...usageDiag,
             }),
           };
         }
@@ -363,6 +429,7 @@ async function callGeminiGroundedWithModel<T>(
         raw_text_preview: clean.slice(0, 300),
         response_chars: text.length,
         source_count: chunkUrls.length,
+        ...usageDiag,
       }));
     }
 
@@ -375,6 +442,7 @@ async function callGeminiGroundedWithModel<T>(
         error_type: "none",
         response_chars: text.length,
         source_count: chunkUrls.length,
+        ...usageDiag,
       }),
     };
   } catch (e: any) {
@@ -505,10 +573,13 @@ export async function callGeminiGrounded<T>(
     !primary.diagnostic.ok &&
     primary.diagnostic.error_type === "finish_reason" &&
     primary.diagnostic.finish_reason === "MAX_TOKENS";
+  const firstAttempt = primary;
   if (exhaustedOutputWindow) {
     const currentBudget = args.maxOutputTokens ?? DEFAULT_THREAD_MAX_OUTPUT_TOKENS;
     if (currentBudget < MAX_THREAD_OUTPUT_TOKENS) {
-      const retryBudget = Math.min(currentBudget * 2, MAX_THREAD_OUTPUT_TOKENS);
+      // Straight to the ceiling: doubling (16384 → 32768) still truncated the
+      // committee-depth synthesis document on production.
+      const retryBudget = MAX_THREAD_OUTPUT_TOKENS;
       console.warn(
         `[BIE:${args.logTag}] MAX_TOKENS with ${currentBudget} output tokens — ` +
         `retrying once with ${retryBudget} tokens and minimal thinking`,
@@ -517,9 +588,33 @@ export async function callGeminiGrounded<T>(
         ...args,
         maxOutputTokens: retryBudget,
         thinkingLevel: "minimal",
-        timeoutMs: Math.max(args.timeoutMs ?? 60_000, 120_000),
+        timeoutMs: Math.max(args.timeoutMs ?? 60_000, 180_000),
       });
       primary = { ...retry, diagnostic: { ...retry.diagnostic, retried: true } };
+    }
+  }
+
+  // Still truncated after the retry (or no retry possible): use the repaired
+  // partial document rather than reporting "no output". The diagnostic keeps
+  // finish_reason=MAX_TOKENS + truncated so the salvage stays auditable.
+  const stillTruncated =
+    !primary.diagnostic.ok &&
+    primary.diagnostic.error_type === "finish_reason" &&
+    primary.diagnostic.finish_reason === "MAX_TOKENS";
+  if (stillTruncated && args.salvageTruncated) {
+    const salvage = primary.truncatedSalvage ?? firstAttempt.truncatedSalvage ?? null;
+    if (salvage !== null) {
+      console.warn(`[BIE:${args.logTag}] using repaired partial JSON from the truncated reply`);
+      return {
+        ...primary,
+        result: salvage,
+        diagnostic: {
+          ...primary.diagnostic,
+          ok: true,
+          repaired: true,
+          repair_strategy: "truncated_json_close",
+        },
+      };
     }
   }
 
@@ -1450,6 +1545,9 @@ Return ONLY valid JSON:
     maxOutputTokens: 16384,
     thinkingLevel: "low",
     timeoutMs: 120_000,
+    // Even at the ceiling the document can be cut off; keep what was written
+    // (thesis first) instead of failing the completion gate with no thesis.
+    salvageTruncated: true,
   });
   return { result: gr.result, sourceUrls: gr.sourceUrls, segments: gr.segments, diagnostic: gr.diagnostic };
 }
