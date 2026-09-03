@@ -61,6 +61,14 @@ export type ProviderCallRequest = {
    * default — no mediaResolution is set, same as before this field existed.
    */
   mediaResolution?: string;
+  /**
+   * When true, a MAX_TOKENS finish with non-empty reply text is returned
+   * (flagged `truncated: true`) instead of thrown, so a caller that can
+   * repair a cut-off JSON document (the BIE synthesis thread) gets the
+   * partial output. Every other finish reason still throws. Off by default:
+   * free-text callers must never silently consume a truncated answer.
+   */
+  allowTruncatedOutput?: boolean;
 };
 
 export type ProviderCallResult = {
@@ -75,4 +83,9 @@ export type ProviderCallResult = {
    * citation-threading parse of this exact shape.
    */
   groundingMetadata?: unknown;
+  /** Set only when allowTruncatedOutput was honored on a MAX_TOKENS finish. */
+  truncated?: boolean;
+  finishReason?: string;
+  /** Gemini 3.x usageMetadata.thoughtsTokenCount — reasoning tokens that share the output window. */
+  thoughtsTokenCount?: number;
 };

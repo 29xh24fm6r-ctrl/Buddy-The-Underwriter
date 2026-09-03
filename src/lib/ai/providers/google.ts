@@ -205,7 +205,12 @@ export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCall
   }
 
   const finishReason = candidate.finishReason;
-  if (finishReason !== "STOP") {
+  // Opt-in salvage: a MAX_TOKENS finish that still carries reply text is
+  // handed back flagged `truncated` so the caller can repair a cut-off JSON
+  // document. Any other non-STOP finish (SAFETY, RECITATION, missing) throws.
+  const truncatedOutputAllowed =
+    finishReason === "MAX_TOKENS" && req.allowTruncatedOutput === true;
+  if (finishReason !== "STOP" && !truncatedOutputAllowed) {
     const reason =
       typeof finishReason === "string" && finishReason.length > 0
         ? finishReason
@@ -215,6 +220,10 @@ export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCall
 
   const text = extractText(candidate.content?.parts);
   if (!text) {
+    if (truncatedOutputAllowed) {
+      // The whole window went to thinking — nothing to salvage.
+      throw new Error("Gemini response was not complete (finishReason: MAX_TOKENS)");
+    }
     throw new Error("Gemini response completed without reply text");
   }
 
@@ -223,6 +232,8 @@ export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCall
     text,
     tokensIn: Number(usage.promptTokenCount ?? 0),
     tokensOut: Number(usage.candidatesTokenCount ?? 0),
+    thoughtsTokenCount: Number(usage.thoughtsTokenCount ?? 0),
+    ...(truncatedOutputAllowed ? { truncated: true, finishReason: "MAX_TOKENS" } : {}),
     ...(req.useSearchGrounding && candidate?.groundingMetadata
       ? { groundingMetadata: candidate.groundingMetadata }
       : {}),

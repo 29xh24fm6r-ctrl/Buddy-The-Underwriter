@@ -126,6 +126,60 @@ describe("callGeminiGrounded diagnostics", () => {
     assert.equal(r.diagnostic.finish_reason, "MAX_TOKENS");
   });
 
+  it("salvageTruncated: MAX_TOKENS on both attempts → repaired partial JSON, auditable diagnostic", async () => {
+    const partial = '{"executive_credit_thesis": "Solid operator", "key_strengths": ["a", "b"], "outlook": "cut he';
+    mockFetch(() => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: partial }] }, finishReason: "MAX_TOKENS" }],
+        usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 200, thoughtsTokenCount: 3000 },
+      }),
+    }));
+    const r = await call({ salvageTruncated: true, maxOutputTokens: 16384 });
+    assert.ok(r.result, "expected the repaired partial document");
+    assert.equal((r.result as any).executive_credit_thesis, "Solid operator");
+    assert.deepEqual((r.result as any).key_strengths, ["a", "b"]);
+    assert.equal("outlook" in (r.result as any), false, "the cut-off field must not be invented");
+    assert.equal(r.diagnostic.ok, true);
+    assert.equal(r.diagnostic.finish_reason, "MAX_TOKENS");
+    assert.equal(r.diagnostic.truncated, true);
+    assert.equal(r.diagnostic.retried, true);
+    assert.equal(r.diagnostic.repaired, true);
+    assert.equal(r.diagnostic.repair_strategy, "truncated_json_close");
+    assert.equal(r.diagnostic.thoughts_tokens, 3000);
+    assert.equal(r.diagnostic.output_tokens, 200);
+  });
+
+  it("salvageTruncated: a clean retry wins over the salvaged first attempt", async () => {
+    mockFetchSequence([
+      () => ({
+        ok: true, status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: '{"a": 1, "b": "cu' }] }, finishReason: "MAX_TOKENS" }] }),
+      }),
+      () => ({
+        ok: true, status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: '{"a": 1, "b": "complete"}' }] }, finishReason: "STOP" }] }),
+      }),
+    ]);
+    const r = await call({ salvageTruncated: true, maxOutputTokens: 16384 });
+    assert.deepEqual(r.result, { a: 1, b: "complete" });
+    assert.equal(r.diagnostic.ok, true);
+    assert.equal(r.diagnostic.repaired, undefined);
+    assert.equal(r.diagnostic.retried, true);
+  });
+
+  it("without salvageTruncated a MAX_TOKENS reply is still discarded (strict threads)", async () => {
+    mockFetch(() => ({
+      ok: true, status: 200,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: '{"a": 1, "b": "cu' }] }, finishReason: "MAX_TOKENS" }] }),
+    }));
+    const r = await call({ maxOutputTokens: 16384 });
+    assert.equal(r.result, null);
+    assert.equal(r.diagnostic.error_type, "finish_reason");
+    assert.equal(r.diagnostic.truncated, undefined);
+  });
+
   it("invalid JSON → json_parse_error with preview", async () => {
     mockFetch(() => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: "not json {" }] }, finishReason: "STOP" }] }) }));
     const r = await call();
