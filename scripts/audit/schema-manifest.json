@@ -490,6 +490,11 @@
     "migration": "20260827200000_fix_ai_gateway_reserve_ambiguity.sql"
   },
   {
+    "name": "reserve_ai_gateway_tokens",
+    "type": "function",
+    "migration": "20260903224500_ai_gateway_extractor_research_roles.sql"
+  },
+  {
     "name": "purge_buddy_system_events",
     "type": "function",
     "migration": "20260827160000_bounded_telemetry_purge.sql"

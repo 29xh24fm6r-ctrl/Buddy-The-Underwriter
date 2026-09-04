@@ -227,14 +227,22 @@ export async function processClaimedExtractionRows(
         });
       }
 
-      // Post-extraction: trigger deal-level recomputation (idempotent, best-effort)
-      void triggerPostExtractionOps(dealId, bankId, docId).catch((e) => {
+      // Post-extraction: trigger deal-level recomputation (idempotent, best-effort).
+      // Awaited on purpose: this worker runs inside a serverless function that
+      // is frozen as soon as the handler returns, so fire-and-forget work here
+      // only progressed when a later invocation happened to thaw the instance
+      // (observed as spread runs stuck at "queued" for minutes and the deal
+      // showing "generating" across cron gaps). The handler's maxDuration is
+      // 300 s; orchestration and fact materialization take seconds.
+      try {
+        await triggerPostExtractionOps(dealId, bankId, docId);
+      } catch (e: any) {
         console.error("[doc-extraction] post-extraction ops failed (non-fatal)", {
           dealId,
           docId,
           error: e?.message,
         });
-      });
+      }
 
       void writeEvent({
         dealId,
@@ -372,10 +380,19 @@ async function triggerPostExtractionOps(
     console.error("[doc-extraction] materializeFactsFromArtifacts failed", { dealId, docId, error: e?.message });
   }
 
-  // 3. Recompute deal readiness
+  // 3. Recompute deal readiness. This worker has no Clerk session, so the
+  //    readiness refresh it schedules must carry a service-verified deal/bank
+  //    grant; without one the refresh is refused as tenant_mismatch.
   try {
-    const { recomputeDealReady } = await import("@/lib/deals/readiness");
-    await recomputeDealReady(dealId);
+    const [{ recomputeDealReady }, { ensureDealBankAccessForService }] = await Promise.all([
+      import("@/lib/deals/readiness"),
+      import("@/lib/tenant/ensureDealBankAccess"),
+    ]);
+    const serviceAccess = await ensureDealBankAccessForService(dealId, bankId);
+    await recomputeDealReady(dealId, {
+      actorId: "system:doc_extraction",
+      accessGrant: serviceAccess.ok ? serviceAccess.grant : undefined,
+    });
   } catch (e: any) {
     console.error("[doc-extraction] recomputeDealReady failed", { dealId, docId, error: e?.message });
   }
