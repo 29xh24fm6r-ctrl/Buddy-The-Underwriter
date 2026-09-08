@@ -12,28 +12,10 @@ import "server-only";
  * Spec: 16B / Spec 18 — Owner/Admin Command Center Route Integration
  */
 
-import { buildBrokerageOwnerCommandCenterFromOperationalState } from "@/lib/admin/buildBrokerageOwnerCommandCenterFromOperationalState";
-import { BrokerageOwnerCommandCenterShell } from "./BrokerageOwnerCommandCenterShell";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default async function BrokerageOwnerPage() {
-  let result: Awaited<
-    ReturnType<typeof buildBrokerageOwnerCommandCenterFromOperationalState>
-  > | null = null;
-
-  try {
-    result =
-      await buildBrokerageOwnerCommandCenterFromOperationalState();
-  } catch (err) {
-    console.error("[admin/brokerage-owner] Failed to load operational state:", err);
-  }
-
-  return (
-    <BrokerageOwnerCommandCenterShell
-      viewModel={result?.viewModel ?? null}
-      dealCount={result?.dealCount ?? 0}
-      evaluatedAt={result?.evaluatedAt ?? null}
-    />
-  );
+export default function BrokerageOwnerPage() {
+  redirect("/admin/brokerage/owner");
 }

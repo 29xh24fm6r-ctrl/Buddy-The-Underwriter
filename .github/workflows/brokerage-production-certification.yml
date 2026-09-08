@@ -1,0 +1,57 @@
+name: Brokerage Production Certification
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type CERTIFY_PRODUCTION to run synthetic brokerage journeys against production"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: brokerage-production-certification
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    if: inputs.confirmation == 'CERTIFY_PRODUCTION'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify deployed release identity
+        shell: bash
+        run: |
+          deployed_sha="$(curl --fail --silent --show-error https://app.buddytheunderwriter.com/api/meta/build | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).gitSha||""))')"
+          test "$deployed_sha" = "$GITHUB_SHA"
+      - name: Run borrower production journey
+        run: pnpm synth:borrowers
+        env:
+          BUDDY_BASE_URL: https://app.buddytheunderwriter.com
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Run brokerage ledger journey and clean up
+        run: pnpm golden:brokerage -- --cleanup
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Preserve certification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: brokerage-production-certification-${{ github.sha }}
+          path: .ci/synth-borrower-e2e-report.json
+          if-no-files-found: warn
+          retention-days: 90

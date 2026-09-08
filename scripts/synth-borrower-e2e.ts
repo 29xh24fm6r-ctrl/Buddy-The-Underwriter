@@ -16,7 +16,7 @@
  * drops below 13/15.
  *
  * Env:
- *   BUDDY_PREVIEW_URL          required base URL (e.g. https://preview-xyz.vercel.app)
+ *   BUDDY_BASE_URL             optional base URL; defaults to production
  *   SUPABASE_SERVICE_ROLE_KEY  required to persist durable run evidence
  *   SUPABASE_URL               required (NEXT_PUBLIC_SUPABASE_URL also accepted)
  *   SYNTH_FIXTURE_COUNT        optional cap, default = all fixtures
@@ -235,8 +235,32 @@ async function persistDurableReport(
   }
 }
 
+async function classifySyntheticDeals(results: FixtureResult[]): Promise<void> {
+  const serviceRoleKey = env("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseUrl = (process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
+  if (!supabaseUrl) throw new Error("Missing required env: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
+  const dealIds = [...new Set(results.map((result) => result.deal_id).filter((id): id is string => Boolean(id)))];
+  for (const dealId of dealIds) {
+    const response = await fetch(`${supabaseUrl}/rest/v1/deals?id=eq.${encodeURIComponent(dealId)}`, {
+      method: "PATCH",
+      headers: {
+        apikey: serviceRoleKey,
+        authorization: `Bearer ${serviceRoleKey}`,
+        "content-type": "application/json",
+        prefer: "return=representation",
+      },
+      body: JSON.stringify({ is_test: true }),
+    });
+    if (!response.ok) throw new Error(`synthetic deal classification failed for ${dealId}: HTTP ${response.status}`);
+    const rows = await response.json() as Array<{ id?: string; is_test?: boolean }>;
+    if (rows.length !== 1 || rows[0]?.id !== dealId || rows[0]?.is_test !== true) {
+      throw new Error(`synthetic deal classification was not confirmed for ${dealId}`);
+    }
+  }
+}
+
 async function main(): Promise<void> {
-  const baseUrl = env("BUDDY_PREVIEW_URL").replace(/\/$/, "");
+  const baseUrl = (process.env.BUDDY_BASE_URL ?? "https://app.buddytheunderwriter.com").replace(/\/$/, "");
 
   const fixtures = loadFixtures();
   if (fixtures.length === 0) {
@@ -283,6 +307,8 @@ async function main(): Promise<void> {
 
   const minPass = REQUIRED_PASS_NUMERATOR / REQUIRED_PASS_DENOMINATOR;
   const passedGate = repeatAskViolations.length === 0 && passRate >= minPass;
+  await classifySyntheticDeals(results);
+  console.log("[synth-borrower-e2e] synthetic deals classified and excluded from operating totals");
   await persistDurableReport(report, passedGate);
   console.log("[synth-borrower-e2e] durable evidence recorded");
 

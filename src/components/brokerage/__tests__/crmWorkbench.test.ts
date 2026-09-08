@@ -36,6 +36,8 @@ test("home loads the unified brokerage command center and preserves the full tas
   assert.match(source, /ACTIVE PLACEMENTS/);
   assert.match(source, /CrmTaskInventory/);
   assert.match(source, /No totals are being presented as zero/);
+  assert.match(source, /Your first real opportunity, without the learning curve/);
+  assert.match(source, /Capture the opportunity/);
 });
 test("company directory preserves full record links and derived metrics", () => {
   const html = renderToStaticMarkup(
