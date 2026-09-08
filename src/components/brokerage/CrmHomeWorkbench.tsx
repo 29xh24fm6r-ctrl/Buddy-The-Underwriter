@@ -70,6 +70,17 @@ export function CrmHomeWorkbench({ loading: relationshipLoading, error: relation
         <Link href={`${CRM_ROOT}/buyers`}><span>ACTIVE PLACEMENTS</span><strong>{command.metrics.activeSubmissions}</strong><small>Files moving with lenders</small></Link>
       </section>
 
+      {command.metrics.activeDeals === 0 && command.metrics.activeLeads === 0 ? (
+        <section className="crm-launch-path" aria-labelledby="crm-launch-title">
+          <header><div><p className="crm-eyebrow">START HERE</p><h2 id="crm-launch-title">Your first real opportunity, without the learning curve.</h2></div><p>Buddy keeps every conversation, document, lender, and next action attached to the same opportunity.</p></header>
+          <div>
+            <Link href={`${CRM_ROOT}/leads`}><span>1</span><strong>Capture the opportunity</strong><small>Start with a name plus an email or phone number. Add the rest as you learn it.</small><b>Open lead pipeline →</b></Link>
+            <Link href="/admin/brokerage/pipeline/new"><span>2</span><strong>Open the brokerage file</strong><small>Already have a qualified borrower? Create the deal directly and assign its first next action.</small><b>Load a deal →</b></Link>
+            <Link href={`${CRM_ROOT}/buyers`}><span>3</span><strong>Build lender readiness</strong><small>Record bank appetite once so every future deal starts with a smarter shortlist.</small><b>Open lender network →</b></Link>
+          </div>
+        </section>
+      ) : null}
+
       <div className="crm-command-layout">
         <main className="crm-command-main">
           <section className="crm-command-focus">

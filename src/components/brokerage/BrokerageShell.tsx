@@ -42,7 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Run the business",
     items: [
       { label: "Billing", href: "/admin/brokerage/billing", icon: "▧" },
-      { label: "Owner command", href: "/admin/brokerage-owner", icon: "◉" },
+      { label: "Owner command", href: "/admin/brokerage/owner", icon: "◉" },
     ],
   },
   {
@@ -63,6 +63,7 @@ const TITLES: Record<string, [string, string]> = {
   "/admin/brokerage/crm": ["CRM", "Relationship command center"],
   "/admin/brokerage/billing": ["Billing", "Lender referral-fee invoices"],
   "/admin/brokerage-owner": ["Owner command center", "Business-level view"],
+  "/admin/brokerage/owner": ["Owner command", "Revenue, risk, and readiness"],
   "/admin/brokerage/team": ["Team & roles", "Access and workload"],
   "/admin/brokerage/listings": ["Ops health", "Listings & sessions"],
   "/admin/brokerage/uploads": ["Ops health", "Uploads pending OCR"],
@@ -87,7 +88,7 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
   const [accountError, setAccountError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname() || "";
-  const c = pathname.startsWith("/admin/brokerage/crm") ? crmColors : brokerageColors;
+  const c = pathname.startsWith("/admin/brokerage/crm") || pathname === "/admin/brokerage/owner" ? crmColors : brokerageColors;
   const [title, subtitle] = titleFor(pathname);
   const activeHref = activeBrokerageWorkspaceLink(pathname, NAV_GROUPS.flatMap(({ items }) => items));
 

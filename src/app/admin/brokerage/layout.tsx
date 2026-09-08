@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { requireBrokerageStaffPage } from "@/lib/auth/requireBrokerageStaff";
 import { BrokerageShell } from "@/components/brokerage/BrokerageShell";
 import { brokerageFontVariables } from "./fonts";
+import "./crm/unified.css";
 
 export const dynamic = "force-dynamic";
 
