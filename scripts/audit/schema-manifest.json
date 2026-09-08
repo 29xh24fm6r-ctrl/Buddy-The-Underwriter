@@ -635,6 +635,11 @@
     "migration": "20260902120000_find_orphan_spreads_rendered_exclusion.sql"
   },
   {
+    "name": "deal_lender_matches",
+    "type": "table",
+    "migration": "20260908190000_deal_lender_matches.sql"
+  },
+  {
     "name": "deals.brokerage_comms_last_run_at",
     "type": "column",
     "migration": "20260908183000_deals_brokerage_comms_last_run_at.sql"

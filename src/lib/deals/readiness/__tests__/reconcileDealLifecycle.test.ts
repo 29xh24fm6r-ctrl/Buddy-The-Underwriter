@@ -60,3 +60,17 @@ test("[reconcile-4] reconciler returns no_change when stage already correct", ()
     "Idempotent path must return reason: 'no_change'",
   );
 });
+
+test("[reconcile-5] reconciler never advances a deal already at or beyond its target", () => {
+  // 2026-09-08: a deal in underwrite_in_progress whose readiness target was
+  // underwrite_ready was asked for its next stage (committee_ready), refused,
+  // and a spurious deal.lifecycle.blocked event was written on every refresh.
+  const body = read();
+  const guardIdx = body.indexOf("isStageAtOrBeyond(fromStage, targetStage)");
+  const advanceIdx = body.indexOf("await advanceDealLifecycle(");
+  assert.ok(guardIdx > 0, "reconciler must check isStageAtOrBeyond(fromStage, targetStage)");
+  assert.ok(
+    guardIdx < advanceIdx,
+    "forward-only guard must run before advanceDealLifecycle is called",
+  );
+});

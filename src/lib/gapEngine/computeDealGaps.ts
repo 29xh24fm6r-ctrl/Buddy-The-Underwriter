@@ -40,6 +40,67 @@ export type GapItem = {
   priority: number;
 };
 
+export type RequiredFactRow = {
+  id: string;
+  fact_key: string;
+  fact_value_num: number | string | null;
+  confidence: number | null;
+  resolution_status: string | null;
+  created_at?: string | null;
+};
+
+/**
+ * Pick the fact that represents each required key: a banker-resolved fact
+ * wins outright, then the highest extraction confidence, then the newest.
+ *
+ * The previous implementation built `new Map(rows)` over rows ordered
+ * created_at DESC — Map keeps the LAST entry per key, i.e. the OLDEST fact —
+ * so a key that later gained a 95% extraction kept being judged on its first
+ * 55% one and stayed a low-confidence gap forever.
+ */
+export function selectBestRequiredFacts(rows: RequiredFactRow[]): Map<string, RequiredFactRow> {
+  const best = new Map<string, RequiredFactRow>();
+  for (const row of rows) {
+    if (row.fact_value_num == null) continue;
+    const current = best.get(row.fact_key);
+    if (!current) {
+      best.set(row.fact_key, row);
+      continue;
+    }
+    const trustedNow = isTrustedResolution(row.resolution_status);
+    const trustedCur = isTrustedResolution(current.resolution_status);
+    if (trustedNow !== trustedCur) {
+      if (trustedNow) best.set(row.fact_key, row);
+      continue;
+    }
+    const confNow = row.confidence ?? 0;
+    const confCur = current.confidence ?? 0;
+    if (confNow !== confCur) {
+      if (confNow > confCur) best.set(row.fact_key, row);
+      continue;
+    }
+    const tNow = row.created_at ? Date.parse(row.created_at) : 0;
+    const tCur = current.created_at ? Date.parse(current.created_at) : 0;
+    if (tNow > tCur) best.set(row.fact_key, row);
+  }
+  return best;
+}
+
+export type OpenGapRow = { id: string; fact_key: string; gap_type: string };
+
+/**
+ * Open queue rows that no longer correspond to a current gap, matched on
+ * (fact_key, gap_type). Matching on fact_key alone (the previous behaviour)
+ * let a stale `missing_fact` row survive indefinitely once the same key had
+ * a `low_confidence` row — the exact state that blocked deal c0f6caab's
+ * committee gate on 2026-09-08 with three "not extracted" items for facts
+ * that had been on file for six days.
+ */
+export function selectResolvedGapIds(openRows: OpenGapRow[], currentGaps: Pick<GapItem, "fact_key" | "gap_type">[]): string[] {
+  const live = new Set(currentGaps.map((g) => `${g.fact_key}::${g.gap_type}`));
+  return openRows.filter((r) => !live.has(`${r.fact_key}::${r.gap_type}`)).map((r) => r.id);
+}
+
 /**
  * Computes the current gap state for a deal and upserts into deal_gap_queue.
  *
@@ -58,26 +119,29 @@ export type GapItem = {
 export async function computeDealGaps(args: {
   dealId: string;
   bankId: string;
-}): Promise<{ ok: true; openGaps: number } | { ok: false; error: string }> {
+}): Promise<{ ok: true; openGaps: number; resolved: number } | { ok: false; error: string }> {
   try {
     const sb = supabaseAdmin();
     const gaps: GapItem[] = [];
 
     // ── 1. Load all required facts (present or missing) ────────────────────
     // Scoped to REQUIRED_FACT_KEYS only. We never load secondary facts here.
-    const { data: presentFacts } = await sb
+    const { data: presentFacts, error: presentFactsError } = await sb
       .from("deal_financial_facts")
-      .select("fact_key, fact_value_num, confidence, id, resolution_status")
+      .select("fact_key, fact_value_num, confidence, id, resolution_status, created_at")
       .eq("deal_id", args.dealId)
       .eq("bank_id", args.bankId)
       .eq("is_superseded", false)
       .in("fact_key", REQUIRED_FACT_KEYS as unknown as string[])
       .not("fact_value_num", "is", null)
       .order("created_at", { ascending: false });
+    if (presentFactsError) {
+      // Fail closed: an empty read here would mark every required fact
+      // "missing" and open five false gaps.
+      return { ok: false, error: `required_facts_read_failed:${presentFactsError.message}` };
+    }
 
-    const presentMap = new Map(
-      (presentFacts ?? []).map((f: any) => [f.fact_key, f])
-    );
+    const presentMap = selectBestRequiredFacts((presentFacts ?? []) as RequiredFactRow[]);
 
     // ── 2. Missing required facts ───────────────────────────────────────────
     for (const key of REQUIRED_FACT_KEYS) {
@@ -170,23 +234,28 @@ export async function computeDealGaps(args: {
     // busywork and audit risk.
 
     // ── 6. Sync gap queue ───────────────────────────────────────────────────
-    if (gaps.length > 0) {
-      const openGapKeys = gaps.map(g => g.fact_key);
-      await sb
+    // Resolve every open row that no longer matches a current (fact_key,
+    // gap_type) gap, by id, and surface the write's error instead of
+    // dropping it: a silently failed sync leaves the committee gate blocked
+    // on items the evidence has already cleared.
+    const { data: openRows, error: openRowsError } = await sb
+      .from("deal_gap_queue")
+      .select("id, fact_key, gap_type")
+      .eq("deal_id", args.dealId)
+      .eq("bank_id", args.bankId)
+      .eq("status", "open");
+    if (openRowsError) {
+      return { ok: false, error: `gap_queue_read_failed:${openRowsError.message}` };
+    }
+    const resolvedIds = selectResolvedGapIds((openRows ?? []) as OpenGapRow[], gaps);
+    if (resolvedIds.length > 0) {
+      const { error: resolveError } = await sb
         .from("deal_gap_queue")
         .update({ status: "resolved", resolved_at: new Date().toISOString() })
-        .eq("deal_id", args.dealId)
-        .eq("bank_id", args.bankId)
-        .eq("status", "open")
-        .not("fact_key", "in", `(${openGapKeys.map(k => `"${k}"`).join(",")})`);
-    } else {
-      // No gaps — deal is genuinely complete. Resolve everything.
-      await sb
-        .from("deal_gap_queue")
-        .update({ status: "resolved", resolved_at: new Date().toISOString() })
-        .eq("deal_id", args.dealId)
-        .eq("bank_id", args.bankId)
-        .eq("status", "open");
+        .in("id", resolvedIds);
+      if (resolveError) {
+        return { ok: false, error: `gap_queue_resolve_failed:${resolveError.message}` };
+      }
     }
 
     for (const gap of gaps) {
@@ -204,7 +273,7 @@ export async function computeDealGaps(args: {
         );
     }
 
-    return { ok: true, openGaps: gaps.length };
+    return { ok: true, openGaps: gaps.length, resolved: resolvedIds.length };
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

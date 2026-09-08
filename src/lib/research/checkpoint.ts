@@ -272,5 +272,15 @@ export async function findStaleMissions(
     .eq("status", "running")
     .or(`last_heartbeat_at.lt.${threshold},and(last_heartbeat_at.is.null,started_at.lt.${threshold})`);
 
-  return (data ?? []).map((row) => row.id);
+  // A mission row is now created in the request path before its durable
+  // workflow is admitted (prepareMissionRun). A row still queued past the
+  // threshold has no owner — the workflow never started or died before
+  // marking it running — and must be failed the same way.
+  const { data: queued } = await sb
+    .from("buddy_research_missions")
+    .select("id")
+    .eq("status", "queued")
+    .lt("created_at", threshold);
+
+  return [...(data ?? []), ...(queued ?? [])].map((row) => row.id);
 }

@@ -24,12 +24,14 @@ export type LenderMatchInput = {
 
 export type LenderMatchResult = {
   matched: Array<{
+    programId: string;
     lender: string;
     program: string | null;
     fitScore: number;
     reasons: string[];
   }>;
   excluded: Array<{
+    programId: string;
     lender: string;
     reason: string;
   }>;
@@ -46,7 +48,19 @@ function normalizeList(values: string[] | null | undefined): string[] {
 }
 
 function toNum(n: any): number | null {
-  return typeof n === "number" && Number.isFinite(n) ? n : null;
+  if (typeof n === "number" && Number.isFinite(n)) return n;
+  // lender_programs.min_dscr / max_ltv are NUMERIC and arrive as strings
+  // through PostgREST; a "0.90" limit must still count as a limit.
+  if (typeof n === "string" && n.trim() !== "") {
+    const parsed = Number(n);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+// Snapshot LTV and lender_programs.max_ltv are 0–1 ratios (0.80 = 80%).
+function pct(ratio: number): string {
+  return `${Math.round(ratio * 100)}%`;
 }
 
 export function matchLenders(input: LenderMatchInput): LenderMatchResult {
@@ -77,9 +91,9 @@ export function matchLenders(input: LenderMatchInput): LenderMatchResult {
     }
 
     if (maxLtv !== null && ltv !== null && ltv > maxLtv) {
-      exclusions.push(`LTV ${ltv.toFixed(0)}% above ${maxLtv.toFixed(0)}%.`);
+      exclusions.push(`LTV ${pct(ltv)} above ${pct(maxLtv)}.`);
     } else if (maxLtv !== null && ltv !== null) {
-      reasons.push(`LTV ${ltv.toFixed(0)}% within limit.`);
+      reasons.push(`LTV ${pct(ltv)} within ${pct(maxLtv)} limit.`);
     }
 
     if (scoreThreshold !== null && input.score !== null && input.score < scoreThreshold) {
@@ -107,7 +121,7 @@ export function matchLenders(input: LenderMatchInput): LenderMatchResult {
     }
 
     if (exclusions.length) {
-      excluded.push({ lender: program.lender_name, reason: exclusions[0] });
+      excluded.push({ programId: program.id, lender: program.lender_name, reason: exclusions[0] });
       continue;
     }
 
@@ -116,6 +130,7 @@ export function matchLenders(input: LenderMatchInput): LenderMatchResult {
     );
 
     matched.push({
+      programId: program.id,
       lender: program.lender_name,
       program: program.program_name ?? null,
       fitScore,

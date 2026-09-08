@@ -87,17 +87,27 @@ export async function buildMemoInputPackage(
     !!delegated &&
     isDealBankAccessGrantFor(delegated, args.dealId, delegated.bankId);
   const access = delegatedIsValid
-    ? ({ ok: true as const, bankId: delegated.bankId })
+    ? ({ ok: true as const, bankId: delegated.bankId, grant: delegated })
     : await ensureDealBankAccess(args.dealId);
   if (!access.ok) {
     return { ok: false, reason: "tenant_mismatch", error: access.error };
   }
-  const { bankId } = access;
+  const { bankId, grant } = access;
   const sb = supabaseAdmin();
 
   try {
   if (args.runReconciliation) {
-    await reconcileDealFacts({ dealId: args.dealId });
+    // Carry the same grant this build runs under so the reconciliation is
+    // authorized identically on session-less worker paths.
+    const reconciled = await reconcileDealFacts({
+      dealId: args.dealId,
+      accessGrant: grant,
+    });
+    if (!reconciled.ok) {
+      console.warn(
+        `[buildMemoInputPackage] fact reconciliation skipped dealId=${args.dealId} reason=${reconciled.reason}`,
+      );
+    }
 
     // SPEC-LIFECYCLE-CHECKLIST-READINESS-CANONICAL-FLOW-1: run the cheap,
     // deterministic checklist-satisfaction self-heal BEFORE counting unfinalized
@@ -162,6 +172,33 @@ export async function buildMemoInputPackage(
       }
     } catch {
       // non-fatal — prerequisite repair must never block memo-input assembly
+    }
+
+    // The committee gate (getFinancialSnapshotGate) reads deal_gap_queue,
+    // which is only as current as the last computeDealGaps run. Recompute it
+    // here so the lifecycle blocker converges on the same refresh cadence as
+    // readiness itself (event hooks and the worker reconcile sweep), instead
+    // of waiting for a banker to open the gap-queue page. Idempotent and
+    // cheap: five required keys, no OCR, no AI.
+    try {
+      const { computeDealGaps } = await import("@/lib/gapEngine/computeDealGaps");
+      const gapResult = await computeDealGaps({ dealId: args.dealId, bankId });
+      if (gapResult.ok && gapResult.resolved > 0) {
+        try {
+          const { invalidateLifecycleCache } = await import(
+            "@/buddy/lifecycle/lifecycleCache"
+          );
+          invalidateLifecycleCache(args.dealId);
+        } catch {
+          // non-fatal — best-effort cache drop
+        }
+      } else if (!gapResult.ok) {
+        console.warn(
+          `[buildMemoInputPackage] gap recompute skipped dealId=${args.dealId} reason=${gapResult.error}`,
+        );
+      }
+    } catch {
+      // non-fatal — gap recompute must never block memo-input assembly
     }
   }
 

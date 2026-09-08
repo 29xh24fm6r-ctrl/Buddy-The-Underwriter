@@ -9,19 +9,18 @@
  *   2. Multi-turn POST /api/brokerage/concierge until response reports
  *      `nextRequiredFields = []` or transcript exhausts.
  *   3. POST /api/brokerage/upload/prepare.
- *   4. Poll GET /api/brokerage/deals/{dealId}/seal-status every 5s, up
- *      to 5 minutes.
+ *   4. GET /api/brokerage/deals/{dealId}/seal-status and verify the
+ *      readiness contract. This journey does not upload a document package
+ *      or invoke POST /seal, so an unsealed response with explicit gate
+ *      reasons is the truthful expected state.
  *
  * Writes .ci/synth-borrower-e2e-report.json. Exits non-zero if pass_rate
  * drops below 13/15.
  *
  * Env:
- *   BUDDY_PREVIEW_URL          required base URL (e.g. https://preview-xyz.vercel.app)
- *   SUPABASE_SERVICE_ROLE_KEY  required to persist durable run evidence
- *   SUPABASE_URL               required (NEXT_PUBLIC_SUPABASE_URL also accepted)
+ *   BUDDY_BASE_URL             optional base URL; defaults to production
+ *   GitHub Actions OIDC        required to classify test data and persist evidence
  *   SYNTH_FIXTURE_COUNT        optional cap, default = all fixtures
- *   SYNTH_POLL_INTERVAL_MS     optional, default 5000
- *   SYNTH_POLL_MAX_ATTEMPTS    optional, default 60
  *
  * Real concierge model. Real OCR. No DB surgery.
  */
@@ -29,12 +28,16 @@
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { detectRepeatAsks } from "./synth-borrower-e2e/detectRepeatAsks";
+import { getGitHubActionsOidcToken } from "./lib/github-actions-oidc";
 
 type Fixture = { fixture_id: string; transcript: string[] };
 type FixtureResult = {
   fixture_id: string;
   deal_id: string | null;
   sealed: boolean;
+  status_verified: boolean;
+  can_seal: boolean | null;
+  gate_reasons: string[];
   elapsed_ms: number;
   last_event: { scope: string; action: string; created_at: string } | null;
   error: string | null;
@@ -46,15 +49,6 @@ type FixtureResult = {
 
 const REQUIRED_PASS_NUMERATOR = 13;
 const REQUIRED_PASS_DENOMINATOR = 15;
-
-function env(name: string, required = true): string {
-  const v = process.env[name];
-  if (required && !v) {
-    console.error(`Missing required env: ${name}`);
-    process.exit(2);
-  }
-  return v ?? "";
-}
 
 function fixtureDir(): string {
   return join(process.cwd(), "scripts/synth-borrower-e2e/fixtures");
@@ -80,6 +74,35 @@ function captureSetCookieJar(headers: Headers): string {
     .join("; ");
 }
 
+async function postConciergeWithRateLimitPacing(args: {
+  baseUrl: string;
+  cookieJar: string;
+  userMessage: string;
+}): Promise<Response> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(`${args.baseUrl}/api/brokerage/concierge`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(args.cookieJar ? { cookie: args.cookieJar } : {}),
+      },
+      body: JSON.stringify({ userMessage: args.userMessage }),
+    });
+    if (response.status !== 429 || attempt === 2) return response;
+
+    const retryAfter = Number(response.headers.get("retry-after") ?? "60");
+    const waitSeconds = Math.min(
+      Math.max(Number.isFinite(retryAfter) ? retryAfter : 60, 1) + 1,
+      65,
+    );
+    console.log(
+      `[synth-borrower-e2e] rate limited; pacing next turn for ${waitSeconds}s`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
+  }
+  throw new Error("unreachable concierge retry state");
+}
+
 async function runFixture(
   baseUrl: string,
   fixture: Fixture,
@@ -94,19 +117,19 @@ async function runFixture(
   //   - nextRequiredFields == []
   //   - transcript exhausted
   for (const message of fixture.transcript) {
-    const res = await fetch(`${baseUrl}/api/brokerage/concierge`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(cookieJar ? { cookie: cookieJar } : {}),
-      },
-      body: JSON.stringify({ userMessage: message }),
+    const res = await postConciergeWithRateLimitPacing({
+      baseUrl,
+      cookieJar,
+      userMessage: message,
     });
     if (!res.ok) {
       return {
         fixture_id: fixture.fixture_id,
         deal_id: dealId,
         sealed: false,
+        status_verified: false,
+        can_seal: null,
+        gate_reasons: [],
         elapsed_ms: Date.now() - started,
         last_event: null,
         error: `concierge_${res.status}`,
@@ -135,6 +158,9 @@ async function runFixture(
       fixture_id: fixture.fixture_id,
       deal_id: null,
       sealed: false,
+      status_verified: false,
+      can_seal: null,
+      gate_reasons: [],
       elapsed_ms: Date.now() - started,
       last_event: null,
       error: "no_deal_id_after_concierge",
@@ -155,6 +181,9 @@ async function runFixture(
       fixture_id: fixture.fixture_id,
       deal_id: dealId,
       sealed: false,
+      status_verified: false,
+      can_seal: null,
+      gate_reasons: [],
       elapsed_ms: Date.now() - started,
       last_event: null,
       error: `upload_prepare_${prep.status}`,
@@ -162,81 +191,87 @@ async function runFixture(
     };
   }
 
-  // Poll seal status.
-  const intervalMs = Number(process.env.SYNTH_POLL_INTERVAL_MS ?? 5000);
-  const maxAttempts = Number(process.env.SYNTH_POLL_MAX_ATTEMPTS ?? 60);
-  let sealed = false;
-  for (let i = 0; i < maxAttempts; i++) {
-    const sealRes = await fetch(
-      `${baseUrl}/api/brokerage/deals/${dealId}/seal-status`,
-      { headers: { cookie: cookieJar } },
-    );
-    if (sealRes.ok) {
-      const sb = (await sealRes.json()) as { sealed?: boolean; status?: string };
-      if (sb.sealed || sb.status === "sealed") {
-        sealed = true;
-        break;
-      }
-    }
-    await new Promise((r) => setTimeout(r, intervalMs));
+  const sealRes = await fetch(
+    `${baseUrl}/api/brokerage/deals/${dealId}/seal-status`,
+    { headers: { cookie: cookieJar } },
+  );
+  if (!sealRes.ok) {
+    return {
+      fixture_id: fixture.fixture_id,
+      deal_id: dealId,
+      sealed: false,
+      status_verified: false,
+      can_seal: null,
+      gate_reasons: [],
+      elapsed_ms: Date.now() - started,
+      last_event: null,
+      error: `seal_status_${sealRes.status}`,
+      repeat_asked_fields: repeatAskedFields,
+    };
   }
+  const status = (await sealRes.json()) as {
+    ok?: boolean;
+    sealed?: boolean;
+    canSeal?: boolean;
+    gateReasons?: unknown;
+  };
+  const gateReasons = Array.isArray(status.gateReasons)
+    ? status.gateReasons.filter((reason): reason is string => typeof reason === "string")
+    : [];
+  const statusVerified =
+    status.ok === true &&
+    typeof status.sealed === "boolean" &&
+    typeof status.canSeal === "boolean" &&
+    Array.isArray(status.gateReasons);
 
   return {
     fixture_id: fixture.fixture_id,
     deal_id: dealId,
-    sealed: sealed && repeatAskedFields.length === 0,
+    sealed: status.sealed === true,
+    status_verified: statusVerified && repeatAskedFields.length === 0,
+    can_seal: typeof status.canSeal === "boolean" ? status.canSeal : null,
+    gate_reasons: gateReasons,
     elapsed_ms: Date.now() - started,
     last_event: null,
-    error: !sealed ? "seal_timeout" : repeatAskedFields.length > 0 ? "repeat_ask_violation" : null,
+    error: !statusVerified ? "invalid_seal_status_contract" : repeatAskedFields.length > 0 ? "repeat_ask_violation" : null,
     repeat_asked_fields: repeatAskedFields,
   };
 }
 
-async function persistDurableReport(
+async function finalizeDurableReport(
+  baseUrl: string,
   report: Record<string, unknown>,
+  results: FixtureResult[],
   passedGate: boolean,
 ): Promise<void> {
-  const serviceRoleKey = env("SUPABASE_SERVICE_ROLE_KEY");
-  const supabaseUrl = (
-    process.env.SUPABASE_URL ??
-    process.env.NEXT_PUBLIC_SUPABASE_URL ??
-    ""
-  ).replace(/\/$/, "");
-  if (!supabaseUrl) {
-    throw new Error("Missing required env: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
-  }
-  const response = await fetch(`${supabaseUrl}/rest/v1/ai_events`, {
+  const token = await getGitHubActionsOidcToken();
+  const legacyIds = (process.env.LEGACY_SYNTHETIC_DEAL_IDS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const dealIds = [...new Set([
+    ...results.map((result) => result.deal_id).filter((id): id is string => Boolean(id)),
+    ...legacyIds,
+  ])];
+  const response = await fetch(`${baseUrl}/api/ops/certification/finalize`, {
     method: "POST",
     headers: {
-      apikey: serviceRoleKey,
-      authorization: `Bearer ${serviceRoleKey}`,
+      authorization: `Bearer ${token}`,
       "content-type": "application/json",
-      prefer: "return=minimal",
     },
-    body: JSON.stringify({
-      deal_id: null,
-      scope: "synth_borrower_e2e",
-      action: passedGate ? "passed" : "failed",
-      output_json: {
-        ran_at: report.ran_at,
-        baseline_commit: report.baseline_commit,
-        pass_count: report.pass_count,
-        total: report.total,
-        pass_rate: report.pass_rate,
-        threshold: report.threshold,
-        repeat_ask_violation_count: report.repeat_ask_violation_count,
-      },
-      confidence: 1,
-      requires_human_review: !passedGate,
-    }),
+    body: JSON.stringify({ dealIds, report, passedGate }),
   });
   if (!response.ok) {
-    throw new Error(`durable evidence persistence failed: HTTP ${response.status}`);
+    throw new Error(`production certification finalization failed: HTTP ${response.status}`);
   }
 }
 
 async function main(): Promise<void> {
-  const baseUrl = env("BUDDY_PREVIEW_URL").replace(/\/$/, "");
+  const baseUrl = (process.env.BUDDY_BASE_URL ?? "https://app.buddytheunderwriter.com").replace(/\/$/, "");
+
+  // Fail before creating production records if the short-lived workflow
+  // identity needed for cleanup/evidence is unavailable.
+  await getGitHubActionsOidcToken();
 
   const fixtures = loadFixtures();
   if (fixtures.length === 0) {
@@ -251,14 +286,14 @@ async function main(): Promise<void> {
     const r = await runFixture(baseUrl, f);
     results.push(r);
     console.log(
-      `    sealed=${r.sealed} elapsed=${r.elapsed_ms}ms error=${r.error ?? "—"}` +
+      `    status_verified=${r.status_verified} sealed=${r.sealed} can_seal=${r.can_seal} elapsed=${r.elapsed_ms}ms error=${r.error ?? "—"}` +
         (r.repeat_asked_fields.length
           ? ` REPEAT_ASK_VIOLATION=[${r.repeat_asked_fields.join(",")}]`
           : ""),
     );
   }
 
-  const passed = results.filter((r) => r.sealed).length;
+  const passed = results.filter((r) => r.status_verified).length;
   const passRate = passed / results.length;
   const repeatAskViolations = results.filter((r) => r.repeat_asked_fields.length > 0);
 
@@ -283,8 +318,8 @@ async function main(): Promise<void> {
 
   const minPass = REQUIRED_PASS_NUMERATOR / REQUIRED_PASS_DENOMINATOR;
   const passedGate = repeatAskViolations.length === 0 && passRate >= minPass;
-  await persistDurableReport(report, passedGate);
-  console.log("[synth-borrower-e2e] durable evidence recorded");
+  await finalizeDurableReport(baseUrl, report, results, passedGate);
+  console.log("[synth-borrower-e2e] synthetic deals classified and durable evidence recorded");
 
   // SPEC-M2 BEAT-METRICS-1: the repeat-ask covenant is a hard gate,
   // independent of the pass-rate threshold — even one violation fails the

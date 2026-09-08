@@ -31,3 +31,26 @@ export function stageRequiresDocuments(stage: LifecycleStage): boolean {
   const def = LIFECYCLE_STAGES.find((s) => s.code === stage);
   return def?.requiresDocuments ?? false;
 }
+
+/**
+ * Position of a stage in the linear progression (workout is the branch
+ * terminal and sorts last). -1 for an unknown stage.
+ */
+export function lifecycleStageIndex(stage: LifecycleStage): number {
+  return LIFECYCLE_STAGES.findIndex((s) => s.code === stage);
+}
+
+/**
+ * True when `stage` is `target` or any later stage. Used by automation that
+ * may only move a deal forward: a deal already past its readiness-derived
+ * target must be left alone, never asked to advance again.
+ */
+export function isStageAtOrBeyond(
+  stage: LifecycleStage,
+  target: LifecycleStage,
+): boolean {
+  const a = lifecycleStageIndex(stage);
+  const b = lifecycleStageIndex(target);
+  if (a < 0 || b < 0) return false;
+  return a >= b;
+}

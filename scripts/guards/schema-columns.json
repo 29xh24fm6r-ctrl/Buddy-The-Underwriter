@@ -5157,6 +5157,18 @@
 "text",
 "transcript_confidence"
 ],
+"deal_lender_matches": [
+"bank_id",
+"created_at",
+"deal_id",
+"fit_score",
+"id",
+"lender_name",
+"lender_program_id",
+"program_name",
+"reasons_json",
+"snapshot_id"
+],
 "deal_loan_decisions": [
 "approved_amount",
 "approved_exception_count",

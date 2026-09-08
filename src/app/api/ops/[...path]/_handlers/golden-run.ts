@@ -6,6 +6,7 @@ import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { runGoldenBrokerageRun } from "@/lib/brokerage/goldenRun";
+import { hasValidBrokerageCertificationOidc } from "@/lib/auth/githubActionsOidc";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +29,7 @@ export const dynamic = "force-dynamic";
  * Auth: WORKER_SECRET (ops/cron) OR requireSuperAdmin()
  */
 export async function POST(req: NextRequest) {
-  if (!hasValidWorkerSecret(req)) {
+  if (!hasValidWorkerSecret(req) && !(await hasValidBrokerageCertificationOidc(req))) {
     try {
       await requireSuperAdmin();
     } catch {
