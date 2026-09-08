@@ -5,7 +5,7 @@ import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
 mockServerOnly();
 const require = createRequire(import.meta.url);
 const m = require("../launchGate") as typeof import("../launchGate");
-test("all gates run",async()=>{const r=await m.runLaunchGate({skipBuild:true});assert.ok(["LAUNCH_READY","NOT_LAUNCH_READY"].includes(r.overall));assert.ok(r.gates.length>=8);assert.ok(r.elapsed>=0);});
+test("all gates run and database-backed gates fail closed without a client",async()=>{const r=await m.runLaunchGate({skipBuild:true});assert.equal(r.overall,"NOT_LAUNCH_READY");assert.equal(r.gates.find(g=>g.name==="integrity_sweep")?.status,"fail");assert.equal(r.gates.find(g=>g.name==="security_audit")?.status,"fail");assert.ok(r.gates.length>=8);assert.ok(r.elapsed>=0);});
 test("PII → NOT_LAUNCH_READY",async()=>{const r=await m.runLaunchGate({skipBuild:true,dbData:{listings:[{id:"l1",deal_id:"d1",status:"claiming",kfs:{borrowerName:"X"}}],deals:[{id:"d1",borrower_name:"X"}]}});assert.equal(r.overall,"NOT_LAUNCH_READY");});
 test("strict blocks warnings",async()=>{const r=await m.runLaunchGate({skipBuild:true,strict:true});if(r.warning>0)assert.equal(r.overall,"NOT_LAUNCH_READY");});
 test("skip-build",async()=>{const r=await m.runLaunchGate({skipBuild:true});assert.equal(r.gates.find(g=>g.name==="production_build")?.status,"skip");});

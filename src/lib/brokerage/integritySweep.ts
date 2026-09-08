@@ -11,7 +11,7 @@ const PII_KFS = ["borrowerName","borrowerFirstName","borrowerLastName","business
 const SPATS = [/storage_path/i,/storage_bucket/i,/\/trident-bundles\//,/\/sealed-packages\//,/\.pdf$/im,/\.xlsx$/im];
 export function checkNoTokenHashInPayloads(listings: Row[], portals: Row[]): IntegrityIssue[] { const r: IntegrityIssue[] = []; const BK = ["token_hash","rawToken","raw_token","service_role_key"]; for (const l of listings) { const p = JSON.stringify(l); for (const k of BK) if (p.includes(`"${k}"`)) r.push(iss("no_token_hash_in_payloads","critical","marketplace_listings",str(l.id),`Contains "${k}"`, "Strip key")); } for (const ps of portals) { const p = JSON.stringify(ps); for (const k of BK) if (p.includes(`"${k}"`)) r.push(iss("no_token_hash_in_payloads","critical","portal_status",str(ps.deal_id),`Contains "${k}"`, "Strip key")); } return r; }
 export function checkClaimAlignment(claims: Row[], listings: Row[]): IntegrityIssue[] { const r: IntegrityIssue[] = []; const lm = new Map<string,Row>(); for (const l of listings) lm.set(String(l.id),l); for (const c of claims) { const l = lm.get(String(c.listing_id)); if (!l) { r.push(iss("claim_alignment","critical","marketplace_claims",str(c.id),"Claim refs non-existent listing","Delete orphan")); continue; } if (String(l.deal_id) !== String(c.deal_id)) r.push(iss("claim_alignment","critical","marketplace_claims",str(c.id),`Claim deal ${c.deal_id} != listing deal ${l.deal_id}`,"Fix deal_id")); } return r; }
-export function checkPickAlignment(picks: Row[], claims: Row[], _listings: Row[]): IntegrityIssue[] { const r: IntegrityIssue[] = []; const cm = new Map<string,Row>(); for (const c of claims) cm.set(String(c.id),c); for (const p of picks) { const c = cm.get(String(p.claim_id)); if (!c) { r.push(iss("pick_alignment","critical","marketplace_picks",str(p.id),"Pick refs non-existent claim","Delete orphan")); continue; } if (String(c.listing_id) !== String(p.listing_id)) r.push(iss("pick_alignment","critical","marketplace_picks",str(p.id),"Pick listing != claim listing","Fix")); if (String(p.deal_id) !== String(c.deal_id)) r.push(iss("pick_alignment","critical","marketplace_picks",str(p.id),"Pick deal != claim deal","Fix")); if (str(p.picked_lender_bank_id) !== str(c.lender_bank_id)) r.push(iss("pick_alignment","critical","marketplace_picks",str(p.id),"Pick lender != claim lender","Fix")); } return r; }
+export function checkPickAlignment(picks: Row[], claims: Row[], listings: Row[]): IntegrityIssue[] { void listings; const r: IntegrityIssue[] = []; const cm = new Map<string,Row>(); for (const c of claims) cm.set(String(c.id),c); for (const p of picks) { const c = cm.get(String(p.claim_id)); if (!c) { r.push(iss("pick_alignment","critical","marketplace_picks",str(p.id),"Pick refs non-existent claim","Delete orphan")); continue; } if (String(c.listing_id) !== String(p.listing_id)) r.push(iss("pick_alignment","critical","marketplace_picks",str(p.id),"Pick listing != claim listing","Fix")); if (String(p.deal_id) !== String(c.deal_id)) r.push(iss("pick_alignment","critical","marketplace_picks",str(p.id),"Pick deal != claim deal","Fix")); if (str(p.picked_lender_bank_id) !== str(c.lender_bank_id)) r.push(iss("pick_alignment","critical","marketplace_picks",str(p.id),"Pick lender != claim lender","Fix")); } return r; }
 export function checkAccessAlignment(accesses: Row[], claims: Row[]): IntegrityIssue[] { const r: IntegrityIssue[] = []; const cm = new Map<string,Row>(); for (const c of claims) cm.set(String(c.id),c); for (const a of accesses) { const c = cm.get(String(a.claim_id)); if (!c) { r.push(iss("access_alignment","critical","marketplace_package_access",str(a.id),"Refs non-existent claim","Revoke")); continue; } if (str(c.status) !== "picked") r.push(iss("access_alignment","critical","marketplace_package_access",str(a.id),`Non-picked claim (${c.status})`,"Revoke")); if (String(a.deal_id) !== String(c.deal_id)) r.push(iss("access_alignment","critical","marketplace_package_access",str(a.id),"Deal mismatch","Fix")); } return r; }
 export function checkNonPickedNoAccess(accesses: Row[], picks: Row[]): IntegrityIssue[] { const r: IntegrityIssue[] = []; const pci = new Set(picks.filter(p => str(p.status)==="picked").map(p => String(p.claim_id))); for (const a of accesses) if (!pci.has(String(a.claim_id))) r.push(iss("non_picked_no_access","critical","marketplace_package_access",str(a.id),"Access for non-picked","Revoke")); return r; }
 export function checkListingKfsRedacted(listings: Row[]): IntegrityIssue[] { const r: IntegrityIssue[] = []; for (const l of listings) { if (["expired","relisted"].includes(str(l.status)??"")) continue; const kfs = l.kfs; if (!kfs || typeof kfs !== "object") continue; const ks = JSON.stringify(kfs); for (const k of PII_KFS) if (k in kfs && kfs[k] != null && String(kfs[k]).length > 0) r.push(iss("listing_kfs_redacted","critical","marketplace_listings",str(l.id),`KFS has "${k}"`, "Redact")); for (const p of SPATS) if (p.test(ks)) { r.push(iss("listing_kfs_redacted","critical","marketplace_listings",str(l.id),"KFS has storage path","Remove")); break; } } return r; }
@@ -25,11 +25,85 @@ export function checkNoStoragePathInListings(listings: Row[]): IntegrityIssue[] 
 export function checkNoPiiInListingPreview(listings: Row[], deals: Row[]): IntegrityIssue[] { const r: IntegrityIssue[] = []; const dm = new Map<string,Row>(); for (const d of deals) dm.set(String(d.id),d); for (const l of listings) { if (["expired","relisted"].includes(str(l.status)??"")) continue; const ks = JSON.stringify(l.kfs??{}).toLowerCase(); const d = dm.get(String(l.deal_id)); if (!d) continue; const bn = str(d.borrower_name); const be = str(d.borrower_email); if (bn && bn.length > 2 && ks.includes(bn.toLowerCase())) r.push(iss("no_pii_in_listing_preview","critical","marketplace_listings",str(l.id),"Borrower name in KFS","PII scan")); if (be && ks.includes(be.toLowerCase())) r.push(iss("no_pii_in_listing_preview","critical","marketplace_listings",str(l.id),"Borrower email in KFS","PII scan")); } return r; }
 export function checkGoldenRunDiagnostics(deal: Row|null, opts: { hasStory: boolean; hasScore: boolean; hasTrident: boolean; sealed: boolean; conciergeProgressPct: number }): IntegrityIssue[] { if (!deal) return []; const r: IntegrityIssue[] = []; if (!opts.hasScore && opts.sealed) r.push(iss("golden_run_diagnostics","critical","deals",String(deal.id),"Sealed without score","Investigate")); return r; }
 
-// Orchestrator stub — wiring placeholder so scripts/brokerage-integrity-sweep.ts
-// and the businessReadinessGate check can typecheck. Real orchestration (loading
-// tables via sb and dispatching to the check* functions above) is intentionally
-// not implemented here; this returns a passing-empty result so the script is a
-// no-op until the orchestrator is fleshed out.
-export async function runIntegritySweep(_args: { sb: any }): Promise<IntegritySweepResult> {
-  return { ok: true, total: 0, critical: 0, warning: 0, info: 0, issues: [], elapsed: 0 };
+type IntegritySnapshot = {
+  listings: Row[]; claims: Row[]; picks: Row[]; accesses: Row[];
+  sealedPackages: Row[]; deals: Row[]; concierges: Row[]; applications: Row[];
+  scores: Row[]; tridents: Row[]; documents: Row[]; slots: Row[];
+};
+
+const INTEGRITY_TABLES: Record<keyof IntegritySnapshot, string> = {
+  listings: "marketplace_listings",
+  claims: "marketplace_claims",
+  picks: "marketplace_picks",
+  accesses: "marketplace_package_access",
+  sealedPackages: "buddy_sealed_packages",
+  deals: "deals",
+  concierges: "borrower_concierge_sessions",
+  applications: "borrower_applications",
+  scores: "buddy_sba_scores",
+  tridents: "buddy_trident_bundles",
+  documents: "deal_documents",
+  slots: "deal_document_slots",
+};
+
+async function loadAllRows(sb: any, table: string): Promise<Row[]> {
+  const pageSize = 1000;
+  const rows: Row[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await sb.from(table).select("*").range(from, from + pageSize - 1);
+    if (error) throw new Error(`${table}: ${error.message}`);
+    const page = (data ?? []) as Row[];
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+}
+
+export async function loadIntegritySnapshot(sb: any): Promise<IntegritySnapshot> {
+  const entries = Object.entries(INTEGRITY_TABLES) as Array<[keyof IntegritySnapshot, string]>;
+  const loaded = await Promise.all(entries.map(async ([key, table]) => [key, await loadAllRows(sb, table)] as const));
+  return Object.fromEntries(loaded) as IntegritySnapshot;
+}
+
+export function evaluateIntegritySnapshot(snapshot: IntegritySnapshot): IntegrityIssue[] {
+  const listingById = new Map(snapshot.listings.map((row) => [String(row.id), row]));
+  // marketplace_claims deliberately has no deal_id. Enrich the in-memory audit
+  // view from its canonical listing so alignment checks remain meaningful.
+  const claims = snapshot.claims.map((claim) => ({
+    ...claim,
+    deal_id: claim.deal_id ?? listingById.get(String(claim.listing_id))?.deal_id,
+  }));
+  return [
+    ...checkNoTokenHashInPayloads(snapshot.listings, []),
+    ...checkClaimAlignment(claims, snapshot.listings),
+    ...checkPickAlignment(snapshot.picks, claims, snapshot.listings),
+    ...checkAccessAlignment(snapshot.accesses, claims),
+    ...checkNonPickedNoAccess(snapshot.accesses, snapshot.picks),
+    ...checkListingKfsRedacted(snapshot.listings),
+    ...checkSealedListingUniqueness(snapshot.sealedPackages, snapshot.listings),
+    ...checkPickedListingAccessCount(snapshot.listings, snapshot.accesses),
+    ...checkDealHasApplication(snapshot.deals, snapshot.concierges, snapshot.applications),
+    ...checkScoreCompleteness(snapshot.scores),
+    ...checkTridentSealAlignment(snapshot.tridents, snapshot.sealedPackages),
+    ...checkUploadDealOwnership(snapshot.documents, snapshot.slots),
+    ...checkNoStoragePathInListings(snapshot.listings),
+    ...checkNoPiiInListingPreview(snapshot.listings, snapshot.deals),
+  ];
+}
+
+export async function runIntegritySweep(args: { sb: any }): Promise<IntegritySweepResult> {
+  const started = Date.now();
+  if (!args?.sb) {
+    const issue = iss("integrity_snapshot", "critical", "system", null, "Supabase client is required", "Run the sweep with production database credentials");
+    return { ok: false, total: 1, critical: 1, warning: 0, info: 0, issues: [issue], elapsed: Date.now() - started };
+  }
+  try {
+    const issues = evaluateIntegritySnapshot(await loadIntegritySnapshot(args.sb));
+    const critical = issues.filter((issue) => issue.severity === "critical").length;
+    const warning = issues.filter((issue) => issue.severity === "warning").length;
+    const info = issues.filter((issue) => issue.severity === "info").length;
+    return { ok: critical === 0, total: issues.length, critical, warning, info, issues, elapsed: Date.now() - started };
+  } catch (error) {
+    const issue = iss("integrity_snapshot", "critical", "system", null, error instanceof Error ? error.message : String(error), "Repair database access or schema drift, then rerun the sweep");
+    return { ok: false, total: 1, critical: 1, warning: 0, info: 0, issues: [issue], elapsed: Date.now() - started };
+  }
 }

@@ -145,8 +145,18 @@ async function s10(c: Ctx): Promise<StepResult> {
     await c.sb.from("marketplace_audit_log").insert({ listing_id: c.listingId, deal_id: c.dealId, actor_bank_id: c.lenderBankId, actor_scope: "lender", action: "claim_succeeded", metadata: { claim_id: cid, golden_test: true } });
     c.claimId = cid; return { ok: true, data: { method: "direct" } };
   }
-  const r = data as any;
-  if (!r?.ok) return { ok: false, error: `claim rpc: ${r?.error ?? "unknown"}` };
+  const raw = Array.isArray(data) ? data[0] : data;
+  const r = raw as any;
+  // The production RPC contract returns `{ status: "claimed", claim_id }`.
+  // Older deployments returned `{ ok: true, claim_id }`; accept both while
+  // remaining fail-closed for every other status or malformed response.
+  const claimed = r?.ok === true || r?.status === "claimed";
+  if (!claimed || !r?.claim_id) {
+    return {
+      ok: false,
+      error: `claim rpc: ${r?.error ?? r?.status ?? "malformed_response"}`,
+    };
+  }
   c.claimId = String(r.claim_id); return { ok: true, data: { method: "rpc" } };
 }
 
@@ -189,7 +199,7 @@ const STEPS: Array<{ name: string; fn: (c: Ctx) => Promise<StepResult> }> = [
   { name: "ops_validation", fn: s13 },
 ];
 
-export async function cleanupGoldenRun(sb: any, dealId: string): Promise<void> {
+export async function cleanupGoldenRun(sb: any, dealId: string, lenderBankId?: string): Promise<void> {
   // marketplace_claims has no deal_id — resolve via the deal's listings.
   const { data: listings } = await sb.from("marketplace_listings").select("id").eq("deal_id", dealId);
   const listingIds = ((listings ?? []) as Array<{ id: string }>).map((l) => l.id);
@@ -200,6 +210,17 @@ export async function cleanupGoldenRun(sb: any, dealId: string): Promise<void> {
     await sb.from(t).delete().eq("deal_id", dealId);
   }
   await sb.from("deals").delete().eq("id", dealId);
+  if (lenderBankId) {
+    const { data: bank } = await sb
+      .from("banks")
+      .select("*")
+      .eq("id", lenderBankId)
+      .maybeSingle();
+    if (bank?.is_sandbox === true && String(bank.code ?? "").startsWith("GOLDEN_TEST_")) {
+      await sb.from("lender_marketplace_agreements").delete().eq("lender_bank_id", lenderBankId);
+      await sb.from("banks").delete().eq("id", lenderBankId);
+    }
+  }
 }
 
 export async function runGoldenBrokerageRun(args: {
@@ -211,11 +232,11 @@ export async function runGoldenBrokerageRun(args: {
   for (const step of STEPS) {
     const r = await step.fn(c);
     if (!r.ok) {
-      if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId).catch(() => {});
+      if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId, args.lenderBankId ? undefined : c.lenderBankId).catch(() => {});
       return { ok: false, dealId: c.dealId, listingId: c.listingId, claimId: c.claimId, pickId: c.pickId, accessId: c.accessId, lenderBankId: c.lenderBankId, lenderName: LENDER, score: c.score, band: c.band, elapsed: Date.now() - start, evidenceClass: "synthetic_direct_insert", commissionsGoldenTrident: false, failedStage: step.name, failedReason: r.error };
     }
   }
 
-  if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId).catch(() => {});
+  if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId, args.lenderBankId ? undefined : c.lenderBankId).catch(() => {});
   return { ok: true, dealId: c.dealId, listingId: c.listingId, claimId: c.claimId, pickId: c.pickId, accessId: c.accessId, lenderBankId: c.lenderBankId, lenderName: LENDER, score: c.score, band: c.band, elapsed: Date.now() - start, evidenceClass: "synthetic_direct_insert", commissionsGoldenTrident: false };
 }

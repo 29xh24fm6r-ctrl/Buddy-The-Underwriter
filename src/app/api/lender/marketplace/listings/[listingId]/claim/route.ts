@@ -46,6 +46,12 @@ export async function POST(
     const status = CONFLICT.has(reason) ? 409 : 400;
     return NextResponse.json({ ok: false, error: reason }, { status });
   }
+  const claim = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
+  if (!claim || claim.status !== "claimed" || typeof claim.claim_id !== "string") {
+    const reason = typeof claim?.status === "string" ? claim.status : "malformed_claim_response";
+    const status = CONFLICT.has(reason) ? 409 : 400;
+    return NextResponse.json({ ok: false, error: reason }, { status });
+  }
 
   // Confirm to the lender (best-effort, non-fatal).
   try {
@@ -54,7 +60,7 @@ export async function POST(
       "claim_confirmed",
       {
         listingId,
-        claimId: (data as any)?.claim_id,
+        claimId: claim.claim_id,
         lenderBankId: lender.lenderBankId,
         stage: "claim",
       },
@@ -68,5 +74,5 @@ export async function POST(
     });
   }
 
-  return NextResponse.json({ ok: true, claim: data });
+  return NextResponse.json({ ok: true, claim });
 }

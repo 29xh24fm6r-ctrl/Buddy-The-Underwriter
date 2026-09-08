@@ -5,6 +5,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { runSecurityAudit } from "@/lib/brokerage/securityAudit";
 import { scanBrokerageRoutes } from "@/lib/brokerage/brokerageRouteScan";
+import { checkIntegritySweep, checkSecurityGate } from "@/lib/brokerage/launchGate";
 export type BusinessReadinessGateStatus = "pass" | "fail" | "skip" | "warn";
 export type GateResult = { name: string; category: string; status: BusinessReadinessGateStatus; duration: number; critical: number; warning: number; details: string; repairs: string[] };
 export type BusinessReadinessGateResult = { overall: "READY" | "NOT_READY"; gates: GateResult[]; critical: number; warning: number; elapsed: number };
@@ -46,7 +47,9 @@ export function checkReferralFeeDisclosure(): GateResult { const s=Date.now(); c
 export async function runBusinessReadinessGate(opts?: BusinessReadinessGateOptions): Promise<BusinessReadinessGateResult> {
   const s=Date.now(); const gates: GateResult[] = [];
   if (opts?.skipGolden) gates.push(g("golden_run_structure","transaction_flow","skip",0,0,0,"Skipped",[])); else gates.push(checkGoldenRunStructure());
-  gates.push(checkIntegritySweepStructure()); gates.push(checkRaceHarnessStructure()); gates.push(runSecurityGate(opts?.dbData));
+  const integrity = await checkIntegritySweep(opts?.sb);
+  const security = await checkSecurityGate(opts?.sb, opts?.dbData);
+  gates.push(integrity); gates.push(checkRaceHarnessStructure()); gates.push(security);
   gates.push(checkBuildStatus({skip:opts?.skipBuild})); gates.push(checkMigrationPresence()); gates.push(checkRequiredScripts()); gates.push(checkEnvVars()); gates.push(checkOpsCockpitStructure());
   gates.push(await checkSchemaPresence({sb:opts?.sb})); gates.push(await checkRlsAdvisory({sb:opts?.sb}));
   gates.push(await checkLegalDocumentsTable({sb:opts?.sb})); gates.push(checkLegalTemplates({legalDocuments:opts?.dbData?.legalDocuments})); gates.push(checkForm159({legalDocuments:opts?.dbData?.legalDocuments})); gates.push(checkCompliancePackageStructure());

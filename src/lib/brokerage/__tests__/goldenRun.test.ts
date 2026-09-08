@@ -9,8 +9,15 @@ type Row = Record<string, any>;
 class GS {
   tables: Record<string,Row[]>;
   constructor(){this.tables={deals:[],borrower_concierge_sessions:[],borrower_applications:[],deal_financial_facts:[],deal_borrower_story:[],deal_documents:[],buddy_sba_scores:[],buddy_trident_bundles:[],buddy_sealed_packages:[],marketplace_listings:[],marketplace_claims:[],marketplace_picks:[],marketplace_package_access:[],marketplace_audit_log:[],lender_marketplace_agreements:[],banks:[]};}
-  rpc(_n:string,_p:any){return Promise.resolve({data:null,error:{message:"rpc_not_deployed"}});}
+  rpc(_n:string,_p:any): Promise<{data:any;error:any}>{return Promise.resolve({data:null,error:{message:"rpc_not_deployed"}});}
   from(t:string){return new GQ(this,t);}
+}
+class RpcGS extends GS {
+  rpc(_n:string,_p:any){
+    const claimId = "rpc-claim-1";
+    this.tables.marketplace_claims.push({ id: claimId, listing_id: _p.p_listing_id, lender_bank_id: _p.p_lender_bank_id, status: "active" });
+    return Promise.resolve({data:{status:"claimed",claim_id:claimId},error:null});
+  }
 }
 class GQ {
   db:GS;table:string;filters:Array<{t:string;k:string;v:any}>;_u:Row|null;_i:Row[]|null;_l:number|null;
@@ -37,3 +44,5 @@ test("failed score aborts",async()=>{const db=new GS();const origInsert=GQ.proto
 test("failed claim aborts",async()=>{const db=new GS();const origInsert=GQ.prototype.insert;(GQ.prototype as any).insert=function(p:any){if(this.table==="marketplace_claims"){this._i=null;return{...this,single:()=>Promise.resolve({data:null,error:{message:"claim_fail"}}),then:(f:any)=>Promise.resolve({data:null,error:{message:"claim_fail"}}).then(f)};}return origInsert.call(this,p);};const r=await runGoldenBrokerageRun({sb:db as any,brokerageBankId:"brk-1"});GQ.prototype.insert=origInsert;assert.equal(r.ok,false);assert.equal(r.failedStage,"claim");});
 test("failed unlock aborts",async()=>{const db=new GS();const origInsert=GQ.prototype.insert;(GQ.prototype as any).insert=function(p:any){if(this.table==="marketplace_package_access"){this._i=null;return{...this,single:()=>Promise.resolve({data:null,error:{message:"access_fail"}}),then:(f:any)=>Promise.resolve({data:null,error:{message:"access_fail"}}).then(f)};}return origInsert.call(this,p);};const r=await runGoldenBrokerageRun({sb:db as any,brokerageBankId:"brk-1"});GQ.prototype.insert=origInsert;assert.equal(r.ok,false);assert.equal(r.failedStage,"unlock");});
 test("ops validation checks access count",async()=>{const db=new GS();const r=await runGoldenBrokerageRun({sb:db as any,brokerageBankId:"brk-1"});assert.equal(r.ok,true);assert.equal(db.tables.marketplace_package_access.length,1);});
+test("production claim RPC status contract completes",async()=>{const db=new RpcGS();const r=await runGoldenBrokerageRun({sb:db as any,brokerageBankId:"brk-1"});assert.equal(r.ok,true,`${r.failedStage}: ${r.failedReason}`);assert.equal(r.claimId,"rpc-claim-1");});
+test("cleanup removes harness-owned lender",async()=>{const db=new GS();const r=await runGoldenBrokerageRun({sb:db as any,brokerageBankId:"brk-1",cleanup:true});assert.equal(r.ok,true);assert.equal(db.tables.banks.length,0);assert.equal(db.tables.lender_marketplace_agreements.length,0);});
