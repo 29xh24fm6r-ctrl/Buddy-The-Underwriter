@@ -74,7 +74,7 @@ async function s2(c: Ctx): Promise<StepResult> {
   if (e1) return { ok: false, error: `concierge: ${e1.message}` };
   const { error: e2 } = await c.sb.from("borrower_applications").upsert({ deal_id: c.dealId, business_legal_name: NAME, industry: "Metal fabrication", naics: "332710", loan_amount: AMOUNT, loan_type: "7a" }, { onConflict: "deal_id" });
   if (e2) return { ok: false, error: `app: ${e2.message}` };
-  const { error: e3 } = await c.sb.from("deal_financial_facts").insert([{ deal_id: c.dealId, bank_id: c.brokerageBankId, fact_type: "concierge", fact_key: "TOTAL_REVENUE", fact_value_num: 2000000, fact_period_start: "2025-01-01", fact_period_end: "2025-12-31", provenance: { source: "concierge", golden_test: true } }, { deal_id: c.dealId, bank_id: c.brokerageBankId, fact_type: "concierge", fact_key: "YEARS_IN_BUSINESS", fact_value_num: 8, provenance: { source: "concierge", golden_test: true } }]);
+  const { error: e3 } = await c.sb.from("deal_financial_facts").insert([{ deal_id: c.dealId, bank_id: c.brokerageBankId, fact_type: "concierge", fact_key: "TOTAL_REVENUE", fact_value_num: 2000000, fact_period_start: "2025-01-01", fact_period_end: "2025-12-31", provenance: { source: "concierge", golden_test: true } }, { deal_id: c.dealId, bank_id: c.brokerageBankId, fact_type: "concierge", fact_key: "YEARS_IN_BUSINESS", fact_value_num: 8, fact_period_start: "2025-01-01", fact_period_end: "2025-12-31", provenance: { source: "concierge", golden_test: true } }]);
   if (e3) return { ok: false, error: `facts: ${e3.message}` };
   return { ok: true };
 }
