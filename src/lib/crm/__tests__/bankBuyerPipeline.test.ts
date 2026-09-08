@@ -70,7 +70,7 @@ test("CRM uses a scoped high-contrast light theme", () => {
   assert.match(unified, /\.crm-unified\s*\{\s*--crm-ink:\s*#f5f7fa/);
   assert.match(unified, /--crm-paper:\s*#18263c/);
   assert.match(tokens, /ink: "#0E1013"/); // Other brokerage surfaces keep their palette.
-  assert.match(shell, /pathname\.startsWith\("\/admin\/brokerage\/crm"\) \? crmColors : brokerageColors/);
+  assert.match(shell, /pathname\.startsWith\("\/admin\/brokerage\/crm"\) \|\| pathname === "\/admin\/brokerage\/owner" \? crmColors : brokerageColors/);
   assert.match(page, /crmColors as c/);
   assert.match(organizationPage, /crmColors as c/);
 });

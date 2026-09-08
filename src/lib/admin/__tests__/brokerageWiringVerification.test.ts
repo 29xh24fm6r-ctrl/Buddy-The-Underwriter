@@ -126,18 +126,17 @@ test("B5: PortalClient builds VMs for all borrower surfaces", () => {
 // =========================================================================
 
 test("C1: owner command center data flow is complete", () => {
-  // page → adapter
-  const page = readSrc("app/(app)/admin/brokerage-owner/page.tsx");
-  assert.ok(page.includes("buildBrokerageOwnerCommandCenterFromOperationalState"));
+  // Canonical owner page → the same authoritative operating snapshot as CRM.
+  const page = readSrc("app/admin/brokerage/owner/page.tsx");
+  assert.ok(page.includes("loadRevenueOperatingSystem"));
+  assert.ok(page.includes("command.metrics.activeDeals"));
+  assert.ok(page.includes("command.metrics.pipelineValue"));
+  assert.ok(page.includes("command.work"));
 
-  // adapter → pure builder
-  const adapter = readSrc("lib/admin/buildBrokerageOwnerCommandCenterFromOperationalState.ts");
-  assert.ok(adapter.includes("buildBrokerageOwnerCommandCenterViewModel"));
-
-  // shell → component
-  const shell = readSrc("app/(app)/admin/brokerage-owner/BrokerageOwnerCommandCenterShell.tsx");
-  assert.ok(shell.includes("BrokerageOwnerCommandCenter"));
-  assert.ok(shell.includes("viewModel"));
+  // The historical URL remains safe for bookmarks, but cannot become a
+  // second source of operational truth.
+  const legacyPage = readSrc("app/(app)/admin/brokerage-owner/page.tsx");
+  assert.ok(legacyPage.includes('redirect("/admin/brokerage/owner")'));
 });
 
 test("C2: banker command center data flow exists", () => {
@@ -319,10 +318,11 @@ test("G1b: LenderRoutingFitWorkspace is imported in BankerDealWorkspace", () => 
   assert.ok(src.includes("LenderRoutingFitWorkspace"));
 });
 
-// G2: No unused admin route shell
-test("G2: admin brokerage-owner shell is used by page.tsx", () => {
+// G2: No competing legacy owner dashboard
+test("G2: historical brokerage-owner route redirects to the canonical owner command", () => {
   const page = readSrc("app/(app)/admin/brokerage-owner/page.tsx");
-  assert.ok(page.includes("BrokerageOwnerCommandCenterShell"));
+  assert.ok(page.includes('redirect("/admin/brokerage/owner")'));
+  assert.ok(!page.includes("BrokerageOwnerCommandCenterShell"));
 });
 
 // G3: No accidental light-theme leaks in dark admin surfaces
