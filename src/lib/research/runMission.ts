@@ -549,12 +549,35 @@ async function failStageTracking(threadRunId: string | null, message: string): P
   await failThreadRun(supabaseAdmin(), threadRunId, { message }).catch(() => {});
 }
 
+export type PrepareMissionRunResult =
+  | {
+      ok: true;
+      duplicate: false;
+      missionId: string;
+      runKey: string;
+      resumed: boolean;
+      resumeCompletedStages: Set<CheckpointStage>;
+    }
+  | {
+      ok: true;
+      duplicate: true;
+      missionId: string;
+      runKey: string;
+      counts: { sources_count: number; facts_count: number; inferences_count: number };
+    }
+  | { ok: false; error: string };
+
 /**
- * Execute a complete research mission.
+ * Resolve the mission row a run will execute against, BEFORE any model work:
+ * governance, run_key idempotency, failed-mission resume, or a fresh insert.
  *
- * This is the main entry point for running Mission 001: Industry + Competitive Landscape.
+ * Request handlers call this ahead of admitting the durable workflow so the
+ * `buddy_research_missions` row exists (status=queued) by the time the caller
+ * receives its 202 — the underwrite page then shows the mission immediately
+ * instead of an empty panel until the workflow step happens to insert it.
+ * runMission() calls it too when no missionId was pre-resolved.
  */
-export async function runMission(
+export async function prepareMissionRun(
   dealId: string,
   missionType: MissionType,
   subject: MissionSubject,
@@ -562,11 +585,9 @@ export async function runMission(
     depth?: MissionDepth;
     bankId?: string | null;
     userId?: string | null;
-    /** Bypass the run_key idempotency check (explicit "re-run" action). */
     forceRerun?: boolean;
-  }
-): Promise<MissionExecutionResult> {
-  const startTime = Date.now();
+  },
+): Promise<PrepareMissionRunResult> {
   const depth = opts?.depth ?? "overview";
 
   // Idempotency (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a
@@ -603,16 +624,7 @@ export async function runMission(
     const governance = await checkMissionGovernance(missionType);
     if (!governance.allowed) {
       console.warn(`[runMission] Blocked by governance: ${governance.reason}`);
-      return {
-        ok: false,
-        mission_id: "",
-        sources_count: 0,
-        facts_count: 0,
-        inferences_count: 0,
-        narrative_sections: 0,
-        error: `governance_blocked: ${governance.reason}`,
-        duration_ms: Date.now() - startTime,
-      };
+      return { ok: false, error: `governance_blocked: ${governance.reason}` };
     }
   } catch (e: any) {
     // Governance check failure must never silently allow a restricted
@@ -634,13 +646,14 @@ export async function runMission(
       console.log(`[runMission] Reusing existing mission ${existingCheck.existingMissionId} for run_key ${runKey} (idempotent — no new mission created)`);
       return {
         ok: true,
-        mission_id: existingCheck.existingMissionId,
-        sources_count: existingMission?.sources_count ?? 0,
-        facts_count: existingMission?.facts_count ?? 0,
-        inferences_count: existingMission?.inferences_count ?? 0,
-        narrative_sections: 0,
-        duration_ms: Date.now() - startTime,
         duplicate: true,
+        missionId: existingCheck.existingMissionId,
+        runKey,
+        counts: {
+          sources_count: existingMission?.sources_count ?? 0,
+          facts_count: existingMission?.facts_count ?? 0,
+          inferences_count: existingMission?.inferences_count ?? 0,
+        },
       };
     }
   }
@@ -682,18 +695,73 @@ export async function runMission(
     if (createResult.duplicate && createResult.missionId) {
       return {
         ok: true,
-        mission_id: createResult.missionId,
-        sources_count: 0,
-        facts_count: 0,
-        inferences_count: 0,
-        narrative_sections: 0,
-        duration_ms: Date.now() - startTime,
         duplicate: true,
+        missionId: createResult.missionId,
+        runKey,
+        counts: { sources_count: 0, facts_count: 0, inferences_count: 0 },
       };
     }
 
     if (!createResult.ok || !createResult.missionId) {
       console.error("[runMission] createMission failed:", createResult.error);
+      return { ok: false, error: createResult.error ?? "Failed to create mission" };
+    }
+
+    missionId = createResult.missionId;
+  }
+
+  return { ok: true, duplicate: false, missionId, runKey, resumed: !!failedMission, resumeCompletedStages };
+}
+
+/**
+ * A pre-resolved mission whose durable workflow could not be admitted must
+ * not sit at status=queued forever (nothing would ever pick it up).
+ */
+export async function failMissionAdmission(missionId: string, reason: string): Promise<void> {
+  await updateMissionStatus(missionId, "failed", reason);
+}
+
+/**
+ * Execute a complete research mission.
+ *
+ * This is the main entry point for running Mission 001: Industry + Competitive Landscape.
+ */
+export async function runMission(
+  dealId: string,
+  missionType: MissionType,
+  subject: MissionSubject,
+  opts?: {
+    depth?: MissionDepth;
+    bankId?: string | null;
+    userId?: string | null;
+    /** Bypass the run_key idempotency check (explicit "re-run" action). */
+    forceRerun?: boolean;
+    /** Mission already resolved by prepareMissionRun() in the request path. */
+    missionId?: string;
+  }
+): Promise<MissionExecutionResult> {
+  const startTime = Date.now();
+  const depth = opts?.depth ?? "overview";
+
+  let missionId: string;
+  let resumeCompletedStages = new Set<CheckpointStage>();
+
+  if (opts?.missionId) {
+    // The request path already resolved this mission (prepareMissionRun) so
+    // the row existed before the caller received its 202. Adopt it and
+    // resume from whatever checkpoints it already carries (none for a fresh
+    // row; the completed stages for a retried failed mission).
+    missionId = opts.missionId;
+    const decision = await getResumeDecision(supabaseAdmin(), missionId);
+    resumeCompletedStages = new Set(decision.completedStages);
+  } else {
+    const prepared = await prepareMissionRun(dealId, missionType, subject, {
+      depth,
+      bankId: opts?.bankId,
+      userId: opts?.userId,
+      forceRerun: opts?.forceRerun,
+    });
+    if (!prepared.ok) {
       return {
         ok: false,
         mission_id: "",
@@ -701,12 +769,22 @@ export async function runMission(
         facts_count: 0,
         inferences_count: 0,
         narrative_sections: 0,
-        error: createResult.error ?? "Failed to create mission",
+        error: prepared.error,
         duration_ms: Date.now() - startTime,
       };
     }
-
-    missionId = createResult.missionId;
+    if (prepared.duplicate) {
+      return {
+        ok: true,
+        mission_id: prepared.missionId,
+        ...prepared.counts,
+        narrative_sections: 0,
+        duration_ms: Date.now() - startTime,
+        duplicate: true,
+      };
+    }
+    missionId = prepared.missionId;
+    resumeCompletedStages = prepared.resumeCompletedStages;
   }
 
   const completed = resumeCompletedStages;

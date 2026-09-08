@@ -27,7 +27,7 @@ export type StaleMissionSweepResult = {
 };
 
 /**
- * Find missions stuck at status="running" past the staleness threshold and
+ * Find missions stuck at status="running" (or never picked up from "queued") past the staleness threshold and
  * flip them to "failed" with a descriptive error_message, plus an
  * unconditional degraded quality-gate row so the failure is queryable the
  * same way a BIE/trust-layer exception is (see writeDegradedQualityGate).
@@ -61,7 +61,7 @@ export async function sweepStaleResearchMissions(
 
       // Re-check status — the mission may have completed/failed between the
       // findStaleMissions read and this update (no lock is held across them).
-      if (!mission || mission.status !== "running") continue;
+      if (!mission || (mission.status !== "running" && mission.status !== "queued")) continue;
 
       const { error } = await sb
         .from("buddy_research_missions")
@@ -71,7 +71,7 @@ export async function sweepStaleResearchMissions(
           error_message: `stale_mission_sweep: no progress for >${Math.round(staleThresholdMs / 60_000)}min — likely killed by a platform timeout or process crash mid-run`,
         })
         .eq("id", missionId)
-        .eq("status", "running"); // only flip if still running (race guard)
+        .in("status", ["running", "queued"]); // only flip if still unfinished (race guard)
 
       if (error) {
         errors.push(`${missionId}: ${error.message}`);
