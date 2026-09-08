@@ -63,10 +63,14 @@ test("readiness distinguishes production defects from synthetic evidence", () =>
 
 test("synthetic evidence is durable and upload recovery stays authoritative", () => {
   const runner = read("scripts/synth-borrower-e2e.ts");
+  const finalizer = read(
+    "src/app/api/ops/[...path]/_handlers/certification-finalize.ts",
+  );
   const recovery = read("src/lib/workers/recoverStuckIntakeDeals.ts");
-  assert.match(runner, /rest\/v1\/ai_events/);
-  assert.match(runner, /scope: "synth_borrower_e2e"/);
-  assert.match(runner, /await persistDurableReport\(report, passedGate\)/);
+  assert.match(runner, /api\/ops\/certification\/finalize/);
+  assert.match(runner, /await finalizeDurableReport\(baseUrl, report, results, passedGate\)/);
+  assert.match(finalizer, /scope: "synth_borrower_e2e"/);
+  assert.match(finalizer, /requires_human_review: !body\.passedGate/);
   assert.match(recovery, /queueArtifact/);
   assert.match(recovery, /MAX_ARTIFACT_RETRIES = 3/);
   assert.match(recovery, /MAX_UPLOAD_SCAN_ROWS = 1000/);

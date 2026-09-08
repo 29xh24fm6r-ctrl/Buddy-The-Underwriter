@@ -7,9 +7,14 @@ on:
         description: "Type CERTIFY_PRODUCTION to run synthetic brokerage journeys against production"
         required: true
         type: string
+      legacy_synthetic_deal_ids:
+        description: "Optional comma-separated IDs from an interrupted prior certification run"
+        required: false
+        type: string
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: brokerage-production-certification
@@ -19,7 +24,7 @@ jobs:
   certify:
     if: inputs.confirmation == 'CERTIFY_PRODUCTION'
     runs-on: ubuntu-latest
-    environment: production
+    environment: Production
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -36,25 +41,15 @@ jobs:
         run: |
           deployed_sha="$(curl --fail --silent --show-error https://app.buddytheunderwriter.com/api/meta/build | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).commitSha||""))')"
           test "$deployed_sha" = "$GITHUB_SHA"
-      - name: Validate certification credentials
-        shell: bash
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          test -n "$SUPABASE_URL" || { echo "SUPABASE_URL is not configured in the production environment"; exit 1; }
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY is not configured in the production environment"; exit 1; }
       - name: Run borrower production journey
         run: pnpm synth:borrowers
         env:
           BUDDY_BASE_URL: https://app.buddytheunderwriter.com
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LEGACY_SYNTHETIC_DEAL_IDS: ${{ inputs.legacy_synthetic_deal_ids }}
       - name: Run brokerage ledger journey and clean up
         run: pnpm golden:brokerage -- --cleanup
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BUDDY_BASE_URL: https://app.buddytheunderwriter.com
       - name: Preserve certification evidence
         if: always()
         uses: actions/upload-artifact@v4

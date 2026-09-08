@@ -49,6 +49,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const { path } = await ctx.params;
   const route = path.join("/");
   switch (route) {
+    case "certification/finalize":
+      return (await import("./_handlers/certification-finalize")).POST(req);
     case "cleanup-spread-orphans":
       return (await import("./_handlers/cleanup-spread-orphans")).POST(req);
     case "mark-dead":
@@ -61,6 +63,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return (await import("./_handlers/worker-auth-probe")).POST(req);
     case "observer/tick":
       return (await import("./_handlers/observer-tick")).POST(req);
+    case "golden-run":
+      return (await import("./_handlers/golden-run")).POST(req);
     default:
       return NOT_FOUND();
   }
