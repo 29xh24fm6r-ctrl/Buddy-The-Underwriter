@@ -10,6 +10,7 @@ import { cleanupOrphanSpreads } from "@/lib/spreads/janitor/cleanupOrphanSpreads
 import { cleanupStuckJobs } from "@/lib/spreads/janitor/cleanupStuckJobs";
 import { cleanupStuckDocumentJobs } from "@/lib/jobs/janitor/cleanupStuckDocumentJobs";
 import { sweepStaleResearchMissions } from "@/lib/research/staleMissionSweep";
+import { sweepStaleDealReadiness } from "@/lib/deals/readiness/readinessReconcileSweep";
 import { withBuddyGuard, sendHeartbeat } from "@/lib/aegis";
 import {
   WORKER_LOCK_KEYS,
@@ -254,6 +255,18 @@ export async function POST(req: NextRequest) {
         recordFailure("STALE_RESEARCH_MISSIONS", staleResearchResult);
       } else if (staleResearchResult.recovered > 0) {
         results.push({ type: "STALE_RESEARCH_MISSIONS", ...staleResearchResult });
+      }
+
+      // Readiness reconcile sweep: deal_memo_input_readiness is only ever
+      // rewritten by event hooks, so one failed hook (no session in a
+      // worker, timeout, crash) leaves a deal's readiness stale until a
+      // banker happens to load a page that recomputes it. Refresh rows that
+      // lag their authoritative inputs (gate, snapshot, spread, fact).
+      const readinessReconcileResult = await sweepStaleDealReadiness();
+      if (isWorkerStepFailure(readinessReconcileResult)) {
+        recordFailure("READINESS_RECONCILE", readinessReconcileResult);
+      } else if (readinessReconcileResult.reconciled > 0) {
+        results.push({ type: "READINESS_RECONCILE", ...readinessReconcileResult });
       }
     }
 
