@@ -33,12 +33,26 @@ test("production certification is explicit, identity-bound, and evidence preserv
   assert.match(buildIdentityRoute, /commitSha:/);
   assert.match(workflow, /JSON\.parse\(s\)\.commitSha/);
   assert.doesNotMatch(workflow, /JSON\.parse\(s\)\.gitSha/);
-  assert.match(workflow, /Validate certification credentials/);
-  assert.match(workflow, /test -n "\$SUPABASE_SERVICE_ROLE_KEY"/);
+  assert.match(workflow, /id-token: write/);
+  assert.match(workflow, /environment: Production/);
+  assert.doesNotMatch(workflow, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(workflow, /BUDDY_BASE_URL: https:\/\/app\.buddytheunderwriter\.com/);
   assert.match(workflow, /synth:borrowers/);
   assert.match(workflow, /golden:brokerage -- --cleanup/);
   assert.match(workflow, /upload-artifact/);
+});
+
+test("production certification database work stays behind scoped OIDC", () => {
+  const dispatcher = read("src/app/api/ops/[...path]/route.ts");
+  const finalize = read("src/app/api/ops/[...path]/_handlers/certification-finalize.ts");
+  const golden = read("src/app/api/ops/[...path]/_handlers/golden-run.ts");
+  const verifier = read("src/lib/auth/githubActionsOidcClaims.ts");
+  assert.match(dispatcher, /certification\/finalize/);
+  assert.match(dispatcher, /golden-run/);
+  assert.match(finalize, /verifyBrokerageCertificationOidc/);
+  assert.match(golden, /hasValidBrokerageCertificationOidc/);
+  assert.match(verifier, /refs\/heads\/main/);
+  assert.match(verifier, /environment:Production/);
 });
 
 test("borrower certification validates the journey it actually performs", () => {

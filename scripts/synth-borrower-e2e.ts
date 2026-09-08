@@ -19,8 +19,7 @@
  *
  * Env:
  *   BUDDY_BASE_URL             optional base URL; defaults to production
- *   SUPABASE_SERVICE_ROLE_KEY  required to persist durable run evidence
- *   SUPABASE_URL               required (NEXT_PUBLIC_SUPABASE_URL also accepted)
+ *   GitHub Actions OIDC        required to classify test data and persist evidence
  *   SYNTH_FIXTURE_COUNT        optional cap, default = all fixtures
  *
  * Real concierge model. Real OCR. No DB surgery.
@@ -29,6 +28,7 @@
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { detectRepeatAsks } from "./synth-borrower-e2e/detectRepeatAsks";
+import { getGitHubActionsOidcToken } from "./lib/github-actions-oidc";
 
 type Fixture = { fixture_id: string; transcript: string[] };
 type FixtureResult = {
@@ -49,15 +49,6 @@ type FixtureResult = {
 
 const REQUIRED_PASS_NUMERATOR = 13;
 const REQUIRED_PASS_DENOMINATOR = 15;
-
-function env(name: string, required = true): string {
-  const v = process.env[name];
-  if (required && !v) {
-    console.error(`Missing required env: ${name}`);
-    process.exit(2);
-  }
-  return v ?? "";
-}
 
 function fixtureDir(): string {
   return join(process.cwd(), "scripts/synth-borrower-e2e/fixtures");
@@ -221,82 +212,40 @@ async function runFixture(
   };
 }
 
-async function persistDurableReport(
+async function finalizeDurableReport(
+  baseUrl: string,
   report: Record<string, unknown>,
+  results: FixtureResult[],
   passedGate: boolean,
 ): Promise<void> {
-  const serviceRoleKey = env("SUPABASE_SERVICE_ROLE_KEY");
-  const supabaseUrl = (
-    process.env.SUPABASE_URL ??
-    process.env.NEXT_PUBLIC_SUPABASE_URL ??
-    ""
-  ).replace(/\/$/, "");
-  if (!supabaseUrl) {
-    throw new Error("Missing required env: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
-  }
-  const response = await fetch(`${supabaseUrl}/rest/v1/ai_events`, {
+  const token = await getGitHubActionsOidcToken();
+  const legacyIds = (process.env.LEGACY_SYNTHETIC_DEAL_IDS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const dealIds = [...new Set([
+    ...results.map((result) => result.deal_id).filter((id): id is string => Boolean(id)),
+    ...legacyIds,
+  ])];
+  const response = await fetch(`${baseUrl}/api/ops/certification/finalize`, {
     method: "POST",
     headers: {
-      apikey: serviceRoleKey,
-      authorization: `Bearer ${serviceRoleKey}`,
+      authorization: `Bearer ${token}`,
       "content-type": "application/json",
-      prefer: "return=minimal",
     },
-    body: JSON.stringify({
-      deal_id: null,
-      scope: "synth_borrower_e2e",
-      action: passedGate ? "passed" : "failed",
-      output_json: {
-        ran_at: report.ran_at,
-        baseline_commit: report.baseline_commit,
-        pass_count: report.pass_count,
-        total: report.total,
-        pass_rate: report.pass_rate,
-        threshold: report.threshold,
-        repeat_ask_violation_count: report.repeat_ask_violation_count,
-      },
-      confidence: 1,
-      requires_human_review: !passedGate,
-    }),
+    body: JSON.stringify({ dealIds, report, passedGate }),
   });
   if (!response.ok) {
-    throw new Error(`durable evidence persistence failed: HTTP ${response.status}`);
-  }
-}
-
-async function classifySyntheticDeals(results: FixtureResult[]): Promise<void> {
-  const serviceRoleKey = env("SUPABASE_SERVICE_ROLE_KEY");
-  const supabaseUrl = (process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
-  if (!supabaseUrl) throw new Error("Missing required env: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
-  const dealIds = [...new Set(results.map((result) => result.deal_id).filter((id): id is string => Boolean(id)))];
-  for (const dealId of dealIds) {
-    const response = await fetch(`${supabaseUrl}/rest/v1/deals?id=eq.${encodeURIComponent(dealId)}`, {
-      method: "PATCH",
-      headers: {
-        apikey: serviceRoleKey,
-        authorization: `Bearer ${serviceRoleKey}`,
-        "content-type": "application/json",
-        prefer: "return=representation",
-      },
-      body: JSON.stringify({ is_test: true }),
-    });
-    if (!response.ok) throw new Error(`synthetic deal classification failed for ${dealId}: HTTP ${response.status}`);
-    const rows = await response.json() as Array<{ id?: string; is_test?: boolean }>;
-    if (rows.length !== 1 || rows[0]?.id !== dealId || rows[0]?.is_test !== true) {
-      throw new Error(`synthetic deal classification was not confirmed for ${dealId}`);
-    }
+    throw new Error(`production certification finalization failed: HTTP ${response.status}`);
   }
 }
 
 async function main(): Promise<void> {
   const baseUrl = (process.env.BUDDY_BASE_URL ?? "https://app.buddytheunderwriter.com").replace(/\/$/, "");
 
-  // Fail before creating production records if cleanup/evidence credentials
-  // are unavailable.
-  env("SUPABASE_SERVICE_ROLE_KEY");
-  if (!(process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL)) {
-    throw new Error("Missing required env: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
-  }
+  // Fail before creating production records if the short-lived workflow
+  // identity needed for cleanup/evidence is unavailable.
+  await getGitHubActionsOidcToken();
 
   const fixtures = loadFixtures();
   if (fixtures.length === 0) {
@@ -343,10 +292,8 @@ async function main(): Promise<void> {
 
   const minPass = REQUIRED_PASS_NUMERATOR / REQUIRED_PASS_DENOMINATOR;
   const passedGate = repeatAskViolations.length === 0 && passRate >= minPass;
-  await classifySyntheticDeals(results);
-  console.log("[synth-borrower-e2e] synthetic deals classified and excluded from operating totals");
-  await persistDurableReport(report, passedGate);
-  console.log("[synth-borrower-e2e] durable evidence recorded");
+  await finalizeDurableReport(baseUrl, report, results, passedGate);
+  console.log("[synth-borrower-e2e] synthetic deals classified and durable evidence recorded");
 
   // SPEC-M2 BEAT-METRICS-1: the repeat-ask covenant is a hard gate,
   // independent of the pass-rate threshold — even one violation fails the
