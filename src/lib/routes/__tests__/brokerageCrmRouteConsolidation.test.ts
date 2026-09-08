@@ -18,6 +18,7 @@ const HANDLER_ROOT = resolve(CRM_ROOT, "[...path]/_handlers");
 
 const CONTRACT = [
   { route: "activities", handler: "activities", methods: ["GET", "POST", "PATCH"] },
+  { route: "command-center", handler: "command-center", methods: ["GET"] },
   { route: "deals-search", handler: "deals-search", methods: ["GET"] },
   { route: "dedup", handler: "dedup", methods: ["GET", "POST"] },
   { route: "intelligence", handler: "intelligence", methods: ["GET"] },

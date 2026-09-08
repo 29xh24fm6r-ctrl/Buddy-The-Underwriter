@@ -27,17 +27,20 @@ const WorkspaceContext = createContext<{
   revision: number;
 } | null>(null);
 export const useCrmWorkspace = () => useContext(WorkspaceContext);
-const links = [
+const primaryLinks = [
   ["Today", CRM_ROOT, "◈"],
   ["Team tasks", `${CRM_ROOT}#crm-tasks`, "✓"],
   ["Lead pipeline", `${CRM_ROOT}/leads`, "▤"],
   ["Companies", `${CRM_ROOT}?view=relationships`, "▦"],
   ["People", `${CRM_ROOT}/people`, "◎"],
   ["Lender network", `${CRM_ROOT}/buyers`, "◇"],
+] as const;
+const toolLinks = [
   ["Deal connections", `${CRM_ROOT}/relationships`, "↗"],
   ["Message templates", `${CRM_ROOT}/templates`, "✉"],
   ["Duplicate review", `${CRM_ROOT}/dedup`, "⊞"],
 ] as const;
+const links = [...primaryLinks, ...toolLinks] as const;
 
 export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
   const { signOut } = useClerk();
@@ -99,7 +102,7 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
           </nav>
           <p className="crm-rail-label">CRM & RELATIONSHIPS</p>
           <nav aria-label="CRM workspace">
-            {links.map(([label, href, icon]) => (
+            {primaryLinks.map(([label, href, icon]) => (
               <Link
                 key={href}
                 href={href}
@@ -110,6 +113,12 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
                 {label}
               </Link>
             ))}
+            <details className="crm-rail-tools" open={toolLinks.some(([, href]) => current === href)}>
+              <summary>Data & automation</summary>
+              {toolLinks.map(([label, href, icon]) => (
+                <Link key={href} href={href} prefetch={false} aria-current={current === href ? "page" : undefined}><span aria-hidden="true">{icon}</span>{label}</Link>
+              ))}
+            </details>
           </nav>
           <div className="crm-rail-bottom">
             <button onClick={() => setGuide((v) => !v)}>

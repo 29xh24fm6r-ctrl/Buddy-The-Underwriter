@@ -50,8 +50,35 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  const people = data ?? [];
+  const personIds = people.map((person) => person.id);
+  const { data: roles, error: roleError } = personIds.length
+    ? await sb.from("crm_person_organization_roles").select("person_id, organization_id, role, job_title").eq("bank_id", brokerageBankId).in("person_id", personIds)
+    : { data: [], error: null };
+  if (roleError) return NextResponse.json({ ok: false, error: roleError.message }, { status: 500 });
+  const organizationIds = Array.from(new Set([
+    ...people.map((person) => person.organization_id).filter(Boolean),
+    ...(roles ?? []).map((role) => role.organization_id).filter(Boolean),
+  ]));
+  const { data: organizations, error: organizationError } = organizationIds.length
+    ? await sb.from("crm_organizations").select("id, name").eq("bank_id", brokerageBankId).in("id", organizationIds)
+    : { data: [], error: null };
+  if (organizationError) return NextResponse.json({ ok: false, error: organizationError.message }, { status: 500 });
+  const organizationNames = new Map((organizations ?? []).map((organization) => [organization.id, organization.name]));
+  const rolesByPerson = new Map<string, Array<{ organizationId: string; organizationName: string; role: string | null; jobTitle: string | null }>>();
+  for (const role of roles ?? []) {
+    const connection = { organizationId: role.organization_id, organizationName: organizationNames.get(role.organization_id) ?? "Unknown company", role: role.role ?? null, jobTitle: role.job_title ?? null };
+    rolesByPerson.set(role.person_id, [...(rolesByPerson.get(role.person_id) ?? []), connection]);
+  }
 
-  return NextResponse.json({ ok: true, people: data ?? [] });
+  return NextResponse.json({
+    ok: true,
+    people: people.map((person) => ({
+      ...person,
+      organization_name: person.organization_id ? organizationNames.get(person.organization_id) ?? null : null,
+      connections: rolesByPerson.get(person.id) ?? [],
+    })),
+  });
 }
 
 export async function POST(req: NextRequest) {

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { brokerageColors as c } from "@/components/brokerage/tokens";
 import {
   BOARD_COLUMNS,
@@ -92,13 +93,17 @@ export default function PipelineBoard({
   /** Set when the deals query itself failed — never show an empty board for it. */
   loadError?: string | null;
 }) {
+  const params = useSearchParams();
   const [rows, setRows] = useState(deals);
   const [search, setSearch] = useState("");
-  const [owner, setOwner] = useState<OwnerFilter>("all");
+  const [owner, setOwner] = useState<OwnerFilter>(params.get("owner") === "unassigned" ? "unassigned" : "all");
   const [intake, setIntake] = useState("all");
-  const [onlyAttention, setOnlyAttention] = useState(false);
+  const [onlyAttention, setOnlyAttention] = useState(params.get("attention") === "1");
   const [view, setView] = useState<"board" | "list">("board");
   const [assigning, setAssigning] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkOwner, setBulkOwner] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const visible = useMemo(() => {
@@ -144,6 +149,30 @@ export default function PipelineBoard({
       setAssigning(null);
     }
   }
+
+  async function rescueSelected(action: "assign" | "plan") {
+    if (!selected.length || bulkBusy) return;
+    if (action === "assign" && !bulkOwner) { setError("Choose the teammate who will own the selected deals."); return; }
+    setBulkBusy(true); setError(null);
+    const failures: string[] = [];
+    for (const dealId of selected) {
+      const deal = rows.find((row) => row.id === dealId);
+      if (!deal) continue;
+      const endpoint = action === "assign" ? `/api/admin/brokerage/deals/${dealId}/execution` : `/api/admin/brokerage/deals/${dealId}/execution/actions`;
+      const body = action === "assign" ? { ownerClerkUserId: bulkOwner } : { action: "generate_stage_plan", stage: deal.stage ?? "intake" };
+      try {
+        const response = await fetch(endpoint, { method: action === "assign" ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const json = await response.json();
+        if (!response.ok || !json.ok) throw new Error(json.error || "Update was not confirmed");
+        if (action === "assign") setRows((current) => current.map((row) => row.id === dealId ? { ...row, ownerClerkUserId: bulkOwner } : row));
+      } catch { failures.push(deal.title); }
+    }
+    setBulkBusy(false);
+    if (failures.length) setError(`${selected.length - failures.length} of ${selected.length} updates confirmed. Review: ${failures.join(", ")}.`);
+    else { setSelected([]); if (action === "plan") window.location.reload(); }
+  }
+
+  const toggleSelected = (dealId: string) => setSelected((current) => current.includes(dealId) ? current.filter((id) => id !== dealId) : [...current, dealId]);
 
   const attentionCount = rows.filter(
     (d) => isStalled(d.stage, d.stageEnteredAt) || !d.nextTask || !d.ownerClerkUserId,
@@ -193,6 +222,9 @@ export default function PipelineBoard({
           gap: 7,
         }}
       >
+        <label style={{ display: "flex", gap: 7, alignItems: "center", color: c.textMuted, fontSize: 10 }}>
+          <input type="checkbox" checked={selected.includes(deal.id)} onChange={() => toggleSelected(deal.id)} /> Select for rescue
+        </label>
         <Link href={`/admin/brokerage/pipeline/${deal.id}`} style={{ textDecoration: "none", display: "grid", gap: 3 }}>
           <span style={{ color: c.paper, fontSize: 12.5, fontWeight: 600, lineHeight: 1.3 }}>{deal.title}</span>
           <span style={{ color: c.textMuted, fontSize: 10.5 }}>
@@ -294,6 +326,17 @@ export default function PipelineBoard({
           {view === "board" ? "List view" : "Board view"}
         </button>
       </div>
+
+      {selected.length > 0 && (
+        <section aria-label="Selected deal rescue actions" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: 12, marginBottom: 14, border: `1px solid ${c.brass}`, borderRadius: 7, background: "rgba(184,130,63,.08)" }}>
+          <strong style={{ color: c.paper, fontSize: 12 }}>{selected.length} selected</strong>
+          <select aria-label="Bulk owner" value={bulkOwner} onChange={(event) => setBulkOwner(event.target.value)} style={control}><option value="">Choose owner…</option>{team.map((member) => <option key={member.clerkUserId} value={member.clerkUserId}>{member.name}</option>)}</select>
+          <button type="button" disabled={bulkBusy || !bulkOwner} onClick={() => void rescueSelected("assign")} style={control}>Assign owner</button>
+          <button type="button" disabled={bulkBusy} onClick={() => void rescueSelected("plan")} style={control}>Create stage task plan</button>
+          <button type="button" disabled={bulkBusy} onClick={() => setSelected([])} style={{ ...control, marginLeft: "auto" }}>Clear</button>
+          <small style={{ width: "100%", color: c.textMuted }}>Each update is confirmed individually. Failed records remain visible for review.</small>
+        </section>
+      )}
 
       {(error || loadError) && (
         <div role="alert" style={{ border: `1px solid ${c.brick}`, color: c.brick, borderRadius: 6, padding: 11, fontSize: 12, marginBottom: 14 }}>

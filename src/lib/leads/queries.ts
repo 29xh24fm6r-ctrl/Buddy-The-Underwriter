@@ -16,6 +16,7 @@ import { LEAD_SLA_POLICY } from "./sla";
 
 export const LEAD_QUEUES = [
   "my_leads",
+  "active",
   "all",
   "unassigned",
   "overdue_follow_up",
@@ -50,6 +51,9 @@ export async function listLeadQueue(input: ListLeadQueueInput, sb: SB = supabase
     .limit(limit);
 
   switch (input.queue) {
+    case "active":
+      query = query.in("status", OPEN_STAGES);
+      break;
     case "my_leads":
       if (!input.actorClerkUserId) throw new Error("my_leads queue requires actorClerkUserId.");
       query = query.eq("owner_clerk_user_id", input.actorClerkUserId).in("status", OPEN_STAGES);

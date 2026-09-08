@@ -52,6 +52,15 @@ test("the pipeline is a staged board with owners, banks, and next actions", () =
   assert.match(board, /ownerClerkUserId/);
 });
 
+test("the pipeline can rescue several neglected deals without hiding partial failures", () => {
+  assert.match(board, /Selected deal rescue actions/);
+  assert.match(board, /generate_stage_plan/);
+  assert.match(board, /Choose the teammate who will own the selected deals/);
+  assert.match(board, /updates confirmed/);
+  assert.match(board, /params\.get\("owner"\) === "unassigned"/);
+  assert.match(board, /params\.get\("attention"\) === "1"/);
+});
+
 test("the deal workspace ranks banks and records distribution on the canonical ledger", () => {
   assert.match(workspace, /\/api\/admin\/brokerage\/crm\/organizations\/buyers/);
   assert.match(workspace, /lender-matches/);

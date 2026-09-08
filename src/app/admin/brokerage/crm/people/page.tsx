@@ -15,6 +15,8 @@ type Person = {
   job_title: string | null;
   contact_status: "active" | "inactive" | "do_not_contact";
   organization_id: string | null;
+  organization_name?: string | null;
+  connections?: Array<{ organizationId: string; organizationName: string; role: string | null; jobTitle: string | null }>;
   last_contacted_at: string | null;
 };
 
@@ -157,7 +159,7 @@ export default function CrmPeoplePage() {
         ) : (
           people.map((p) => {
             const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || "(unnamed)";
-            if (workspace) return <article key={p.id} className="crm-company-card"><header><span className="crm-avatar">{name.slice(0, 2).toUpperCase()}</span><span className="crm-badge">{p.contact_status.replaceAll("_", " ")}</span></header><button className="crm-record-title" onClick={() => workspace.openRecord({ id: p.id, name, kind: "person" })}>{name}</button><p>{p.job_title || "Role not recorded"}</p><p>{p.email || p.phone || "Add contact details in the full record"}</p><footer><span>{p.last_contacted_at ? `Last contact ${new Date(p.last_contacted_at).toLocaleDateString()}` : "No contact recorded"}</span><Link href={`/admin/brokerage/crm/people/${p.id}`}>Full record ↗</Link></footer></article>;
+            if (workspace) return <article key={p.id} className="crm-company-card"><header><span className="crm-avatar">{name.slice(0, 2).toUpperCase()}</span><span className="crm-badge">{p.contact_status.replaceAll("_", " ")}</span></header><button className="crm-record-title" onClick={() => workspace.openRecord({ id: p.id, name, kind: "person" })}>{name}</button><p>{p.job_title || "Role not recorded"}</p><p>{p.organization_name || p.connections?.map((connection) => connection.organizationName).join(" · ") || "Not connected to a company"}</p><p>{p.email || p.phone || "Add contact details in the full record"}</p><footer><span>{p.last_contacted_at ? `Last contact ${new Date(p.last_contacted_at).toLocaleDateString()}` : "No contact recorded"}</span><Link href={`/admin/brokerage/crm/people/${p.id}`}>Full record ↗</Link></footer></article>;
             return (
               <Link
                 key={p.id}

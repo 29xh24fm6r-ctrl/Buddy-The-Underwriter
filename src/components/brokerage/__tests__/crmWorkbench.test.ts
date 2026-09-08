@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { CrmHomeWorkbench } from "../CrmHomeWorkbench";
 import { CrmCompanyCards } from "../CrmCompanyCards";
 import { CrmTaskControl } from "../CrmTaskControl";
+import { readFileSync } from "node:fs";
 const props = {
   loading: false,
   error: null,
@@ -27,15 +28,14 @@ test("new homepage distinguishes initial loading and failure from an empty task 
   assert.match(failed, /role="alert"/);
   assert.doesNotMatch(failed, /No open/);
 });
-test("home offers real intake and complete task inventory without inventing pipeline counts", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(CrmHomeWorkbench, props),
-  );
-  assert.match(html, /leads\?new=1/);
-  assert.match(html, /Team commitments/);
-  assert.match(html, /Completed · reopen/);
-  assert.match(html, /Loading lead follow-ups/);
-  assert.match(html, /This is not a complete task inventory/);
+test("home loads the unified brokerage command center and preserves the full task inventory", () => {
+  const source = readFileSync("src/components/brokerage/CrmHomeWorkbench.tsx", "utf8");
+  assert.match(source, /crm\/command-center/);
+  assert.match(source, /ACTIVE DEALS/);
+  assert.match(source, /NEEDS ATTENTION/);
+  assert.match(source, /ACTIVE PLACEMENTS/);
+  assert.match(source, /CrmTaskInventory/);
+  assert.match(source, /No totals are being presented as zero/);
 });
 test("company directory preserves full record links and derived metrics", () => {
   const html = renderToStaticMarkup(
