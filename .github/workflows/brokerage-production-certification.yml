@@ -34,7 +34,7 @@ jobs:
       - name: Verify deployed release identity
         shell: bash
         run: |
-          deployed_sha="$(curl --fail --silent --show-error https://app.buddytheunderwriter.com/api/meta/build | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).gitSha||""))')"
+          deployed_sha="$(curl --fail --silent --show-error https://app.buddytheunderwriter.com/api/meta/build | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).commitSha||""))')"
           test "$deployed_sha" = "$GITHUB_SHA"
       - name: Run borrower production journey
         run: pnpm synth:borrowers

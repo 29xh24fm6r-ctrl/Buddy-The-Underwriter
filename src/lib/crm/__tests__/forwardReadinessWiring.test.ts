@@ -27,8 +27,12 @@ test("owner command stays inside the brokerage workspace", () => {
 
 test("production certification is explicit, identity-bound, and evidence preserving", () => {
   const workflow = read(".github/workflows/brokerage-production-certification.yml");
+  const buildIdentityRoute = read("src/app/api/meta/build/route.ts");
   assert.match(workflow, /CERTIFY_PRODUCTION/);
   assert.match(workflow, /deployed_sha/);
+  assert.match(buildIdentityRoute, /commitSha:/);
+  assert.match(workflow, /JSON\.parse\(s\)\.commitSha/);
+  assert.doesNotMatch(workflow, /JSON\.parse\(s\)\.gitSha/);
   assert.match(workflow, /BUDDY_BASE_URL: https:\/\/app\.buddytheunderwriter\.com/);
   assert.match(workflow, /synth:borrowers/);
   assert.match(workflow, /golden:brokerage -- --cleanup/);
