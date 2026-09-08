@@ -633,5 +633,10 @@
     "name": "find_rendered_stale_spreads",
     "type": "function",
     "migration": "20260902120000_find_orphan_spreads_rendered_exclusion.sql"
+  },
+  {
+    "name": "deal_lender_matches",
+    "type": "table",
+    "migration": "20260908190000_deal_lender_matches.sql"
   }
 ]

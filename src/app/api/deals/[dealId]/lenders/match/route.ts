@@ -126,16 +126,53 @@ export async function GET(_req: Request, ctx: Ctx) {
       programs: (programs ?? []) as any,
     });
 
+    // Persist the current match set as the deal's read model. Insights and the
+    // journey read `deal_lender_matches` ("N lenders matched this structure");
+    // until now nothing wrote it, so that signal was always empty. Replace the
+    // deal's rows wholesale so the table reflects this snapshot, never a stale
+    // union of earlier runs. Best-effort: a persistence failure is logged and
+    // the live result is still returned.
+    let persisted = 0;
+    try {
+      const { error: clearError } = await sb
+        .from("deal_lender_matches")
+        .delete()
+        .eq("deal_id", dealId)
+        .eq("bank_id", access.bankId);
+      if (clearError) throw new Error(clearError.message);
+      if (result.matched.length > 0) {
+        const { error: insertError } = await sb.from("deal_lender_matches").insert(
+          result.matched.map((m) => ({
+            deal_id: dealId,
+            bank_id: access.bankId,
+            lender_program_id: m.programId,
+            snapshot_id: snapshotRow.id,
+            lender_name: m.lender,
+            program_name: m.program,
+            fit_score: m.fitScore,
+            reasons_json: m.reasons,
+          })),
+        );
+        if (insertError) throw new Error(insertError.message);
+        persisted = result.matched.length;
+      }
+    } catch (persistError: any) {
+      console.warn("[/api/deals/[dealId]/lenders/match] deal_lender_matches persistence failed (non-fatal)", {
+        dealId,
+        error: persistError?.message ?? String(persistError),
+      });
+    }
+
     await logLedgerEvent({
       dealId,
       bankId: access.bankId,
       eventKey: "lender_match_computed",
       uiState: "done",
       uiMessage: `Matched ${result.matched.length} lenders`,
-      meta: { matched: result.matched.length },
+      meta: { matched: result.matched.length, persisted },
     });
 
-    return NextResponse.json({ ok: true, dealId, matches: result });
+    return NextResponse.json({ ok: true, dealId, matches: result, persisted });
   } catch (e: any) {
     rethrowNextErrors(e);
 

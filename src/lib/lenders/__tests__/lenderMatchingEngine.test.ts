@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { matchLenders } from "@/lib/lenders/lenderMatchingEngine";
+import { matchLenders, type LenderProgram } from "@/lib/lenders/lenderMatchingEngine";
 import { buildEmptyMetric, type DealFinancialSnapshotV1 } from "@/lib/deals/financialSnapshotCore";
 
 function snapshotWith(overrides: Partial<DealFinancialSnapshotV1>): DealFinancialSnapshotV1 {
@@ -78,4 +78,42 @@ test("matchLenders filters by DSCR and LTV", () => {
   assert.equal(result.matched.length, 1);
   assert.equal(result.matched[0].lender, "Lender A");
   assert.equal(result.excluded.length, 1);
+});
+
+// ── Ratio-scale limits (production lender_programs.max_ltv = 0.90; snapshot ltv is 0–1) ──
+
+const ratioSnapshot = (dscr: number, ltvNet: number) =>
+  ({ dscr: { value_num: dscr }, ltv_net: { value_num: ltvNet } }) as any;
+
+const ratioProgram = (over: Partial<LenderProgram> = {}): LenderProgram => ({
+  id: "prog-1",
+  lender_name: "Launch Test Lender",
+  program_name: "All-Asset",
+  min_dscr: 1.0,
+  max_ltv: 0.9,
+  ...over,
+});
+
+test("LTV limits are ratios and are reported as percentages", () => {
+  // Production lender_programs row: max_ltv = 0.90; snapshot ltv_net is 0–1.
+  const r = matchLenders({ snapshot: ratioSnapshot(2.5, 0.8), score: null, sbaStatus: null, assetType: null, geography: null, programs: [ratioProgram()] });
+  assert.equal(r.matched.length, 1);
+  assert.equal(r.matched[0].programId, "prog-1");
+  assert.ok(r.matched[0].reasons.includes("LTV 80% within 90% limit."), r.matched[0].reasons.join(" | "));
+});
+
+test("an LTV above the program limit excludes the program with a percent message", () => {
+  const r = matchLenders({ snapshot: ratioSnapshot(2.5, 1.0), score: null, sbaStatus: null, assetType: null, geography: null, programs: [ratioProgram()] });
+  assert.equal(r.matched.length, 0);
+  assert.deepEqual(r.excluded[0], { programId: "prog-1", lender: "Launch Test Lender", reason: "LTV 100% above 90%." });
+});
+
+test("NUMERIC limits arriving as strings from PostgREST still apply", () => {
+  const r = matchLenders({
+    snapshot: ratioSnapshot(0.9, 0.5),
+    score: null, sbaStatus: null, assetType: null, geography: null,
+    programs: [ratioProgram({ min_dscr: "1.00" as any, max_ltv: "0.90" as any })],
+  });
+  assert.equal(r.matched.length, 0);
+  assert.match(r.excluded[0].reason, /DSCR 0\.90 below 1\.00/);
 });

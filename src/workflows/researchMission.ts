@@ -8,6 +8,8 @@ export type ResearchWorkflowArgs = {
   bankId: string | null;
   userId: string | null;
   forceRerun?: boolean;
+  /** Row resolved by prepareMissionRun() before admission; runMission adopts it. */
+  missionId?: string;
 };
 
 /**
@@ -28,6 +30,7 @@ export async function executeResearchMission(args: ResearchWorkflowArgs) {
     bankId: args.bankId,
     userId: args.userId,
     forceRerun: args.forceRerun,
+    missionId: args.missionId,
   });
 
   if (!result.ok) {
