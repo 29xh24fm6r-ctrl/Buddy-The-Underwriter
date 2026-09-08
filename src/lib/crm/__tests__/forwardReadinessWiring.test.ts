@@ -33,10 +33,21 @@ test("production certification is explicit, identity-bound, and evidence preserv
   assert.match(buildIdentityRoute, /commitSha:/);
   assert.match(workflow, /JSON\.parse\(s\)\.commitSha/);
   assert.doesNotMatch(workflow, /JSON\.parse\(s\)\.gitSha/);
+  assert.match(workflow, /Validate certification credentials/);
+  assert.match(workflow, /test -n "\$SUPABASE_SERVICE_ROLE_KEY"/);
   assert.match(workflow, /BUDDY_BASE_URL: https:\/\/app\.buddytheunderwriter\.com/);
   assert.match(workflow, /synth:borrowers/);
   assert.match(workflow, /golden:brokerage -- --cleanup/);
   assert.match(workflow, /upload-artifact/);
+});
+
+test("borrower certification validates the journey it actually performs", () => {
+  const runner = read("scripts/synth-borrower-e2e.ts");
+  assert.match(runner, /status_verified/);
+  assert.match(runner, /gate_reasons/);
+  assert.match(runner, /invalid_seal_status_contract/);
+  assert.doesNotMatch(runner, /seal_timeout/);
+  assert.doesNotMatch(runner, /SYNTH_POLL_MAX_ATTEMPTS/);
 });
 
 test("schema reconciliation is repeat-safe and restores signing idempotency", () => {
