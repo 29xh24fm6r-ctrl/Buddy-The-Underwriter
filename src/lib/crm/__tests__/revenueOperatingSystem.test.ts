@@ -1,0 +1,54 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { buildRevenueOperatingSystem } from "../revenueOperatingSystem";
+
+const now = new Date("2026-09-08T12:00:00.000Z");
+
+test("combines deals, leads, relationships, lenders, and communications into one honest operating picture", () => {
+  const command = buildRevenueOperatingSystem({
+    now,
+    deals: [
+      { id: "d1", title: "Cafe", borrower: "Dana", amount: 500_000, stage: "intake", stageEnteredAt: "2026-08-01T12:00:00.000Z", ownerClerkUserId: null, banksSent: 0, nextTask: null },
+      { id: "d2", title: "Funded", borrower: "Lee", amount: 1_000_000, stage: "funded", stageEnteredAt: "2026-09-01T12:00:00.000Z", ownerClerkUserId: "u1", banksSent: 2, nextTask: null },
+      { id: "d3", title: "Parked", borrower: null, amount: 200_000, stage: "lost", stageEnteredAt: "2026-08-01T12:00:00.000Z", ownerClerkUserId: null, banksSent: 1, nextTask: null },
+    ],
+    leads: [
+      { id: "l1", status: "new", business_name: "New Co" },
+      { id: "l2", status: "converted", business_name: "Done Co" },
+    ],
+    organizations: [{ id: "o1", name: "CPA", ownerClerkUserId: null }],
+    unlinkedPeople: 1,
+    lenders: [{ id: "p1", name: "Bank", hasAppetite: false, hasGeography: false, contactCount: 0 }],
+    activeSubmissions: 0,
+    templates: { active: 1, possible: 4 },
+  });
+
+  assert.deepEqual(command.metrics, {
+    activeDeals: 1,
+    pipelineValue: 500_000,
+    needsAttention: 1,
+    unassignedDeals: 1,
+    activeLeads: 1,
+    convertedLeads: 1,
+    relationships: 1,
+    activeSubmissions: 0,
+  });
+  assert.deepEqual(command.work[0].reasons, ["Needs an owner", "No next action", "Stalled in stage"]);
+  assert.equal(command.work[0].severity, "critical");
+  assert.equal(command.health.templatePercent, 25);
+  assert.equal(command.setup.complete, 0);
+  assert.equal(command.setup.total, 6);
+});
+
+test("does not manufacture attention work when the operating record is complete", () => {
+  const command = buildRevenueOperatingSystem({
+    now,
+    deals: [{ id: "d1", title: "Cafe", borrower: "Dana", amount: 500_000, stage: "packaging", stageEnteredAt: "2026-09-07T12:00:00.000Z", ownerClerkUserId: "u1", banksSent: 1, nextTask: { id: "t1", title: "Review package", dueAt: "2026-09-10T12:00:00.000Z" } }],
+    leads: [], organizations: [], unlinkedPeople: 0,
+    lenders: [{ id: "p1", name: "Bank", hasAppetite: true, hasGeography: true, contactCount: 1 }],
+    activeSubmissions: 1, templates: { active: 4, possible: 4 },
+  });
+  assert.equal(command.metrics.needsAttention, 0);
+  assert.deepEqual(command.work, []);
+  assert.equal(command.setup.items.find((item) => item.id === "lenders")?.complete, true);
+});

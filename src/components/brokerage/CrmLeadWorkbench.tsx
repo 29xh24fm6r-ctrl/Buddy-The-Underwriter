@@ -29,6 +29,7 @@ type Member = {
   email?: string;
 };
 const queues = [
+  ["active", "Active opportunities"],
   ["all", "All opportunities"],
   ["my_leads", "My leads"],
   ["unassigned", "Needs an owner"],
@@ -47,7 +48,7 @@ export function CrmLeadWorkbench() {
   const workspace = useCrmWorkspace();
   const requested = params.get("queue");
   const [queue, setQueue] = useState(
-    queues.some(([id]) => id === requested) ? requested! : "all",
+    queues.some(([id]) => id === requested) ? requested! : "active",
   );
   const [view, setView] = useState("board");
   const [q, setQ] = useState("");
