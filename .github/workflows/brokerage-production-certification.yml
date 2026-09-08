@@ -36,6 +36,14 @@ jobs:
         run: |
           deployed_sha="$(curl --fail --silent --show-error https://app.buddytheunderwriter.com/api/meta/build | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).commitSha||""))')"
           test "$deployed_sha" = "$GITHUB_SHA"
+      - name: Validate certification credentials
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          test -n "$SUPABASE_URL" || { echo "SUPABASE_URL is not configured in the production environment"; exit 1; }
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY is not configured in the production environment"; exit 1; }
       - name: Run borrower production journey
         run: pnpm synth:borrowers
         env:

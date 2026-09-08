@@ -9,8 +9,10 @@
  *   2. Multi-turn POST /api/brokerage/concierge until response reports
  *      `nextRequiredFields = []` or transcript exhausts.
  *   3. POST /api/brokerage/upload/prepare.
- *   4. Poll GET /api/brokerage/deals/{dealId}/seal-status every 5s, up
- *      to 5 minutes.
+ *   4. GET /api/brokerage/deals/{dealId}/seal-status and verify the
+ *      readiness contract. This journey does not upload a document package
+ *      or invoke POST /seal, so an unsealed response with explicit gate
+ *      reasons is the truthful expected state.
  *
  * Writes .ci/synth-borrower-e2e-report.json. Exits non-zero if pass_rate
  * drops below 13/15.
@@ -20,8 +22,6 @@
  *   SUPABASE_SERVICE_ROLE_KEY  required to persist durable run evidence
  *   SUPABASE_URL               required (NEXT_PUBLIC_SUPABASE_URL also accepted)
  *   SYNTH_FIXTURE_COUNT        optional cap, default = all fixtures
- *   SYNTH_POLL_INTERVAL_MS     optional, default 5000
- *   SYNTH_POLL_MAX_ATTEMPTS    optional, default 60
  *
  * Real concierge model. Real OCR. No DB surgery.
  */
@@ -35,6 +35,9 @@ type FixtureResult = {
   fixture_id: string;
   deal_id: string | null;
   sealed: boolean;
+  status_verified: boolean;
+  can_seal: boolean | null;
+  gate_reasons: string[];
   elapsed_ms: number;
   last_event: { scope: string; action: string; created_at: string } | null;
   error: string | null;
@@ -107,6 +110,9 @@ async function runFixture(
         fixture_id: fixture.fixture_id,
         deal_id: dealId,
         sealed: false,
+        status_verified: false,
+        can_seal: null,
+        gate_reasons: [],
         elapsed_ms: Date.now() - started,
         last_event: null,
         error: `concierge_${res.status}`,
@@ -135,6 +141,9 @@ async function runFixture(
       fixture_id: fixture.fixture_id,
       deal_id: null,
       sealed: false,
+      status_verified: false,
+      can_seal: null,
+      gate_reasons: [],
       elapsed_ms: Date.now() - started,
       last_event: null,
       error: "no_deal_id_after_concierge",
@@ -155,6 +164,9 @@ async function runFixture(
       fixture_id: fixture.fixture_id,
       deal_id: dealId,
       sealed: false,
+      status_verified: false,
+      can_seal: null,
+      gate_reasons: [],
       elapsed_ms: Date.now() - started,
       last_event: null,
       error: `upload_prepare_${prep.status}`,
@@ -162,32 +174,49 @@ async function runFixture(
     };
   }
 
-  // Poll seal status.
-  const intervalMs = Number(process.env.SYNTH_POLL_INTERVAL_MS ?? 5000);
-  const maxAttempts = Number(process.env.SYNTH_POLL_MAX_ATTEMPTS ?? 60);
-  let sealed = false;
-  for (let i = 0; i < maxAttempts; i++) {
-    const sealRes = await fetch(
-      `${baseUrl}/api/brokerage/deals/${dealId}/seal-status`,
-      { headers: { cookie: cookieJar } },
-    );
-    if (sealRes.ok) {
-      const sb = (await sealRes.json()) as { sealed?: boolean; status?: string };
-      if (sb.sealed || sb.status === "sealed") {
-        sealed = true;
-        break;
-      }
-    }
-    await new Promise((r) => setTimeout(r, intervalMs));
+  const sealRes = await fetch(
+    `${baseUrl}/api/brokerage/deals/${dealId}/seal-status`,
+    { headers: { cookie: cookieJar } },
+  );
+  if (!sealRes.ok) {
+    return {
+      fixture_id: fixture.fixture_id,
+      deal_id: dealId,
+      sealed: false,
+      status_verified: false,
+      can_seal: null,
+      gate_reasons: [],
+      elapsed_ms: Date.now() - started,
+      last_event: null,
+      error: `seal_status_${sealRes.status}`,
+      repeat_asked_fields: repeatAskedFields,
+    };
   }
+  const status = (await sealRes.json()) as {
+    ok?: boolean;
+    sealed?: boolean;
+    canSeal?: boolean;
+    gateReasons?: unknown;
+  };
+  const gateReasons = Array.isArray(status.gateReasons)
+    ? status.gateReasons.filter((reason): reason is string => typeof reason === "string")
+    : [];
+  const statusVerified =
+    status.ok === true &&
+    typeof status.sealed === "boolean" &&
+    typeof status.canSeal === "boolean" &&
+    Array.isArray(status.gateReasons);
 
   return {
     fixture_id: fixture.fixture_id,
     deal_id: dealId,
-    sealed: sealed && repeatAskedFields.length === 0,
+    sealed: status.sealed === true,
+    status_verified: statusVerified && repeatAskedFields.length === 0,
+    can_seal: typeof status.canSeal === "boolean" ? status.canSeal : null,
+    gate_reasons: gateReasons,
     elapsed_ms: Date.now() - started,
     last_event: null,
-    error: !sealed ? "seal_timeout" : repeatAskedFields.length > 0 ? "repeat_ask_violation" : null,
+    error: !statusVerified ? "invalid_seal_status_contract" : repeatAskedFields.length > 0 ? "repeat_ask_violation" : null,
     repeat_asked_fields: repeatAskedFields,
   };
 }
@@ -262,6 +291,13 @@ async function classifySyntheticDeals(results: FixtureResult[]): Promise<void> {
 async function main(): Promise<void> {
   const baseUrl = (process.env.BUDDY_BASE_URL ?? "https://app.buddytheunderwriter.com").replace(/\/$/, "");
 
+  // Fail before creating production records if cleanup/evidence credentials
+  // are unavailable.
+  env("SUPABASE_SERVICE_ROLE_KEY");
+  if (!(process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL)) {
+    throw new Error("Missing required env: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
+  }
+
   const fixtures = loadFixtures();
   if (fixtures.length === 0) {
     console.error("No fixtures found in scripts/synth-borrower-e2e/fixtures/");
@@ -275,14 +311,14 @@ async function main(): Promise<void> {
     const r = await runFixture(baseUrl, f);
     results.push(r);
     console.log(
-      `    sealed=${r.sealed} elapsed=${r.elapsed_ms}ms error=${r.error ?? "—"}` +
+      `    status_verified=${r.status_verified} sealed=${r.sealed} can_seal=${r.can_seal} elapsed=${r.elapsed_ms}ms error=${r.error ?? "—"}` +
         (r.repeat_asked_fields.length
           ? ` REPEAT_ASK_VIOLATION=[${r.repeat_asked_fields.join(",")}]`
           : ""),
     );
   }
 
-  const passed = results.filter((r) => r.sealed).length;
+  const passed = results.filter((r) => r.status_verified).length;
   const passRate = passed / results.length;
   const repeatAskViolations = results.filter((r) => r.repeat_asked_fields.length > 0);
 
