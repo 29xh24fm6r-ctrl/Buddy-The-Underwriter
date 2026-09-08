@@ -10,7 +10,11 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import {
+  ensureDealBankAccess,
+  isDealBankAccessGrantFor,
+  type DealBankAccessGrant,
+} from "@/lib/tenant/ensureDealBankAccess";
 import {
   detectFactConflicts,
   RECONCILED_FACT_KEYS,
@@ -29,11 +33,25 @@ export type ReconcileDealFactsResult = {
 
 export async function reconcileDealFacts(args: {
   dealId: string;
+  /**
+   * Service-verified grant from ensureDealBankAccessForService. Worker paths
+   * (doc extraction, research completion, the readiness reconcile sweep)
+   * have no Clerk session; without a grant the session check fails and the
+   * reconciliation is silently skipped, so conflicts raised by new
+   * extractions would only surface once a banker loads a page.
+   */
+  accessGrant?: DealBankAccessGrant;
 }): Promise<
   | ReconcileDealFactsResult
   | { ok: false; reason: "tenant_mismatch" | "load_failed"; error?: string }
 > {
-  const access = await ensureDealBankAccess(args.dealId);
+  const delegated = args.accessGrant;
+  const delegatedIsValid =
+    !!delegated &&
+    isDealBankAccessGrantFor(delegated, args.dealId, delegated.bankId);
+  const access = delegatedIsValid
+    ? ({ ok: true as const, bankId: delegated.bankId })
+    : await ensureDealBankAccess(args.dealId);
   if (!access.ok) {
     return { ok: false, reason: "tenant_mismatch", error: access.error };
   }

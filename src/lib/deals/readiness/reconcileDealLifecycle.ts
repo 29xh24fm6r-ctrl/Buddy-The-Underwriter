@@ -12,6 +12,7 @@ import "server-only";
 
 import type { LifecycleStage } from "@/buddy/lifecycle/model";
 import { advanceDealLifecycle } from "@/buddy/lifecycle/advanceDealLifecycle";
+import { isStageAtOrBeyond } from "@/buddy/lifecycle/stages";
 import type { UnifiedDealReadiness } from "./types";
 
 export type ReconcileDealLifecycleArgs = {
@@ -43,9 +44,23 @@ export async function reconcileDealLifecycle(
     };
   }
 
-  // Only advance forward — never backwards. The lifecycle engine's
-  // advanceDealLifecycle picks the single next stage; if we want to skip
-  // multiple stages we have to advance repeatedly.
+  // Only advance forward — never backwards. A deal that is already at or
+  // past the readiness-derived target (e.g. underwrite_in_progress when the
+  // target is underwrite_ready) is left alone. Without this check every
+  // refresh would ask the engine for the *next* stage beyond the target
+  // (committee_ready), be refused, and write a spurious lifecycle.blocked
+  // ledger event for a transition nobody requested.
+  if (isStageAtOrBeyond(fromStage, targetStage)) {
+    return {
+      fromStage,
+      toStage: null,
+      advanced: false,
+      reason: "no_change",
+    };
+  }
+
+  // The lifecycle engine's advanceDealLifecycle picks the single next stage;
+  // if we want to skip multiple stages we have to advance repeatedly.
   let lastReason = "no_change";
   let lastAdvanced = false;
   let safetyCounter = 0;
