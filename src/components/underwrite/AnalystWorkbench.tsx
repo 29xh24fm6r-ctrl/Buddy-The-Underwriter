@@ -17,6 +17,7 @@ import ResearchGateActionPanel, {
 } from "./ResearchGateActionPanel";
 import type { ResearchGateSnapshot, ResearchGatePending } from "./researchGateTypes";
 import { fetchResearchGateSnapshot } from "./fetchResearchGateSnapshot";
+import { RAIL_ACTION_EVENT, type RailActionEventDetail } from "@/components/journey/StageRow";
 
 interface WorkbenchState {
   deal: { id: string; dealName: string; borrowerLegalName: string; bankName: string; lifecycleStage: string; dealMode: "quick_look" | "full_underwrite"; isQuickLook: boolean };
@@ -54,6 +55,22 @@ export async function readResearchRunFailure(response: Response): Promise<string
     ?? (typeof payload.correlationId === "string" ? payload.correlationId : null);
   const base = detail ?? `Research request failed (HTTP ${response.status}).`;
   return correlationId ? `${base} Reference: ${correlationId}` : base;
+}
+
+/**
+ * A 200 with `duplicate: true` means runMission reused an existing mission for
+ * the same run_key and started nothing. Surface that instead of a silent no-op.
+ */
+export async function readResearchRunDuplicate(response: Response): Promise<string | null> {
+  try {
+    const payload = (await response.clone().json()) as Record<string, unknown>;
+    if (payload?.duplicate === true) {
+      return "An identical research mission already exists for this deal, so nothing new was started. Use Re-run Research to force a fresh mission.";
+    }
+  } catch {
+    // Non-JSON success body — nothing to surface.
+  }
+  return null;
 }
 
 export default function AnalystWorkbench({ dealId }: Props) {
@@ -126,14 +143,26 @@ export default function AnalystWorkbench({ dealId }: Props) {
     }
   }, [dealId, fetchState, fetchResearch]);
 
-  const runResearch = useCallback(async () => {
+  const runResearch = useCallback(async (opts?: { rerun?: boolean }) => {
     setPending("run");
     setResearchError(null);
     try {
       // runMission completes synchronously server-side (up to ~5 min).
-      const response = await fetch(`/api/deals/${dealId}/research/run`, { method: "POST" });
+      // "Re-run Research" (failed / gate-failed mission) must force a fresh
+      // mission: a plain run is idempotent on run_key and silently reuses the
+      // existing mission, so the button appeared to do nothing.
+      const response = await fetch(
+        `/api/deals/${dealId}/research/run`,
+        opts?.rerun
+          ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force_rerun: true }) }
+          : { method: "POST" },
+      );
       const failure = await readResearchRunFailure(response);
       if (failure) setResearchError(failure);
+      else {
+        const duplicate = await readResearchRunDuplicate(response);
+        if (duplicate) setResearchError(duplicate);
+      }
     } catch (error) {
       setResearchError(error instanceof Error ? error.message : "Research could not be started. Please retry.");
     } finally {
@@ -141,6 +170,20 @@ export default function AnalystWorkbench({ dealId }: Props) {
       setPending(null);
     }
   }, [dealId, fetchState, fetchResearch]);
+
+  // The journey rail's "Run research" fires RAIL_ACTION_EVENT before POSTing
+  // itself. Take it over here so the research gate panel shows the same
+  // pending → running → result flow as its own Re-run Research button.
+  useEffect(() => {
+    const onRailAction = (ev: Event) => {
+      const detail = (ev as CustomEvent<RailActionEventDetail>).detail;
+      if (!detail || detail.actionType !== "run_research" || detail.dealId !== dealId) return;
+      ev.preventDefault();
+      void runResearch({ rerun: true });
+    };
+    window.addEventListener(RAIL_ACTION_EVENT, onRailAction);
+    return () => window.removeEventListener(RAIL_ACTION_EVENT, onRailAction);
+  }, [dealId, runResearch]);
 
   // SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1: apply a banker/analyst review
   // action to a committee evidence task, then refresh the research snapshot so

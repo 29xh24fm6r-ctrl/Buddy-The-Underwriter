@@ -308,7 +308,7 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
       "narrative", "synthesis", [], [], 0.70,
       ["credit_thesis"],
     ));
-    for (const contradiction of result.synthesis.contradictions_and_uncertainties) {
+    for (const contradiction of result.synthesis.contradictions_and_uncertainties ?? []) {
       claims.push({
         mission_id: missionId,
         section: "Contradictions",
@@ -326,7 +326,7 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
         adversarial_check_id: "synthesis_contradiction",
       });
     }
-    for (const question of result.synthesis.underwriting_questions) {
+    for (const question of result.synthesis.underwriting_questions ?? []) {
       claims.push({
         mission_id: missionId,
         section: "Underwriting Questions",

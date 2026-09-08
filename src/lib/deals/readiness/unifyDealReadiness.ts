@@ -261,7 +261,7 @@ function buildResearchGroup(
         owner: "buddy",
         severity: "blocker",
         // SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1: see above — /research 404s.
-        fixPath: `/deals/${dealId}/underwrite`,
+        fixPath: `/deals/${dealId}/underwrite#research-gate`,
         fixLabel: "Run research",
       });
     }

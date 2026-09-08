@@ -5,8 +5,44 @@ import type { BuddySignalBase } from "@/buddy/signals";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
+/**
+ * Resolve the tenant for a signal. Browser and route callers carry a Clerk
+ * session; background workers (cron ticks, outbox processors, spread jobs)
+ * do not, and for them the deal row is the tenant authority. Returns null
+ * when neither is available so the caller can skip the write instead of
+ * rejecting: an unawaited rejection here has crashed worker invocations
+ * (Node exit 128 on the worker tick while the checklist engine emitted
+ * signals from a serverless cron context).
+ */
+async function resolveSignalBankId(signal: BuddySignalBase): Promise<string | null> {
+  try {
+    return await getCurrentBankId();
+  } catch {
+    // No session (or Clerk not configured) — fall through to the deal.
+  }
+  if (!signal.dealId) return null;
+  try {
+    const { data } = await supabaseAdmin()
+      .from("deals")
+      .select("bank_id")
+      .eq("id", signal.dealId)
+      .maybeSingle();
+    return (data as { bank_id?: string | null } | null)?.bank_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function writeBuddySignal(signal: BuddySignalBase) {
-  const bankId = await getCurrentBankId();
+  const bankId = await resolveSignalBankId(signal);
+  if (!bankId) {
+    console.warn("[writeBuddySignal] skipped: no tenant for signal", {
+      type: signal.type,
+      source: signal.source,
+      dealId: signal.dealId ?? null,
+    });
+    return;
+  }
   const sb = supabaseAdmin();
 
   await sb.from("buddy_signal_ledger").insert({

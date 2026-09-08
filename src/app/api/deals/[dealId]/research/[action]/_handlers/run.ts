@@ -4,17 +4,21 @@
  * Triggers a research mission for a deal.
  * Resolves NAICS code from the deal's borrower record.
  * Runs industry_landscape mission at "committee" depth.
- * Returns mission_id and status — runs to completion (up to 60s).
+ * Returns immediately with a durable workflow run id.
  *
  * Body (optional JSON):
- *   { mission_type?: MissionType, depth?: MissionDepth }
+ *   { mission_type?: MissionType, depth?: MissionDepth, force_rerun?: boolean }
  *
  * Defaults: mission_type = "industry_landscape", depth = "committee"
+ *
+ * force_rerun: true (or the "rerun"/"re-run" action alias) bypasses the run_key
+ * idempotency short-circuit and starts a fresh mission. The UI posts the body
+ * flag from "Re-run Research" so it keeps a single /research/run call path.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { runMission } from "@/lib/research/runMission";
+import { startResearchMission } from "@/lib/research/startResearchMission";
 import { buildResearchEntityProfile } from "@/lib/research/buildResearchSubject";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
@@ -23,7 +27,7 @@ import type { MissionType, MissionDepth } from "@/lib/research/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // BIE runs 7 Gemini calls — needs up to 5 minutes
+export const maxDuration = 60;
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -38,7 +42,7 @@ export async function POST(
     // completed — bypass the run_key idempotency short-circuit in that case.
     // Plain "run" stays idempotent. See
     // specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1 (idempotency).
-    const forceRerun = action === "rerun" || action === "re-run";
+    let forceRerun = action === "rerun" || action === "re-run";
 
     if (!uuidRegex.test(dealId)) {
       return NextResponse.json(
@@ -85,6 +89,7 @@ export async function POST(
       const body = await req.json();
       if (body.mission_type) missionType = body.mission_type;
       if (body.depth) depth = body.depth;
+      if (body.force_rerun === true) forceRerun = true;
     } catch {
       // No body or invalid JSON — use defaults
     }
@@ -142,15 +147,17 @@ export async function POST(
       });
     }
 
-    // Run the mission (enriched subject from the canonical builder)
-    const result = await runMission(dealId, missionType, subject, {
+    const result = await startResearchMission({
+      dealId,
+      missionType,
+      subject,
       depth,
       bankId,
       userId,
       forceRerun,
     });
 
-    return NextResponse.json(result, { status: result.ok ? 200 : 500 });
+    return NextResponse.json(result, { status: result.ok ? 202 : 500 });
   } catch (error: any) {
     rethrowNextErrors(error);
 

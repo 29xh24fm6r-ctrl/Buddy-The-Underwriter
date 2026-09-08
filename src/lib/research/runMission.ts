@@ -151,8 +151,8 @@ async function updateMissionStatus(
     updates.completed_at = new Date().toISOString();
   }
 
-  if (errorMessage) {
-    updates.error_message = errorMessage;
+  if (status === "complete" || status === "failed") {
+    updates.error_message = errorMessage ?? null;
   }
 
   await supabase
@@ -576,7 +576,17 @@ export async function runMission(
   // 8-thread BIE pass — every time. checkExistingMission() is the fast,
   // non-racy path; createMission()'s unique-constraint handling below is the
   // race-safe backstop for concurrent requests that both pass this check.
-  const runKey = generateRunKey({ deal_id: dealId, mission_type: missionType, subject, depth });
+  const baseRunKey = generateRunKey({ deal_id: dealId, mission_type: missionType, subject, depth });
+  // A forced re-run must get its own run_key. The unique index
+  // buddy_research_missions_run_key_active_idx (deal_id, run_key) WHERE status
+  // IN (queued, running, complete) otherwise rejects the insert while the
+  // previous COMPLETE mission holds the key, and createMission() turns that
+  // unique violation into { duplicate: true } — so "Re-run Research" on a
+  // gate-failed mission silently started nothing. Suffixing the key keeps the
+  // plain-run idempotency intact and lets the forced run create a fresh row.
+  const runKey = opts?.forceRerun
+    ? `${baseRunKey}:rerun:${Date.now().toString(36)}`
+    : baseRunKey;
 
   // GOVERNANCE (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): the AI Use
   // Case Registry's "restricted" designation was previously enforced only on
@@ -966,28 +976,12 @@ export async function runMission(
       await checkpointStage(missionId, "narrative_compilation", { sections_count: narrativeSectionsCount });
     }
 
-    // 12. Mark mission as complete
-    //
-    // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): previously this
-    // unconditionally marked "complete" with no distinguishing signal even
-    // when every source failed to fetch and the mission produced zero facts
-    // and zero narrative sections — indistinguishable in the DB from a
-    // genuinely successful mission except by an operator manually comparing
-    // counts. status stays "complete" (the process legitimately finished
-    // without throwing), but error_message now records the degraded-output
-    // signal so it's queryable/visible without inventing a new status value
-    // (the DB CHECK constraint on `status` doesn't allow one without a
-    // migration, which this fix deliberately avoids).
+    // Completion is deliberately deferred until BIE and its quality-gate row
+    // have reached a terminal state. A serverless timeout must never leave a
+    // mission claiming success while its committee gate is still absent.
     const hadNoOutput = persistedFacts.length === 0 && narrativeSectionsCount === 0;
-    await updateMissionStatus(
-      missionId,
-      "complete",
-      hadNoOutput
-        ? `degraded: 0 facts, 0 narrative sections from ${persistedSources.length} source(s) — legacy pipeline produced no usable output`
-        : undefined,
-    );
 
-    // 12b. Buddy Intelligence Engine — runs after mission is marked complete (non-fatal)
+    // 12b. Buddy Intelligence Engine — terminal gate is written before completion
     //
     // Resumable missions (round 4): if a previous attempt already ran BIE to
     // full completion — hallucination guard, narrative upsert, claim ledger,
@@ -1285,7 +1279,7 @@ export async function runMission(
               bankerCertifiedEvidence: {
                 hasStory: !!(subject.business_description && subject.business_description.trim().length > 0),
                 hasManagement: (subject.principals?.length ?? 0) > 0,
-                hasFinancials: subject.annual_revenue != null,
+                hasFinancials: subject.annual_revenue != null || (subject.has_financial_statements ?? false),
               },
               // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: provenance.
               managementBasis: bieResult.management_basis,
@@ -1301,8 +1295,13 @@ export async function runMission(
                 hasIndustryDescription: !!subject.naics_description,
                 hasBusinessDescription: !!(subject.business_description && subject.business_description.trim().length > 0),
                 hasCustomerAnchors: !!subject.customer_anchors,
+                hasProductsServices: !!subject.products_services,
+                hasCompetitivePosition: !!subject.competitive_position,
                 hasRevenue: subject.annual_revenue != null,
+                hasDscr: subject.has_dscr ?? false,
+                hasFinancialStatements: subject.has_financial_statements ?? false,
                 hasLoanRequest: !!(subject.loan_purpose || subject.loan_amount),
+                hasCollateral: subject.has_collateral ?? false,
                 privateCompanyMode: subject.private_company_mode ?? false,
               },
               annualRevenue: subject.annual_revenue ?? null,
@@ -1399,11 +1398,36 @@ export async function runMission(
           // Perfect Banker Flow v1.1 — research finished. Refresh readiness
           // so the rail flips from "research_stalled" to ready without the
           // banker manually reloading. Fire-and-forget.
+          //
+          // Since #1039 the mission runs inside a Workflow step with no Clerk
+          // session, so the refresh must carry a service-verified deal/bank
+          // grant; without one it was refused as tenant_mismatch and the
+          // memo-input readiness row kept its research blocker after a
+          // passing gate (observed 2026-09-08 17:12 UTC on deal c0f6caab).
           try {
-            const { scheduleReadinessRefresh } = await import(
-              "@/lib/deals/readiness/refreshDealReadiness"
-            );
-            scheduleReadinessRefresh({ dealId, trigger: "research_completed" });
+            const [{ scheduleReadinessRefresh }, { ensureDealBankAccessForService }] =
+              await Promise.all([
+                import("@/lib/deals/readiness/refreshDealReadiness"),
+                import("@/lib/tenant/ensureDealBankAccess"),
+              ]);
+            let missionBankId = opts?.bankId ?? null;
+            if (!missionBankId) {
+              const { data: dealRow } = await supabaseAdmin()
+                .from("deals")
+                .select("bank_id")
+                .eq("id", dealId)
+                .maybeSingle();
+              missionBankId = (dealRow as { bank_id?: string | null } | null)?.bank_id ?? null;
+            }
+            const serviceAccess = missionBankId
+              ? await ensureDealBankAccessForService(dealId, missionBankId)
+              : null;
+            scheduleReadinessRefresh({
+              dealId,
+              trigger: "research_completed",
+              actorId: "system:research_mission",
+              accessGrant: serviceAccess?.ok ? serviceAccess.grant : undefined,
+            });
           } catch {
             // Hook is best-effort.
           }
@@ -1415,8 +1439,22 @@ export async function runMission(
           // instead of just reusing thread results.
           await saveBieCheckpoint(missionId, extractBieThreadResults(bieResult), true);
         } else {
-          console.log("[runMission] BIE skipped: minimal quality (no usable company name or NAICS)");
+          console.log("[runMission] BIE completed with minimal quality");
+          await writeDegradedQualityGate(
+            missionId,
+            dealId,
+            "bie_minimal_quality",
+            "Buddy Intelligence Engine returned no usable research threads",
+          );
         }
+      } else if (subjectLockResult.ok) {
+        console.log("[runMission] BIE skipped: no usable company name or NAICS");
+        await writeDegradedQualityGate(
+          missionId,
+          dealId,
+          "insufficient_subject",
+          "Buddy Intelligence Engine skipped because the mission had no usable company name or NAICS",
+        );
       }
     } catch (bieErr: any) {
       console.warn("[runMission] BIE step failed (non-fatal):", bieErr?.message);
@@ -1454,9 +1492,19 @@ export async function runMission(
         }
       }
     } catch (err: any) {
-      // Non-fatal — mission is already marked complete
+      // Non-fatal — the mission has not yet been marked complete.
       console.warn("[runMission] research→flag bridge failed (non-fatal)", err?.message);
     }
+
+    // The mission is terminal only after the quality gate has either been
+    // persisted normally or explicitly degraded on every non-happy path.
+    await updateMissionStatus(
+      missionId,
+      "complete",
+      hadNoOutput
+        ? `degraded: 0 facts, 0 narrative sections from ${persistedSources.length} source(s) — legacy pipeline produced no usable output`
+        : undefined,
+    );
 
     return {
       ok: true,

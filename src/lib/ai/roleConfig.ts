@@ -5,6 +5,8 @@
  *
  * Defaults (Program-level, per SPEC-M1):
  *   generator   — Gemini, failover to OpenAI
+ *   extractor   — Gemini-only OCR and structured document extraction
+ *   research    — Gemini-only grounded research, isolated from extraction
  *   verifier    — Claude (single provider — Invariant #4: at most one
  *                 verifier per artifact; no failover to a second opinion)
  *   structurer  — OpenAI, JSON-schema mode
@@ -34,6 +36,8 @@ import {
 
 export type GatewayRole =
   | "generator"
+  | "extractor"
+  | "research"
   | "verifier"
   | "structurer"
   | "interviewer"
@@ -69,6 +73,8 @@ const DEFAULT_CHAINS: Record<GatewayRole, RoleStep[]> = {
     { provider: "google", model: GEMINI_FLASH },
     { provider: "openai", model: OPENAI_CHAT },
   ],
+  extractor: [{ provider: "google", model: GEMINI_FLASH, authMode: "vertex" }],
+  research: [{ provider: "google", model: GEMINI_FLASH }],
   verifier: [{ provider: "anthropic", model: ANTHROPIC_VERIFIER }],
   structurer: [{ provider: "openai", model: OPENAI_CHAT }],
   interviewer: [{ provider: "google", model: GEMINI_FLASH }],
@@ -79,6 +85,8 @@ const DEFAULT_CHAINS: Record<GatewayRole, RoleStep[]> = {
 
 const DEFAULT_BUDGETS: Record<GatewayRole, number> = {
   generator: 2_000_000,
+  extractor: 1_000_000,
+  research: 500_000,
   verifier: 500_000,
   structurer: 500_000,
   interviewer: 1_000_000,

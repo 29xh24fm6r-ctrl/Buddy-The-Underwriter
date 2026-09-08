@@ -140,7 +140,7 @@ export async function enqueueSpreadRecompute(args: {
   // always merges into the oldest active job, stopping duplicate accumulation.
   const { data: existingJobs } = await (sb as any)
     .from("deal_spread_jobs")
-    .select("id, requested_spread_types")
+    .select("id, requested_spread_types, meta")
     .eq("deal_id", args.dealId)
     .eq("bank_id", args.bankId)
     .in("status", ["QUEUED", "RUNNING"])
@@ -154,6 +154,9 @@ export async function enqueueSpreadRecompute(args: {
 
   if (existingJob) {
     const existingTypes = (existingJob.requested_spread_types ?? []) as string[];
+    const existingMeta = existingJob.meta && typeof existingJob.meta === "object"
+      ? existingJob.meta as Record<string, unknown>
+      : {};
     const merged = uniq([...existingTypes, ...readyTypes]);
 
     if (merged.length > existingTypes.length) {
@@ -162,9 +165,14 @@ export async function enqueueSpreadRecompute(args: {
         .update({
           requested_spread_types: merged,
           meta: {
+            ...existingMeta,
             ...(args.meta ?? {}),
             owner_type: args.ownerType ?? "DEAL",
             owner_entity_id: args.ownerEntityId ?? null,
+            // The first orchestrator owns the run. Never let a late enqueue
+            // clobber its identity or resumable progress.
+            ...(existingMeta.run_id ? { run_id: existingMeta.run_id } : {}),
+            ...(existingMeta.extract_progress ? { extract_progress: existingMeta.extract_progress } : {}),
             merged_at: new Date().toISOString(),
           },
           updated_at: new Date().toISOString(),
@@ -205,7 +213,7 @@ export async function enqueueSpreadRecompute(args: {
         // our insert). Find their job and merge. Robust read (see above).
         const { data: raceJobs } = await (sb as any)
           .from("deal_spread_jobs")
-          .select("id, requested_spread_types")
+          .select("id, requested_spread_types, meta")
           .eq("deal_id", args.dealId)
           .eq("bank_id", args.bankId)
           .in("status", ["QUEUED", "RUNNING"])
@@ -214,6 +222,9 @@ export async function enqueueSpreadRecompute(args: {
         const raceJob = Array.isArray(raceJobs) ? raceJobs[0] : null;
 
         if (raceJob) {
+          const raceMeta = raceJob.meta && typeof raceJob.meta === "object"
+            ? raceJob.meta as Record<string, unknown>
+            : {};
           const merged = uniq([
             ...((raceJob.requested_spread_types ?? []) as string[]),
             ...readyTypes,
@@ -222,6 +233,15 @@ export async function enqueueSpreadRecompute(args: {
             .from("deal_spread_jobs")
             .update({
               requested_spread_types: merged,
+              meta: {
+                ...raceMeta,
+                ...(args.meta ?? {}),
+                owner_type: args.ownerType ?? "DEAL",
+                owner_entity_id: args.ownerEntityId ?? null,
+                ...(raceMeta.run_id ? { run_id: raceMeta.run_id } : {}),
+                ...(raceMeta.extract_progress ? { extract_progress: raceMeta.extract_progress } : {}),
+                merged_at: new Date().toISOString(),
+              },
               updated_at: new Date().toISOString(),
             })
             .eq("id", raceJob.id);

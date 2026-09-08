@@ -179,6 +179,26 @@ describe("runRole: daily token budget hard stop", () => {
       /daily token budget exceeded/,
     );
   });
+
+  it("counts Gemini thinking tokens in budget usage and ledger output", async () => {
+    process.env.AI_GATEWAY_BUDGET_GENERATOR = "20";
+    __setProviderImplForTests("google", async () => ({
+      text: "answer",
+      tokensIn: 5,
+      tokensOut: 5,
+      thoughtsTokenCount: 15,
+    }));
+
+    const first = await runRole("generator", { prompt: "hi", purpose: "thinking-budget" });
+    assert.equal(first.thoughtsTokenCount, 15);
+    assert.equal(first.tokensOut, 5, "callers still receive candidate output tokens separately");
+    assert.equal(ledgerEntries[0].tokensOut, 20, "ledger includes candidate + thinking tokens");
+
+    await assert.rejects(
+      () => runRole("generator", { prompt: "hi", purpose: "thinking-budget" }),
+      /daily token budget exceeded/,
+    );
+  });
 });
 
 describe("runRole: SPEC-GATEWAY-CAPABILITY-EXPANSION-1 field passthrough", () => {

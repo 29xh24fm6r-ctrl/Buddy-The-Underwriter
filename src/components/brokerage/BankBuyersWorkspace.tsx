@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
@@ -21,7 +21,12 @@ export function BankBuyersWorkspace() {
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState("active");
   const [dealSearch, setDealSearch] = useState("");
-  const [bank, setBank] = useState<any>({ name: "", marketplaceRole: "", marketplaceAccessStatus: "not_invited", marketplaceOnboardingNotes: "", relationshipStatus: "prospect", lenderType: "bank", sba7a: true, sba504: false, conventional: false, minLoanAmount: "", maxLoanAmount: "", minDscr: "1.25", maxLtv: "0.90", minimumFico: "", industries: "", excludedIndustries: "", geographies: "Nationwide", collateralPreferences: "", dealPreferences: "", responseSlaDays: "3", referralFeeBps: "", websiteUrl: "", phone: "", city: "", state: "", notes: "", contactFirstName: "", contactLastName: "", contactEmail: "", contactPhone: "", contactJobTitle: "SBA Business Development Officer" });
+  const [bankSearch, setBankSearch] = useState("");
+  const [pending, setPending] = useState<{row: any; status: string; reason: string; amount: string} | null>(null);
+  const writeLock = useRef(false);
+  const [confirmation, setConfirmation] = useState("");
+  const [pendingOrganization, setPendingOrganization] = useState<string | null>(null);
+  const [bank, setBank] = useState<any>({ name: "", marketplaceRole: "", marketplaceAccessStatus: "not_invited", marketplaceOnboardingNotes: "", relationshipStatus: "prospect", lenderType: "bank", sba7a: false, sba504: false, conventional: false, minLoanAmount: "", maxLoanAmount: "", minDscr: "", maxLtv: "", minimumFico: "", industries: "", excludedIndustries: "", geographies: "", collateralPreferences: "", dealPreferences: "", responseSlaDays: "3", referralFeeBps: "", websiteUrl: "", phone: "", city: "", state: "", notes: "", contactFirstName: "", contactLastName: "", contactEmail: "", contactPhone: "", contactJobTitle: "SBA Business Development Officer" });
   const [submission, setSubmission] = useState<any>({ entryMode: "existing", dealId: "", externalDealName: "", borrowerName: "", productType: "SBA_7A", dealState: "", externalDealSource: "", externalReference: "", lenderProfileId: "", bankerPersonId: "", status: "sent", amountSent: "", sentAt: dateInput(0), nextFollowUpAt: dateInput(), fitRationale: "", notes: "" });
 
   async function load() {
@@ -43,35 +48,31 @@ export function BankBuyersWorkspace() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const organizationId = params.get("organizationId");
-    if (params.get("new") !== "submission" || !organizationId) {
-      void load();
-      return;
-    }
-    void (async () => {
-      setLoading(true);
-      try {
-        const response = await fetch("/api/admin/brokerage/crm/organizations/buyers", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "ensure_buyer_relationship", organizationId }),
-        });
-        const result = await response.json();
-        if (!response.ok || !result.ok) throw new Error(result.error ?? "Unable to prepare bank relationship");
-        const refreshed = await load();
-        if (!refreshed) return;
-        const preparedProfile = refreshed.profiles.find((profile: any) => profile.id === result.profile.id);
-        const soleBankerId = preparedProfile?.contacts?.length === 1 ? preparedProfile.contacts[0].id : "";
-        setSubmission((current: any) => ({ ...current, lenderProfileId: result.profile.id, bankerPersonId: soleBankerId }));
+    let active = true;
+    void load().then(refreshed => {
+      if (!active || !refreshed || params.get("new") !== "submission" || !organizationId) return;
+      const profile = refreshed.profiles.find((p: any) => p.organization_id === organizationId);
+      if (profile) {
+        const soleBankerId = profile.contacts?.length === 1 ? profile.contacts[0].id : "";
+        setSubmission((current: any) => ({ ...current, lenderProfileId: profile.id, bankerPersonId: soleBankerId }));
         setMode("submission");
-        window.history.replaceState({}, "", "/admin/brokerage/crm/buyers");
-      } catch (e: any) {
-        setError(e.message ?? "Unable to prepare bank relationship");
-        setLoading(false);
-      }
-    })();
-    // Run once for the deep-linked organization supplied by the organization workspace.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      } else setPendingOrganization(organizationId);
+    });
+    return () => { active = false; };
   }, []);
+  async function prepareRelationship() {
+    if (!pendingOrganization || writeLock.current) return;
+    writeLock.current = true; setSaving(true); setError(null);
+    try {
+      const response = await fetch("/api/admin/brokerage/crm/organizations/buyers", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"ensure_buyer_relationship",organizationId:pendingOrganization}) });
+      const result = await response.json();
+      if (!response.ok || !result.ok || !result.profile?.id) throw new Error(result.error || "Preparation not confirmed");
+      await load();
+      setSubmission((current: any) => ({ ...current, lenderProfileId:result.profile.id }));
+      setPendingOrganization(null); setMode("submission");
+    } catch (e: any) { setError(e.message || "Unable to prepare the relationship."); }
+    finally { writeLock.current = false; setSaving(false); }
+  }
   const visible = useMemo(() => data.submissions.filter((s: any) => filter === "all" || (filter === "active" ? ACTIVE.has(s.status) : s.status === filter)), [data.submissions, filter]);
   const selectedProfile = data.profiles.find((p: any) => p.id === submission.lenderProfileId);
   const visibleDeals = useMemo(() => {
@@ -86,38 +87,53 @@ export function BankBuyersWorkspace() {
   }, [data.deals, dealSearch]);
 
   async function post(payload: any) {
-    setSaving(true); setError(null);
+    if (writeLock.current) return;
+    writeLock.current = true; setSaving(true); setError(null);
     try { const r = await fetch("/api/admin/brokerage/crm/organizations/buyers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); const j = await r.json(); if (!r.ok || !j.ok) throw new Error(j.error ?? "Save failed"); setMode(null); await load(); }
     catch (e: any) { setError(e.message ?? "Save failed"); }
-    finally { setSaving(false); }
+    finally { writeLock.current = false; setSaving(false); }
   }
-  async function changeStatus(row: any, status: string) {
+  function changeStatus(row: any, status: string) {
+    setPending({ row, status, reason: "", amount: String(row.approved_amount ?? row.amount_sent ?? "") });
+  }
+  async function confirmStatus() {
+    if (!pending || writeLock.current) return;
+    const { row, status, reason, amount } = pending;
+    if (["declined", "lost"].includes(status) && !reason.trim()) { setError("Add a reason for this decision."); return; }
+    if (["approved", "closed"].includes(status) && (!amount.trim() || !Number.isFinite(Number(amount)) || Number(amount) < 0)) { setError("Enter a valid non-negative amount."); return; }
     const payload: any = { id: row.id, status };
-    if (status === "declined") { const reason = window.prompt("Why did the bank decline this deal?"); if (!reason) return; payload.declineReason = reason; }
-    if (status === "lost") { const reason = window.prompt("Why was this opportunity lost?"); if (!reason) return; payload.lostReason = reason; }
-    if (status === "approved") { const amount = window.prompt("Approved amount", String(row.amount_sent ?? "")); if (amount == null) return; payload.approvedAmount = Number(amount); }
-    if (status === "closed") { const amount = window.prompt("Final closed amount", String(row.approved_amount ?? row.amount_sent ?? "")); if (!amount) return; payload.closedAmount = Number(amount); payload.closedAt = new Date().toISOString(); }
-    setSaving(true);
-    try { const r = await fetch("/api/admin/brokerage/crm/organizations/buyers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); const j = await r.json(); if (!r.ok || !j.ok) throw new Error(j.error); await load(); }
-    catch (e: any) { setError(e.message ?? "Update failed"); }
-    finally { setSaving(false); }
+    if (status === "declined") payload.declineReason = reason.trim();
+    if (status === "lost") payload.lostReason = reason.trim();
+    if (status === "approved") payload.approvedAmount = Number(amount);
+    if (status === "closed") { payload.closedAmount = Number(amount); payload.closedAt = new Date().toISOString(); }
+    writeLock.current = true; setSaving(true); setError(null);
+    try {
+      const r = await fetch("/api/admin/brokerage/crm/organizations/buyers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const j = await r.json(); if (!r.ok || !j.ok || j.submission?.id !== row.id) throw new Error(j.error || "Update not confirmed");
+      setPending(null); setConfirmation("Placement status saved."); await load();
+    } catch (e: any) { setError(e.message || "Update could not be confirmed. Refresh before retrying."); }
+    finally { writeLock.current = false; setSaving(false); }
   }
 
   const tile = (name: string, value: string, color: string = c.brass) => <div style={{ background: c.card, border: `1px solid ${c.border}`, borderLeft: `3px solid ${color}`, padding: "13px 15px", borderRadius: 7 }}><div style={{ color: c.textMuted, fontSize: 10.5 }}>{name}</div><div style={{ color: c.paper, fontFamily: "var(--font-brokerage-mono)", fontSize: 22, marginTop: 5 }}>{value}</div></div>;
 
-  return <div style={{ padding: "18px 24px 42px" }}>
+  return <div className="crm-lender-workbench" style={{ padding: "18px 24px 42px" }}>
     <CrmTabs />
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "end", marginBottom: 16 }}><div><h1 style={{ margin: 0, color: c.paper, fontFamily: "var(--font-brokerage-display)", fontSize: 22 }}>Bank buyer network</h1><p style={{ margin: "5px 0 0", color: c.textMuted, fontSize: 12 }}>Know every bank, banker, appetite, deal sent, decision, and dollar closed.</p></div><div style={{ display: "flex", gap: 8 }}><button onClick={() => setMode("bank")} style={{ ...field(), width: "auto", cursor: "pointer" }}>+ Bank & banker</button><button onClick={() => setMode("submission")} disabled={!data.profiles.length} style={{ ...field(), width: "auto", borderColor: c.brass, color: c.brassBright, cursor: "pointer" }}>+ Send a deal</button></div></div>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "end", marginBottom: 16 }}><div><h1 style={{ margin: 0, color: c.paper, fontFamily: "var(--font-brokerage-display)", fontSize: 22 }}>Lender network</h1><p style={{ margin: "5px 0 0", color: c.textMuted, fontSize: 12 }}>Know every bank, banker, appetite, deal sent, decision, and dollar closed.</p></div><div style={{ display: "flex", gap: 8 }}><button onClick={() => setMode("bank")} style={{ ...field(), width: "auto", cursor: "pointer" }}>+ Bank & banker</button><button onClick={() => setMode("submission")} disabled={!data.profiles.length} style={{ ...field(), width: "auto", borderColor: c.brass, color: c.brassBright, cursor: "pointer" }}>+ Record a placement</button></div></div>
+    <div className="crm-lender-guide"><div><span>01</span><strong>Build your network</strong><p>Add a bank and the banker you work with.</p></div><div><span>02</span><strong>Find the fit</strong><p>Record lending preferences as you learn them.</p></div><div><span>03</span><strong>Track the outcome</strong><p>Log placements, follow-ups, and decisions.</p></div></div>
+    {pendingOrganization && <section className="crm-surface"><h2>Set up this company as a lender?</h2><p>This adds a lending profile to the existing company. Contacts and history stay connected. Nothing is sent.</p><button disabled={saving} onClick={() => void prepareRelationship()}>Create lending profile and continue</button><button disabled={saving} onClick={() => setPendingOrganization(null)}>Cancel</button></section>}
+    {confirmation && <p className="crm-save-message" role="status">{confirmation}</p>}
+    {pending && <section className="crm-surface" aria-label="Confirm placement status"><h2>Confirm {STATUS_LABELS[pending.status].toLowerCase()}</h2><p>{pending.row.deal?.display_name || pending.row.deal?.borrower_name || "Selected deal"} · {pending.row.lender?.name || "Selected lender"}</p><p>This updates the placement record. It does not send a message or move money.</p>{["declined","lost"].includes(pending.status) && <label>Decision reason<textarea value={pending.reason} onChange={e => setPending({...pending, reason:e.target.value})} /></label>}{["approved","closed"].includes(pending.status) && <label>{pending.status === "closed" ? "Final closed amount" : "Approved amount"}<input type="number" min="0" value={pending.amount} onChange={e => setPending({...pending, amount:e.target.value})} /></label>}<div className="crm-filter-bar"><button disabled={saving} className="crm-primary-action" onClick={() => void confirmStatus()}>{saving ? "Saving…" : "Confirm status"}</button><button disabled={saving} onClick={() => setPending(null)}>Cancel</button></div></section>}
     {error && <div style={{ padding: 11, border: `1px solid ${c.brick}`, color: c.brick, borderRadius: 6, marginBottom: 12, fontSize: 12 }}>{error}</div>}
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 10, marginBottom: 18 }}>{tile("Bank relationships", String(data.summary?.bankBuyers ?? "—"))}{tile("Marketplace active", String(data.summary?.marketplaceActive ?? "—"), c.sage)}{tile("Active placements", String(data.summary?.activeSubmissions ?? "—"), c.sage)}{tile("Banks interested", String(data.summary?.interestedCount ?? "—"), c.sage)}{tile("Closed volume", data.summary ? fmtMoney(data.summary.closedVolume) : "—", c.brassBright)}{tile("Follow-ups overdue", String(data.summary?.overdueFollowUps ?? "—"), data.summary?.overdueFollowUps ? c.brick : c.textFaint)}</div>
 
-    {mode === "bank" && <section style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16, marginBottom: 18 }}><h2 style={{ margin: "0 0 14px", fontSize: 15, color: c.paper }}>Add a bank relationship</h2><p style={{ margin: "-7px 0 14px", color: c.textMuted, fontSize: 11.5 }}>Create one bank record, add the banker, and optionally classify marketplace participation. Appetite can be learned later.</p><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 10 }}>
-      {label("Bank name *", <input style={field()} value={bank.name} onChange={e => setBank({...bank,name:e.target.value})}/>)}{label("Relationship", <select style={field()} value={bank.relationshipStatus} onChange={e => setBank({...bank,relationshipStatus:e.target.value})}><option value="prospect">Prospect</option><option value="qualified">Qualified</option><option value="active">Active</option><option value="preferred">Preferred</option><option value="paused">Paused</option><option value="inactive">Inactive</option></select>)}{label("Marketplace role (optional)", <select style={field()} value={bank.marketplaceRole} onChange={e => setBank({...bank,marketplaceRole:e.target.value})}><option value="">Not participating</option><option value="buyer">Buyer</option><option value="seller">Seller</option><option value="buyer_seller">Buyer & seller</option><option value="viewer">Viewer</option></select>)}{label("Marketplace access", <select style={field()} value={bank.marketplaceAccessStatus} onChange={e => setBank({...bank,marketplaceAccessStatus:e.target.value})}><option value="not_invited">Not invited</option><option value="invited">Invited</option><option value="onboarding">Onboarding</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select>)}{label("Minimum deal", <input style={field()} type="number" value={bank.minLoanAmount} onChange={e => setBank({...bank,minLoanAmount:e.target.value})}/>)}{label("Maximum deal", <input style={field()} type="number" value={bank.maxLoanAmount} onChange={e => setBank({...bank,maxLoanAmount:e.target.value})}/>)}
+    {mode === "bank" && <section className="crm-bank-intake" style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16, marginBottom: 18 }}><h2 style={{ margin: "0 0 14px", fontSize: 15, color: c.paper }}>Add a bank relationship</h2><p style={{ margin: "-7px 0 14px", color: c.textMuted, fontSize: 11.5 }}>Create one bank record, add the banker, and optionally classify marketplace participation. Appetite can be learned later.</p><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 10 }}>
+      {label("Bank name *", <input style={field()} value={bank.name} onChange={e => setBank({...bank,name:e.target.value})}/>)}{label("Relationship", <select style={field()} value={bank.relationshipStatus} onChange={e => setBank({...bank,relationshipStatus:e.target.value})}><option value="prospect">Prospect</option><option value="qualified">Qualified</option><option value="active">Active</option><option value="preferred">Preferred</option><option value="paused">Paused</option><option value="inactive">Inactive</option></select>)}<details className="crm-bank-advanced"><summary>Optional: lending preferences & marketplace</summary><div className="crm-form-grid">{label("Marketplace role (optional)", <select style={field()} value={bank.marketplaceRole} onChange={e => setBank({...bank,marketplaceRole:e.target.value})}><option value="">Not participating</option><option value="buyer">Buyer</option><option value="seller">Seller</option><option value="buyer_seller">Buyer & seller</option><option value="viewer">Viewer</option></select>)}{label("Marketplace access", <select style={field()} value={bank.marketplaceAccessStatus} onChange={e => setBank({...bank,marketplaceAccessStatus:e.target.value})}><option value="not_invited">Not invited</option><option value="invited">Invited</option><option value="onboarding">Onboarding</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select>)}{label("Minimum deal", <input style={field()} type="number" value={bank.minLoanAmount} onChange={e => setBank({...bank,minLoanAmount:e.target.value})}/>)}{label("Maximum deal", <input style={field()} type="number" value={bank.maxLoanAmount} onChange={e => setBank({...bank,maxLoanAmount:e.target.value})}/>)}
       {label("Minimum DSCR", <input style={field()} type="number" step=".01" value={bank.minDscr} onChange={e => setBank({...bank,minDscr:e.target.value})}/>)}{label("Maximum LTV (0.90 = 90%)", <input style={field()} type="number" step=".01" value={bank.maxLtv} onChange={e => setBank({...bank,maxLtv:e.target.value})}/>)}{label("Minimum FICO", <input style={field()} type="number" value={bank.minimumFico} onChange={e => setBank({...bank,minimumFico:e.target.value})}/>)}{label("Response SLA (days)", <input style={field()} type="number" value={bank.responseSlaDays} onChange={e => setBank({...bank,responseSlaDays:e.target.value})}/>)}
       {label("Where it lends", <input style={field()} value={bank.geographies} onChange={e => setBank({...bank,geographies:e.target.value})} placeholder="Nationwide, or two-letter states: GA, FL"/>)}{label("Preferred industries", <input style={field()} value={bank.industries} onChange={e => setBank({...bank,industries:e.target.value})} placeholder="Manufacturing, hospitality"/>)}{label("Excluded industries", <input style={field()} value={bank.excludedIndustries} onChange={e => setBank({...bank,excludedIndustries:e.target.value})}/>)}{label("Referral fee (bps)", <input style={field()} type="number" value={bank.referralFeeBps} onChange={e => setBank({...bank,referralFeeBps:e.target.value})}/>)}
-      {label("Banker first name", <input style={field()} value={bank.contactFirstName} onChange={e => setBank({...bank,contactFirstName:e.target.value})}/>)}{label("Banker last name", <input style={field()} value={bank.contactLastName} onChange={e => setBank({...bank,contactLastName:e.target.value})}/>)}{label("Banker email", <input style={field()} type="email" value={bank.contactEmail} onChange={e => setBank({...bank,contactEmail:e.target.value})}/>)}{label("Banker phone", <input style={field()} value={bank.contactPhone} onChange={e => setBank({...bank,contactPhone:e.target.value})}/>)}
-      <label style={{ gridColumn: "span 4", display: "grid", gap: 5, color: c.textMuted, fontSize: 10.5 }}>Deal preferences / credit box<textarea style={{ ...field(), minHeight: 70 }} value={bank.dealPreferences} onChange={e => setBank({...bank,dealPreferences:e.target.value})}/></label>
-      <div style={{ gridColumn: "span 4", display: "flex", gap: 16, color: c.textSecondary, fontSize: 12 }}><label><input type="checkbox" checked={bank.sba7a} onChange={e => setBank({...bank,sba7a:e.target.checked})}/> SBA 7(a)</label><label><input type="checkbox" checked={bank.sba504} onChange={e => setBank({...bank,sba504:e.target.checked})}/> SBA 504</label><label><input type="checkbox" checked={bank.conventional} onChange={e => setBank({...bank,conventional:e.target.checked})}/> Conventional</label></div>
+      </div></details>{label("Banker first name", <input style={field()} value={bank.contactFirstName} onChange={e => setBank({...bank,contactFirstName:e.target.value})}/>)}{label("Banker last name", <input style={field()} value={bank.contactLastName} onChange={e => setBank({...bank,contactLastName:e.target.value})}/>)}{label("Banker email", <input style={field()} type="email" value={bank.contactEmail} onChange={e => setBank({...bank,contactEmail:e.target.value})}/>)}{label("Banker phone", <input style={field()} value={bank.contactPhone} onChange={e => setBank({...bank,contactPhone:e.target.value})}/>)}
+      <label style={{ gridColumn: "1/-1", display: "grid", gap: 5, color: c.textMuted, fontSize: 10.5 }}>Deal preferences / credit box<textarea style={{ ...field(), minHeight: 70 }} value={bank.dealPreferences} onChange={e => setBank({...bank,dealPreferences:e.target.value})}/></label>
+      <div style={{ gridColumn: "1/-1", display: "flex", gap: 16, color: c.textSecondary, fontSize: 12 }}><label><input type="checkbox" checked={bank.sba7a} onChange={e => setBank({...bank,sba7a:e.target.checked})}/> SBA 7(a)</label><label><input type="checkbox" checked={bank.sba504} onChange={e => setBank({...bank,sba504:e.target.checked})}/> SBA 504</label><label><input type="checkbox" checked={bank.conventional} onChange={e => setBank({...bank,conventional:e.target.checked})}/> Conventional</label></div>
     </div><div style={{ marginTop: 14, display: "flex", gap: 8 }}><button disabled={saving || !bank.name.trim()} onClick={() => post({action:"create_buyer",...bank})} style={{ ...field(), width: "auto", background: c.brass, color: c.brassOnBrass }}>Save bank buyer</button><button onClick={() => setMode(null)} style={{ ...field(), width: "auto" }}>Cancel</button></div></section>}
 
     {mode === "submission" && <section style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16, marginBottom: 18 }}>
@@ -154,13 +170,13 @@ export function BankBuyersWorkspace() {
       </div>
     </section>}
 
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(360px,1fr))", gap: 14 }}>
-      <section style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}><div style={{ padding: "11px 14px", borderBottom: `1px solid ${c.border}`, fontWeight: 600, color: c.paper }}>Bank network</div>{data.profiles.length===0?<div style={{ padding: 22, color: c.textMuted, fontSize: 12 }}>Add each bank once, then associate its bankers, marketplace role, optional appetite, and deal history.</div>:data.profiles.map((p:any)=><Link href={`/admin/brokerage/crm/${p.organization_id}`} key={p.id} style={{ display: "block", padding: "11px 14px", borderBottom: `1px solid ${c.divider}`, textDecoration: "none" }}><div style={{ color: c.paper, fontSize: 12.5, fontWeight: 600 }}>{p.organization?.name}</div><div style={{ color: c.textMuted, fontSize: 10.5, marginTop: 3 }}>{p.marketplace_role ? `Marketplace ${String(p.marketplace_role).replaceAll("_"," & ")} · ${String(p.marketplace_access_status || "not_invited").replaceAll("_"," ")}` : "Not in marketplace"} · {p.contacts.length} banker{p.contacts.length===1?"":"s"} · {p.submissions.length} deal{p.submissions.length===1?"":"s"} · {p.relationship_status}</div><div style={{ color: c.textSecondary, fontSize: 10.5, marginTop: 3 }}>{[p.sba_7a_appetite&&"7(a)",p.sba_504_appetite&&"504",p.conventional_appetite&&"Conventional"].filter(Boolean).join(" · ")||"Appetite not set"} · {p.geography_mode==="nationwide"?"Nationwide":((p.state_codes||[]).join(", ")||"Geography not recorded")}</div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,440px),1fr))", gap: 14 }}>
+      <section style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}><div style={{ padding: "11px 14px", borderBottom: `1px solid ${c.border}`, fontWeight: 600, color: c.paper }}>Bank network</div><label className="crm-lender-search">Find a lender<input value={bankSearch} onChange={e => setBankSearch(e.target.value)} placeholder="Bank name or geography" /></label>{data.profiles.length===0?<div style={{ padding: 22, color: c.textMuted, fontSize: 12 }}>Add each bank once, then associate its bankers, marketplace role, optional appetite, and deal history.</div>:data.profiles.filter((p:any) => [p.organization?.name, ...(p.state_codes || []), p.geography_mode].some((v:any) => String(v || "").toLowerCase().includes(bankSearch.toLowerCase()))).map((p:any)=><Link href={`/admin/brokerage/crm/${p.organization_id}`} key={p.id} style={{ display: "block", padding: "11px 14px", borderBottom: `1px solid ${c.divider}`, textDecoration: "none" }}><div style={{ color: c.paper, fontSize: 12.5, fontWeight: 600 }}>{p.organization?.name}</div><div style={{ color: c.textMuted, fontSize: 10.5, marginTop: 3 }}>{p.marketplace_role ? `Marketplace ${String(p.marketplace_role).replaceAll("_"," & ")} · ${String(p.marketplace_access_status || "not_invited").replaceAll("_"," ")}` : "Not in marketplace"} · {p.contacts.length} banker{p.contacts.length===1?"":"s"} · {p.submissions.length} deal{p.submissions.length===1?"":"s"} · {p.relationship_status}</div><div style={{ color: c.textSecondary, fontSize: 10.5, marginTop: 3 }}>{[p.sba_7a_appetite&&"7(a)",p.sba_504_appetite&&"504",p.conventional_appetite&&"Conventional"].filter(Boolean).join(" · ")||"Appetite not set"} · {p.geography_mode==="nationwide"?"Nationwide":((p.state_codes||[]).join(", ")||"Geography not recorded")}</div>
     {/* Scorecard — the answer to "is this relationship worth the call".
         Derived on read from the submission ledger, never stored. */}
     <div style={{ color: c.textMuted, fontSize: 10, marginTop: 3, fontFamily: "var(--font-brokerage-mono)" }}>{p.scorecard?.sent ? `${p.scorecard.sent} sent · ${p.scorecard.responded} responded${p.scorecard.responseRate!==null?` (${Math.round(p.scorecard.responseRate*100)}%)`:""} · ${p.scorecard.approved} approved${p.scorecard.avgDaysToRespond!==null?` · avg ${p.scorecard.avgDaysToRespond.toFixed(1)}d`:""}` : "No deals sent yet"}</div></Link>)}</section>
-      <section style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}><div style={{ padding: "9px 12px", borderBottom: `1px solid ${c.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}><strong style={{ color: c.paper, fontSize: 13 }}>Deal distribution ledger</strong><select style={{ ...field(), width: 135 }} value={filter} onChange={e=>setFilter(e.target.value)}><option value="active">Active</option><option value="all">All</option>{Object.entries(STATUS_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>
-        {loading?<div style={{ padding: 28, color: c.textMuted }}>Loading…</div>:visible.length===0?<div style={{ padding: 28, color: c.textMuted, fontSize: 12 }}>No matching deal submissions.</div>:visible.map((s:any)=><div key={s.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr .8fr .8fr 145px", gap: 10, padding: "11px 12px", borderBottom: `1px solid ${c.divider}`, alignItems: "center" }}><div><div style={{ color: c.paper, fontSize: 12, fontWeight: 600 }}>{s.deal?.display_name||s.deal?.borrower_name||s.deal?.name||"Untitled deal"}</div><div style={{ color: c.textMuted, fontSize: 10.5 }}>{fmtMoney(Number(s.amount_sent||0))}</div></div><div style={{ color: c.textSecondary, fontSize: 11.5 }}>{s.lender?.name||"Unknown bank"}</div><div style={{ color: c.textMuted, fontSize: 10.5 }}>{s.sent_at?new Date(s.sent_at).toLocaleDateString():"Not sent"}</div><div style={{ color: s.next_follow_up_at&&new Date(s.next_follow_up_at)<new Date()?c.brick:c.textMuted, fontSize: 10.5 }}>{s.next_follow_up_at?new Date(s.next_follow_up_at).toLocaleDateString():"No follow-up"}</div><select disabled={saving} style={field()} value={s.status} onChange={e=>changeStatus(s,e.target.value)}>{Object.entries(STATUS_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>)}
+      <section style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}><div style={{ padding: "9px 12px", borderBottom: `1px solid ${c.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}><strong style={{ color: c.paper, fontSize: 13 }}>Placement tracker</strong><select style={{ ...field(), width: 135 }} value={filter} onChange={e=>setFilter(e.target.value)}><option value="active">Active</option><option value="all">All</option>{Object.entries(STATUS_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>
+        {loading?<div style={{ padding: 28, color: c.textMuted }}>Loading…</div>:visible.length===0?<div style={{ padding: 28, color: c.textMuted, fontSize: 12 }}>No matching deal submissions.</div>:visible.map((s:any)=><div className="crm-placement-row" key={s.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr .8fr .8fr 145px", gap: 10, padding: "11px 12px", borderBottom: `1px solid ${c.divider}`, alignItems: "center" }}><div><div style={{ color: c.paper, fontSize: 12, fontWeight: 600 }}>{s.deal?.display_name||s.deal?.borrower_name||s.deal?.name||"Untitled deal"}</div><div style={{ color: c.textMuted, fontSize: 10.5 }}>{fmtMoney(Number(s.amount_sent||0))}</div></div><div style={{ color: c.textSecondary, fontSize: 11.5 }}>{s.lender?.name||"Unknown bank"}</div><div style={{ color: c.textMuted, fontSize: 10.5 }}>{s.sent_at?new Date(s.sent_at).toLocaleDateString():"Not sent"}</div><div style={{ color: s.next_follow_up_at&&new Date(s.next_follow_up_at)<new Date()?c.brick:c.textMuted, fontSize: 10.5 }}>{s.next_follow_up_at?new Date(s.next_follow_up_at).toLocaleDateString():"No follow-up"}</div><select disabled={saving} style={field()} value={s.status} onChange={e=>changeStatus(s,e.target.value)}>{Object.entries(STATUS_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>)}
       </section>
     </div>
   </div>;

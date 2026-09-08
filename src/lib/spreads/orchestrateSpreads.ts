@@ -20,6 +20,7 @@ import { writeSystemEvent } from "@/lib/aegis";
 import { runSpreadPreflight } from "@/lib/spreads/preflight/runSpreadPreflight";
 import { spreadsForDocType } from "@/lib/financialSpreads/docTypeToSpreadTypes";
 import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
+import type { SpreadType } from "@/lib/financialSpreads/types";
 import { isT12Eligible } from "@/lib/spreads/t12Eligibility";
 import type {
   PreflightBlocker,
@@ -188,8 +189,12 @@ export async function orchestrateSpreads(
       has_monthly_statements: dealRow?.has_monthly_statements ?? false,
     });
 
-    // Enqueue spreads per doc (preserves sourceDocumentId for owner resolution)
+    // Resolve the full requested set before enqueueing. Multiple per-document
+    // enqueue calls used to merge into a RUNNING job, clobber metadata, and
+    // force a second lease. Extraction now owns document-level attribution;
+    // spread recompute is deal-level and facts-only.
     const enqueueErrors: string[] = [];
+    const requestedTypes = new Set<SpreadType>(["STANDARD", "CLASSIC_PDF"]);
     for (const doc of activeDocs ?? []) {
       if (!doc.canonical_type) continue;
       let spreadTypes = spreadsForDocType(doc.canonical_type);
@@ -197,33 +202,14 @@ export async function orchestrateSpreads(
       if (!t12Check.eligible) {
         spreadTypes = spreadTypes.filter((t) => t !== "T12");
       }
-      if (spreadTypes.length === 0) continue;
-
-      try {
-        await enqueueSpreadRecompute({
-          dealId,
-          bankId,
-          sourceDocumentId: doc.id,
-          spreadTypes,
-          skipPrereqCheck: true,
-          meta: {
-            source: "orchestrator",
-            run_id: runId,
-            trigger,
-          },
-        });
-      } catch (err: any) {
-        enqueueErrors.push(`${doc.id}:${err?.message}`);
-      }
+      for (const spreadType of spreadTypes) requestedTypes.add(spreadType);
     }
 
-    // Always enqueue STANDARD (Financial Analysis) — it's an aggregate spread
-    // that renders from all facts, not tied to any single document.
     try {
       await enqueueSpreadRecompute({
         dealId,
         bankId,
-        spreadTypes: ["STANDARD"],
+        spreadTypes: Array.from(requestedTypes),
         skipPrereqCheck: true,
         meta: {
           source: "orchestrator",
@@ -232,7 +218,7 @@ export async function orchestrateSpreads(
         },
       });
     } catch (err: any) {
-      enqueueErrors.push(`STANDARD:${err?.message}`);
+      enqueueErrors.push(`factory:${err?.message}`);
     }
 
     // Update run status to running

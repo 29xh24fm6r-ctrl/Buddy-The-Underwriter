@@ -13,6 +13,15 @@ export type TridentReleaseEvidence = {
    * learn which evidence would clear it.
    */
   feasibilityMissingEvidence: string[];
+  /**
+   * Reviewer warnings that survived repair on each artifact. These do not
+   * block — a warning is the reviewer saying a lender should know something,
+   * not that the package must not ship — but a bundle must never publish
+   * silently carrying them, so they surface as release warnings and are
+   * written to the deal as conditions.
+   */
+  businessPlanAdvisoryCount: number;
+  feasibilityAdvisoryCount: number;
   feasibilityCitationCount: number;
   projectionsNarrative: unknown;
   sourcesAndUses: unknown;
@@ -115,6 +124,13 @@ export function evaluateTridentRelease(e: TridentReleaseEvidence): TridentReleas
     reasons.push("canonical_spread_accuracy_blocked");
   }
   if (e.artifactPaths.some((path) => !path)) reasons.push("required_rendered_artifact_missing");
+
+  const advisories = e.businessPlanAdvisoryCount + e.feasibilityAdvisoryCount;
+  if (advisories > 0) {
+    warnings.push(
+      `artifacts_published_with_${advisories}_disclosed_reviewer_advisories`,
+    );
+  }
 
   return { ok: reasons.length === 0, reasons, warnings };
 }

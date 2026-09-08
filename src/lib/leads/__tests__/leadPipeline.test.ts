@@ -402,6 +402,15 @@ test("tenant isolation: lead queues never cross banks", async () => {
   assert.equal(queueA[0].bank_id, BANK_A);
 });
 
+test("active queue excludes converted and other terminal leads from the default work surface", async () => {
+  const db = new FakeDb();
+  makeLead(db, { bank_id: BANK_A, status: "new" });
+  makeLead(db, { bank_id: BANK_A, status: "converted" });
+  makeLead(db, { bank_id: BANK_A, status: "lost" });
+  const active = await queries.listLeadQueue({ bankId: BANK_A, queue: "active" }, db as any);
+  assert.deepEqual(active.map((lead) => lead.status), ["new"]);
+});
+
 // ---------------------------------------------------------------------
 // Lead conversion: idempotency, duplicate prevention, referral attribution
 // ---------------------------------------------------------------------
@@ -420,12 +429,32 @@ test("convertLeadToDeal creates a borrower and deal, marks the lead converted, a
   assert.equal(updatedLead!.converted_deal_id, first.dealId);
   assert.equal(db.tables.deals.length, 1);
   assert.equal(db.tables.borrowers.length, 1);
+  assert.equal(db.tables.deals[0].brokerage_stage, "intake");
+  assert.ok(db.tables.deals[0].brokerage_stage_entered_at);
+  assert.equal(db.tables.deals[0].brokerage_stage_owner_clerk_user_id, "staff_1");
 
   // Idempotent: converting the same (now-converted) lead again returns the same deal, creates nothing new.
   const second = await convert.convertLeadToDeal({ bankId: BANK_A, leadId: lead.id, actorClerkUserId: "staff_1" }, db as any);
   assert.equal(second.dealId, first.dealId);
   assert.equal(second.reused, true);
   assert.equal(db.tables.deals.length, 1, "must not create a second deal for an already-converted lead");
+});
+
+test("convertLeadToDeal carries the lead owner into the new brokerage deal", async () => {
+  const db = new FakeDb();
+  const lead = makeLead(db, {
+    status: "application_started",
+    business_name: "Owned Opportunity",
+    owner_clerk_user_id: "staff_owner",
+  });
+
+  const result = await convert.convertLeadToDeal(
+    { bankId: BANK_A, leadId: lead.id, actorClerkUserId: "staff_converter" },
+    db as any,
+  );
+
+  const deal = db.tables.deals.find((row) => row.id === result.dealId);
+  assert.equal(deal?.brokerage_stage_owner_clerk_user_id, "staff_owner");
 });
 
 test("convertLeadToDeal refuses to convert a lead in a terminal negative stage", async () => {

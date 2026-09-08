@@ -154,7 +154,11 @@ test("artifact retries reuse durable upstream checkpoints", () => {
   assert.match(generator, /args\.sbaCheckpoint \?\?/);
   assert.match(generator, /completedBusinessPlanPath/);
   assert.match(generator, /resumedSbaPackageId && completedBusinessPlanPath/);
-  assert.match(generator, /existing\.projections_xlsx_path/);
+  // The xlsx-resume property is covered behaviourally in
+  // priorRunAdoption.test.ts, which drives adoptPriorRunArtifacts against a
+  // stub client. A regex on the identifier only asserted its spelling, and
+  // broke when the read moved from `existing` to `adopted` while the
+  // behaviour it protects was unchanged.
   assert.match(generator, /current_stage: "feasibility_review"/);
   assert.match(generator, /loadFeasibilityStudyResult/);
   assert.match(feasibilityEngine, /Rehydrates a completed feasibility study/);

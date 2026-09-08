@@ -27,6 +27,9 @@ const ACTION_ENDPOINT: Record<ServerActionType, (dealId: string) => string> = {
     `/api/deals/${dealId}/artifacts/process`,
   send_reminder: (dealId) =>
     `/api/deals/${dealId}/notifications/remind`,
+  // Same call path as the workbench's Re-run Research button; callers pass
+  // { force_rerun: true } so a completed/failed mission is not silently reused.
+  run_research: (dealId) => `/api/deals/${dealId}/research/run`,
 };
 
 const KNOWN_ACTION_TYPES: ReadonlySet<string> = new Set(

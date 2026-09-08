@@ -1,4 +1,5 @@
 import "server-only";
+import { buildDealSnapshotForAi } from "@/lib/underwriting/runBankerAnalysisPipeline";
 
 import { NextRequest, NextResponse } from "next/server";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
@@ -57,73 +58,10 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     const sb = supabaseAdmin();
 
     // ── Load deal snapshot ──────────────────────────────────────────────────
-    const [dealRow, loanReqRow, , factsRows, docsRows] = await Promise.all([
-      sb.from("deals").select("entity_type, borrower_id, loan_amount").eq("id", dealId).maybeSingle(),
-      sb.from("deal_loan_requests").select("loan_purpose, purpose, requested_amount, product_type").eq("deal_id", dealId).order("request_number", { ascending: true }).limit(1).maybeSingle(),
-      Promise.resolve(null), // placeholder — borrower lookup below
-      sb.from("deal_financial_facts").select("fact_key, fact_value_num, fact_value_text, fact_period_end").eq("deal_id", dealId).eq("is_superseded", false).neq("resolution_status", "rejected"),
-      sb.from("deal_documents").select("id, document_type, original_filename, status").eq("deal_id", dealId).eq("bank_id", access.bankId).limit(50),
-    ]);
-
-    // Borrower lookup
-    let borrowerName: string | null = null;
-    let naicsCode: string | null = null;
-    if (dealRow.data?.borrower_id) {
-      const { data: bRow } = await sb
-        .from("borrowers")
-        .select("legal_name, naics_code")
-        .eq("id", dealRow.data.borrower_id)
-        .maybeSingle();
-      borrowerName = bRow?.legal_name ?? null;
-      naicsCode = bRow?.naics_code ?? null;
-    }
-
-    // Aggregate key financial facts by year
-    const facts: Record<string, number | null> = {};
-    const yearsSet = new Set<number>();
-    for (const row of (factsRows.data ?? [])) {
-      if (!row.fact_period_end || row.fact_value_num == null) continue;
-      const year = new Date(row.fact_period_end).getFullYear();
-      if (year < 2000 || year > 2100) continue;
-      if (!row.fact_key.startsWith("PFS_")) yearsSet.add(year);
-      const key = `${row.fact_key}_${year}`;
-      facts[key] = row.fact_value_num;
-    }
-    const years = Array.from(yearsSet).sort((a, b) => a - b);
-    const latestYear = years[years.length - 1] ?? null;
-
-    // Build compact snapshot for AI consumption
-    const dealSnapshot: Record<string, unknown> = {
-      dealId,
-      borrowerName: borrowerName ?? "Unknown Borrower",
-      entityType: dealRow.data?.entity_type ?? null,
-      naicsCode,
-      loanAmount: loanReqRow.data?.requested_amount ?? dealRow.data?.loan_amount ?? null,
-      loanPurpose: loanReqRow.data?.loan_purpose ?? loanReqRow.data?.purpose ?? null,
-      productType: loanReqRow.data?.product_type ?? "SBA",
-      yearsAvailable: years,
-      latestYear,
-      // Key metrics — latest year
-      grossReceipts: latestYear ? (facts[`GROSS_RECEIPTS_${latestYear}`] ?? facts[`TOTAL_REVENUE_${latestYear}`] ?? null) : null,
-      ebitda: latestYear ? (facts[`EBITDA_${latestYear}`] ?? null) : null,
-      netIncome: latestYear ? (facts[`NET_INCOME_${latestYear}`] ?? facts[`ORDINARY_BUSINESS_INCOME_${latestYear}`] ?? null) : null,
-      depreciation: latestYear ? (facts[`DEPRECIATION_${latestYear}`] ?? null) : null,
-      interestExpense: latestYear ? (facts[`INTEREST_EXPENSE_${latestYear}`] ?? null) : null,
-      totalAssets: latestYear ? (facts[`TOTAL_ASSETS_${latestYear}`] ?? null) : null,
-      totalLiabilities: latestYear ? (facts[`TOTAL_LIABILITIES_${latestYear}`] ?? null) : null,
-      // Multi-year revenue trend for trend analysis
-      revenueTrend: years.reduce<Record<string, number | null>>((acc, y) => {
-        acc[String(y)] = facts[`GROSS_RECEIPTS_${y}`] ?? facts[`TOTAL_REVENUE_${y}`] ?? null;
-        return acc;
-      }, {}),
-    };
-
-    // Evidence index for AI citations
-    const evidenceIndex = (docsRows.data ?? []).map((d: { id: string; document_type?: string; original_filename?: string }) => ({
-      docId: d.id,
-      label: d.document_type ?? d.original_filename ?? d.id,
-      kind: "pdf" as const,
-    }));
+    // Shared with the banker analysis pipeline: canonical underwriting metrics
+    // plus complete-fiscal-year vs interim separation (lib/underwriting/aiDealSnapshot).
+    const dealSnapshot = await buildDealSnapshotForAi(sb, dealId, access.bankId);
+    const evidenceIndex = (dealSnapshot.evidenceIndex ?? []) as Array<{ docId: string; label: string; kind: "pdf" }>;
 
     // ── Run AI risk assessment ───────────────────────────────────────────────
     const provider = getAIProvider();

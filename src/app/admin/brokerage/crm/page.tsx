@@ -6,6 +6,10 @@ import Link from "next/link";
 import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
 import { RefinedStamp } from "@/components/brokerage/StatusStamp";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
+import { useCrmExperience } from "@/components/brokerage/CrmExperienceProvider";
+import { CrmHomeWorkbench as CrmToday } from "@/components/brokerage/CrmHomeWorkbench";
+import { useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
+import { CrmCompanyCards } from "@/components/brokerage/CrmCompanyCards";
 
 /**
  * CRM command center — not a list, a dashboard. Summary tiles, a
@@ -133,6 +137,10 @@ function Tile({ label, value, accent }: { label: string; value: string; accent: 
 }
 
 export default function BrokerageCrmPage() {
+  const { enabled, section } = useCrmExperience();
+  const workspace = useCrmWorkspace();
+  const [snapshotNow, setSnapshotNow] = useState(0);
+  const [healthFilter, setHealthFilter] = useState(false);
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [needsAttention, setNeedsAttention] = useState<Organization[]>([]);
@@ -166,6 +174,7 @@ export default function BrokerageCrmPage() {
   const filteredOrgs = useMemo(() => {
     const q = search.trim().toLowerCase();
     return orgs.filter((o) => {
+      if (healthFilter && o.health !== "cold" && o.health !== "cooling") return false;
       if (typeFilter !== "all" && o.organization_type !== typeFilter) return false;
       if (tagFilter !== "all" && !(o.tags ?? []).includes(tagFilter)) return false;
       if (ownerFilter === "unassigned" && o.owner_clerk_user_id) return false;
@@ -175,7 +184,7 @@ export default function BrokerageCrmPage() {
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q));
     });
-  }, [orgs, search, typeFilter, tagFilter, ownerFilter]);
+  }, [orgs, search, typeFilter, tagFilter, ownerFilter, healthFilter]);
 
   async function load() {
     setLoading(true);
@@ -188,6 +197,7 @@ export default function BrokerageCrmPage() {
       setNeedsAttention(json.needsAttention ?? []);
       setRecentActivity(json.recentActivity ?? []);
       setOpenTasks(json.openTasks ?? []);
+      setSnapshotNow(Date.now());
       setError(null);
     } catch (e: any) {
       setError(e?.message ?? "load failed");
@@ -204,7 +214,7 @@ export default function BrokerageCrmPage() {
       .then((res) => res.json())
       .then((json) => { if (json?.ok) setTeam(json.team ?? []); })
       .catch(() => {});
-  }, []);
+  }, [workspace?.revision]);
 
   const ownerName = useMemo(() => {
     const map: Record<string, string> = {};
@@ -243,8 +253,12 @@ export default function BrokerageCrmPage() {
     }
   }
 
+  if (enabled && section === "today") {
+    return <div style={{ padding: "18px 24px 40px" }}><CrmTabs /><CrmToday loading={loading} error={error} tasks={openTasks} relationships={needsAttention} activity={displayActivity} organizations={orgs} onRetry={() => void load()} now={snapshotNow} /></div>;
+  }
+
   return (
-    <div style={{ padding: "18px 24px 40px" }}>
+    <div className={enabled ? "crm-experience" : undefined} style={{ padding: "18px 24px 40px" }}>
       <CrmTabs />
 
       {error && (
@@ -254,6 +268,7 @@ export default function BrokerageCrmPage() {
       )}
 
       {/* Summary tiles */}
+      {!enabled && <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(165px, 1fr))", gap: 12, marginBottom: 20 }}>
         <Tile label="Organizations" value={summary ? String(summary.organizationCount) : "—"} accent={c.brass} />
         <Tile label="Contacts" value={summary ? String(summary.contactCount) : "—"} accent={c.brass} />
@@ -329,12 +344,14 @@ export default function BrokerageCrmPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+      </>}
+      <div className={enabled ? "crm-company-intro" : undefined} style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div>
-          <div style={{ color: c.paper, fontFamily: "var(--font-brokerage-display)", fontSize: 18, fontWeight: 650 }}>Relationship directory</div>
+          <h1 className={enabled ? "crm-company-heading" : undefined} style={{ color: c.paper, fontFamily: "var(--font-brokerage-display)", fontSize: 18, fontWeight: 650 }}>{enabled ? "Your companies" : "Relationship directory"}</h1>
           <div style={{ color: c.textMuted, fontSize: 11.5, marginTop: 3 }}>Banks, bankers, referral partners, borrowers, and every organization you work with.</div>
         </div>
         <button
+          className={enabled ? "crm-company-add" : undefined}
           onClick={() => setShowForm((s) => !s)}
           style={{
             background: `linear-gradient(150deg, ${c.brassBright}, ${c.brass})`,
@@ -347,11 +364,17 @@ export default function BrokerageCrmPage() {
             cursor: "pointer",
           }}
         >
-          {showForm ? "Cancel" : "+ Add organization"}
+          {showForm ? "Cancel" : enabled ? "+ Add company" : "+ Add organization"}
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1.4fr) repeat(auto-fit, minmax(150px, .5fr))", gap: 10, marginBottom: 12 }}>
+      {enabled ? <div className="crm-quick-views" role="group" aria-label="Quick relationship filters">
+        <button aria-pressed={!healthFilter && typeFilter === "all" && ownerFilter === "all" && tagFilter === "all" && !search} onClick={() => { setHealthFilter(false); setTypeFilter("all"); setOwnerFilter("all"); setTagFilter("all"); setSearch(""); }}>All companies</button>
+        <button aria-pressed={healthFilter} onClick={() => setHealthFilter((value) => !value)}>Needs a check-in</button>
+        <button aria-pressed={typeFilter === "referral_source"} onClick={() => setTypeFilter((value) => value === "referral_source" ? "all" : "referral_source")}>Referral sources</button>
+        <button aria-pressed={ownerFilter === "unassigned"} onClick={() => setOwnerFilter((value) => value === "unassigned" ? "all" : "unassigned")}>Unassigned</button>
+      </div> : null}
+      <div style={{ display: "grid", gridTemplateColumns: enabled ? "repeat(auto-fit, minmax(180px, 1fr))" : "minmax(200px, 1.4fr) repeat(auto-fit, minmax(150px, .5fr))", gap: 10, marginBottom: 12 }}>
         <input aria-label="Search relationships" style={inputStyle()} placeholder="Search organizations, cities, tags, or types…" value={search} onChange={(e) => setSearch(e.target.value)} />
         <select aria-label="Filter by organization type" style={inputStyle()} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}><option value="all">All relationship types</option>{Object.entries(TYPE_LABELS).map(([value, title]) => <option key={value} value={value}>{title}</option>)}</select>
         <select aria-label="Filter by relationship owner" style={inputStyle()} value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
@@ -402,6 +425,8 @@ export default function BrokerageCrmPage() {
       )}
 
       {/* Organizations table */}
+      {enabled && !loading && !error ? <p className="crm-panel-hint" role="status">Showing {filteredOrgs.length} of {orgs.length} companies. Filters combine; choose All companies to reset.</p> : null}
+      {enabled ? <CrmCompanyCards companies={filteredOrgs} owners={ownerName} loading={loading} error={error} onRetry={load} /> : <div>
       <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
         <div
           style={{
@@ -433,9 +458,9 @@ export default function BrokerageCrmPage() {
           <div style={{ padding: "54px 20px", textAlign: "center" }}>
             <div style={{ fontSize: 30, opacity: 0.35, marginBottom: 8 }}>◇</div>
             <div style={{ fontFamily: "var(--font-brokerage-display)", fontSize: 16, color: c.textSecondary, marginBottom: 4 }}>
-              No organizations yet
+              {enabled && error ? "Directory unavailable" : enabled && orgs.length > 0 ? "No companies match these filters" : "No organizations yet"}
             </div>
-            <div style={{ fontSize: 12, color: c.textMuted }}>Add a bank, banker, referral partner, borrower, or other relationship to get started.</div>
+            <div style={{ fontSize: 12, color: c.textMuted }}>{enabled && error ? "Try reloading to retrieve your current records." : enabled && orgs.length > 0 ? "Choose All companies to clear your search and filters." : "Add a bank, referral partner, borrower business, or other organization to get started."}</div>
           </div>
         ) : (
           filteredOrgs.map((o) => (
@@ -489,6 +514,8 @@ export default function BrokerageCrmPage() {
           ))
         )}
       </div>
+      </div>
+      }
     </div>
   );
 }

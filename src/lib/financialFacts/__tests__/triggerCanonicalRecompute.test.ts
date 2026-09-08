@@ -14,10 +14,6 @@ const MODULE_PATH = join(
   REPO_ROOT,
   "src/lib/financialFacts/triggerCanonicalRecompute.ts",
 );
-const SPREADS_PROCESSOR_PATH = join(
-  REPO_ROOT,
-  "src/lib/jobs/processors/spreadsProcessor.ts",
-);
 const PRICING_ROUTE_PATH = join(
   REPO_ROOT,
   "src/app/api/deals/[dealId]/pricing/inputs/route.ts",
@@ -112,21 +108,7 @@ test("[pr5b-7] module is non-fatal (try/catch with return)", () => {
 
 // ── Trigger site guards ────────────────────────────────────────────────────
 
-test("[pr5b-8] Trigger #1: spreadsProcessor calls triggerCanonicalRecompute with extraction_batch_complete", () => {
-  const body = read(SPREADS_PROCESSOR_PATH);
-  assert.match(
-    body,
-    /triggerCanonicalRecompute/,
-    "spreadsProcessor must call triggerCanonicalRecompute.",
-  );
-  assert.match(
-    body,
-    /extraction_batch_complete/,
-    "spreadsProcessor must use reason: 'extraction_batch_complete'.",
-  );
-});
-
-test("[pr5b-9] Trigger #2: pricing/inputs route calls triggerCanonicalRecompute with structural_pricing_updated", () => {
+test("[pr5b-9] pricing/inputs triggers recompute with structural_pricing_updated", () => {
   const body = read(PRICING_ROUTE_PATH);
   assert.match(
     body,
@@ -140,7 +122,7 @@ test("[pr5b-9] Trigger #2: pricing/inputs route calls triggerCanonicalRecompute 
   );
 });
 
-test("[pr5b-10] Trigger #3: spreads/recompute route calls triggerCanonicalRecompute with banker_initiated_refresh", () => {
+test("[pr5b-10] spreads/recompute triggers with banker_initiated_refresh", () => {
   const body = read(RECOMPUTE_ROUTE_PATH);
   assert.match(
     body,
@@ -154,9 +136,8 @@ test("[pr5b-10] Trigger #3: spreads/recompute route calls triggerCanonicalRecomp
   );
 });
 
-test("[pr5b-11] All three trigger calls are wrapped in try/catch or void (non-fatal)", () => {
+test("[pr5b-11] request trigger calls are wrapped in try/catch or void (non-fatal)", () => {
   for (const [name, path] of [
-    ["spreadsProcessor", SPREADS_PROCESSOR_PATH],
     ["pricing/inputs", PRICING_ROUTE_PATH],
     ["spreads/recompute", RECOMPUTE_ROUTE_PATH],
   ] as const) {

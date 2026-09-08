@@ -1,6 +1,26 @@
 import type { ReconciliationCheck } from "./types";
 
 /**
+ * Normalize an ownership percentage to a FRACTION (0–1).
+ *
+ * K-1 extraction emits K1_OWNERSHIP_PCT on the percent scale ("percentage
+ * 100.000000 %" → 100), while the reconciliation checks reason in fractions.
+ * Feeding 100 into the fraction math produced "Ownership exceeds 100%
+ * (10000.0%)" HARD failures on every single-owner S-corp/partnership.
+ *
+ * Rule: values > 1 are percents (divide by 100); values in [0, 1] are already
+ * fractions. Exactly 1 is ambiguous (1% vs 100%) — treat it as 100% since a
+ * partner holding exactly 1% is far rarer than a sole owner holding 100%
+ * expressed as 1.0.
+ */
+export function normalizeOwnershipFraction(pct: number | null | undefined): number | null {
+  if (pct === null || pct === undefined || !Number.isFinite(pct)) return null;
+  if (pct < 0) return null;
+  const fraction = pct > 1 ? pct / 100 : pct;
+  return Math.round(fraction * 1e6) / 1e6;
+}
+
+/**
  * Verify K-1 ownership percentages sum to ~100%.
  * Pure function — no DB.
  */
@@ -10,7 +30,10 @@ export function checkOwnershipIntegrity(params: {
     ownershipPct: number | null;
   }>;
 }): ReconciliationCheck {
-  const { k1Allocations } = params;
+  const k1Allocations = params.k1Allocations.map((k) => ({
+    ...k,
+    ownershipPct: normalizeOwnershipFraction(k.ownershipPct),
+  }));
 
   if (k1Allocations.length === 0) {
     return {

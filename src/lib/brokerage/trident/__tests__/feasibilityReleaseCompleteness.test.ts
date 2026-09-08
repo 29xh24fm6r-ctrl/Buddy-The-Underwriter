@@ -112,6 +112,8 @@ function release(overrides: Record<string, unknown> = {}) {
     businessPlanVerdict: "pass",
     feasibilityVerdict: "pass",
     feasibilityCompleteness: composite.overallDataCompleteness,
+    businessPlanAdvisoryCount: 0,
+    feasibilityAdvisoryCount: 0,
     feasibilityMissingEvidence: composite.missingEvidence,
     feasibilityCitationCount: 3,
     projectionsNarrative: Array.from({ length: 40 }, () => "word").join(" "),

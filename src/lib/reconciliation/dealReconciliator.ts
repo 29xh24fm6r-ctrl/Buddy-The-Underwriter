@@ -7,7 +7,8 @@ import type { ReconciliationCheck, DealReconciliationSummary } from "./types";
 import { checkK1ToEntity } from "./k1ToEntityCheck";
 import { checkBalanceSheet } from "./balanceSheetCheck";
 import { checkMultiYearTrend } from "./multiYearTrendCheck";
-import { checkOwnershipIntegrity } from "./ownershipIntegrityCheck";
+import { checkOwnershipIntegrity, normalizeOwnershipFraction } from "./ownershipIntegrityCheck";
+import { selectK1CheckInputs } from "./selectK1CheckInputs";
 
 type FactRow = {
   fact_key: string;
@@ -15,11 +16,29 @@ type FactRow = {
   source_document_id: string | null;
   fact_period_start: string | null;
   fact_period_end: string | null;
+  fact_type?: string | null;
+  owner_type?: string | null;
 };
+
+/**
+ * Rank a fact row for the cross-document checks: entity-level (DEAL) facts
+ * beat guarantor (PERSONAL) facts, and for K-1 keys the K-1 emitted by the
+ * BUSINESS return (TAX_RETURN_K1) beats a Schedule E line on a 1040. Without
+ * this, K1_TO_ENTITY compared entity OBI against a PERSONAL K1_ORDINARY_INCOME
+ * and reported a hard conflict on every sole-owner S-corp.
+ */
+function factRowRank(r: FactRow): number {
+  let rank = 0;
+  if ((r.owner_type ?? "DEAL") !== "DEAL") rank += 10;
+  if (r.fact_key.startsWith("K1_") && r.fact_type !== "TAX_RETURN_K1") rank += 1;
+  return rank;
+}
 
 function buildFactMap(rows: FactRow[]): Record<string, number | null> {
   const map: Record<string, number | null> = {};
-  for (const r of rows) {
+  const ordered = [...rows].sort((a, b) => factRowRank(a) - factRowRank(b));
+  for (const r of ordered) {
+    if (r.fact_key in map) continue; // first (best-ranked) wins
     map[r.fact_key] = r.fact_value_num;
   }
   return map;
@@ -72,10 +91,14 @@ export async function reconcileDeal(
     const sb = supabaseAdmin();
 
     // 1. Load all facts for the deal
+    // Active truth only: superseded / rejected rows are stale extractions and
+    // must not feed the cross-document checks.
     const { data: factRows, error: factsError } = await (sb as any)
       .from("deal_financial_facts")
-      .select("fact_key, fact_value_num, source_document_id, fact_period_start, fact_period_end")
-      .eq("deal_id", dealId);
+      .select("fact_key, fact_value_num, source_document_id, fact_period_start, fact_period_end, fact_type, owner_type")
+      .eq("deal_id", dealId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected");
 
     if (factsError || !factRows || factRows.length === 0) {
       const emptySummary = buildSummary(dealId, []);
@@ -87,17 +110,24 @@ export async function reconcileDeal(
 
     // 2. Group facts by period for multi-year analysis
     const periodFacts = new Map<string, Record<string, number | null>>();
-    for (const row of factRows as FactRow[]) {
+    const rankedRows = [...(factRows as FactRow[])].sort((a, b) => factRowRank(a) - factRowRank(b));
+    for (const row of rankedRows) {
       const year = row.fact_period_end?.slice(0, 4) ?? "unknown";
       if (!periodFacts.has(year)) periodFacts.set(year, {});
       const m = periodFacts.get(year)!;
+      if (row.fact_key in m) continue; // first (best-ranked) wins
       m[row.fact_key] = row.fact_value_num;
     }
 
     // 3. K1_TO_ENTITY — check if we have OBI and K1 facts
-    const entityObi = allFacts["ORDINARY_BUSINESS_INCOME"] ?? null;
-    const k1Income = allFacts["K1_ORDINARY_INCOME"] ?? null;
-    const k1Pct = allFacts["K1_OWNERSHIP_PCT"] ?? null;
+    // Compare within one tax year: the flat map mixes years (entity OBI from
+    // the 2025 return against the 2024 K-1 reported a 45,259 "hard conflict").
+    const k1Inputs = selectK1CheckInputs(periodFacts, allFacts);
+    const entityObi = k1Inputs.entityObi;
+    const k1Income = k1Inputs.k1Income;
+    // K1_OWNERSHIP_PCT is extracted on the percent scale (100 = sole owner);
+    // every check below reasons in fractions.
+    const k1Pct = normalizeOwnershipFraction(k1Inputs.k1Pct);
 
     if (entityObi !== null && (k1Income !== null || k1Pct !== null)) {
       const k1Allocations = [];

@@ -22,7 +22,7 @@
  */
 
 import type { LifecycleBlocker, LifecycleBlockerCode, LifecycleState } from "@/buddy/lifecycle/model";
-import { getNextAction, getBlockerFixAction, type NextAction } from "@/buddy/lifecycle/nextAction";
+import { getNextAction, getBlockerFixAction, type NextAction, serverActionForFix } from "@/buddy/lifecycle/nextAction";
 
 /**
  * Banker-flow workstreams for underwrite_in_progress, highest priority first. The pricing/committee
@@ -158,6 +158,7 @@ function hrefForFix(
   dealId: string,
 ): string {
   if (fix && "href" in fix && typeof fix.href === "string" && fix.href.length > 0) return fix.href;
+  if (fix && "fallbackHref" in fix && typeof fix.fallbackHref === "string" && fix.fallbackHref.length > 0) return fix.fallbackHref;
   return `/deals/${dealId}/underwrite`;
 }
 
@@ -222,6 +223,18 @@ export function buildJourneyPrimaryAction(state: LifecycleState, dealId: string)
   // pricing label only surfaces once every earlier prerequisite workstream is clear. "Continue
   // Underwriting" is a true last resort — only when the top blocker has no fix action at all.
   const fix = getBlockerFixAction(topBlocker, dealId);
+  const serverAction = serverActionForFix(fix);
+  if (serverAction) {
+    // One-click fix (e.g. "Run research"): the rail runs it and lands the
+    // banker on the surface that shows progress (href).
+    return {
+      label: fix!.label,
+      href: hrefForFix(fix, dealId),
+      intent: "runnable",
+      serverAction,
+      description,
+    };
+  }
   return {
     label: fix?.label ?? "Continue Underwriting",
     href: hrefForFix(fix, dealId),

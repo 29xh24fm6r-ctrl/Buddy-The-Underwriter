@@ -50,10 +50,11 @@ describe("forward projections — coverage trajectory", () => {
   });
 
   it("a tenant DSCR-floor override changes the pass/fail without code change (NG4)", () => {
-    // base DSCR = 1.5M / 1.23M ≈ 1.22 — above the default floor 1.20, below a strict 1.25.
+    // base DSCR = 1.5M / 1.23M ≈ 1.22 — above the default floor 1.15 (the
+    // Standard 7(a) SOP floor since the 2026-09-01 alignment), below a strict 1.25.
     const lenient = projectForward(base, { annualDebtService: 1_230_000 }, { years: 1, revenueGrowth: 0 });
-    assert.equal(lenient.covenantFloor, 1.2);
-    assert.equal(lenient.years[0].passes, true); // 1.22 ≥ 1.20
+    assert.equal(lenient.covenantFloor, 1.15);
+    assert.equal(lenient.years[0].passes, true); // 1.22 ≥ 1.15
     const strict = projectForward(base, { annualDebtService: 1_230_000 }, { years: 1, revenueGrowth: 0 }, { overrides: { dscr_floor: 1.25 } });
     assert.equal(strict.covenantFloor, 1.25);
     assert.equal(strict.years[0].passes, false); // 1.22 < 1.25

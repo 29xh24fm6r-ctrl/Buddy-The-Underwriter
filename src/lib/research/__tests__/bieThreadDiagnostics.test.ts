@@ -102,6 +102,39 @@ describe("callGeminiGrounded diagnostics", () => {
     assert.equal(r.diagnostic.error_type, "empty_text");
   });
 
+  it("STOP with a literal `{}` → empty_text (retryable), never a successful thread", async () => {
+    // Production 2026-08-31 → 2026-09-08: every ungrounded thread that was sent
+    // a bare `{ type: "object" }` responseSchema came back as `{}` (5 chars,
+    // 4 output tokens) and was recorded ok=true, so an empty synthesis reached
+    // the narrative builder and threw on its missing arrays.
+    mockFetch(() => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: "{}\n" }] }, finishReason: "STOP" }],
+        usageMetadata: { promptTokenCount: 7000, candidatesTokenCount: 4, thoughtsTokenCount: 114 },
+      }),
+    }));
+    const r = await call();
+    assert.equal(r.result, null);
+    assert.equal(r.diagnostic.ok, false);
+    assert.equal(r.diagnostic.error_type, "empty_text");
+    assert.equal(r.diagnostic.json_parse_error, "empty_json_document");
+    assert.equal(bie.isRetryableBIEDiagnostic(r.diagnostic), true);
+  });
+
+  it("ungrounded threads request JSON mode without a bare object schema", async () => {
+    let body: any = null;
+    globalThis.fetch = (async (_url: string, init: any) => {
+      body = JSON.parse(init.body);
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: "{\"k\":1}" }] }, finishReason: "STOP" }] }) };
+    }) as any;
+    const r = await call({ useGrounding: false });
+    assert.deepEqual(r.result, { k: 1 });
+    assert.equal(body.generationConfig.responseMimeType, "application/json");
+    assert.equal(body.generationConfig.responseSchema, undefined);
+  });
+
   it("finishReason SAFETY with no text → safety_block", async () => {
     mockFetch(() => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [] }, finishReason: "SAFETY" }] }) }));
     const r = await call();
@@ -124,6 +157,89 @@ describe("callGeminiGrounded diagnostics", () => {
     assert.equal(r.result, null);
     assert.equal(r.diagnostic.error_type, "finish_reason");
     assert.equal(r.diagnostic.finish_reason, "MAX_TOKENS");
+  });
+
+  it("salvageTruncated: MAX_TOKENS on both attempts → repaired partial JSON, auditable diagnostic", async () => {
+    const partial = '{"executive_credit_thesis": "Solid operator", "key_strengths": ["a", "b"], "outlook": "cut he';
+    mockFetch(() => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: partial }] }, finishReason: "MAX_TOKENS" }],
+        usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 200, thoughtsTokenCount: 3000 },
+      }),
+    }));
+    const r = await call({ salvageTruncated: true, maxOutputTokens: 16384 });
+    assert.ok(r.result, "expected the repaired partial document");
+    assert.equal((r.result as any).executive_credit_thesis, "Solid operator");
+    assert.deepEqual((r.result as any).key_strengths, ["a", "b"]);
+    assert.equal("outlook" in (r.result as any), false, "the cut-off field must not be invented");
+    assert.equal(r.diagnostic.ok, true);
+    assert.equal(r.diagnostic.finish_reason, "MAX_TOKENS");
+    assert.equal(r.diagnostic.truncated, true);
+    assert.equal(r.diagnostic.retried, true);
+    assert.equal(r.diagnostic.repaired, true);
+    assert.equal(r.diagnostic.repair_strategy, "truncated_json_close");
+    assert.equal(r.diagnostic.thoughts_tokens, 3000);
+    assert.equal(r.diagnostic.output_tokens, 200);
+  });
+
+  it("salvageTruncated: a clean retry wins over the salvaged first attempt", async () => {
+    mockFetchSequence([
+      () => ({
+        ok: true, status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: '{"a": 1, "b": "cu' }] }, finishReason: "MAX_TOKENS" }] }),
+      }),
+      () => ({
+        ok: true, status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: '{"a": 1, "b": "complete"}' }] }, finishReason: "STOP" }] }),
+      }),
+    ]);
+    const r = await call({ salvageTruncated: true, maxOutputTokens: 16384 });
+    assert.deepEqual(r.result, { a: 1, b: "complete" });
+    assert.equal(r.diagnostic.ok, true);
+    assert.equal(r.diagnostic.repaired, undefined);
+    assert.equal(r.diagnostic.retried, true);
+  });
+
+  it("salvageTruncated: first attempt truncated, retry refused by the daily budget → salvage still used", async () => {
+    mockFetchSequence([
+      () => ({
+        ok: true, status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: '{"executive_credit_thesis": "Solid operator", "b": "cu' }] }, finishReason: "MAX_TOKENS" }] }),
+      }),
+      // The gateway refuses the retry before any provider call (budget spent).
+      () => { throw new Error('daily token budget exceeded for role "generator" (1961061 consumed + 0 reserved + 88038 requested / 2000000)'); },
+    ]);
+    const r = await call({ salvageTruncated: true, maxOutputTokens: 16384 });
+    assert.equal((r.result as any)?.executive_credit_thesis, "Solid operator");
+    assert.equal(r.diagnostic.ok, true);
+    assert.equal(r.diagnostic.repaired, true);
+    assert.equal(r.diagnostic.truncated, true);
+    assert.equal(r.diagnostic.finish_reason, "MAX_TOKENS");
+    assert.match(r.diagnostic.json_parse_error ?? "", /retry_failed:network_error:.*token budget exceeded/);
+  });
+
+  it("budget exhaustion is not a retryable thread failure", () => {
+    const d = {
+      thread: "synthesis", ok: false, error_type: "network_error",
+      json_parse_error: 'daily token budget exceeded for role "generator" (1961061 consumed + 0 reserved + 88038 requested / 2000000)',
+      prompt_chars: 1, source_count: 0, model: "m", created_at: "now",
+    } as any;
+    assert.equal(bie.isBudgetExhaustedDiagnostic(d), true);
+    assert.equal(bie.isRetryableBIEDiagnostic(d), false);
+    assert.equal(bie.isRetryableBIEDiagnostic({ ...d, json_parse_error: "ECONNRESET" }), true);
+  });
+
+  it("without salvageTruncated a MAX_TOKENS reply is still discarded (strict threads)", async () => {
+    mockFetch(() => ({
+      ok: true, status: 200,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: '{"a": 1, "b": "cu' }] }, finishReason: "MAX_TOKENS" }] }),
+    }));
+    const r = await call({ maxOutputTokens: 16384 });
+    assert.equal(r.result, null);
+    assert.equal(r.diagnostic.error_type, "finish_reason");
+    assert.equal(r.diagnostic.truncated, undefined);
   });
 
   it("invalid JSON → json_parse_error with preview", async () => {

@@ -98,6 +98,8 @@ export type RunRoleRequest = {
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
   /** SPEC-M1.1 — overrides the role config's default timeout for this call only. */
   timeoutMs?: number;
+  /** See ProviderCallRequest.allowTruncatedOutput — opt-in MAX_TOKENS salvage for JSON-repairing callers. */
+  allowTruncatedOutput?: boolean;
   /** SPEC-M1.1 — Gemini mediaResolution override; see ProviderCallRequest's doc comment. */
   mediaResolution?: string;
   /**
@@ -127,6 +129,11 @@ export type RunRoleResult = {
   attempts: number;
   /** SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §3 — present only when useSearchGrounding was honored. */
   groundingMetadata?: unknown;
+  /** Present only when allowTruncatedOutput was honored on a MAX_TOKENS finish. */
+  truncated?: boolean;
+  finishReason?: string;
+  /** Gemini 3.x reasoning tokens (share the output window with the answer). */
+  thoughtsTokenCount?: number;
 };
 
 // Test-only seams. Production code always goes through the real provider
@@ -361,6 +368,7 @@ export async function runRole(
         temperature: request.temperature,
         thinkingLevel: request.thinkingLevel,
         mediaResolution: request.mediaResolution,
+        allowTruncatedOutput: request.allowTruncatedOutput,
       });
     } catch (error) {
       const latencyMs = Date.now() - start;
@@ -389,14 +397,19 @@ export async function runRole(
     }
 
     const latencyMs = Date.now() - start;
-    const actualTokens = result.tokensIn + result.tokensOut;
+    // Gemini reports invisible reasoning separately from candidate output.
+    // Count it in governance and the durable ledger so budget enforcement
+    // reflects the provider's real output-window consumption.
+    const governedOutputTokens =
+      result.tokensOut + Math.max(0, result.thoughtsTokenCount ?? 0);
+    const actualTokens = result.tokensIn + governedOutputTokens;
     try {
       await requireLedgered({
         role,
         provider: step.provider,
         model,
         tokensIn: result.tokensIn,
-        tokensOut: result.tokensOut,
+        tokensOut: governedOutputTokens,
         latencyMs,
         dealId,
         purpose: request.purpose,
@@ -421,6 +434,10 @@ export async function runRole(
       attempts,
       ...(result.groundingMetadata !== undefined
         ? { groundingMetadata: result.groundingMetadata }
+        : {}),
+      ...(result.truncated ? { truncated: true, finishReason: result.finishReason } : {}),
+      ...(result.thoughtsTokenCount !== undefined
+        ? { thoughtsTokenCount: result.thoughtsTokenCount }
         : {}),
     };
   }

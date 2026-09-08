@@ -122,3 +122,36 @@ describe("writer is wired into the canonical chain before the aggregator", () =>
     assert.match(block, /ownedFactKeys:\s*\["CF_NCADS",\s*"CASH_FLOW_AVAILABLE"\]/);
   });
 });
+
+// ── SPEC-NCADS-NO-FUTURE-FISCAL-YEAR-1 ────────────────────────────────────
+// A YTD interim P&L whose period could not be resolved falls back to
+// FY<doc_year> (…-12-31). When that year has not ended yet it is NOT a
+// complete fiscal year and must never become the NCADS basis.
+it("selectCompleteFiscalYearPeriod: ignores a fiscal year that has not ended yet", () => {
+  const facts = [
+    { fact_key: "NET_INCOME", fact_value_num: 35746.75, fact_period_end: "2026-12-31" },
+    { fact_key: "NET_INCOME", fact_value_num: 106319, fact_period_end: "2025-12-31" },
+  ];
+  assert.equal(selectCompleteFiscalYearPeriod(facts, { today: "2026-09-02" }), "2025-12-31");
+  // Once the year has actually closed the same fact is eligible.
+  assert.equal(selectCompleteFiscalYearPeriod(facts, { today: "2027-01-15" }), "2026-12-31");
+});
+
+it("buildWaterfallInputFromFacts: owner-occupied purchase rent add-back flows into Step 5", () => {
+  const factMap = {
+    ORDINARY_BUSINESS_INCOME: 133679,
+    DEPRECIATION: 4562,
+    INTEREST_EXPENSE: 11553,
+    RENT_EXPENSE: 86000,
+  } as Record<string, number | null>;
+  const withRent = buildWaterfallInputFromFacts(factMap, undefined, {
+    rentAddback: { amount: 86000, reason: "owner-occupied purchase" },
+  });
+  assert.equal(withRent.input.addbackRentNormalization, 86000);
+  assert.equal(withRent.provenance.rent_addback, 86000);
+  assert.equal(withRent.provenance.rent_addback_note, "owner-occupied purchase");
+
+  const without = buildWaterfallInputFromFacts(factMap);
+  assert.equal(without.input.addbackRentNormalization, null);
+  assert.equal(without.provenance.rent_addback, null);
+});

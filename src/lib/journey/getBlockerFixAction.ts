@@ -4,7 +4,7 @@
  *
  * Like getNextAction adapter, the lifecycle engine is untouched.
  */
-import {
+import { serverActionForFix,
   getBlockerFixAction as getLifecycleBlockerFixAction,
   type FixAction as LifecycleFixAction,
 } from "@/buddy/lifecycle/nextAction";
@@ -21,7 +21,14 @@ const SUPPORTED_SERVER_ACTIONS: ReadonlySet<string> = new Set<ServerActionType>(
   "generate_packet",
   "run_ai_classification",
   "send_reminder",
+  "run_research",
 ]);
+
+/** Request body per one-click fix action (merged with the lifecycleAction tag). */
+const FIX_ACTION_PAYLOAD: Partial<Record<ServerActionType, Record<string, unknown>>> = {
+  // A completed / failed mission must not be silently reused (run_key idempotency).
+  run_research: { force_rerun: true },
+};
 
 /**
  * Map a lifecycle blocker to a runnable fix action when the lifecycle
@@ -45,19 +52,28 @@ export function toCockpitFixAction(
   // Lifecycle "action" shorthand (e.g. "financial_snapshot.recompute") maps
   // to a runnable server action when its prefix matches a SPEC-04 entry.
   if ("action" in native && typeof native.action === "string") {
-    const actionType = native.action.split(".")[0] as string;
+    // Prefer the lifecycle engine's own mapping (e.g. "research.run" →
+    // run_research); fall back to the historical prefix convention
+    // ("generate_snapshot.recompute" → generate_snapshot).
+    const mapped = serverActionForFix(native);
+    const actionType = (mapped ?? native.action.split(".")[0]) as string;
     if (SUPPORTED_SERVER_ACTIONS.has(actionType as ServerActionType)) {
       const fix: CockpitFixBlockerAction = {
         intent: "fix_blocker",
         label: native.label,
         blockerId,
         actionType: actionType as ServerActionType,
-        payload: { lifecycleAction: native.action },
+        payload: { ...(FIX_ACTION_PAYLOAD[actionType as ServerActionType] ?? {}), lifecycleAction: native.action },
+        href: native.fallbackHref,
       };
       return fix;
     }
-    // Unsupported action — degrade to navigate to cockpit so the banker
-    // still has a path forward.
+    // Unsupported action — degrade to the fix's fallback destination when it
+    // has one so the banker still has a path forward.
+    if (native.fallbackHref) {
+      const nav: CockpitNavigateAction = { intent: "navigate", label: native.label, href: native.fallbackHref };
+      return nav;
+    }
     return null;
   }
 

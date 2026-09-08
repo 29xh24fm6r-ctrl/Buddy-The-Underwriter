@@ -25,11 +25,11 @@ export function ConditionalHeroBar() {
 
   return (
     <>
-      <div className="sticky top-0 z-[2000] bg-black/40 backdrop-blur-xl border-b border-white/10">
+      <div className="app-global-bar sticky top-0 z-[2000] bg-black/40 backdrop-blur-xl border-b border-white/10">
         <HeroBar />
         <ProfileCompletionBanner />
       </div>
-      <div className="h-16" />
+      <div className="app-nav-spacer h-16" />
     </>
   );
 }

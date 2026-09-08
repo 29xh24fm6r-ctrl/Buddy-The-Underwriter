@@ -36,6 +36,7 @@ export type ReadinessEventTrigger =
   | "conflict_resolved"
   | "credit_memo_submitted"
   | "policy_exception_resolved"
+  | "reconcile_sweep"
   | "manual";
 
 export type RefreshDealReadinessArgs = {

@@ -8,8 +8,8 @@
  *
  * Governs under: SPEC-BANKER-HOLY-SHIT-V1 Workstream B
  *
- * Three trigger reasons:
- *   - extraction_batch_complete: after spreadsProcessor finishes all extractions
+ * Trigger reasons:
+ *   - extraction_batch_complete: after a document workflow persists facts
  *   - structural_pricing_updated: after banker changes loan terms
  *   - banker_initiated_refresh: wraps existing banker-facing recompute paths
  *   - manual_diagnostic: one-off diagnostic triggers
@@ -21,6 +21,7 @@ import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadReco
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { SpreadType } from "@/lib/financialSpreads/types";
+import { completeRecomputeSpreadTypes } from "@/lib/jobs/processors/spreadExecutionPolicy";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -88,11 +89,14 @@ export async function triggerCanonicalRecompute(args: {
       return { ok: true, triggered: false, debounced: true };
     }
 
-    // Enqueue the spread recompute
+    // Enqueue the complete recompute atomically. CLASSIC_PDF used to be added
+    // in a second call while the first job could already be RUNNING; that late
+    // merge forced the worker to requeue and repeat the whole chain.
+    const requestedTypes = completeRecomputeSpreadTypes(spreadTypes);
     const result = await enqueueSpreadRecompute({
       dealId,
       bankId,
-      spreadTypes,
+      spreadTypes: requestedTypes,
       meta: {
         triggerReason: reason,
         ...(extraMeta ?? {}),
@@ -100,23 +104,6 @@ export async function triggerCanonicalRecompute(args: {
     });
 
     const jobId = (result as any)?.jobId ?? null;
-
-    // SPEC-B3: enqueue CLASSIC_PDF as a separate job (not bundled with JSON spreads).
-    // Two independent failure modes — JSON spread enqueue already succeeded above.
-    try {
-      await enqueueSpreadRecompute({
-        dealId,
-        bankId,
-        spreadTypes: ["CLASSIC_PDF"] as SpreadType[],
-        meta: {
-          triggerReason: reason,
-          source: "canonical_recompute",
-          ...(extraMeta ?? {}),
-        },
-      });
-    } catch (pdfErr: any) {
-      console.warn("[triggerCanonicalRecompute] failed to enqueue CLASSIC_PDF (non-fatal):", pdfErr?.message);
-    }
 
     // Emit canonical ledger event
     const sb = supabaseAdmin();
@@ -132,7 +119,7 @@ export async function triggerCanonicalRecompute(args: {
       status: "ok",
       payload: {
         reason,
-        spreadTypes,
+        spreadTypes: requestedTypes,
         jobId,
         ...((result as any)?.waitingOnFacts === true
           ? { waitingOnFacts: true }

@@ -1,4 +1,5 @@
 import { zodToJsonSchema } from "zod-to-json-schema";
+import { snapshotGuidanceBlock } from "@/lib/ai/snapshotGuidance";
 import { getOpenAI, getModel, getTemp, getMaxOutputTokens } from "./openaiClient";
 import type { AIProvider, RiskInput, RiskOutput, MemoInput, MemoOutput, CommitteeAnswer } from "./provider";
 import { 
@@ -53,6 +54,8 @@ function riskSystemPrompt() {
     "Return ONLY valid JSON that matches the provided schema.",
     evidenceRulesBlock(),
     "",
+    snapshotGuidanceBlock(),
+    "",
     "OUTPUT STYLE:",
     "- Factors: keep labels crisp and underwriting-native.",
     "- contribution: roughly normalized +/- values; confidence 0..1.",
@@ -65,6 +68,8 @@ function memoSystemPrompt() {
     "You are Buddy, generating a credit memo from deal facts and an explainable risk run.",
     "Return ONLY valid JSON that matches the provided schema.",
     evidenceRulesBlock(),
+    "",
+    snapshotGuidanceBlock(),
     "",
     "MEMO RULES:",
     "- Write in a professional credit memo tone.",

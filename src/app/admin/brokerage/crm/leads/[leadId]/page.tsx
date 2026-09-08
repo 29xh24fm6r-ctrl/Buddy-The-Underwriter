@@ -5,6 +5,9 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { crmColors as c } from "@/components/brokerage/tokens";
 import { CommsPanel } from "@/components/brokerage/CommsPanel";
+import { useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
+import { CrmActivityComposer } from "@/components/brokerage/CrmActivityComposer";
+import { CrmTaskControl } from "@/components/brokerage/CrmTaskControl";
 
 type Lead = {
   id: string;
@@ -30,6 +33,8 @@ type Lead = {
 type Qualification = Record<string, unknown> | null;
 
 type Activity = {
+  due_at?: string | null;
+  completed_at?: string | null;
   id: string;
   kind: string;
   title: string | null;
@@ -90,6 +95,7 @@ function inputStyle(): CSSProperties {
 }
 
 export default function LeadDetailPage({ params }: { params: Promise<{ leadId: string }> }) {
+  const workspace = useCrmWorkspace();
   const { leadId } = usePromise(params);
 
   const [lead, setLead] = useState<Lead | null>(null);
@@ -314,7 +320,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
   const requiresReason = toStage === "disqualified" || toStage === "lost";
 
   return (
-    <div style={{ padding: "18px 24px 40px", maxWidth: 1100 }}>
+    <div className={workspace ? "crm-record-page" : undefined} style={{ padding: "18px 24px 40px", maxWidth: 1100 }}>
       <Link href="/admin/brokerage/crm/leads" style={{ fontSize: 11.5, color: c.textMuted, marginBottom: 14, display: "inline-block" }}>
         ← All leads
       </Link>
@@ -340,7 +346,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
         <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, fontSize: 12, padding: 12, borderRadius: 6, marginBottom: 16 }}>{error}</div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      {workspace && <details className="crm-quick-capture"><summary>+ Add a note or schedule a follow-up</summary><CrmActivityComposer organizationId={leadId} organizationName={name} targetKind="lead" onSaved={() => void load()} /></details>}
+      <div className="crm-record-columns" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Left column: stage + contact + convert */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {lead.status !== "converted" && availableTransitions.length > 0 && (
@@ -469,6 +476,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
               activities.map((a) => (
                 <div key={a.id} style={{ padding: "10px 16px", borderBottom: `1px solid ${c.divider}` }}>
                   <div style={{ fontSize: 11.5, color: c.paper }}>{a.title ?? a.kind}</div>
+                  {workspace && <>{typeof a.properties?.body === "string" && <p>{a.properties.body}</p>}{a.kind === "task" && <CrmTaskControl id={a.id} completed={!!a.completed_at} dueAt={a.due_at} onSaved={() => void load()} />}</>}
                   <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{new Date(a.happens_at).toLocaleString()}</div>
                 </div>
               ))

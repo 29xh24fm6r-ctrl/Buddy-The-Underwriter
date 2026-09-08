@@ -14,7 +14,9 @@ import * as path from "node:path";
 
 import { deriveResearchGatePhase } from "../researchGatePhase";
 import { EMPTY_RESEARCH_GATE_SNAPSHOT, type ResearchGateSnapshot } from "../researchGateTypes";
-import { getBlockerFixAction } from "../../../buddy/lifecycle/nextAction";
+import { getBlockerFixAction, getNextAction } from "../../../buddy/lifecycle/nextAction";
+import { buildJourneyPrimaryAction } from "../../../lib/journey/journeyActionProjection";
+import { endpointFor } from "../../journey/actions/runCockpitAction";
 import type { LifecycleBlocker } from "../../../buddy/lifecycle/model";
 
 const DEAL = "dc52c626-0000-0000-0000-000000000000";
@@ -82,8 +84,9 @@ describe("research blocker routing", () => {
       message: "Research quality gate must pass",
     } as unknown as LifecycleBlocker;
     const action = getBlockerFixAction(blocker, DEAL);
-    assert.ok(action && "href" in action, "expected an href fix action");
-    assert.equal((action as { href: string }).href, `/deals/${DEAL}/underwrite`);
+    assert.ok(action && "action" in action, "expected a one-click fix action");
+    assert.equal((action as { action: string }).action, "research.run");
+    assert.equal((action as { fallbackHref?: string }).fallbackHref, `/deals/${DEAL}/underwrite#research-gate`);
     assert.equal(action.label, "Run research");
   });
 });
@@ -174,5 +177,115 @@ describe("no duplicate research source of truth", () => {
     for (const p of candidates) {
       assert.equal(fs.existsSync(p), false, `unexpected research page route at ${p}`);
     }
+  });
+});
+
+describe("Re-run Research forces a fresh mission (idempotent /run silently reused the old one)", () => {
+  const PANEL = fs.readFileSync(path.resolve(__dirname, "..", "ResearchGateActionPanel.tsx"), "utf8");
+  const WORKBENCH = fs.readFileSync(path.resolve(__dirname, "..", "AnalystWorkbench.tsx"), "utf8");
+
+  it("every Re-run Research button passes { rerun: true }", () => {
+    const rerunButtons = PANEL.match(/label="Re-run Research"[\s\S]{0,200}?onClick=\{([^}]*\})?[^}]*\}/g) ?? [];
+    assert.ok(rerunButtons.length >= 2, "expected the failed and gate_failed Re-run buttons");
+    for (const b of rerunButtons) {
+      assert.match(b, /onRunResearch\(\{ rerun: true \}\)/, `Re-run button must force a fresh mission: ${b}`);
+    }
+  });
+
+  it("the initial Run Research button stays idempotent (no rerun flag)", () => {
+    const m = PANEL.match(/label="Run Research"[\s\S]{0,200}?onClick=\{([^}]*)\}/);
+    assert.ok(m, "expected the no_mission Run Research button");
+    assert.ok(!/rerun: true/.test(m![0]), "first run must not force a rerun");
+  });
+
+  it("workbench posts force_rerun to /research/run when rerun is requested and surfaces duplicate reuse", () => {
+    assert.match(WORKBENCH, /\/api\/deals\/\$\{dealId\}\/research\/run/);
+    assert.match(WORKBENCH, /opts\?\.rerun[\s\S]{0,200}force_rerun: true/);
+    assert.match(WORKBENCH, /payload\?\.duplicate === true/);
+  });
+
+  it("run handler honors the force_rerun body flag", () => {
+    const RUN = fs.readFileSync(
+      path.resolve(__dirname, "..", "..", "..", "app", "api", "deals", "[dealId]", "research", "[action]", "_handlers", "run.ts"),
+      "utf8",
+    );
+    assert.match(RUN, /if \(body\.force_rerun === true\) forceRerun = true;/);
+    assert.match(RUN, /forceRerun,\s*\}\);/);
+  });
+
+  it("panel exposes the #research-gate anchor the lifecycle CTA deep-links to", () => {
+    assert.match(PANEL, /id="research-gate"/);
+  });
+});
+
+
+describe("rail 'Run research' starts the mission itself (one click, no second button)", () => {
+  const STAGE_ROW = fs.readFileSync(path.resolve(__dirname, "..", "..", "journey", "StageRow.tsx"), "utf8");
+  const WORKBENCH = fs.readFileSync(path.resolve(__dirname, "..", "AnalystWorkbench.tsx"), "utf8");
+
+  it("lifecycle next action for the research blocker is runnable run_research with the panel as href", () => {
+    const state = {
+      stage: "underwrite_in_progress",
+      lastAdvancedAt: null,
+      blockers: [{ code: "missing_research_quality_gate", message: "x" }],
+      derived: {},
+    } as unknown as Parameters<typeof getNextAction>[0];
+    const a = getNextAction(state, DEAL);
+    assert.equal(a.intent, "runnable");
+    assert.equal(a.serverAction, "run_research");
+    assert.equal(a.href, `/deals/${DEAL}/underwrite#research-gate`);
+    const rail = buildJourneyPrimaryAction(state, DEAL);
+    assert.equal(rail.intent, "runnable");
+    assert.equal(rail.serverAction, "run_research");
+    assert.equal(rail.label, "Run research");
+  });
+
+  it("research_stalled (the blocker the unified readiness layer raises) is the same one-click action", () => {
+    const fix = getBlockerFixAction({ code: "research_stalled", message: "x" } as unknown as LifecycleBlocker, DEAL);
+    assert.ok(fix && "action" in fix);
+    assert.equal((fix as { action: string }).action, "research.run");
+    assert.equal((fix as { fallbackHref?: string }).fallbackHref, `/deals/${DEAL}/underwrite#research-gate`);
+    const state = {
+      stage: "underwrite_in_progress",
+      lastAdvancedAt: null,
+      blockers: [{ code: "research_stalled", message: "x" }],
+      derived: {},
+    } as unknown as Parameters<typeof getNextAction>[0];
+    const rail = buildJourneyPrimaryAction(state, DEAL);
+    assert.equal(rail.intent, "runnable");
+    assert.equal(rail.serverAction, "run_research");
+  });
+
+  it("run_research posts to /research/run with force_rerun", () => {
+    assert.equal(endpointFor("run_research", DEAL), `/api/deals/${DEAL}/research/run`);
+    assert.match(STAGE_ROW, /run_research: \{ force_rerun: true \}/);
+  });
+
+  it("the rail renders a real button for runnable server actions and hands off to an on-page owner first", () => {
+    assert.match(STAGE_ROW, /action\.intent === "runnable" && action\.serverAction/);
+    assert.match(STAGE_ROW, /new CustomEvent<RailActionEventDetail>\(RAIL_ACTION_EVENT/);
+    assert.match(STAGE_ROW, /runCockpitAction\(/);
+  });
+
+  it("the workbench takes over run_research from the rail with its own pending UI", () => {
+    assert.match(WORKBENCH, /addEventListener\(RAIL_ACTION_EVENT/);
+    assert.match(WORKBENCH, /detail\.actionType !== "run_research"/);
+    assert.match(WORKBENCH, /ev\.preventDefault\(\);\s*void runResearch\(\{ rerun: true \}\)/);
+  });
+});
+
+
+describe("forced re-run creates a fresh mission despite the active run_key unique index", () => {
+  const RUN_MISSION = fs.readFileSync(
+    path.resolve(__dirname, "..", "..", "..", "lib", "research", "runMission.ts"),
+    "utf8",
+  );
+
+  it("forceRerun derives a distinct run_key instead of reusing the completed mission's key", () => {
+    // The unique index (deal_id, run_key) WHERE status IN (queued, running,
+    // complete) rejects a second insert with the same key while the old
+    // COMPLETE mission exists, and createMission() reports it as duplicate.
+    assert.match(RUN_MISSION, /const runKey = opts\?\.forceRerun\s*\?\s*`\$\{baseRunKey\}:rerun:/);
+    assert.match(RUN_MISSION, /const baseRunKey = generateRunKey\(/);
   });
 });

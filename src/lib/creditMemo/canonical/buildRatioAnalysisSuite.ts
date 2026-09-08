@@ -28,6 +28,15 @@ export type DealContext = {
   seasonalityNote: string | null;
   stressBreakevenRevenue: number | null;
   stressBreakevenEbitda125x: number | null;
+  /**
+   * Governed coverage thresholds for this deal, resolved once by the caller
+   * from the policy registry. Null only when the memo could not resolve them;
+   * the interpretations then speak without naming a threshold rather than
+   * asserting a literal the rest of the memo may contradict.
+   */
+  dscrFloor: number | null;
+  fccrFloor: number | null;
+  dscrStrongAt: number | null;
 };
 
 const EMPTY_DEAL_CONTEXT: DealContext = {
@@ -40,6 +49,9 @@ const EMPTY_DEAL_CONTEXT: DealContext = {
   seasonalityNote: null,
   stressBreakevenRevenue: null,
   stressBreakevenEbitda125x: null,
+  dscrFloor: null,
+  fccrFloor: null,
+  dscrStrongAt: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -118,7 +130,7 @@ function businessTypeClause(deal: DealContext): string {
 }
 
 /**
- * Compute the revenue-decline percentage to hit the 1.25x DSCR breakeven.
+ * Compute the revenue-decline percentage to hit the governed DSCR breakeven.
  * Returns null if the required facts are missing. Value returned is a
  * percent scalar, e.g. 22.3 (not 0.223).
  */
@@ -160,6 +172,42 @@ type RatioSpec = {
 // ---------------------------------------------------------------------------
 // Assessment picker (deterministic — only the text varies with deal context)
 // ---------------------------------------------------------------------------
+
+/**
+ * The governed coverage floor for this deal, or null when the memo could not
+ * resolve one. Every coverage interpretation reads the threshold from here
+ * rather than typing a literal, so the ratio suite cannot contradict the
+ * covenant package and the policy exceptions in the same document.
+ */
+function floorOf(deal: DealContext, which: "dscr" | "fccr"): number | null {
+  const value = which === "dscr" ? deal.dscrFloor : deal.fccrFloor;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function strongAt(deal: DealContext, floor: number | null): number | null {
+  if (typeof deal.dscrStrongAt === "number" && Number.isFinite(deal.dscrStrongAt)) {
+    return deal.dscrStrongAt;
+  }
+  return floor === null ? null : Math.round(floor * 1.2 * 100) / 100;
+}
+
+/** "the governed 1.20x floor", or a threshold-free phrase when unresolved. */
+function floorPhrase(floor: number | null, noun = "floor"): string {
+  return floor === null ? `the governed coverage ${noun}` : `the governed ${floor.toFixed(2)}x ${noun}`;
+}
+
+/**
+ * Assessment against governed thresholds. With no resolved floor the ratio is
+ * reported without a pass/fail verdict rather than judged against a literal.
+ */
+function assessAgainstFloor(
+  value: number,
+  floor: number | null,
+  strong: number | null,
+): RatioAssessment {
+  if (floor === null) return "Adequate";
+  return pickAssessment(value, strong ?? floor * 1.2, floor, "higher_is_better");
+}
 
 function pickAssessment(
   value: number,
@@ -491,7 +539,9 @@ const RATIO_SPECS: RatioSpec[] = [
     category: "Coverage",
     unit: "times",
     interpret: ({ value, facts, deal }) => {
-      const assessment = pickAssessment(value, 1.5, 1.25, "higher_is_better");
+      const floor = floorOf(deal, "dscr");
+      const strong = strongAt(deal, floor);
+      const assessment = assessAgainstFloor(value, floor, strong);
       const cfa = facts.CASH_FLOW_AVAILABLE;
       const ads = deal.annualDebtServiceDollars ?? facts.ANNUAL_DEBT_SERVICE ?? null;
       const cushion = cfa !== null && cfa !== undefined && ads !== null && ads !== undefined
@@ -499,24 +549,30 @@ const RATIO_SPECS: RatioSpec[] = [
         : null;
       const revenueCushionPct = revenueDeclineToBreachFloor(deal);
       const cushionClause = revenueCushionPct !== null
-        ? ` Revenue (or EBITDA) can decline approximately ${revenueCushionPct.toFixed(0)}% before coverage falls below the 1.25x institutional floor.`
+        ? ` Revenue (or EBITDA) can decline approximately ${revenueCushionPct.toFixed(0)}% before coverage falls below ${floorPhrase(floor)}.`
         : "";
 
       let interpretation: string;
       if (assessment === "Strong") {
         interpretation = (cfa !== null && cfa !== undefined && ads !== null && ads !== undefined && cushion !== null)
           ? `${who(deal)} generates ${fmt$(cfa)} in annual operating cash flow against ${fmt$(ads)} in proposed debt service, yielding ${fmtMultiple(value)} coverage — a ${fmt$(cushion)} cushion above annual payments.${cushionClause}`
-          : `${who(deal)}'s operating cash flow covers debt service ${fmtMultiple(value)} — a deep repayment cushion above the 1.25x institutional minimum.${cushionClause}`;
+          : `${who(deal)}'s operating cash flow covers debt service ${fmtMultiple(value)} — a deep repayment cushion above ${floorPhrase(floor, "minimum")}.${cushionClause}`;
       } else if (assessment === "Adequate") {
         interpretation = (cfa !== null && cfa !== undefined && ads !== null && ads !== undefined && cushion !== null)
-          ? `${who(deal)} generates ${fmt$(cfa)} in operating cash flow against ${fmt$(ads)} in debt service, yielding ${fmtMultiple(value)} coverage — clears the 1.25x institutional floor with a ${fmt$(cushion)} cushion, but margin for error is limited.${cushionClause}`
-          : `${who(deal)}'s operating cash flow covers debt service ${fmtMultiple(value)} — just above the 1.25x institutional floor with limited cushion for earnings stress.${cushionClause}`;
+          ? `${who(deal)} generates ${fmt$(cfa)} in operating cash flow against ${fmt$(ads)} in debt service, yielding ${fmtMultiple(value)} coverage — clears ${floorPhrase(floor)} with a ${fmt$(cushion)} cushion, but margin for error is limited.${cushionClause}`
+          : `${who(deal)}'s operating cash flow covers debt service ${fmtMultiple(value)} — just above ${floorPhrase(floor)} with limited cushion for earnings stress.${cushionClause}`;
       } else {
         interpretation = (cfa !== null && cfa !== undefined && ads !== null && ads !== undefined)
-          ? `${who(deal)} generates ${fmt$(cfa)} in operating cash flow against ${fmt$(ads)} in debt service — ${fmtMultiple(value)} coverage, below the 1.25x institutional minimum. Deal requires structural mitigants (guarantor support, reserves, or collateral coverage) to justify approval.`
-          : `${who(deal)}'s operating cash flow covers debt service only ${fmtMultiple(value)} — below the 1.25x institutional minimum. Deal requires mitigants to proceed.`;
+          ? `${who(deal)} generates ${fmt$(cfa)} in operating cash flow against ${fmt$(ads)} in debt service — ${fmtMultiple(value)} coverage, below ${floorPhrase(floor, "minimum")}. Deal requires structural mitigants (guarantor support, reserves, or collateral coverage) to justify approval.`
+          : `${who(deal)}'s operating cash flow covers debt service only ${fmtMultiple(value)} — below ${floorPhrase(floor, "minimum")}. Deal requires mitigants to proceed.`;
       }
-      return { assessment, interpretation, benchmarkNote: "SBA/institutional minimum: 1.25x. Healthy: ≥1.50x." };
+      return {
+        assessment,
+        interpretation,
+        benchmarkNote: floor === null
+          ? "Governed coverage floor unresolved for this deal."
+          : `Governed minimum: ${floor.toFixed(2)}x. Healthy: ≥${(strong ?? floor * 1.2).toFixed(2)}x.`,
+      };
     },
   },
   {
@@ -525,10 +581,15 @@ const RATIO_SPECS: RatioSpec[] = [
     category: "Coverage",
     unit: "times",
     interpret: ({ value, deal }) => {
-      const assessment = pickAssessment(value, 1.25, 1.0, "higher_is_better");
+      const stressFloor = floorOf(deal, "dscr");
+      // 1.0x is survival, not policy: a stressed DSCR clearing the governed
+      // floor is Strong, clearing 1.0x is Adequate.
+      const assessment = stressFloor === null
+        ? (value >= 1.0 ? "Adequate" : "Weak")
+        : pickAssessment(value, stressFloor, 1.0, "higher_is_better");
       let interpretation: string;
       if (assessment === "Strong") {
-        interpretation = `Even under a +300 bps rate shock, ${whoLower(deal)} maintains ${fmtMultiple(value)} coverage — rate risk is well-absorbed, and a refinance at materially higher rates would not breach policy thresholds.`;
+        interpretation = `Even under a +300 bps rate shock, ${whoLower(deal)} maintains ${fmtMultiple(value)} coverage — rate risk is well-absorbed, and a refinance at materially higher rates would not breach ${floorPhrase(stressFloor)}.`;
       } else if (assessment === "Adequate") {
         interpretation = `${who(deal)}'s DSCR compresses to ${fmtMultiple(value)} under a +300 bps shock — remains above 1.0x but offers limited cushion if rates rise further or earnings compress concurrently.`;
       } else {
@@ -566,16 +627,25 @@ const RATIO_SPECS: RatioSpec[] = [
     category: "Coverage",
     unit: "times",
     interpret: ({ value, deal }) => {
-      const assessment = pickAssessment(value, 1.5, 1.2, "higher_is_better");
+      const floor = floorOf(deal, "fccr");
+      // Strong is a quarter above the governed covenant, not a fixed number.
+      const assessment = assessAgainstFloor(value, floor, floor === null ? null : Math.round(floor * 1.25 * 100) / 100);
+      const threshold = floorPhrase(floor, "covenant threshold");
       let interpretation: string;
       if (assessment === "Strong") {
-        interpretation = `${who(deal)} covers all fixed charges (interest + rent) ${fmtMultiple(value)} — well above the 1.2x covenant threshold common to term loans in this market.`;
+        interpretation = `${who(deal)} covers all fixed charges (interest + rent) ${fmtMultiple(value)} — well above ${threshold}.`;
       } else if (assessment === "Adequate") {
-        interpretation = `${who(deal)} covers fixed charges ${fmtMultiple(value)} — meets the 1.2x covenant threshold with limited headroom; a minor earnings miss would trigger a technical breach.`;
+        interpretation = `${who(deal)} covers fixed charges ${fmtMultiple(value)} — meets ${threshold} with limited headroom; a minor earnings miss would trigger a technical breach.`;
       } else {
-        interpretation = `${who(deal)} covers fixed charges only ${fmtMultiple(value)} — below the 1.2x covenant standard. Elevated risk of covenant breach at first quarterly test.`;
+        interpretation = `${who(deal)} covers fixed charges only ${fmtMultiple(value)} — below ${threshold}. Elevated risk of covenant breach at first quarterly test.`;
       }
-      return { assessment, interpretation, benchmarkNote: "Standard loan covenant: 1.2x." };
+      return {
+        assessment,
+        interpretation,
+        benchmarkNote: floor === null
+          ? "Governed fixed-charge floor unresolved for this deal."
+          : `Governed fixed-charge covenant: ${floor.toFixed(2)}x.`,
+      };
     },
   },
   {
@@ -584,14 +654,15 @@ const RATIO_SPECS: RatioSpec[] = [
     category: "Coverage",
     unit: "times",
     interpret: ({ value, deal }) => {
-      const assessment = pickAssessment(value, 1.5, 1.25, "higher_is_better");
+      const floor = floorOf(deal, "dscr");
+      const assessment = assessAgainstFloor(value, floor, strongAt(deal, floor));
       let interpretation: string;
       if (assessment === "Strong") {
         interpretation = `Combining business cash flow with guarantor personal cash flow, ${whoLower(deal)}'s global coverage reaches ${fmtMultiple(value)} — a deep cushion, supporting the loan independently of any single income stream.`;
       } else if (assessment === "Adequate") {
-        interpretation = `Global coverage (business + guarantor cash flow) reaches ${fmtMultiple(value)} — clears the 1.25x institutional floor, though the combined stream carries tighter margin than the business alone.`;
+        interpretation = `Global coverage (business + guarantor cash flow) reaches ${fmtMultiple(value)} — clears ${floorPhrase(floor)}, though the combined stream carries tighter margin than the business alone.`;
       } else {
-        interpretation = `Even with guarantor support, ${whoLower(deal)}'s global cash flow covers debt service only ${fmtMultiple(value)} — below the 1.25x institutional minimum. Repayment capacity does not clear policy from any combined source.`;
+        interpretation = `Even with guarantor support, ${whoLower(deal)}'s global cash flow covers debt service only ${fmtMultiple(value)} — below ${floorPhrase(floor, "minimum")}. Repayment capacity does not clear policy from any combined source.`;
       }
       return { assessment, interpretation, benchmarkNote: "Global coverage captures guarantor + business cash flow per SBA SOP 50 10." };
     },

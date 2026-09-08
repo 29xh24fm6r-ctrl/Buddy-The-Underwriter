@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { crmColors as c } from "@/components/brokerage/tokens";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
+import { useCrmExperience } from "@/components/brokerage/CrmExperienceProvider";
+import { CrmLeadWorkbench } from "@/components/brokerage/CrmLeadWorkbench";
 
 type Lead = {
   id: string;
@@ -73,6 +75,12 @@ function priorityPill(priority: string) {
 }
 
 export default function CrmLeadsPage() {
+  const { enabled } = useCrmExperience();
+  const search = useSearchParams();
+  return enabled ? <CrmLeadWorkbench key={search.toString()} /> : <LegacyLeadPipeline />;
+}
+
+function LegacyLeadPipeline() {
   const searchParams = useSearchParams();
   const requestedQueue = searchParams.get("queue");
   const [queue, setQueue] = useState(

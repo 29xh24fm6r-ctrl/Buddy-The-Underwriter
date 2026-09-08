@@ -1,4 +1,5 @@
 import type { FinancialFact, RenderedSpreadCell, RenderedSpreadCellV2, RenderedSpreadInputRef } from "@/lib/financialSpreads/types";
+import { selectBestFact } from "@/lib/financialFacts/selectBestFact";
 
 function isIsoDatePrefix(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}/.test(s);
@@ -34,6 +35,31 @@ export function pickLatestFact(args: {
   });
 
   return candidates[0] ?? null;
+}
+
+/**
+ * Pick the authoritative fact for a canonical (deal-level) key.
+ *
+ * Unlike pickLatestFact this ranks by provenance source first
+ * (MANUAL > STRUCTURAL > SPREAD > DOC_EXTRACT) and only then by period /
+ * confidence / recency. Canonical analysis facts such as CASH_FLOW_AVAILABLE
+ * are written twice: by the structural engines (waterfall, aggregator, debt
+ * service) and again by backfillCanonicalFactsFromSpreads, which echoes the
+ * previously rendered spread row back as a SPREAD fact stamped with that
+ * spread's as-of date. Ranking by period alone let a stale echo (a YTD figure
+ * stamped with a fiscal-year-end) outrank the engine's own result, and the
+ * re-rendered spread then re-echoed the wrong number on every run.
+ */
+export function pickAuthoritativeFact(args: {
+  facts: FinancialFact[];
+  factType: string;
+  factKey: string;
+}): FinancialFact | null {
+  const candidates = args.facts.filter(
+    (f) => String(f.fact_type) === args.factType && String(f.fact_key) === args.factKey,
+  );
+  if (candidates.length === 0) return null;
+  return selectBestFact(candidates).chosen ?? null;
 }
 
 export function cellValueToNumber(cell: RenderedSpreadCell | undefined): number | null {

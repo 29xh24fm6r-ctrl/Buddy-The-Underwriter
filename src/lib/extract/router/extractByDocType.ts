@@ -25,6 +25,8 @@ export type ProviderMetrics = {
   unit_count?: number;
   estimated_cost_usd?: number;
   structured_assist?: boolean;
+  /** Content identity used to prove a cached extraction belongs to this file version. */
+  input_sha256?: string;
 };
 
 export type ExtractByDocTypeResult = {
@@ -168,6 +170,7 @@ async function extractWithGeminiOcr(
     pages,
     unit_count: pages,
     estimated_cost_usd: estimateGeminiCostUSD(pages),
+    input_sha256: doc.sha256,
   };
 
   await logLedgerEvent({
@@ -328,6 +331,50 @@ export async function extractByDocType(
     throw new Error(`doc_missing_storage_path: ${docId}`);
   }
 
+  // Parse once per immutable document version. The previous cache only looked
+  // for a *different* document with the same SHA, so re-processing the same
+  // document always paid for Gemini OCR again. A successful extract is reusable
+  // only when its recorded content hash matches the current document hash.
+  if (doc.sha256 && !options?.forceRefresh) {
+    try {
+      const sb = supabaseAdmin();
+      const { data: cachedExtract } = await (sb as any)
+        .from("document_extracts")
+        .select("fields_json, tables_json, evidence_json, provider, provider_metrics")
+        .eq("attachment_id", docId)
+        .eq("status", "SUCCEEDED")
+        .maybeSingle();
+
+      if (cachedExtract?.provider_metrics?.input_sha256 === doc.sha256) {
+        await logLedgerEvent({
+          dealId: doc.deal_id,
+          bankId: doc.bank_id,
+          eventKey: "dedupe.extract_cache.hit",
+          uiState: "done",
+          uiMessage: "Extraction skipped (current document version already parsed)",
+          meta: { doc_id: docId, sha256: doc.sha256, cache_scope: "same_document" },
+        });
+
+        return {
+          doc,
+          result: {
+            fields: cachedExtract.fields_json ?? {},
+            tables: cachedExtract.tables_json ?? [],
+            evidence: cachedExtract.evidence_json ?? [],
+          },
+          provider_metrics: {
+            ...(cachedExtract.provider_metrics ?? {}),
+            provider: "document_version_cache",
+            route: "cache",
+            input_sha256: doc.sha256,
+          },
+        };
+      }
+    } catch (cacheErr: any) {
+      console.warn("[SmartRouter] Same-document cache check failed (non-fatal)", cacheErr?.message);
+    }
+  }
+
   // ── Extraction dedup: skip if identical file already has extraction results ──
   // SKIP ENTIRELY when forceRefresh=true — stale v1 cache must not block re-extraction
   if (doc.sha256 && !options?.forceRefresh) {
@@ -385,6 +432,7 @@ export async function extractByDocType(
                 provider: "sha256_dedup",
                 donor_doc_id: donorDoc.id,
                 original_provider: cachedExtract.provider,
+                input_sha256: doc.sha256,
               },
               updated_at: new Date().toISOString(),
             },
@@ -401,6 +449,7 @@ export async function extractByDocType(
             provider_metrics: {
               provider: "sha256_dedup",
               route: "cache",
+              input_sha256: doc.sha256,
             },
           };
         }
@@ -412,7 +461,13 @@ export async function extractByDocType(
   // ── End extraction dedup ────────────────────────────────────────────────────
 
   const { routingClass, canonicalType, source } = resolveRoutingClass(doc);
-  const useStructuredAssist = isStructuredExtractionRoute(routingClass);
+  // Numeric financial documents are parsed deterministically from persisted
+  // OCR text by extractFactsFromDocument. A second blanket model pass here was
+  // both redundant and paid even when deterministic parsing had high yield.
+  // AR aging retains structured assist because its semantic table shape is an
+  // input to the dedicated collateral-table normalizer below.
+  const useStructuredAssist =
+    isStructuredExtractionRoute(routingClass) && canonicalType === "AR_AGING";
 
   // Log routing decision
   await logLedgerEvent({
@@ -596,7 +651,7 @@ export async function extractByDocType(
             fields_json: result.fields,
             tables_json: result.tables ?? [],
             evidence_json: result.evidence ?? [],
-            provider_metrics: provider_metrics,
+            provider_metrics: { ...provider_metrics, input_sha256: doc.sha256 },
             updated_at: new Date().toISOString(),
           },
           { onConflict: "attachment_id" },

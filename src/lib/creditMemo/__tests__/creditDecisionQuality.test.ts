@@ -23,6 +23,7 @@ describe("DECISION §1 — Conventional risk rating model", () => {
   it("strong DSCR + collateral + guarantor does not produce D/Substandard", () => {
     const r = buildConventionalRiskRating({
       dscr: 7.12,
+      dscrFloor: 1.25,
       stressedDscr: 4.93,
       worstYearDscr: 2.03,
       cfadsTrend: "down",
@@ -53,6 +54,7 @@ describe("DECISION §1 — Conventional risk rating model", () => {
   it("thin margin + declining trend caps but does not drive to Substandard", () => {
     const r = buildConventionalRiskRating({
       dscr: 2.5,
+      dscrFloor: 1.25,
       stressedDscr: 1.8,
       worstYearDscr: 2.0,
       cfadsTrend: "down",
@@ -80,6 +82,7 @@ describe("DECISION §1 — Conventional risk rating model", () => {
   it("adverse findings can downgrade to Special Mention", () => {
     const r = buildConventionalRiskRating({
       dscr: 3.0,
+      dscrFloor: 1.25,
       stressedDscr: 2.0,
       worstYearDscr: 2.5,
       cfadsTrend: "up",
@@ -106,6 +109,7 @@ describe("DECISION §1 — Conventional risk rating model", () => {
   it("missing DSCR blocks at Special Mention", () => {
     const r = buildConventionalRiskRating({
       dscr: null,
+      dscrFloor: 1.25,
       stressedDscr: null,
       worstYearDscr: null,
       cfadsTrend: "unknown",

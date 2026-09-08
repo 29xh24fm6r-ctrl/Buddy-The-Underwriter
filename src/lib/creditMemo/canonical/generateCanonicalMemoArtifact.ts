@@ -7,6 +7,8 @@ import { buildResearchTrace } from "@/lib/research/memoEvidenceResolver";
 import { loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
 import { buildCanonicalCreditMemo } from "./buildCanonicalCreditMemo";
 import { assembleNarratives, overlayNarratives, type MemoNarratives } from "./narrativeAssembly";
+import { runMemoPreflight, formatPreflightFindings } from "@/lib/creditMemo/canonical/memoPreflight";
+import { buildPreflightInput } from "@/lib/creditMemo/canonical/buildPreflightInput";
 import { verifyMemoNarratives } from "./verifyMemoNarratives";
 import { fetchMemoHashInputs } from "./fetchMemoHashInputs";
 import { computeMemoInputHash } from "./memoProvenance";
@@ -61,6 +63,24 @@ export async function generateCanonicalMemoArtifact(args: {
   });
   if (generated.aiError) {
     return { ok: false as const, error: `Credit memo generation failed: ${generated.aiError}`, status: 502 };
+  }
+
+  // Deterministic self-consistency, before a model is asked to notice it.
+  // The reviewer has been blocking runs on contradictions between the memo's
+  // own numbers — two DSCR floors in one document, a figure derived from a
+  // field that was never supplied. Its repair pass rewrites prose only, so it
+  // could never fix them; it spent four reviews and three repairs discovering
+  // a defect it had no tool to correct. Catching it here names the
+  // contradiction and costs one function call.
+  const preflight = runMemoPreflight(buildPreflightInput(built.memo, built.contractBlockers));
+  if (!preflight.ok) {
+    return {
+      ok: false as const,
+      error:
+        "Credit memo failed deterministic consistency preflight; publication blocked — " +
+        formatPreflightFindings(preflight.findings),
+      status: 422,
+    };
   }
 
   const verification = await verifyMemoNarratives({

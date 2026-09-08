@@ -218,6 +218,7 @@ export async function convertLeadToDeal(input: ConvertLeadToDealInput, sb: SB = 
 
   const dealId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const dealOwnerClerkUserId = lead.owner_clerk_user_id ?? input.actorClerkUserId;
   const { error: dealErr } = await sb.from("deals").insert({
     id: dealId,
     bank_id: input.bankId,
@@ -225,6 +226,9 @@ export async function convertLeadToDeal(input: ConvertLeadToDealInput, sb: SB = 
     name: dealName,
     borrower_name: borrowerDisplayName,
     stage: "intake",
+    brokerage_stage: "intake",
+    brokerage_stage_entered_at: now,
+    brokerage_stage_owner_clerk_user_id: dealOwnerClerkUserId,
     entity_type: "Unknown",
     risk_score: 0,
     created_at: now,
@@ -255,7 +259,7 @@ export async function convertLeadToDeal(input: ConvertLeadToDealInput, sb: SB = 
       first_touch_source: lead.source ?? null,
       last_touch_source: lead.source ?? null,
       referring_organization_id: lead.referral_source_org_id,
-      internal_owner_clerk_user_id: lead.owner_clerk_user_id ?? null,
+      internal_owner_clerk_user_id: dealOwnerClerkUserId,
     }).then(null, () => {});
 
     await linkPartyToDeal(

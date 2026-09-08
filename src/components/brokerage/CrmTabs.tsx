@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { crmColors as c } from "@/components/brokerage/tokens";
+import { useCrmExperience } from "@/components/brokerage/CrmExperienceProvider";
+import { CrmWorkspaceNav } from "@/components/brokerage/CrmWorkspaceNav";
 
 const TABS = [
   { label: "Leads", href: "/admin/brokerage/crm/leads", description: "New borrower and referral opportunities" },
@@ -22,6 +24,8 @@ const TABS = [
  */
 export function CrmTabs() {
   const pathname = usePathname();
+  const { enabled, section } = useCrmExperience();
+  if (enabled) return <CrmWorkspaceNav section={section} pathname={pathname} />;
 
   return (
     <nav aria-label="CRM sections" style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: `1px solid ${c.border}`, overflowX: "auto" }}>

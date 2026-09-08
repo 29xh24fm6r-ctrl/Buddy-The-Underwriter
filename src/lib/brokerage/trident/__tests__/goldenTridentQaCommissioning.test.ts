@@ -82,7 +82,14 @@ test("QA fixture commissions canonical spread inputs without seeding a rendered 
 
 
 test("canonical-credit commissioning preserves actionable review evidence and DSCR bases", () => {
-  assert.match(frontierFactory, /reviewIssues: remaining/);
+  // The property here is that structured findings reach the caller with their
+  // repair instructions rather than being flattened to strings. Asserting the
+  // literal `reviewIssues: remaining` asserted one spelling of that, and broke
+  // when the findings were split into blocking and advisory — a change that
+  // strengthened the property. severityContract.test.ts covers it by driving
+  // the lane and reading the arrays.
+  assert.match(frontierFactory, /reviewIssues:/);
+  assert.match(frontierFactory, /advisoryIssues:/);
   assert.match(memoGenerateRoute, /review_issues: verification\?\.reviewIssues/);
   assert.match(labClient, /formatGenerationFailure/);
   assert.match(labClient, /repairInstruction/);

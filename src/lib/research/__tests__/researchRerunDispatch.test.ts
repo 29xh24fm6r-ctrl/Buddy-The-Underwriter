@@ -47,9 +47,10 @@ describe("run handler returns non-500 JSON for the normal paths", () => {
     assert.match(run, /already_running: true/);
     assert.match(run, /mission_id: existing\.id/);
   });
-  it("returns the runMission result (ok + mission_id) on a fresh run", () => {
-    assert.match(run, /await runMission\(dealId, missionType, subject/);
-    assert.match(run, /NextResponse\.json\(result/);
+  it("admits a fresh run to the durable workflow and returns 202", () => {
+    assert.match(run, /await startResearchMission\(\{/);
+    assert.match(run, /status: result\.ok \? 202 : 500/);
+    assert.doesNotMatch(run, /await runMission\(/);
   });
   it("error path returns JSON, not an opaque body", () => {
     assert.match(run, /\{ ok: false, error: error\?\.message \?\? "unexpected_error" \}/);

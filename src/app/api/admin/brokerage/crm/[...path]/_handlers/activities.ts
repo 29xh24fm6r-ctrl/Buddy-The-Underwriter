@@ -3,6 +3,9 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { changeCrmTask, parseTaskChange } from "@/lib/crm/taskActions";
+import { listCrmTasks } from "@/lib/crm/taskInventory";
 import { logActivity, type ActivityKind, type ActivityChannel, type ActivityDirection } from "@/lib/comms/activities";
 
 export const runtime = "nodejs";
@@ -11,6 +14,31 @@ export const dynamic = "force-dynamic";
 const VALID_KINDS = new Set(["note", "task", "call", "email", "sms", "meeting", "stage_change", "system"]);
 const VALID_CHANNELS = new Set(["email", "sms", "call", "meeting", "portal", "system"]);
 const VALID_DIRECTIONS = new Set(["inbound", "outbound"]);
+
+export async function GET(req: NextRequest) {
+  const gated = await gate();
+  if (gated instanceof NextResponse) return gated;
+  const pageText = req.nextUrl.searchParams.get("page") || "0";
+  const state = req.nextUrl.searchParams.get("state") || "open";
+  if (!/^\d{1,5}$/.test(pageText) || !["open", "completed"].includes(state)) return NextResponse.json({ ok: false, error: "Invalid task view." }, { status: 400 });
+  try { return NextResponse.json({ ok: true, ...await listCrmTasks(supabaseAdmin(), await getBrokerageBankId(), Number(pageText), state === "completed") }); }
+  catch { return NextResponse.json({ ok: false, error: "Tasks could not be loaded." }, { status: 500 }); }
+}
+
+export async function PATCH(req: NextRequest) {
+  const gated = await gate();
+  if (gated instanceof NextResponse) return gated;
+  let change;
+  try { change = parseTaskChange(await req.json()); }
+  catch { return NextResponse.json({ ok: false, error: "Invalid task action or due date." }, { status: 400 }); }
+  try {
+    const activity = await changeCrmTask(supabaseAdmin(), await getBrokerageBankId(), change);
+    if (!activity) return NextResponse.json({ ok: false, error: "Task not found." }, { status: 404 });
+    return NextResponse.json({ ok: true, activity });
+  } catch {
+    return NextResponse.json({ ok: false, error: "Task update could not be confirmed. Refresh before retrying." }, { status: 500 });
+  }
+}
 
 async function gate(): Promise<{ userId: string } | NextResponse> {
   try {

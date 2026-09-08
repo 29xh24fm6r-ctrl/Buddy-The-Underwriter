@@ -102,30 +102,6 @@ test("permanent errors skip retry and go straight to FAILED", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Fix 7: Exponential preflight backoff
-// ---------------------------------------------------------------------------
-
-test("preflight backoff is exponential (not fixed 30s)", () => {
-  const src = readFile("src/lib/jobs/processors/spreadsProcessor.ts");
-
-  // Must contain exponential backoff formula
-  assert.ok(
-    src.includes("Math.pow(2, preflightRetries)"),
-    "Preflight backoff must use Math.pow(2, preflightRetries) for exponential",
-  );
-
-  // Must NOT contain fixed 30_000 for preflight
-  const preflightSection = src.slice(
-    src.indexOf("preflightRetries < 5"),
-    src.indexOf("preflightRetries < 5") + 300,
-  );
-  assert.ok(
-    !preflightSection.includes("30_000"),
-    "Preflight must NOT use fixed 30_000ms delay",
-  );
-});
-
-// ---------------------------------------------------------------------------
 // Fix 4: backfillFromSpreads returns ok:false on all-fail
 // ---------------------------------------------------------------------------
 
@@ -168,4 +144,21 @@ test("Gemini OCR has per-model timeout protection", () => {
     src.includes("isTimeout"),
     "Must handle timeout errors to try next model",
   );
+});
+
+// Spread input behavior is exercised directly in spreadExecutionPolicy.test.
+// The obsolete extraction-loop source guard was intentionally deleted: spread
+// recompute no longer owns extraction or a requeue cursor.
+
+test("worker tick passes its maxDuration horizon to the spreads worker", () => {
+  const src = readFile("src/app/api/jobs/worker/tick/route.ts");
+  assert.ok(
+    /const\s+spreadsDeadlineAt\s*=\s*Date\.now\(\)\s*\+\s*maxDuration\s*\*\s*1000\s*-\s*SPREADS_DEADLINE_MARGIN_MS/.test(src),
+    "tick must compute spreadsDeadlineAt from maxDuration",
+  );
+  const calls = src.match(/guardedSpreads\(\{[^}]*\}\)/gs) ?? [];
+  assert.ok(calls.length >= 2, "expected both guardedSpreads call sites");
+  for (const call of calls) {
+    assert.ok(call.includes("deadlineAt: spreadsDeadlineAt"), `guardedSpreads call must pass deadlineAt: ${call}`);
+  }
 });

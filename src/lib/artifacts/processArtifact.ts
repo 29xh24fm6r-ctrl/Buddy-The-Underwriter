@@ -1785,6 +1785,8 @@ export async function processArtifact(
       gatekeeper_tax_year: number | null;
     } | null = null;
     let gkBlockedByReview = false;
+    let documentFinancialFactsWritten = 0;
+    let documentExtractionHeartbeatWritten = false;
 
     if (source_table === "deal_documents") {
       try {
@@ -2028,6 +2030,21 @@ export async function processArtifact(
             { onConflict: "attachment_id" },
           );
 
+          // Fact extraction belongs to the document-version workflow, not the
+          // spread renderer. This call is deterministic-first and its Gemini
+          // escalation is idempotent on document/input/engine version.
+          const { extractFactsFromDocument } = await import(
+            "@/lib/financialSpreads/extractFactsFromDocument"
+          );
+          const factResult = await extractFactsFromDocument({
+            dealId,
+            bankId,
+            documentId: source_id,
+            docTypeHint: effectiveDocType,
+          });
+          documentFinancialFactsWritten = factResult.factsWritten;
+          documentExtractionHeartbeatWritten = factResult.heartbeatWritten;
+
           await logLedgerEvent({
             dealId,
             bankId,
@@ -2081,7 +2098,10 @@ export async function processArtifact(
           error: (matResult as any).error,
         });
       } else {
-        factsReady = matResult.factsWritten > 0;
+        factsReady =
+          documentExtractionHeartbeatWritten ||
+          documentFinancialFactsWritten > 0 ||
+          matResult.factsWritten > 0;
         if (matResult.factsWritten > 0) {
           await logLedgerEvent({
             dealId,

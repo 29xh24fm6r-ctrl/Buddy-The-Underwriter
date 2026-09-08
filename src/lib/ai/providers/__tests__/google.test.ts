@@ -147,6 +147,52 @@ describe("callGoogle: terminal completion integrity", () => {
     }
   });
 
+  it("returns truncated reply text flagged `truncated` when the caller opts in", async () => {
+    const { restore } = installFetch(async () =>
+      rawOkResponse({
+        candidates: [{ content: { parts: [{ text: '{"partial": "ye' }] }, finishReason: "MAX_TOKENS" }],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20, thoughtsTokenCount: 500 },
+      }),
+    );
+    try {
+      const result = await callGoogle({ ...BASE_REQ, allowTruncatedOutput: true });
+      assert.equal(result.text, '{"partial": "ye');
+      assert.equal(result.truncated, true);
+      assert.equal(result.finishReason, "MAX_TOKENS");
+      assert.equal(result.thoughtsTokenCount, 500);
+    } finally {
+      restore();
+    }
+  });
+
+  it("opt-in salvage still rejects a MAX_TOKENS finish with no reply text", async () => {
+    const { restore } = installFetch(async () =>
+      rawOkResponse({ candidates: [{ content: { parts: [] }, finishReason: "MAX_TOKENS" }] }),
+    );
+    try {
+      await assert.rejects(
+        () => callGoogle({ ...BASE_REQ, allowTruncatedOutput: true }),
+        /not complete \(finishReason: MAX_TOKENS\)/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("opt-in salvage never applies to other finish reasons", async () => {
+    const { restore } = installFetch(async () =>
+      rawOkResponse({ candidates: [{ content: { parts: [{ text: "x" }] }, finishReason: "SAFETY" }] }),
+    );
+    try {
+      await assert.rejects(
+        () => callGoogle({ ...BASE_REQ, allowTruncatedOutput: true }),
+        /not complete \(finishReason: SAFETY\)/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
   it("rejects STOP responses that contain no non-thought reply text", async () => {
     const { restore } = installFetch(async () =>
       rawOkResponse({

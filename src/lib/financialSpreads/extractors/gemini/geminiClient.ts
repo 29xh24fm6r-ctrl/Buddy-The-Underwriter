@@ -109,7 +109,7 @@ export async function callGeminiForExtraction(args: {
         ? STRICT_RETRY_INSTRUCTION
         : args.prompt.systemInstruction;
 
-      // SPEC-M1.1: routed through the AI gateway (runRole, "generator" role,
+      // SPEC-M1.1: routed through the AI gateway (runRole, "extractor" role,
       // authMode: "vertex"). maxOutputTokens/thinkingLevel/mediaResolution
       // preserve the incident-driven tuning documented above (16K output
       // budget for reasoning + JSON; "low" thinking; MEDIA_RESOLUTION_HIGH
@@ -121,7 +121,7 @@ export async function callGeminiForExtraction(args: {
       let rawText: string;
       let finishReasonFromError: string | undefined;
       try {
-        const result = await runRole("generator", {
+        const result = await runRole("extractor", {
           purpose: "financial_spread_extraction",
           prompt: args.prompt.userPrompt,
           systemInstruction,

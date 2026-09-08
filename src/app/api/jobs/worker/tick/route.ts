@@ -10,6 +10,7 @@ import { cleanupOrphanSpreads } from "@/lib/spreads/janitor/cleanupOrphanSpreads
 import { cleanupStuckJobs } from "@/lib/spreads/janitor/cleanupStuckJobs";
 import { cleanupStuckDocumentJobs } from "@/lib/jobs/janitor/cleanupStuckDocumentJobs";
 import { sweepStaleResearchMissions } from "@/lib/research/staleMissionSweep";
+import { sweepStaleDealReadiness } from "@/lib/deals/readiness/readinessReconcileSweep";
 import { withBuddyGuard, sendHeartbeat } from "@/lib/aegis";
 import {
   WORKER_LOCK_KEYS,
@@ -25,7 +26,10 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 min (3 min lease + buffer)
+export const maxDuration = 300; // spread recompute is facts-only and fits one lease
+// Compatibility horizon passed to the worker; document extraction no longer
+// runs inside spread recompute.
+const SPREADS_DEADLINE_MARGIN_MS = 75_000;
 
 /**
  * POST /api/jobs/worker/tick
@@ -57,6 +61,8 @@ export async function POST(req: NextRequest) {
   const batchSize = Math.min(10, Math.max(1, Number(batchParam ?? String(defaultBatch))));
 
   const leaseOwner = `worker-${Date.now()}`;
+  // Keep a completion horizon for worker compatibility and lease safety.
+  const spreadsDeadlineAt = Date.now() + maxDuration * 1000 - SPREADS_DEADLINE_MARGIN_MS;
   const results: Array<Record<string, unknown>> = [];
   let failedSteps = 0;
 
@@ -115,7 +121,7 @@ export async function POST(req: NextRequest) {
         lockKey: WORKER_LOCK_KEYS.SPREADS_WORKER,
         workerName: "spreads-worker",
         run: async () => {
-          const r = await guardedSpreads({ leaseOwner, maxJobs: batchSize });
+          const r = await guardedSpreads({ leaseOwner, maxJobs: batchSize, deadlineAt: spreadsDeadlineAt });
           if (r.processed > 0) beat();
           return r;
         },
@@ -210,7 +216,11 @@ export async function POST(req: NextRequest) {
 
     // Process spread jobs when running ALL (after document jobs)
     if (type === "ALL") {
-      const spreadResult = await guardedSpreads({ leaseOwner, maxJobs: Math.max(1, batchSize) });
+      const spreadResult = await guardedSpreads({
+        leaseOwner,
+        maxJobs: Math.max(1, batchSize),
+        deadlineAt: spreadsDeadlineAt,
+      });
       if (spreadResult.ok && spreadResult.processed > 0) {
         beat();
         results.push({ type: "SPREADS", ...spreadResult });
@@ -245,6 +255,18 @@ export async function POST(req: NextRequest) {
         recordFailure("STALE_RESEARCH_MISSIONS", staleResearchResult);
       } else if (staleResearchResult.recovered > 0) {
         results.push({ type: "STALE_RESEARCH_MISSIONS", ...staleResearchResult });
+      }
+
+      // Readiness reconcile sweep: deal_memo_input_readiness is only ever
+      // rewritten by event hooks, so one failed hook (no session in a
+      // worker, timeout, crash) leaves a deal's readiness stale until a
+      // banker happens to load a page that recomputes it. Refresh rows that
+      // lag their authoritative inputs (gate, snapshot, spread, fact).
+      const readinessReconcileResult = await sweepStaleDealReadiness();
+      if (isWorkerStepFailure(readinessReconcileResult)) {
+        recordFailure("READINESS_RECONCILE", readinessReconcileResult);
+      } else if (readinessReconcileResult.reconciled > 0) {
+        results.push({ type: "READINESS_RECONCILE", ...readinessReconcileResult });
       }
     }
 

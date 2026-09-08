@@ -200,7 +200,7 @@ function tryStructuredEntities(args: DeterministicExtractorArgs): ExtractedLineI
   if (entities.length === 0) return [];
 
   const items: ExtractedLineItem[] = [];
-  const dateStr = resolveDocDate(args.ocrText, args.docYear);
+  const dateStr = resolveDocDate(args.ocrText, args.docYear, { originalFilename: args.originalFilename });
   const { start: periodStart, end: periodEnd } = normalizePeriod(dateStr);
 
   for (const entity of entities) {
@@ -235,7 +235,7 @@ function tryOcrRegex(args: DeterministicExtractorArgs): ExtractedLineItem[] {
   const text = args.ocrText;
 
   // Try to detect period from document
-  const dateStr = resolveDocDate(text, args.docYear);
+  const dateStr = resolveDocDate(text, args.docYear, { originalFilename: args.originalFilename });
   const { start: periodStart, end: periodEnd } = normalizePeriod(dateStr);
 
   for (const { key, pattern } of LABEL_PATTERNS) {
@@ -279,7 +279,7 @@ const MONEY_RE = /\$?\(?-?[0-9][0-9,]*(?:\.[0-9]{1,2})?\)?/;
 function tryGenericRowScan(args: DeterministicExtractorArgs): ExtractedLineItem[] {
   const text = args.ocrText;
   const lines = text.split(/\n/);
-  const dateStr = resolveDocDate(text, args.docYear);
+  const dateStr = resolveDocDate(text, args.docYear, { originalFilename: args.originalFilename });
   const { start: periodStart, end: periodEnd } = normalizePeriod(dateStr);
 
   const items: ExtractedLineItem[] = [];

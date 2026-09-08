@@ -3,7 +3,7 @@ import "server-only";
 import type { SpreadTemplate } from "@/lib/financialSpreads/templates/templateTypes";
 import type { FinancialFact, RenderedSpread, RenderedSpreadCellV2 } from "@/lib/financialSpreads/types";
 import { computedCell } from "@/lib/financialSpreads/formulas";
-import { factAsOfDate, factToCell, pickLatestFact } from "@/lib/financialSpreads/templateUtils";
+import { factAsOfDate, factToCell, pickAuthoritativeFact, pickLatestFact } from "@/lib/financialSpreads/templateUtils";
 import { GCF_PERSONAL_INCOME_COMPONENT_KEYS } from "@/lib/financialSpreads/gcfPersonalIncome";
 
 function maxIsoDate(a: string | null, b: string | null): string | null {
@@ -95,32 +95,35 @@ export function globalCashFlowTemplate(): SpreadTemplate {
       const facts = args.facts;
 
       // ── DEAL-level property facts ──────────────────────────────────────────
-      const cfaFact = pickLatestFact({
+      // Source-ranked (STRUCTURAL engines over SPREAD backfill echoes) — see
+      // pickAuthoritativeFact. Period-ranked selection let a stale backfilled
+      // CASH_FLOW_AVAILABLE outrank the canonical waterfall result.
+      const cfaFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "CASH_FLOW_AVAILABLE",
       });
-      const adsFact = pickLatestFact({
+      const adsFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "ANNUAL_DEBT_SERVICE",
       });
-      const adsStressedFact = pickLatestFact({
+      const adsStressedFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "ANNUAL_DEBT_SERVICE_STRESSED_300BPS",
       });
-      const dscrFact = pickLatestFact({
+      const dscrFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "DSCR",
       });
-      const dscrStressedFact = pickLatestFact({
+      const dscrStressedFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "DSCR_STRESSED_300BPS",
       });
-      const excessFact = pickLatestFact({
+      const excessFact = pickAuthoritativeFact({
         facts,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "EXCESS_CASH_FLOW",
@@ -212,10 +215,15 @@ export function globalCashFlowTemplate(): SpreadTemplate {
       const propertyCashFlow =
         propertyNoi !== null && propertyDs !== null ? propertyNoi - propertyDs : null;
 
-      // Cash Available = Personal Income + Property Cash Flow
+      // Cash Available = Personal Income + Property NOI (before any debt service).
+      // This mirrors computeGlobalCashFlow (persistGlobalCashFlow): entity cash
+      // flow is taken before its debt service and the debt service sits only in
+      // the DSCR denominator. The previous form netted property DS out of cash
+      // available AND divided by it again, so the rendered global DSCR was one
+      // debt-service turn lower than the persisted GCF_DSCR fact.
       const cashAvailable =
-        personalIncome.value !== null || propertyCashFlow !== null
-          ? (personalIncome.value ?? 0) + (propertyCashFlow ?? 0)
+        personalIncome.value !== null || propertyNoi !== null
+          ? (personalIncome.value ?? 0) + (propertyNoi ?? 0)
           : null;
 
       // Total Personal Obligations = Personal Debt Service + Living Expenses
@@ -224,20 +232,20 @@ export function globalCashFlowTemplate(): SpreadTemplate {
           ? (personalDebtService.value ?? 0) + (personalLiving.value ?? 0)
           : null;
 
-      // Global Cash Flow = Cash Available - Total Obligations
+      // Global Cash Flow = Cash Available - Total Personal Obligations
       const gcfValue =
         cashAvailable !== null ? cashAvailable - (totalObligations ?? 0) : null;
 
-      // GCF DSCR = Cash Available / (Property DS + Personal DS)
-      const totalDs = (propertyDs ?? 0) + (personalDebtService.value ?? 0);
+      // Global DSCR = Global Cash Flow / Property (business) Debt Service
       const gcfDscr =
-        cashAvailable !== null && totalDs > 0 ? cashAvailable / totalDs : null;
+        gcfValue !== null && propertyDs !== null && propertyDs > 0 ? gcfValue / propertyDs : null;
 
-      // GCF DSCR Stressed
+      // Global DSCR Stressed
       const propertyDsStressed = toNumberCell(adsStressedCell);
-      const totalDsStressed = (propertyDsStressed ?? 0) + (personalDebtService.value ?? 0);
       const gcfDscrStressed =
-        cashAvailable !== null && totalDsStressed > 0 ? cashAvailable / totalDsStressed : null;
+        gcfValue !== null && propertyDsStressed !== null && propertyDsStressed > 0
+          ? gcfValue / propertyDsStressed
+          : null;
 
       // as_of
       const propAsOf = maxIsoDate(
@@ -321,9 +329,9 @@ export function globalCashFlowTemplate(): SpreadTemplate {
           // ── Global Aggregation Section ─────────────────────────────────────
           {
             key: "GCF_CASH_AVAILABLE",
-            label: "Cash Available (Personal + Property)",
+            label: "Cash Available (Personal Income + Property NOI)",
             section: "GLOBAL",
-            values: [makeCell(cashAvailable, asOf, "PERSONAL_INCOME + PROPERTY_CASHFLOW")],
+            values: [makeCell(cashAvailable, asOf, "PERSONAL_INCOME + NOI")],
           },
           {
             key: "GCF_PERSONAL_DEBT_SERVICE",
@@ -372,13 +380,13 @@ export function globalCashFlowTemplate(): SpreadTemplate {
             key: "GCF_DSCR",
             label: "Global DSCR",
             section: "DSCR",
-            values: [makeCell(gcfDscr, asOf, "CASH_AVAILABLE / TOTAL_DS")],
+            values: [makeCell(gcfDscr, asOf, "GLOBAL_CASH_FLOW / PROPERTY_DS")],
           },
           {
             key: "GCF_DSCR_STRESSED",
             label: "Global DSCR (Stressed +300 bps)",
             section: "DSCR",
-            values: [makeCell(gcfDscrStressed, asOf, "CASH_AVAILABLE / TOTAL_DS_STRESSED")],
+            values: [makeCell(gcfDscrStressed, asOf, "GLOBAL_CASH_FLOW / PROPERTY_DS_STRESSED")],
           },
         ],
         meta: {

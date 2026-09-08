@@ -1,6 +1,6 @@
 import "server-only";
 
-import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
+import { upsertDealFinancialFact, SENTINEL_DATE, SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { CANONICAL_FACTS, type FinancialFactProvenance } from "@/lib/financialFacts/keys";
 import type { LoanRequest } from "./types";
 
@@ -72,6 +72,11 @@ export async function materializeLoanRequestFacts(
 
   let written = 0;
   for (const w of writes) {
+    // Deal-level request scalars have no fiscal period. They must opt into the
+    // sentinel period explicitly — without allowSentinelPeriod, writeFact's
+    // MIN_VALID_PERIOD_DATE guard silently dropped every one of these writes,
+    // which is why LTV / collateral / loan-total stayed "Pending" on deals whose
+    // loan request clearly carried a property value.
     const result = await upsertDealFinancialFact({
       dealId: lr.deal_id,
       bankId: lr.bank_id,
@@ -81,6 +86,11 @@ export async function materializeLoanRequestFacts(
       factValueNum: w.value,
       confidence: 0.95,
       provenance: provenance(w.label),
+      ownerType: "DEAL",
+      ownerEntityId: SENTINEL_UUID,
+      factPeriodStart: SENTINEL_DATE,
+      factPeriodEnd: SENTINEL_DATE,
+      allowSentinelPeriod: true,
     });
     if (result.ok) written++;
   }

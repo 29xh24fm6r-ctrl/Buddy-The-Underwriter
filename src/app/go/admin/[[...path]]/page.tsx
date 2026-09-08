@@ -1,6 +1,8 @@
 import "server-only";
 
 import { redirect } from "next/navigation";
+import { APP_ORIGIN } from "@/lib/navigation/clerkHosts";
+import { brokerageAdminEntryPath } from "@/lib/brokerage/workspaceNavigation";
 
 /**
  * /go/admin — clean admin entry from any Buddy domain.
@@ -12,15 +14,13 @@ import { redirect } from "next/navigation";
  *
  * This gateway gives every domain a clean entry anyway:
  *
- *   buddysba.com/go/admin                       → admin lender control center
+ *   buddysba.com/go/admin                       → brokerage team workspace
  *   buddysba.com/go/admin/brokerage/listings    → brokerage ops dashboard
  *   buddysba.com/go/admin/<anything>            → app domain /admin/<anything>
  *
  * The redirect lands on the canonical admin host; Clerk handles sign-in
  * there if needed and returns the user to the requested page.
  */
-
-const ADMIN_ORIGIN = "https://app.buddytheunderwriter.com";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +30,5 @@ export default async function GoAdminGateway({
   params: Promise<{ path?: string[] }>;
 }) {
   const { path } = await params;
-  const suffix =
-    path && path.length > 0 ? `/${path.join("/")}` : "/brokerage/lenders";
-  redirect(`${ADMIN_ORIGIN}/admin${suffix}`);
+  redirect(`${APP_ORIGIN}${brokerageAdminEntryPath(path)}`);
 }

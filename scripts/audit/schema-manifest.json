@@ -490,6 +490,11 @@
     "migration": "20260827200000_fix_ai_gateway_reserve_ambiguity.sql"
   },
   {
+    "name": "reserve_ai_gateway_tokens",
+    "type": "function",
+    "migration": "20260903224500_ai_gateway_extractor_research_roles.sql"
+  },
+  {
     "name": "purge_buddy_system_events",
     "type": "function",
     "migration": "20260827160000_bounded_telemetry_purge.sql"
@@ -608,5 +613,25 @@
     "name": "lender_marketplace_agreements.signed_by_email",
     "type": "column",
     "migration": "20260901120000_lender_agreement_signer_email.sql"
+  },
+  {
+    "name": "buddy_sba_packages.verification_input_hash",
+    "type": "column",
+    "migration": "20260901130001_artifact_verification_input_hash.sql"
+  },
+  {
+    "name": "buddy_feasibility_studies.verification_input_hash",
+    "type": "column",
+    "migration": "20260901130001_artifact_verification_input_hash.sql"
+  },
+  {
+    "name": "find_orphan_spreads",
+    "type": "function",
+    "migration": "20260902120000_find_orphan_spreads_rendered_exclusion.sql"
+  },
+  {
+    "name": "find_rendered_stale_spreads",
+    "type": "function",
+    "migration": "20260902120000_find_orphan_spreads_rendered_exclusion.sql"
   }
 ]

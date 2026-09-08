@@ -30,6 +30,7 @@ import type { UnderwritingResults } from "@/lib/finance/underwriting/results";
 import { loadResearchForMemo } from "@/lib/creditMemo/canonical/loadResearchForMemo";
 import { buildBalanceSheetTable } from "@/lib/creditMemo/canonical/buildBalanceSheetTable";
 import { buildRatioAnalysisSuite } from "@/lib/creditMemo/canonical/buildRatioAnalysisSuite";
+import { resolveMemoThresholds } from "@/lib/creditMemo/canonical/memoThresholdAuthority";
 import { buildStressTestTable } from "@/lib/creditMemo/canonical/buildStressTestTable";
 import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 import { buildQualitativeAssessment } from "@/lib/creditMemo/canonical/buildQualitativeAssessment";
@@ -240,7 +241,20 @@ export async function buildCanonicalCreditMemo(args: {
    * so it can neither be forged nor replayed.
    */
   accessGrant?: DealBankAccessGrant;
-}): Promise<{ ok: true; memo: CanonicalCreditMemoV1 } | { ok: false; error: string }> {
+}): Promise<
+  | {
+      ok: true;
+      memo: CanonicalCreditMemoV1;
+      /**
+       * Required narrative fields the contract validator reported missing.
+       * The preflight fails on these; assembly records them rather than
+       * throwing, so a person gets one legible list instead of the first
+       * problem encountered.
+       */
+      contractBlockers: string[];
+    }
+  | { ok: false; error: string }
+> {
   try {
     const mode: MemoRenderMode = args.renderMode ?? "internal_diagnostic";
     const sb = supabaseAdmin();
@@ -757,6 +771,16 @@ export async function buildCanonicalCreditMemo(args: {
           ? { value: dealAmount, source: "Deal:loan_amount", updated_at: null }
           : pendingMetric();
 
+    // ===== Threshold authority =====
+    // Every coverage threshold this memo cites, resolved once. Before this,
+    // seven places decided the DSCR floor independently and five of them
+    // typed 1.25 while the governed floor for a small 7(a) is 1.20 — which
+    // shipped fabricated policy breaches to lenders. See
+    // memoThresholdAuthority.ts for the full account.
+    const memoThresholds = resolveMemoThresholds({
+      productId: policyProductId(loanReq?.product_type, loanAmount.value),
+    });
+
     // ===== Phase 1A: debt_yield and cap_rate =====
     const noiForRatios = metricValueFromSnapshot({ snapshot, metric: "noi_ttm", label: "NOI TTM" });
     const debtYield = (noiForRatios.value !== null && loanAmount.value !== null && loanAmount.value > 0)
@@ -770,8 +794,8 @@ export async function buildCanonicalCreditMemo(args: {
     // The old computeDealScore (DSCR-only, max 44, always D) is no longer used for risk grade.
     // Risk factors are now derived from the conventional multi-factor model built later.
     const riskFactors: Array<{ risk: string; severity: "low" | "medium" | "high"; mitigants: string[] }> = [];
-    if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < 1.25 && !riskFactors.some(r => r.risk.includes("DSCR"))) {
-      riskFactors.push({ risk: `Below-policy DSCR (${financial.dscrGlobal.value.toFixed(2)}x vs 1.25x minimum)`, severity: "high", mitigants: ["Consider additional collateral or guarantor support"] });
+    if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < memoThresholds.dscr.value && !riskFactors.some(r => r.risk.includes("DSCR"))) {
+      riskFactors.push({ risk: `Below-policy DSCR (${financial.dscrGlobal.value.toFixed(2)}x vs ${memoThresholds.dscr.label} minimum)`, severity: "high", mitigants: ["Consider additional collateral or guarantor support"] });
     }
     if (financial.dscrStressed300bps.value !== null && financial.dscrStressed300bps.value < 1.0) {
       riskFactors.push({ risk: `Stress sensitivity — stressed DSCR (${financial.dscrStressed300bps.value.toFixed(2)}x) below 1.0x`, severity: "high", mitigants: ["Consider interest rate cap or additional reserves"] });
@@ -779,8 +803,13 @@ export async function buildCanonicalCreditMemo(args: {
 
     // ===== Phase 1E: Policy exceptions =====
     const policyExceptions: Array<{ exception: string; rationale: string }> = [];
-    if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < 1.25) {
-      policyExceptions.push({ exception: `DSCR of ${financial.dscrGlobal.value.toFixed(2)}x is below policy minimum of 1.25x`, rationale: "Requires senior credit officer approval and enhanced monitoring" });
+    if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < memoThresholds.dscr.value) {
+      policyExceptions.push({
+        exception: `DSCR of ${financial.dscrGlobal.value.toFixed(2)}x is below policy minimum of ${memoThresholds.dscr.label}`,
+        rationale: memoThresholds.dscr.citation
+          ? `Requires senior credit officer approval and enhanced monitoring. Floor per ${memoThresholds.dscr.citation}.`
+          : "Requires senior credit officer approval and enhanced monitoring",
+      });
     }
     // LTV is stored as 0-100 pct (e.g. 49.88 = 49.88%), so compare against 80 not 0.80
     if (ltvGross.value !== null && ltvGross.value > 80) {
@@ -1073,7 +1102,7 @@ export async function buildCanonicalCreditMemo(args: {
       };
     } else {
       const uwResults: UnderwritingResults = {
-        policy_min_dscr: 1.25,
+        policy_min_dscr: memoThresholds.dscr.value,
         annual_debt_service: adsVal,
         worst_year: worstYear,
         worst_dscr: worstDscr ?? financial.dscrGlobal.value,
@@ -1094,6 +1123,7 @@ export async function buildCanonicalCreditMemo(args: {
       const revForRating = metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Rev" }).value;
       const conventionalRating = buildConventionalRiskRating({
         dscr: financial.dscrGlobal.value,
+        dscrFloor: memoThresholds.dscr.value,
         stressedDscr: financial.dscrStressed300bps.value,
         worstYearDscr: worstDscr,
         cfadsTrend,
@@ -1313,6 +1343,10 @@ export async function buildCanonicalCreditMemo(args: {
       seasonalityNote: seasonalityForContext,
       stressBreakevenRevenue: stressTable?.breakeven_revenue_1x ?? null,
       stressBreakevenEbitda125x: stressTable?.breakeven_ebitda_125x ?? null,
+      // One resolution, shared by every threshold the memo cites.
+      dscrFloor: memoThresholds.dscr.value,
+      fccrFloor: memoThresholds.fccr.value,
+      dscrStrongAt: memoThresholds.dscrStrong.value,
     };
 
     // ===== Phase BS: Build balance sheet table (permanent fix) =====
@@ -1401,7 +1435,7 @@ export async function buildCanonicalCreditMemo(args: {
     if (arAgingResult?.data && isLOC) {
       weaknesses.push({ point: "AR borrowing base requires ongoing monitoring (monthly aging, concentration limits)", mitigant: "Monthly borrowing base certificate and aging report covenanted" });
     }
-    // Strong DSCR as strength (beyond 1.25)
+    // Strong DSCR as strength — well clear of the governed floor
     if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 2.0) {
       strengths.push({ point: `Strong debt service coverage (${financial.dscrGlobal.value.toFixed(2)}x) provides deep repayment cushion`, detail: null });
     }
@@ -1418,8 +1452,8 @@ export async function buildCanonicalCreditMemo(args: {
         ? Math.min(...(stressTable.scenarios as any[]).filter((s: any) => s.stressed_dscr !== null).map((s: any) => s.stressed_dscr))
         : null;
       if (worstScenarioDscr !== null && Number.isFinite(worstScenarioDscr)) {
-        if (worstScenarioDscr >= 1.25) {
-          strengths.push({ point: `Stress testing passed — worst-case DSCR ${worstScenarioDscr.toFixed(2)}x exceeds policy floor`, detail: null });
+        if (worstScenarioDscr >= memoThresholds.dscr.value) {
+          strengths.push({ point: `Stress testing passed — worst-case DSCR ${worstScenarioDscr.toFixed(2)}x exceeds the ${memoThresholds.dscr.label} policy floor`, detail: null });
         } else if (worstScenarioDscr < 1.0) {
           weaknesses.push({ point: `Stress scenario breaches coverage (worst-case DSCR ${worstScenarioDscr.toFixed(2)}x)`, mitigant: "Consider rate cap or additional reserves" });
         }
@@ -1969,8 +2003,8 @@ export async function buildCanonicalCreditMemo(args: {
         let creditView: string;
         if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 2.0 && sponsor?.netWorth != null && sponsor.netWorth > 0) {
           creditView = `Primary repayment is borrower operating cash flow. Available borrower CFADS and stress testing support repayment capacity (DSCR ${financial.dscrGlobal.value.toFixed(2)}x). Guarantor PFS provides substantial secondary support through net worth (${formatCurrencySimple(sponsor.netWorth)}). Incomplete formal GCF is a documentation/diligence gap, not a primary repayment failure, but must be acknowledged or completed per bank policy.`;
-        } else if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 1.25) {
-          creditView = "Primary repayment is borrower operating cash flow. Borrower coverage meets policy minimum. Guarantor support analysis is limited by incomplete GCF data — recommend completion before final approval.";
+        } else if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= memoThresholds.dscr.value) {
+          creditView = `Primary repayment is borrower operating cash flow. Borrower coverage meets the ${memoThresholds.dscr.label} policy minimum. Guarantor support analysis is limited by incomplete GCF data — recommend completion before final approval.`;
         } else {
           creditView = "Borrower repayment capacity requires further analysis. Formal global cash flow should be completed to assess total guarantor support.";
         }
@@ -2210,7 +2244,9 @@ export async function buildCanonicalCreditMemo(args: {
       },
     };
 
-    // Phase 74: validate memo narrative contract (non-fatal, observability only)
+    // Phase 74: validate the memo narrative contract. A "block" result is
+    // collected here and surfaced by the preflight — see below.
+    const contractBlockers: string[] = [];
     try {
       const { validateMemoNarrative } = await import(
         "@/lib/agentWorkflows/contracts/memoSection.contract"
@@ -2224,10 +2260,29 @@ export async function buildCanonicalCreditMemo(args: {
       };
       const validation = validateMemoNarrative(narrativeForValidation);
       if (!validation.ok && validation.severity === "block") {
-        console.warn("[buildCanonicalCreditMemo] memo narrative contract BLOCK:", validation.errors?.issues?.length, "issues");
+        // This used to log and continue, under the comment "Contract
+        // validation must never block memo generation". A validator that
+        // returns severity "block" and is wired to do nothing is not a
+        // validator — it left a non-deterministic reviewer as the only thing
+        // between a structurally incomplete memo and a lender.
+        //
+        // "block" here means a REQUIRED narrative field is absent, which is
+        // a defect in the memo rather than a judgement call, so it is
+        // recorded on the memo for the preflight to fail on. Recorded rather
+        // than thrown: this runs deep inside assembly, and the preflight is
+        // where a person gets one legible list of everything wrong.
+        contractBlockers.push(
+          ...(validation.errors?.issues ?? []).map(
+            (issue) => `${issue.path.join(".") || "narrative"}: ${issue.message}`,
+          ),
+        );
       }
-    } catch {
-      // Contract validation must never block memo generation
+    } catch (err) {
+      // A validator that itself throws is a bug in the validator, not evidence
+      // about the memo — record it rather than treating the memo as clean.
+      contractBlockers.push(
+        `memo narrative contract validation threw: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     // Narrative trust: sanitize borrower story fields at render time.
@@ -2263,7 +2318,7 @@ export async function buildCanonicalCreditMemo(args: {
       }
     }
 
-    return { ok: true, memo };
+    return { ok: true, memo, contractBlockers };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };

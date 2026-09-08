@@ -96,6 +96,10 @@ export type ResearchSubjectRaw = {
   annualRevenue?: number | null;
   loanAmount?: number | null;
   loanPurpose?: string | null;
+  // loan-file evidence signals (facts on file — see MissionSubject.has_*)
+  hasDscr?: boolean;
+  hasFinancialStatements?: boolean;
+  hasCollateral?: boolean;
 };
 
 export type AssembledResearchSubject = {
@@ -231,6 +235,11 @@ export function assembleResearchSubject(raw: ResearchSubjectRaw): AssembledResea
     annual_revenue: raw.annualRevenue ?? null,
     loan_amount: raw.loanAmount ?? null,
     loan_purpose: raw.loanPurpose ?? null,
+    products_services: firstNonEmpty(raw.story?.products_services),
+    competitive_position: firstNonEmpty(raw.story?.competitive_position),
+    has_dscr: raw.hasDscr ?? false,
+    has_financial_statements: raw.hasFinancialStatements ?? false,
+    has_collateral: raw.hasCollateral ?? false,
   };
 
   return { subject, represented: true, naics_provisional: naicsProvisional };
@@ -376,7 +385,7 @@ async function loadResearchRaw(sb: MinimalSb, dealId: string): Promise<ResearchS
     borrower = data ?? null;
   }
 
-  const [storyRes, mgmtRes, ownersRes, revRes, loanRes] = await Promise.all([
+  const [storyRes, mgmtRes, ownersRes, revRes, loanRes, dscrRes, collateralRes, finDocsRes] = await Promise.all([
     sb
       .from("deal_borrower_story")
       .select(
@@ -394,23 +403,67 @@ async function loadResearchRaw(sb: MinimalSb, dealId: string): Promise<ResearchS
       .select("display_name, title")
       .eq("deal_id", dealId)
       .limit(10),
+    // Revenue: TOTAL_REVENUE is the P&L key; tax-return-only files carry
+    // GROSS_RECEIPTS / NET_SALES_REVENUE. Take the best active fact on file.
     sb
       .from("deal_financial_facts")
-      .select("fact_value_num")
+      .select("fact_key, fact_value_num, fact_period_end")
       .eq("deal_id", dealId)
-      .eq("fact_key", "TOTAL_REVENUE")
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
+      .in("fact_key", ["TOTAL_REVENUE", "GROSS_RECEIPTS", "NET_SALES_REVENUE"])
       .not("fact_value_num", "is", null)
       .order("fact_period_end", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .limit(12),
     sb
       .from("deal_loan_requests")
-      .select("purpose, loan_amount")
+      // NOTE: deal_loan_requests has no `loan_amount` column — the old select
+      // ("purpose, loan_amount") failed as a whole, so loan-request context was
+      // always null and the gate reported "Loan request / use of proceeds" missing.
+      .select("purpose, loan_purpose, requested_amount")
       .eq("deal_id", dealId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    sb
+      .from("deal_financial_facts")
+      .select("fact_key")
+      .eq("deal_id", dealId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
+      .in("fact_key", ["DSCR", "GCF_DSCR"])
+      .not("fact_value_num", "is", null)
+      .limit(1),
+    sb
+      .from("deal_collateral_items")
+      .select("id")
+      .eq("deal_id", dealId)
+      .limit(1),
+    sb
+      .from("deal_documents")
+      .select("id")
+      .eq("deal_id", dealId)
+      .in("canonical_type", [
+        "BUSINESS_TAX_RETURN", "PERSONAL_TAX_RETURN", "INCOME_STATEMENT", "BALANCE_SHEET",
+        "TAX_RETURN_1120", "TAX_RETURN_1120S", "TAX_RETURN_1065", "TAX_RETURN_1040",
+      ])
+      .limit(1),
   ]);
+
+  const revenueRows = ((revRes as any)?.data ?? []) as Array<{
+    fact_key: string; fact_value_num: number | string | null; fact_period_end: string | null;
+  }>;
+  const pickRevenue = (): number | null => {
+    if (revenueRows.length === 0) return null;
+    // Latest period first; within a period prefer TOTAL_REVENUE, then the
+    // largest plausible receipts figure (guards against stub extractions).
+    const latest = revenueRows[0]?.fact_period_end ?? null;
+    const inPeriod = revenueRows.filter((r) => r.fact_period_end === latest);
+    const total = inPeriod.find((r) => r.fact_key === "TOTAL_REVENUE");
+    const candidate = total ?? inPeriod.sort((a, b) => Number(b.fact_value_num) - Number(a.fact_value_num))[0];
+    const v = candidate?.fact_value_num != null ? Number(candidate.fact_value_num) : null;
+    return v != null && Number.isFinite(v) && v >= 1000 ? v : null;
+  };
 
   return {
     borrowerId: deal?.borrower_id ?? null,
@@ -422,9 +475,12 @@ async function loadResearchRaw(sb: MinimalSb, dealId: string): Promise<ResearchS
     story: storyRes?.data ?? null,
     managementProfiles: (mgmtRes?.data ?? []) as ResearchSubjectRaw["managementProfiles"],
     ownershipEntities: (ownersRes?.data ?? []) as ResearchSubjectRaw["ownershipEntities"],
-    annualRevenue: revRes?.data?.fact_value_num != null ? Number(revRes.data.fact_value_num) : null,
-    loanAmount: loanRes?.data?.loan_amount != null ? Number(loanRes.data.loan_amount) : null,
-    loanPurpose: loanRes?.data?.purpose ?? null,
+    annualRevenue: pickRevenue(),
+    loanAmount: loanRes?.data?.requested_amount != null ? Number(loanRes.data.requested_amount) : null,
+    loanPurpose: loanRes?.data?.purpose ?? loanRes?.data?.loan_purpose ?? null,
+    hasDscr: ((dscrRes as any)?.data ?? []).length > 0,
+    hasCollateral: ((collateralRes as any)?.data ?? []).length > 0,
+    hasFinancialStatements: ((finDocsRes as any)?.data ?? []).length > 0,
   };
 }
 

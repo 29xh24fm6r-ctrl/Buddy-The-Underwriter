@@ -24,8 +24,10 @@
 
 import "server-only";
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { NarrativeSection } from "./types";
 import { MODEL_RESEARCH, MODEL_RESEARCH_FALLBACK } from "@/lib/ai/models";
+import { closeTruncatedJson } from "./truncatedJson";
 import { runRole } from "@/lib/ai/gateway";
 import {
   repairManagementJson,
@@ -35,6 +37,14 @@ import {
 import { repairGenericJson, GENERIC_JSON_REPAIR_STRATEGY } from "./geminiJsonRepair";
 import { attributeSegmentsToText } from "./citationAttribution";
 import { planBIEThreadReuse } from "./bieThreadReuse";
+
+const DEFAULT_MISSION_DEADLINE_MS = 7 * 60_000;
+const missionDeadline = new AsyncLocalStorage<number>();
+
+function remainingMissionMs(): number | null {
+  const deadlineAt = missionDeadline.getStore();
+  return deadlineAt == null ? null : Math.max(0, deadlineAt - Date.now());
+}
 
 // ============================================================================
 // Gemini API caller — returns grounding metadata alongside parsed result
@@ -98,6 +108,11 @@ export type BIEThreadDiagnostic = {
   // first attempt failed with a transient error and a second attempt was
   // made immediately, before returning to the caller).
   retried?: boolean;
+  /** The model hit maxOutputTokens; reply text was kept for salvage (see salvageTruncated). */
+  truncated?: boolean;
+  /** Gemini usageMetadata: answer tokens vs. reasoning tokens (both share the output window). */
+  output_tokens?: number | null;
+  thoughts_tokens?: number | null;
   prompt_chars: number;
   response_chars?: number | null;
   source_count: number;
@@ -177,7 +192,16 @@ export function describeThreadDiagnostic(d: BIEThreadDiagnostic): string {
  * to change a content-policy refusal or a systematically malformed
  * response (which already went through a repair pass at generation time).
  */
+export function isBudgetExhaustedDiagnostic(d: BIEThreadDiagnostic): boolean {
+  // The AI gateway refuses the call before any provider request when the
+  // role's daily token budget is spent; it surfaces here as a thrown error
+  // (network_error). Re-running the thread cannot succeed until the UTC day
+  // rolls over or the budget is raised, and burns the remaining budget.
+  return /token budget exceeded/i.test(d.json_parse_error ?? "");
+}
+
 export function isRetryableBIEDiagnostic(d: BIEThreadDiagnostic): boolean {
+  if (isBudgetExhaustedDiagnostic(d)) return false;
   switch (d.error_type) {
     case "network_error":
     case "empty_candidate":
@@ -196,6 +220,13 @@ type GeminiGroundedResult<T> = {
   sourceUrls: string[];           // all URLs from groundingChunks
   segments: GroundingSegment[];   // text segment → source URL mappings
   diagnostic: BIEThreadDiagnostic; // Phase 1: never-silent failure record
+  /**
+   * When the reply was cut off at maxOutputTokens and salvageTruncated was
+   * requested: the partial document closed by closeTruncatedJson (or null when
+   * unrepairable). callGeminiGrounded prefers a clean retry and falls back to
+   * this only when the retry is truncated too.
+   */
+  truncatedSalvage?: T | null;
 };
 
 type CallGeminiGroundedArgs<T> = {
@@ -210,7 +241,32 @@ type CallGeminiGroundedArgs<T> = {
   // text; returns a salvaged value or null. The original parse diagnostic is
   // preserved either way.
   repair?: { strategy: string; fn: (clean: string) => T | null };
+  /**
+   * Output budget for this thread. The synthesis thread consumes ~26k prompt
+   * chars and emits a large JSON document; at the 8192 default the Gemini 3.x
+   * thinking budget alone exhausted the window and the model returned ZERO
+   * characters with finishReason=MAX_TOKENS (observed on committee-depth
+   * missions). Threads that emit big documents pass a larger budget.
+   */
+  maxOutputTokens?: number;
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  timeoutMs?: number;
+  /**
+   * Keep a MAX_TOKENS reply and repair the cut-off JSON when even the retry at
+   * the output ceiling is truncated. Only for threads whose consumer copes with
+   * absent fields (synthesis); grounded fact threads must stay strict.
+   */
+  salvageTruncated?: boolean;
 };
+
+const DEFAULT_THREAD_MAX_OUTPUT_TOKENS = 8192;
+/**
+ * Hard ceiling for the one-shot MAX_TOKENS retry: the Gemini 3.x output cap.
+ * The committee-depth synthesis document overflowed 32768 on production
+ * (both attempts finished MAX_TOKENS with the reply discarded), so the retry
+ * now goes straight to the ceiling instead of merely doubling.
+ */
+const MAX_THREAD_OUTPUT_TOKENS = 65536;
 
 /**
  * Call Gemini for a single BIE thread against a specific model. Internal —
@@ -266,17 +322,38 @@ async function callGeminiGroundedWithModel<T>(
   // are not reconstructable from a thrown error string and are omitted
   // (both are informational fields, not read anywhere for control flow).
   try {
-    const result = await runRole("generator", {
+    const requestedTimeoutMs = args.timeoutMs ?? 60_000;
+    const remainingMs = remainingMissionMs();
+    if (remainingMs !== null && remainingMs <= 1_000) {
+      throw new DOMException("research_mission_deadline_exceeded", "AbortError");
+    }
+    const result = await runRole("research", {
       purpose: `bie_${args.thread}`,
       prompt: args.prompt,
       modelOverride: model,
       temperature: 0.1,
-      maxOutputTokens: 8192,
+      maxOutputTokens: args.maxOutputTokens ?? DEFAULT_THREAD_MAX_OUTPUT_TOKENS,
+      thinkingLevel: args.thinkingLevel,
       useSearchGrounding: args.useGrounding,
-      responseSchema: args.useGrounding ? undefined : { type: "object" },
-      timeoutMs: 60_000,
+      // Ungrounded threads (transaction, synthesis) run in JSON mode WITHOUT a
+      // schema. The previous bare `{ type: "object" }` responseSchema has no
+      // properties, and Gemini's constrained decoding satisfies it with a
+      // literal `{}`: production missions from 2026-08-31 through 2026-09-08
+      // recorded response_chars=5 / output_tokens=4 for every transaction
+      // thread and, on 2026-09-08, for synthesis as well. Grounded threads
+      // cannot use JSON mode at all (Gemini rejects it with google_search).
+      responseJsonObject: !args.useGrounding,
+      timeoutMs:
+        remainingMs === null
+          ? requestedTimeoutMs
+          : Math.max(1_000, Math.min(requestedTimeoutMs, remainingMs)),
       disableFailover: true,
+      allowTruncatedOutput: args.salvageTruncated === true,
     });
+    const usageDiag = {
+      output_tokens: typeof result.tokensOut === "number" ? result.tokensOut : null,
+      thoughts_tokens: typeof result.thoughtsTokenCount === "number" ? result.thoughtsTokenCount : null,
+    };
 
     const groundingMeta = (result.groundingMetadata as Record<string, unknown>) ?? {};
 
@@ -305,6 +382,42 @@ async function callGeminiGroundedWithModel<T>(
 
     const text = result.text;
     const clean = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+
+    // Output window exhausted but the reply text was kept (salvageTruncated).
+    // Report it as the same MAX_TOKENS failure the retry logic keys on, and
+    // carry the repaired partial document for callGeminiGrounded to use if
+    // the retry at the ceiling is truncated as well.
+    if (result.truncated) {
+      let salvage: T | null = null;
+      try {
+        salvage = JSON.parse(closeTruncatedJson(clean)) as T;
+      } catch {
+        salvage = null;
+      }
+      console.warn(
+        `[BIE:${args.logTag}] reply truncated at maxOutputTokens ` +
+        `(${text.length} chars, ${usageDiag.output_tokens ?? "?"} answer tokens, ` +
+        `${usageDiag.thoughts_tokens ?? "?"} thinking tokens) — ` +
+        `${salvage ? "partial JSON repairable" : "partial JSON not repairable"}`,
+      );
+      return {
+        result: null,
+        sourceUrls: chunkUrls,
+        segments,
+        truncatedSalvage: salvage,
+        diagnostic: baseDiag({
+          ok: false,
+          error_type: "finish_reason",
+          finish_reason: "MAX_TOKENS",
+          truncated: true,
+          raw_text_preview: clean.slice(0, 300),
+          response_chars: text.length,
+          source_count: chunkUrls.length,
+          ...usageDiag,
+        }),
+      };
+    }
+
     let parsed: T;
     try {
       parsed = JSON.parse(clean) as T;
@@ -337,6 +450,7 @@ async function callGeminiGroundedWithModel<T>(
               source_count: chunkUrls.length,
               repaired: true,
               repair_strategy: args.repair.strategy,
+              ...usageDiag,
             }),
           };
         }
@@ -348,6 +462,28 @@ async function callGeminiGroundedWithModel<T>(
         raw_text_preview: clean.slice(0, 300),
         response_chars: text.length,
         source_count: chunkUrls.length,
+        ...usageDiag,
+      }));
+    }
+
+    // A syntactically valid but empty document (`{}`, `[]`, `null`) carries
+    // none of the fields the thread contract promises. Treating it as success
+    // let an empty synthesis reach the narrative builder and gate, which then
+    // threw on the missing arrays. Surface it as a retryable empty result.
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Object.keys(parsed as Record<string, unknown>).length === 0
+    ) {
+      console.warn(`[BIE:${args.logTag}] JSON document is empty (${clean.slice(0, 40)})`);
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: "empty_text",
+        json_parse_error: "empty_json_document",
+        raw_text_preview: clean.slice(0, 300),
+        response_chars: text.length,
+        source_count: chunkUrls.length,
+        ...usageDiag,
       }));
     }
 
@@ -360,6 +496,7 @@ async function callGeminiGroundedWithModel<T>(
         error_type: "none",
         response_chars: text.length,
         source_count: chunkUrls.length,
+        ...usageDiag,
       }),
     };
   } catch (e: any) {
@@ -480,7 +617,70 @@ async function callGeminiGroundedWithModel<T>(
 export async function callGeminiGrounded<T>(
   args: CallGeminiGroundedArgs<T>,
 ): Promise<GeminiGroundedResult<T>> {
-  const primary = await callGeminiGroundedWithModel<T>(GEMINI_MODEL, args);
+  let primary = await callGeminiGroundedWithModel<T>(GEMINI_MODEL, args);
+
+  // Output-window exhaustion: the model produced NO usable text because the
+  // (thinking + answer) budget ran out. Retry ONCE with a doubled output budget
+  // and minimal thinking — the answer itself is what we need, not the
+  // reasoning trace. Never loops: a second MAX_TOKENS is returned as-is.
+  const exhaustedOutputWindow =
+    !primary.diagnostic.ok &&
+    primary.diagnostic.error_type === "finish_reason" &&
+    primary.diagnostic.finish_reason === "MAX_TOKENS";
+  const firstAttempt = primary;
+  if (exhaustedOutputWindow) {
+    const currentBudget = args.maxOutputTokens ?? DEFAULT_THREAD_MAX_OUTPUT_TOKENS;
+    if (currentBudget < MAX_THREAD_OUTPUT_TOKENS) {
+      // Straight to the ceiling: doubling (16384 → 32768) still truncated the
+      // committee-depth synthesis document on production.
+      const retryBudget = MAX_THREAD_OUTPUT_TOKENS;
+      console.warn(
+        `[BIE:${args.logTag}] MAX_TOKENS with ${currentBudget} output tokens — ` +
+        `retrying once with ${retryBudget} tokens and minimal thinking`,
+      );
+      const retry = await callGeminiGroundedWithModel<T>(GEMINI_MODEL, {
+        ...args,
+        maxOutputTokens: retryBudget,
+        thinkingLevel: "minimal",
+        timeoutMs: Math.max(args.timeoutMs ?? 60_000, 180_000),
+      });
+      primary = { ...retry, diagnostic: { ...retry.diagnostic, retried: true } };
+    }
+  }
+
+  // The final attempt failed — truncated again, or the retry never ran /
+  // was refused (daily token budget, network). If either attempt left a
+  // repairable partial document, use it rather than reporting "no output".
+  // The diagnostic keeps the truncated attempt's finish_reason=MAX_TOKENS +
+  // truncated so the salvage stays auditable, and records the retry's own
+  // failure when that differs.
+  if (!primary.diagnostic.ok && args.salvageTruncated) {
+    const salvageSource =
+      primary.truncatedSalvage != null ? primary
+      : firstAttempt.truncatedSalvage != null ? firstAttempt
+      : null;
+    if (salvageSource) {
+      const retryFailure =
+        salvageSource !== primary && primary.diagnostic.error_type !== "finish_reason"
+          ? ` (retry failed: ${primary.diagnostic.error_type}${primary.diagnostic.json_parse_error ? ` — ${primary.diagnostic.json_parse_error.slice(0, 120)}` : ""})`
+          : "";
+      console.warn(`[BIE:${args.logTag}] using repaired partial JSON from the truncated reply${retryFailure}`);
+      return {
+        ...salvageSource,
+        result: salvageSource.truncatedSalvage as T,
+        diagnostic: {
+          ...salvageSource.diagnostic,
+          ok: true,
+          retried: primary.diagnostic.retried === true || salvageSource !== primary,
+          repaired: true,
+          repair_strategy: "truncated_json_close",
+          ...(retryFailure
+            ? { json_parse_error: `retry_failed:${primary.diagnostic.error_type}:${(primary.diagnostic.json_parse_error ?? "").slice(0, 160)}` }
+            : {}),
+        },
+      };
+    }
+  }
 
   const isLikelyModelRetirement =
     !primary.diagnostic.ok &&
@@ -1369,6 +1569,9 @@ For each check: if a contradiction is found, report: "CHECK [X]: [finding]". If 
 
 Return ONLY valid JSON:
 {
+  "entity_validation_passed": true/false,
+  "management_profiles_validated": true/false,
+  "validation_notes": "summary of what validation checks found — any flags raised",
   "executive_credit_thesis": "2–3 paragraphs grounded in research findings — no generic statements",
   "repayment_strengths": ["specific strength with evidence"],
   "core_vulnerabilities": ["specific risk with evidence"],
@@ -1393,14 +1596,22 @@ Return ONLY valid JSON:
   "five_year_outlook": "paragraph: base case, downside case, strategic position at 5-year mark",
   "contradictions_and_uncertainties": ["specific inconsistency or UNVALIDATED_MANAGEMENT_PROFILE flags"],
   "evidence_quality_summary": "brief paragraph: entity confidence, principal confirmation rate, source quality, key gaps",
-  "research_quality_score": "Strong" | "Moderate" | "Limited",
-  "entity_validation_passed": true/false,
-  "management_profiles_validated": true/false,
-  "validation_notes": "summary of what validation checks found — any flags raised"
+  "research_quality_score": "Strong" | "Moderate" | "Limited"
 }`;
 
   const gr = await callGeminiGrounded<CreditSynthesis>({
     prompt, apiKey, sources, logTag: "synthesis", thread: "synthesis", useGrounding: false,
+    // The synthesis output is a multi-section JSON document (thesis, outlooks,
+    // conditions, triggers …). At the 8192 default the model exhausted the
+    // window before emitting a single character (finishReason=MAX_TOKENS,
+    // response_chars=0) and the mission failed the completion gate with
+    // "Synthesis thread failed — no credit thesis produced".
+    maxOutputTokens: 16384,
+    thinkingLevel: "low",
+    timeoutMs: 120_000,
+    // Even at the ceiling the document can be cut off; keep what was written
+    // (thesis first) instead of failing the completion gate with no thesis.
+    salvageTruncated: true,
   });
   return { result: gr.result, sourceUrls: gr.sourceUrls, segments: gr.segments, diagnostic: gr.diagnostic };
 }
@@ -1467,7 +1678,8 @@ async function runWithRetry<T>(
   runner: () => Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }>,
 ): Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
   const first = await runner();
-  if (!first.diagnostic.ok && isRetryableBIEDiagnostic(first.diagnostic)) {
+  const hasRetryTime = (remainingMissionMs() ?? Number.POSITIVE_INFINITY) > 5_000;
+  if (!first.diagnostic.ok && isRetryableBIEDiagnostic(first.diagnostic) && hasRetryTime) {
     console.warn(`[BIE] ${first.diagnostic.thread} failed retryably (${first.diagnostic.error_type}) — retrying once`);
     const retry = await runner();
     if (retry.diagnostic.ok) {
@@ -1479,7 +1691,7 @@ async function runWithRetry<T>(
   return first;
 }
 
-export async function runBuddyIntelligenceEngine(
+async function runBuddyIntelligenceEngineInternal(
   input: BIEInput,
   opts?: { previousThreadResults?: BIEPreviousThreadResults },
 ): Promise<BIEResult> {
@@ -1753,6 +1965,21 @@ export async function runBuddyIntelligenceEngine(
   };
 }
 
+export async function runBuddyIntelligenceEngine(
+  input: BIEInput,
+  opts?: {
+    previousThreadResults?: BIEPreviousThreadResults;
+    deadlineMs?: number;
+  },
+): Promise<BIEResult> {
+  const deadlineAt = Date.now() + Math.max(30_000, opts?.deadlineMs ?? DEFAULT_MISSION_DEADLINE_MS);
+  return missionDeadline.run(deadlineAt, () =>
+    runBuddyIntelligenceEngineInternal(input, {
+      previousThreadResults: opts?.previousThreadResults,
+    }),
+  );
+}
+
 // ============================================================================
 // Narrative Section Builder
 // ============================================================================
@@ -1900,17 +2127,22 @@ export function buildBIENarrativeSections(result: BIEResult): NarrativeSection[]
     addSection("Credit Thesis", [], [],
       synthesis.executive_credit_thesis,
       validationNote);
-    if (synthesis.structure_implications.length > 0) {
-      addSection("Structure Implications", [], [], synthesis.structure_implications.join("\n"));
+    // A salvaged (truncated) synthesis may lack any of these arrays.
+    const structureImplications = synthesis.structure_implications ?? [];
+    const underwritingQuestions = synthesis.underwriting_questions ?? [];
+    const monitoringTriggers = synthesis.monitoring_triggers ?? [];
+    const contradictions = synthesis.contradictions_and_uncertainties ?? [];
+    if (structureImplications.length > 0) {
+      addSection("Structure Implications", [], [], structureImplications.join("\n"));
     }
-    if (synthesis.underwriting_questions.length > 0) {
-      addSection("Underwriting Questions", [], [], synthesis.underwriting_questions.join("\n"));
+    if (underwritingQuestions.length > 0) {
+      addSection("Underwriting Questions", [], [], underwritingQuestions.join("\n"));
     }
-    if (synthesis.monitoring_triggers.length > 0) {
-      addSection("Monitoring Triggers", [], [], synthesis.monitoring_triggers.join("\n"));
+    if (monitoringTriggers.length > 0) {
+      addSection("Monitoring Triggers", [], [], monitoringTriggers.join("\n"));
     }
-    if (synthesis.contradictions_and_uncertainties.length > 0) {
-      addSection("Contradictions", [], [], synthesis.contradictions_and_uncertainties.join("\n"));
+    if (contradictions.length > 0) {
+      addSection("Contradictions", [], [], contradictions.join("\n"));
     }
     addSection("3-Year and 5-Year Outlook", [], [],
       synthesis.three_year_outlook, synthesis.five_year_outlook);

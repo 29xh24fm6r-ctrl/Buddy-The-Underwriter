@@ -284,6 +284,96 @@ export const SNAPSHOT_REQUIRED_METRICS_CRE: SnapshotMetricName[] = [
   "in_place_rent_mo",
 ];
 
+/**
+ * CRE, OWNER-OCCUPIED: the operating company services the debt, so the income
+ * lane is the business P&L (revenue / EBITDA / net income / cash flow), not
+ * property NOI. Rent roll, occupancy and in-place rent do not exist for a
+ * building the borrower occupies itself — requiring them left every
+ * owner-occupied purchase permanently "Partial (16)" with NOI/Occ/Rent
+ * "Pending".
+ */
+export const SNAPSHOT_REQUIRED_METRICS_CRE_OWNER_OCCUPIED: SnapshotMetricName[] = [
+  "revenue",
+  "ebitda",
+  "net_income",
+  "cash_flow_available",
+  "annual_debt_service",
+  "dscr",
+  "dscr_stressed_300bps",
+  "collateral_gross_value",
+  "ltv_gross",
+  "bank_loan_total",
+  "total_assets",
+  "total_liabilities",
+  "net_worth",
+];
+
+export type SnapshotLoanRequestHint = {
+  product_type?: string | null;
+  occupancy_type?: string | null;
+};
+
+/**
+ * Resolve the required-metric set for a deal. Exported so the selection policy
+ * is unit-testable without building a full snapshot.
+ *
+ *   dealMode quick_look                              → QUICK_LOOK
+ *   C&I / SBA deal types                             → CI
+ *   cre_owner_occupied                               → CRE_OWNER_OCCUPIED
+ *   cre_investor                                     → CRE
+ *   cre (+ owner-occupied request)                   → CRE_OWNER_OCCUPIED, else CRE
+ *   CONVENTIONAL/unknown + owner-occupied RE request → CRE_OWNER_OCCUPIED
+ *   CONVENTIONAL/unknown + investor RE request       → CRE
+ *   CONVENTIONAL/unknown + non-RE request            → CI
+ *   otherwise                                        → V1 (legacy full set)
+ */
+export function selectRequiredMetrics(args: {
+  dealMode?: string | null;
+  dealType?: string | null;
+  loanRequest?: SnapshotLoanRequestHint | null;
+}): SnapshotMetricName[] {
+  if (args.dealMode === "quick_look") return SNAPSHOT_REQUIRED_METRICS_QUICK_LOOK;
+
+  // Normalize dealType to lowercase+underscore for case-insensitive matching
+  // (DB stores values like "SBA", "SBA_7A", "c_and_i", "cre_investor" — normalize all)
+  const dealTypeNorm = args.dealType
+    ? args.dealType.toLowerCase().replace(/[^a-z0-9]/g, "_")
+    : null;
+  const product = (args.loanRequest?.product_type ?? "").toUpperCase();
+  const occupancy = (args.loanRequest?.occupancy_type ?? "").toUpperCase();
+  const isRealEstateRequest = /^(CRE_|CONSTRUCTION$|LAND$|BRIDGE$|LOC_RE_SECURED$)/.test(product);
+  const isOwnerOccupied = occupancy === "OWNER_OCCUPIED";
+  const isInvestor = occupancy === "INVESTOR" || occupancy === "MIXED";
+
+  if (
+    dealTypeNorm === "c_and_i" ||
+    dealTypeNorm === "sba" ||
+    dealTypeNorm === "sba_7a" ||
+    dealTypeNorm === "sba_504"
+  ) {
+    return SNAPSHOT_REQUIRED_METRICS_CI;
+  }
+
+  if (dealTypeNorm === "cre_owner_occupied") return SNAPSHOT_REQUIRED_METRICS_CRE_OWNER_OCCUPIED;
+  if (dealTypeNorm === "cre_investor") return SNAPSHOT_REQUIRED_METRICS_CRE;
+  if (dealTypeNorm === "cre") {
+    return isOwnerOccupied ? SNAPSHOT_REQUIRED_METRICS_CRE_OWNER_OCCUPIED : SNAPSHOT_REQUIRED_METRICS_CRE;
+  }
+
+  // Generic / conventional deal types: let the active loan request decide.
+  if (isRealEstateRequest && isOwnerOccupied) return SNAPSHOT_REQUIRED_METRICS_CRE_OWNER_OCCUPIED;
+  if (isRealEstateRequest && isInvestor) return SNAPSHOT_REQUIRED_METRICS_CRE;
+  if (product && !isRealEstateRequest) return SNAPSHOT_REQUIRED_METRICS_CI;
+
+  return SNAPSHOT_REQUIRED_METRICS_V1;
+}
+
+function maxIso(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a >= b ? a : b;
+}
+
 export function buildEmptyMetric(): SnapshotMetricValue {
   return {
     value_num: null,
@@ -302,6 +392,8 @@ export function buildSnapshotFromFacts(args: {
   waltYears?: SnapshotMetricValue;
   dealMode?: string;
   dealType?: string | null;
+  /** Active loan request (product + occupancy) — refines the required-metric set. */
+  loanRequest?: SnapshotLoanRequestHint | null;
 }): DealFinancialSnapshotV1 {
   const byMetric: Partial<Record<SnapshotMetricName, SnapshotMetricValue>> = {};
   const sources: SnapshotSourceSummary[] = [];
@@ -375,6 +467,43 @@ export function buildSnapshotFromFacts(args: {
         rejected: [],
         note: "computed_from_tax_return_components",
       });
+    }
+  }
+
+  // ── Computed fallback: loan-to-value from the loan request ────────────
+  // LTV_GROSS / LTV_NET facts are written by runCanonicalUnderwritingSynthesis,
+  // which only runs from its authenticated route — not from the spread-job
+  // recompute chain. A CRE snapshot therefore reported "ltv_gross missing"
+  // while carrying both the loan amount and the collateral value it needs.
+  {
+    const loan = byMetric["bank_loan_total"]?.value_num ?? null;
+    const ltvPairs: Array<["ltv_gross" | "ltv_net", "collateral_gross_value" | "collateral_net_value"]> = [
+      ["ltv_gross", "collateral_gross_value"],
+      ["ltv_net", "collateral_net_value"],
+    ];
+    for (const [metric, collateralMetric] of ltvPairs) {
+      if ((byMetric[metric]?.value_num ?? null) !== null) continue;
+      const collateral = byMetric[collateralMetric]?.value_num ?? null;
+      if (loan === null || collateral === null || !(collateral > 0) || !(loan >= 0)) continue;
+      const asOf = maxIso(byMetric["bank_loan_total"]?.as_of_date ?? null, byMetric[collateralMetric]?.as_of_date ?? null);
+      byMetric[metric] = {
+        value_num: Math.round((loan / collateral) * 10000) / 10000,
+        value_text: null,
+        as_of_date: asOf,
+        confidence: Math.min(
+          byMetric["bank_loan_total"]?.confidence ?? 0.8,
+          byMetric[collateralMetric]?.confidence ?? 0.8,
+        ),
+        source_type: "SPREAD",
+        source_ref: "computed:snapshot_fallback:v2",
+        provenance: {
+          source_type: "SPREAD",
+          source_ref: "computed:snapshot_fallback:v2",
+          extractor: "snapshot:ltv_fallback:v1",
+          calc: `${loan} / ${collateral}`,
+          components: { bank_loan_total: loan, [collateralMetric]: collateral },
+        },
+      };
     }
   }
 
@@ -642,32 +771,13 @@ export function buildSnapshotFromFacts(args: {
     rejected: [],
   });
 
-  // Select required metrics based on deal mode and deal type
-  // Normalize dealType to lowercase+underscore for case-insensitive matching
-  // (DB stores values like "SBA", "SBA_7A", "c_and_i", "cre_investor" — normalize all)
-  const dealTypeNorm = args.dealType
-    ? args.dealType.toLowerCase().replace(/[^a-z0-9]/g, "_")
-    : null;
-
-  let requiredMetrics: SnapshotMetricName[];
-  if (args.dealMode === "quick_look") {
-    requiredMetrics = SNAPSHOT_REQUIRED_METRICS_QUICK_LOOK;
-  } else if (
-    dealTypeNorm === "c_and_i" ||
-    dealTypeNorm === "sba" ||
-    dealTypeNorm === "sba_7a" ||
-    dealTypeNorm === "sba_504"
-  ) {
-    requiredMetrics = SNAPSHOT_REQUIRED_METRICS_CI;
-  } else if (
-    dealTypeNorm === "cre_investor" ||
-    dealTypeNorm === "cre_owner_occupied" ||
-    dealTypeNorm === "cre"
-  ) {
-    requiredMetrics = SNAPSHOT_REQUIRED_METRICS_CRE;
-  } else {
-    requiredMetrics = SNAPSHOT_REQUIRED_METRICS_V1;
-  }
+  // Select required metrics based on deal mode, deal type and the active loan
+  // request (product + occupancy). See selectRequiredMetrics for the policy.
+  const requiredMetrics: SnapshotMetricName[] = selectRequiredMetrics({
+    dealMode: args.dealMode,
+    dealType: args.dealType,
+    loanRequest: args.loanRequest ?? null,
+  });
 
   // Snapshot-level as_of_date: only set if all present required metrics share the same as_of_date.
   const presentAsOf = requiredMetrics.map((m) => (byMetric[m]?.as_of_date ?? null)).filter(Boolean) as string[];
