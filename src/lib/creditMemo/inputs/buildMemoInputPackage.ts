@@ -87,17 +87,27 @@ export async function buildMemoInputPackage(
     !!delegated &&
     isDealBankAccessGrantFor(delegated, args.dealId, delegated.bankId);
   const access = delegatedIsValid
-    ? ({ ok: true as const, bankId: delegated.bankId })
+    ? ({ ok: true as const, bankId: delegated.bankId, grant: delegated })
     : await ensureDealBankAccess(args.dealId);
   if (!access.ok) {
     return { ok: false, reason: "tenant_mismatch", error: access.error };
   }
-  const { bankId } = access;
+  const { bankId, grant } = access;
   const sb = supabaseAdmin();
 
   try {
   if (args.runReconciliation) {
-    await reconcileDealFacts({ dealId: args.dealId });
+    // Carry the same grant this build runs under so the reconciliation is
+    // authorized identically on session-less worker paths.
+    const reconciled = await reconcileDealFacts({
+      dealId: args.dealId,
+      accessGrant: grant,
+    });
+    if (!reconciled.ok) {
+      console.warn(
+        `[buildMemoInputPackage] fact reconciliation skipped dealId=${args.dealId} reason=${reconciled.reason}`,
+      );
+    }
 
     // SPEC-LIFECYCLE-CHECKLIST-READINESS-CANONICAL-FLOW-1: run the cheap,
     // deterministic checklist-satisfaction self-heal BEFORE counting unfinalized
