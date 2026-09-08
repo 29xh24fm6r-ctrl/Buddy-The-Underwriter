@@ -1398,11 +1398,36 @@ export async function runMission(
           // Perfect Banker Flow v1.1 — research finished. Refresh readiness
           // so the rail flips from "research_stalled" to ready without the
           // banker manually reloading. Fire-and-forget.
+          //
+          // Since #1039 the mission runs inside a Workflow step with no Clerk
+          // session, so the refresh must carry a service-verified deal/bank
+          // grant; without one it was refused as tenant_mismatch and the
+          // memo-input readiness row kept its research blocker after a
+          // passing gate (observed 2026-09-08 17:12 UTC on deal c0f6caab).
           try {
-            const { scheduleReadinessRefresh } = await import(
-              "@/lib/deals/readiness/refreshDealReadiness"
-            );
-            scheduleReadinessRefresh({ dealId, trigger: "research_completed" });
+            const [{ scheduleReadinessRefresh }, { ensureDealBankAccessForService }] =
+              await Promise.all([
+                import("@/lib/deals/readiness/refreshDealReadiness"),
+                import("@/lib/tenant/ensureDealBankAccess"),
+              ]);
+            let missionBankId = opts?.bankId ?? null;
+            if (!missionBankId) {
+              const { data: dealRow } = await supabaseAdmin()
+                .from("deals")
+                .select("bank_id")
+                .eq("id", dealId)
+                .maybeSingle();
+              missionBankId = (dealRow as { bank_id?: string | null } | null)?.bank_id ?? null;
+            }
+            const serviceAccess = missionBankId
+              ? await ensureDealBankAccessForService(dealId, missionBankId)
+              : null;
+            scheduleReadinessRefresh({
+              dealId,
+              trigger: "research_completed",
+              actorId: "system:research_mission",
+              accessGrant: serviceAccess?.ok ? serviceAccess.grant : undefined,
+            });
           } catch {
             // Hook is best-effort.
           }
