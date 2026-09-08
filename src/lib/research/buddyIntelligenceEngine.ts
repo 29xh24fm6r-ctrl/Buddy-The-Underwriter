@@ -335,7 +335,14 @@ async function callGeminiGroundedWithModel<T>(
       maxOutputTokens: args.maxOutputTokens ?? DEFAULT_THREAD_MAX_OUTPUT_TOKENS,
       thinkingLevel: args.thinkingLevel,
       useSearchGrounding: args.useGrounding,
-      responseSchema: args.useGrounding ? undefined : { type: "object" },
+      // Ungrounded threads (transaction, synthesis) run in JSON mode WITHOUT a
+      // schema. The previous bare `{ type: "object" }` responseSchema has no
+      // properties, and Gemini's constrained decoding satisfies it with a
+      // literal `{}`: production missions from 2026-08-31 through 2026-09-08
+      // recorded response_chars=5 / output_tokens=4 for every transaction
+      // thread and, on 2026-09-08, for synthesis as well. Grounded threads
+      // cannot use JSON mode at all (Gemini rejects it with google_search).
+      responseJsonObject: !args.useGrounding,
       timeoutMs:
         remainingMs === null
           ? requestedTimeoutMs
@@ -452,6 +459,27 @@ async function callGeminiGroundedWithModel<T>(
         ok: false,
         error_type: "json_parse_error",
         json_parse_error: parseErrorMsg.slice(0, 200),
+        raw_text_preview: clean.slice(0, 300),
+        response_chars: text.length,
+        source_count: chunkUrls.length,
+        ...usageDiag,
+      }));
+    }
+
+    // A syntactically valid but empty document (`{}`, `[]`, `null`) carries
+    // none of the fields the thread contract promises. Treating it as success
+    // let an empty synthesis reach the narrative builder and gate, which then
+    // threw on the missing arrays. Surface it as a retryable empty result.
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Object.keys(parsed as Record<string, unknown>).length === 0
+    ) {
+      console.warn(`[BIE:${args.logTag}] JSON document is empty (${clean.slice(0, 40)})`);
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: "empty_text",
+        json_parse_error: "empty_json_document",
         raw_text_preview: clean.slice(0, 300),
         response_chars: text.length,
         source_count: chunkUrls.length,
@@ -2099,17 +2127,22 @@ export function buildBIENarrativeSections(result: BIEResult): NarrativeSection[]
     addSection("Credit Thesis", [], [],
       synthesis.executive_credit_thesis,
       validationNote);
-    if (synthesis.structure_implications.length > 0) {
-      addSection("Structure Implications", [], [], synthesis.structure_implications.join("\n"));
+    // A salvaged (truncated) synthesis may lack any of these arrays.
+    const structureImplications = synthesis.structure_implications ?? [];
+    const underwritingQuestions = synthesis.underwriting_questions ?? [];
+    const monitoringTriggers = synthesis.monitoring_triggers ?? [];
+    const contradictions = synthesis.contradictions_and_uncertainties ?? [];
+    if (structureImplications.length > 0) {
+      addSection("Structure Implications", [], [], structureImplications.join("\n"));
     }
-    if (synthesis.underwriting_questions.length > 0) {
-      addSection("Underwriting Questions", [], [], synthesis.underwriting_questions.join("\n"));
+    if (underwritingQuestions.length > 0) {
+      addSection("Underwriting Questions", [], [], underwritingQuestions.join("\n"));
     }
-    if (synthesis.monitoring_triggers.length > 0) {
-      addSection("Monitoring Triggers", [], [], synthesis.monitoring_triggers.join("\n"));
+    if (monitoringTriggers.length > 0) {
+      addSection("Monitoring Triggers", [], [], monitoringTriggers.join("\n"));
     }
-    if (synthesis.contradictions_and_uncertainties.length > 0) {
-      addSection("Contradictions", [], [], synthesis.contradictions_and_uncertainties.join("\n"));
+    if (contradictions.length > 0) {
+      addSection("Contradictions", [], [], contradictions.join("\n"));
     }
     addSection("3-Year and 5-Year Outlook", [], [],
       synthesis.three_year_outlook, synthesis.five_year_outlook);

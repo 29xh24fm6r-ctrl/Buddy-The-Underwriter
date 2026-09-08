@@ -102,6 +102,39 @@ describe("callGeminiGrounded diagnostics", () => {
     assert.equal(r.diagnostic.error_type, "empty_text");
   });
 
+  it("STOP with a literal `{}` → empty_text (retryable), never a successful thread", async () => {
+    // Production 2026-08-31 → 2026-09-08: every ungrounded thread that was sent
+    // a bare `{ type: "object" }` responseSchema came back as `{}` (5 chars,
+    // 4 output tokens) and was recorded ok=true, so an empty synthesis reached
+    // the narrative builder and threw on its missing arrays.
+    mockFetch(() => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: "{}\n" }] }, finishReason: "STOP" }],
+        usageMetadata: { promptTokenCount: 7000, candidatesTokenCount: 4, thoughtsTokenCount: 114 },
+      }),
+    }));
+    const r = await call();
+    assert.equal(r.result, null);
+    assert.equal(r.diagnostic.ok, false);
+    assert.equal(r.diagnostic.error_type, "empty_text");
+    assert.equal(r.diagnostic.json_parse_error, "empty_json_document");
+    assert.equal(bie.isRetryableBIEDiagnostic(r.diagnostic), true);
+  });
+
+  it("ungrounded threads request JSON mode without a bare object schema", async () => {
+    let body: any = null;
+    globalThis.fetch = (async (_url: string, init: any) => {
+      body = JSON.parse(init.body);
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: "{\"k\":1}" }] }, finishReason: "STOP" }] }) };
+    }) as any;
+    const r = await call({ useGrounding: false });
+    assert.deepEqual(r.result, { k: 1 });
+    assert.equal(body.generationConfig.responseMimeType, "application/json");
+    assert.equal(body.generationConfig.responseSchema, undefined);
+  });
+
   it("finishReason SAFETY with no text → safety_block", async () => {
     mockFetch(() => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [] }, finishReason: "SAFETY" }] }) }));
     const r = await call();
