@@ -74,6 +74,35 @@ function captureSetCookieJar(headers: Headers): string {
     .join("; ");
 }
 
+async function postConciergeWithRateLimitPacing(args: {
+  baseUrl: string;
+  cookieJar: string;
+  userMessage: string;
+}): Promise<Response> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(`${args.baseUrl}/api/brokerage/concierge`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(args.cookieJar ? { cookie: args.cookieJar } : {}),
+      },
+      body: JSON.stringify({ userMessage: args.userMessage }),
+    });
+    if (response.status !== 429 || attempt === 2) return response;
+
+    const retryAfter = Number(response.headers.get("retry-after") ?? "60");
+    const waitSeconds = Math.min(
+      Math.max(Number.isFinite(retryAfter) ? retryAfter : 60, 1) + 1,
+      65,
+    );
+    console.log(
+      `[synth-borrower-e2e] rate limited; pacing next turn for ${waitSeconds}s`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
+  }
+  throw new Error("unreachable concierge retry state");
+}
+
 async function runFixture(
   baseUrl: string,
   fixture: Fixture,
@@ -88,13 +117,10 @@ async function runFixture(
   //   - nextRequiredFields == []
   //   - transcript exhausted
   for (const message of fixture.transcript) {
-    const res = await fetch(`${baseUrl}/api/brokerage/concierge`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(cookieJar ? { cookie: cookieJar } : {}),
-      },
-      body: JSON.stringify({ userMessage: message }),
+    const res = await postConciergeWithRateLimitPacing({
+      baseUrl,
+      cookieJar,
+      userMessage: message,
     });
     if (!res.ok) {
       return {
