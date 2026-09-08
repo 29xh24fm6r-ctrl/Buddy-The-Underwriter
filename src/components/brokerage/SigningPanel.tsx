@@ -145,7 +145,7 @@ export function SigningPanel({ dealId }: { dealId: string }) {
           // non-fatal — try again next tick
         }
       }
-    }, 4000);
+    }, 15_000);
     return () => window.clearInterval(timer);
   }, [dealId, formStatus]);
 

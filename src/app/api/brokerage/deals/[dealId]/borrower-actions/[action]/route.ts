@@ -96,6 +96,9 @@ import {
   mockDownloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/mockClient";
 
+/** Minimum spacing between SignWell status reads for one document. */
+const PROVIDER_POLL_MIN_MS = 15_000;
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -395,7 +398,7 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
   // probing with a guessed SignWell id.
   const { data: signingRequest, error: signingRequestError } = await sb
     .from("signing_requests")
-    .select("id")
+    .select("id, status, metadata")
     .eq("deal_id", dealId)
     .eq("signwell_document_id", submissionId)
     .maybeSingle();
@@ -409,7 +412,46 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
     return NextResponse.json({ ok: false, error: "submission_not_found" }, { status: 404 });
   }
 
-  const document = await fetchSignwellDocument(submissionId);
+  // The stored row is the system of record (the SignWell webhook writes it).
+  // A failed-terminal request never needs another provider read.
+  const storedStatus = typeof signingRequest.status === "string" ? signingRequest.status : "pending";
+  if (isFailedTerminalSigningRequestStatus(storedStatus)) {
+    return NextResponse.json({ ok: true, status: storedStatus, source: "stored" });
+  }
+
+  // Provider polling is throttled per document: the signing panel polls
+  // every open request from every open tab, and SignWell allows 120
+  // requests per minute per account (2026-09-08: 30 × 429 in five minutes
+  // from one borrower's tabs). One provider read per document per
+  // PROVIDER_POLL_MIN_MS; everything in between answers from the row.
+  const metadata =
+    signingRequest.metadata && typeof signingRequest.metadata === "object"
+      ? (signingRequest.metadata as Record<string, unknown>)
+      : {};
+  const lastPolledAt =
+    typeof metadata.provider_polled_at === "string" ? Date.parse(metadata.provider_polled_at) : NaN;
+  if (Number.isFinite(lastPolledAt) && Date.now() - lastPolledAt < PROVIDER_POLL_MIN_MS) {
+    return NextResponse.json({ ok: true, status: storedStatus, source: "stored" });
+  }
+  // Stamp before the provider call so concurrent pollers collapse onto this one.
+  await sb
+    .from("signing_requests")
+    .update({ metadata: { ...metadata, provider_polled_at: new Date().toISOString() } })
+    .eq("id", signingRequest.id);
+
+  let document: Awaited<ReturnType<typeof fetchSignwellDocument>>;
+  try {
+    document = await fetchSignwellDocument(submissionId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/\b429\b/.test(message)) {
+      // Vendor rate limit: the stored status is still truthful, and the
+      // webhook will land completion regardless of this poll.
+      console.warn(`[borrower-actions/esign] SignWell rate-limited; answering from stored status deal=${dealId} doc=${submissionId}`);
+      return NextResponse.json({ ok: true, status: storedStatus, source: "stored", provider: "rate_limited" });
+    }
+    throw err;
+  }
   if (isCompletedSigningRequestStatus(document.status)) {
     const reconciled = await reconcileSignwellCompletion(
       { dealId, document },
