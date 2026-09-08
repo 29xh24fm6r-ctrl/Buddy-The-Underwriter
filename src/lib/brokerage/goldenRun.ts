@@ -211,7 +211,11 @@ export async function cleanupGoldenRun(sb: any, dealId: string, lenderBankId?: s
   }
   await sb.from("deals").delete().eq("id", dealId);
   if (lenderBankId) {
-    const { data: bank } = await sb.from("banks").select("id, code, is_sandbox").eq("id", lenderBankId).maybeSingle();
+    const { data: bank } = await sb
+      .from("banks")
+      .select("*")
+      .eq("id", lenderBankId)
+      .maybeSingle();
     if (bank?.is_sandbox === true && String(bank.code ?? "").startsWith("GOLDEN_TEST_")) {
       await sb.from("lender_marketplace_agreements").delete().eq("lender_bank_id", lenderBankId);
       await sb.from("banks").delete().eq("id", lenderBankId);
