@@ -1549,14 +1549,18 @@ export async function runMission(
     }
     } // end resumable-mission bie_enrichment skip guard
 
-    // 12c. Trigger gap recompute after BIE completes (non-fatal)
+    // 12c. Recompute gaps after BIE completes (non-fatal, awaited — this is
+    // a workflow step; a detached promise does not survive the step's end).
     try {
       const { computeDealGaps } = await import("@/lib/gapEngine/computeDealGaps");
       if (opts?.bankId) {
-        void computeDealGaps({ dealId, bankId: opts.bankId }).catch(() => {});
+        const gapResult = await computeDealGaps({ dealId, bankId: opts.bankId });
+        if (!gapResult.ok) {
+          console.warn("[runMission] computeDealGaps failed (non-fatal):", gapResult.error);
+        }
       }
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      console.warn("[runMission] computeDealGaps threw (non-fatal):", err);
     }
 
     // 13. Bridge: persist risk-indicator inferences as flags (non-fatal)

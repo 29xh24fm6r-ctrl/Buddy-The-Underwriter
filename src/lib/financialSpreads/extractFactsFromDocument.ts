@@ -989,12 +989,17 @@ export async function extractFactsFromDocument(args: {
     }
   }
 
-  // Trigger gap recompute after every extraction
+  // Recompute gaps after every extraction. Awaited: this runs inside a
+  // serverless worker, and a detached promise is frozen with the instance
+  // once the response is sent, so the queue would lag the facts it judges.
   try {
     const { computeDealGaps } = await import("@/lib/gapEngine/computeDealGaps");
-    void computeDealGaps({ dealId: args.dealId, bankId: args.bankId }).catch(() => {});
-  } catch {
-    // Non-fatal
+    const gapResult = await computeDealGaps({ dealId: args.dealId, bankId: args.bankId });
+    if (!gapResult.ok) {
+      console.warn("[extractFactsFromDocument] computeDealGaps failed (non-fatal):", gapResult.error);
+    }
+  } catch (err) {
+    console.warn("[extractFactsFromDocument] computeDealGaps threw (non-fatal):", err);
   }
 
   return { ok: true as const, factsWritten, heartbeatWritten: true as const };
