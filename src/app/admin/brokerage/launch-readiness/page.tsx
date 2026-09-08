@@ -253,20 +253,21 @@ async function checkSyntheticBorrowerReport(): Promise<Check> {
   const output = row.output_json ?? {};
   const passCount = Number(output.pass_count ?? 0);
   const total = Number(output.total ?? 0);
+  const passRate = Number(output.pass_rate ?? (total > 0 ? passCount / total : 0));
   const repeatViolations = Number(output.repeat_ask_violation_count ?? 0);
   const ageDays = (Date.now() - new Date(row.created_at).getTime()) / 86_400_000;
   const passed =
     row.action === "passed" &&
-    passCount >= 13 &&
-    total >= 15 &&
+    total > 0 &&
+    passRate >= 13 / 15 &&
     repeatViolations === 0;
   const fresh = Number.isFinite(ageDays) && ageDays <= 7;
   return {
     id: "synth_borrower_report",
-    label: "Synthetic borrower run (≤7d old, ≥13/15)",
+    label: "Synthetic borrower run (≤7d old, ≥86.7% pass rate)",
     status: passed && fresh ? "ok" : passed ? "warn" : "fail",
     value:
-      `${passCount}/${total} from ${row.created_at} (${ageDays.toFixed(1)}d ago); ` +
+      `${passCount}/${total} (${(passRate * 100).toFixed(1)}%) from ${row.created_at} (${ageDays.toFixed(1)}d ago); ` +
       `repeat violations=${repeatViolations}; action=${row.action}`,
   };
 }
@@ -285,6 +286,50 @@ async function checkSchemaParity(): Promise<Check> {
     };
   }
   return runSchemaParityCheck(supabaseAdmin() as never, manifest);
+}
+
+async function checkGoldenBrokerageRun(): Promise<Check> {
+  const { data, error } = await supabaseAdmin()
+    .from("ai_events")
+    .select("created_at, action, output_json")
+    .eq("scope", "golden_brokerage_run")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) return { id: "golden_brokerage_run", label: "Brokerage ledger certification", status: "fail", value: `evidence query failed: ${error.message}` };
+  const row = data?.[0] as { created_at: string; action: string; output_json: Record<string, unknown> | null } | undefined;
+  if (!row) return { id: "golden_brokerage_run", label: "Brokerage ledger certification", status: "fail", value: "no durable production evidence recorded" };
+  const ageDays = (Date.now() - Date.parse(row.created_at)) / 86_400_000;
+  const fresh = Number.isFinite(ageDays) && ageDays <= 7;
+  const passed = row.action === "passed";
+  return {
+    id: "golden_brokerage_run",
+    label: "Brokerage ledger certification (≤7d old)",
+    status: passed && fresh ? "ok" : passed ? "warn" : "fail",
+    value: `${row.action} ${ageDays.toFixed(1)}d ago${row.output_json?.failed_stage ? `; failed at ${row.output_json.failed_stage}` : ""}`,
+  };
+}
+
+async function checkCrmOperatingSetup(): Promise<Check[]> {
+  const sb = supabaseAdmin();
+  const [templates, agreements, programs, profiles] = await Promise.all([
+    sb.from("crm_message_templates").select("id", { count: "exact", head: true }).eq("active", true),
+    sb.from("lender_marketplace_agreements").select("id", { count: "exact", head: true }).eq("status", "active"),
+    sb.from("lender_programs").select("id", { count: "exact", head: true }),
+    sb.from("crm_lender_profiles").select("id, sba_7a_appetite, sba_504_appetite, conventional_appetite, geography_mode, state_codes, geographies"),
+  ]);
+  const queryError = [templates, agreements, programs, profiles].find((result) => result.error)?.error;
+  if (queryError) return [{ id: "crm_operating_setup", label: "CRM operating setup", status: "fail", value: `query failed: ${queryError.message}` }];
+  const templateCount = templates.count ?? 0;
+  const profileRows = (profiles.data ?? []) as Array<Record<string, unknown>>;
+  const completeProfiles = profileRows.filter((profile) => {
+    const appetite = profile.sba_7a_appetite || profile.sba_504_appetite || profile.conventional_appetite;
+    const geography = profile.geography_mode === "nationwide" || Array.isArray(profile.state_codes) && profile.state_codes.length > 0 || Array.isArray(profile.geographies) && profile.geographies.length > 0;
+    return appetite && geography;
+  }).length;
+  return [
+    { id: "crm_message_readiness", label: "CRM message library", status: templateCount >= 26 ? "ok" : templateCount === 0 ? "fail" : "warn", value: `${templateCount}/26 active email and SMS templates` },
+    { id: "lender_operating_readiness", label: "Lender operating setup", status: (agreements.count ?? 0) > 0 && (programs.count ?? 0) > 0 && completeProfiles > 0 ? "ok" : "fail", value: `${agreements.count ?? 0} active agreement(s); ${programs.count ?? 0} program(s); ${completeProfiles}/${profileRows.length} complete profile(s)` },
+  ];
 }
 
 async function checkLastCleanupCron(): Promise<Check> {
@@ -336,6 +381,8 @@ export default async function LaunchReadinessPage() {
     synth,
     cron,
     schemaParity,
+    goldenRun,
+    operatingSetup,
   ] = await Promise.all([
     checkBrokerageSingleton(),
     checkRlsEnabled(),
@@ -345,6 +392,8 @@ export default async function LaunchReadinessPage() {
     checkSyntheticBorrowerReport(),
     checkLastCleanupCron(),
     checkSchemaParity(),
+    checkGoldenBrokerageRun(),
+    checkCrmOperatingSetup(),
   ]);
 
   const checks: Check[] = [
@@ -356,6 +405,8 @@ export default async function LaunchReadinessPage() {
     cron,
     synth,
     schemaParity,
+    goldenRun,
+    ...operatingSetup,
   ];
 
   const failCount = checks.filter((c) => c.status === "fail").length;

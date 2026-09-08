@@ -1,0 +1,38 @@
+name: Brokerage Schema Reconciliation
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type RECONCILE_BROKERAGE_SCHEMA to apply the reviewed idempotent repair"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: brokerage-schema-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: inputs.confirmation == 'RECONCILE_BROKERAGE_SCHEMA'
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DRIFT_DETECT_DB_URL }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require production database connection
+        shell: bash
+        run: test -n "$DATABASE_URL"
+      - name: Apply repeat-safe signing-request reconciliation
+        shell: bash
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260908173321_reconcile_signing_request_idempotency.sql
+      - name: Verify repaired contract
+        shell: bash
+        run: |
+          test "$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from information_schema.columns where table_schema='public' and table_name='signing_requests' and column_name='idempotency_key'")" = "1"
+          test "$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_indexes where schemaname='public' and indexname='ux_signing_requests_idempotency_key'")" = "1"

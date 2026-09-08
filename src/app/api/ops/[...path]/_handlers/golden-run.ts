@@ -58,6 +58,24 @@ export async function POST(req: NextRequest) {
       brokerageBankId,
       cleanup,
     });
+    const { error: evidenceError } = await sb.from("ai_events").insert({
+      deal_id: null,
+      scope: "golden_brokerage_run",
+      action: result.ok ? "passed" : "failed",
+      output_json: {
+        baseline_commit: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GITHUB_SHA ?? "unknown",
+        failed_stage: result.failedStage ?? null,
+        failed_reason: result.failedReason ?? null,
+        elapsed_ms: result.elapsed,
+        cleanup,
+        evidence_class: result.evidenceClass,
+      },
+      confidence: 1,
+      requires_human_review: !result.ok,
+    });
+    if (evidenceError) {
+      return NextResponse.json({ ok: false, error: "golden_evidence_persistence_failed" }, { status: 500 });
+    }
 
     return NextResponse.json(
       { ...result, cleanup },

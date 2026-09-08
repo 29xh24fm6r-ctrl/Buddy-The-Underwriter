@@ -5,6 +5,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { runSecurityAudit } from "@/lib/brokerage/securityAudit";
 import { scanBrokerageRoutes } from "@/lib/brokerage/brokerageRouteScan";
+import { loadIntegritySnapshot, runIntegritySweep } from "@/lib/brokerage/integritySweep";
 export type LaunchGateStatus = "pass" | "fail" | "skip" | "warn";
 export type LaunchGateResult = { name: string; category: string; status: LaunchGateStatus; duration: number; critical: number; warning: number; details: string; repairs: string[] };
 export type LaunchResult = { overall: "LAUNCH_READY" | "NOT_LAUNCH_READY"; gates: LaunchGateResult[]; critical: number; warning: number; elapsed: number; firstRepair: string | null };
@@ -14,8 +15,46 @@ function fe(p: string): boolean { return existsSync(resolve(process.cwd(), p)); 
 
 export function checkGoldenRunPresence(): LaunchGateResult { const s=Date.now(); let c=0; const r: string[]=[]; if (!fe("scripts/golden-brokerage-run.ts")) {c++;r.push("Create golden run script");} if (!fe("src/lib/brokerage/goldenRun.ts")) {c++;r.push("Create goldenRun.ts");} return lg("golden_run","transaction_flow",c>0?"fail":"pass",Date.now()-s,c,0,c===0?"Present":`${c} missing`,r); }
 export function checkIntegritySweepPresence(): LaunchGateResult { const s=Date.now(); let c=0; const r: string[]=[]; if (!fe("scripts/brokerage-integrity-sweep.ts")) {c++;r.push("Create integrity script");} if (!fe("src/lib/brokerage/integritySweep.ts")) {c++;r.push("Create integritySweep.ts");} return lg("integrity_sweep","transaction_flow",c>0?"fail":"pass",Date.now()-s,c,0,c===0?"Present":`${c} missing`,r); }
+export async function checkIntegritySweep(sb?: any): Promise<LaunchGateResult> {
+  const s = Date.now();
+  if (!sb) return lg("integrity_sweep", "transaction_flow", "fail", Date.now() - s, 1, 0, "Database-backed sweep was not run", ["Provide production Supabase credentials and rerun"]);
+  const result = await runIntegritySweep({ sb });
+  return lg(
+    "integrity_sweep",
+    "transaction_flow",
+    result.ok ? "pass" : "fail",
+    Date.now() - s,
+    result.critical,
+    result.warning,
+    `${result.total} finding(s): ${result.critical} critical, ${result.warning} warning`,
+    result.issues.filter((issue) => issue.severity === "critical").map((issue) => `${issue.check}: ${issue.repair}`),
+  );
+}
 export function checkRaceHarnessPresence(): LaunchGateResult { const s=Date.now(); let c=0; const r: string[]=[]; if (!fe("scripts/brokerage-race-harness.ts")) {c++;r.push("Create race script");} if (!fe("src/lib/brokerage/raceHarness.ts")) {c++;r.push("Create raceHarness.ts");} return lg("race_harness","marketplace",c>0?"fail":"pass",Date.now()-s,c,0,c===0?"Present":`${c} missing`,r); }
 export function runSecurityGate(dbData?: Record<string, any>): LaunchGateResult { const s=Date.now(); const __scan=scanBrokerageRoutes(); const result=runSecurityAudit({borrowerIsolation:{sessionA:{tokenHash:"la",dealId:"lda"},sessionB:{tokenHash:"lb",dealId:"ldb"},resolveSession:h=>h==="la"?{deal_id:"lda"}:h==="lb"?{deal_id:"ldb"}:null,resolveExpired:()=>null},lenderIsolation:{listings:dbData?.listings??[],claims:dbData?.claims??[],agreements:dbData?.agreements??[],banks:dbData?.banks??[]},packageAccess:{accesses:dbData?.accesses??[],claims:dbData?.claims??[],picks:dbData?.picks??[],listings:dbData?.listings??[]},redaction:{listings:dbData?.listings??[],deals:dbData?.deals??[]},adminPayloads:{payloads:[{source:"launch",data:{}}]},apiMethodSafety:{routes:__scan.routes},rateLimits:{specs:__scan.rateLimits},previewRedaction:{bundles:dbData?.bundles??[]}}); const reps=result.findings.filter(f=>f.severity==="critical").map(f=>`${f.route}: ${f.repair}`); return lg("security_audit","security",result.ok?"pass":"fail",Date.now()-s,result.critical,result.warning,`${result.total} checks`,reps); }
+export async function checkSecurityGate(sb?: any, supplied?: Record<string, any>): Promise<LaunchGateResult> {
+  if (supplied) return runSecurityGate(supplied);
+  if (!sb) return lg("security_audit", "security", "fail", 0, 1, 0, "Production data was not loaded", ["Provide production Supabase credentials and rerun"]);
+  try {
+    const snapshot = await loadIntegritySnapshot(sb);
+    const [agreements, banks, bundles] = await Promise.all([
+      sb.from("lender_marketplace_agreements").select("*"),
+      sb.from("banks").select("*"),
+      sb.from("buddy_trident_bundles").select("*"),
+    ]);
+    for (const result of [agreements, banks, bundles]) {
+      if (result.error) throw new Error(result.error.message);
+    }
+    return runSecurityGate({
+      ...snapshot,
+      agreements: agreements.data ?? [],
+      banks: banks.data ?? [],
+      bundles: bundles.data ?? [],
+    });
+  } catch (error) {
+    return lg("security_audit", "security", "fail", 0, 1, 0, `Production security data failed to load: ${error instanceof Error ? error.message : String(error)}`, ["Repair database access or schema drift, then rerun"]);
+  }
+}
 export function checkClosingPresence(): LaunchGateResult { const s=Date.now(); let w=0; const r: string[]=[]; if (!fe("src/lib/brokerage/closingCoordination.ts")) {w++;r.push("Create closingCoordination.ts");} return lg("closing_coordination","closing",w>0?"warn":"pass",Date.now()-s,0,w,w===0?"Present":`${w} missing`,r); }
 export function checkOpsPresence(): LaunchGateResult { const s=Date.now(); let w=0; const r: string[]=[]; for (const f of ["src/lib/brokerage/complianceEnforcement.ts","src/lib/brokerage/packageDelivery.ts","src/lib/brokerage/securityAudit.ts"]) if (!fe(f)) {w++;r.push(`Create ${f}`);} return lg("ops_modules","operations",w>0?"warn":"pass",Date.now()-s,0,w,w===0?"Present":`${w} missing`,r); }
 export function checkEnvVars(): LaunchGateResult { const s=Date.now(); let c=0,w=0; const r: string[]=[]; if (!process.env.SUPABASE_URL&&!process.env.NEXT_PUBLIC_SUPABASE_URL) {c++;r.push("Set SUPABASE_URL");} if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {c++;r.push("Set SERVICE_ROLE_KEY");} if (!process.env.CLERK_SECRET_KEY) {w++;} if (!process.env.GEMINI_API_KEY) {w++;} return lg("env_vars","operations",c>0?"fail":w>0?"warn":"pass",Date.now()-s,c,w,`${c} crit, ${w} opt`,r); }
@@ -54,12 +93,13 @@ export async function checkLenderProvisioning(sb?: any): Promise<LaunchGateResul
 export async function runLaunchGate(opts?: LaunchOptions): Promise<LaunchResult> {
   const s=Date.now(); const gates: LaunchGateResult[]=[]; const filter=opts?.gate?new Set([opts.gate]):null;
   function inc(n: string) { return !filter||filter.has(n); }
-  if (inc("golden_run")) gates.push(checkGoldenRunPresence()); if (inc("integrity_sweep")) gates.push(checkIntegritySweepPresence()); if (inc("race_harness")) gates.push(checkRaceHarnessPresence());
-  if (inc("security_audit")) gates.push(runSecurityGate(opts?.dbData)); if (inc("closing_coordination")) gates.push(checkClosingPresence()); if (inc("ops_modules")) gates.push(checkOpsPresence());
+  if (inc("golden_run")) gates.push(checkGoldenRunPresence()); if (inc("integrity_sweep")) gates.push(await checkIntegritySweep(opts?.sb)); if (inc("race_harness")) gates.push(checkRaceHarnessPresence());
+  if (inc("security_audit")) gates.push(await checkSecurityGate(opts?.sb, opts?.dbData)); if (inc("closing_coordination")) gates.push(checkClosingPresence()); if (inc("ops_modules")) gates.push(checkOpsPresence());
   if (inc("env_vars")) gates.push(checkEnvVars()); if (inc("required_scripts")) gates.push(checkRequiredScripts()); if (inc("migrations")) gates.push(checkMigrations());
   if (inc("lender_provisioning")) gates.push(await checkLenderProvisioning(opts?.sb));
   if (inc("production_build")) gates.push(checkBuildPresence({skip:opts?.skipBuild}));
   const tc=gates.reduce((s,g)=>s+g.critical,0); const tw=gates.reduce((s,g)=>s+g.warning,0);
-  let overall: "LAUNCH_READY"|"NOT_LAUNCH_READY" = tc>0?"NOT_LAUNCH_READY":"LAUNCH_READY"; if (opts?.strict&&tw>0) overall="NOT_LAUNCH_READY";
+  const hasUnverifiedGate = gates.some((gate) => gate.status === "skip");
+  let overall: "LAUNCH_READY"|"NOT_LAUNCH_READY" = tc>0 || hasUnverifiedGate ? "NOT_LAUNCH_READY":"LAUNCH_READY"; if (opts?.strict&&tw>0) overall="NOT_LAUNCH_READY";
   return { overall, gates, critical:tc, warning:tw, elapsed:Date.now()-s, firstRepair:gates.filter(g=>g.critical>0).flatMap(g=>g.repairs)[0]??null };
 }

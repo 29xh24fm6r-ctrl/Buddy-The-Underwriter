@@ -2,6 +2,7 @@
 
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -51,6 +52,19 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
   const [revision, setRevision] = useState(0);
   const [search, setSearch] = useState(false);
   const [guide, setGuide] = useState(false);
+  const scrollToTasks = useCallback(() => {
+    let attempts = 0;
+    const findAndScroll = () => {
+      const target = document.getElementById("crm-tasks");
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        target.querySelector<HTMLElement>("button, a, input, [tabindex]")?.focus({ preventScroll: true });
+        return;
+      }
+      if (attempts++ < 20) window.setTimeout(findAndScroll, 100);
+    };
+    window.setTimeout(findAndScroll, 0);
+  }, []);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (
@@ -65,6 +79,9 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, []);
+  useEffect(() => {
+    if (pathname === CRM_ROOT && window.location.hash === "#crm-tasks") scrollToTasks();
+  }, [pathname, scrollToTasks]);
   const current =
     pathname === CRM_ROOT
       ? pathname +
@@ -108,6 +125,7 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
                 href={href}
                 prefetch={false}
                 aria-current={current === href ? "page" : undefined}
+                onClick={label === "Team tasks" ? scrollToTasks : undefined}
               >
                 <span aria-hidden="true">{icon}</span>
                 {label}
@@ -200,7 +218,12 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
               <button onClick={() => setGuide(false)}>Close guide</button>
             </section>
           )}
-          <div className="crm-route-content">{children}</div>
+          <div
+            key={`${pathname}?${query.toString()}`}
+            className="crm-route-content"
+          >
+            {children}
+          </div>
         </div>
         {search && (
           <CrmSearchDialog

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 
 /**
  * Multi-factor relationship score + referral analytics for one CRM
@@ -52,12 +52,12 @@ export function RelationshipIntelligencePanel({ organizationId }: { organization
   if (!score || !analytics) return null;
 
   return (
-    <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+    <div className="crm-intelligence-panel">
       <div style={{ padding: "13px 16px", borderBottom: `1px solid ${c.border}`, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <span style={{ fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 15 }}>Relationship intelligence</span>
         <span style={{ fontSize: 18, fontWeight: 700, color: c.brassBright }}>{score.overallScore}</span>
       </div>
-      <div style={{ padding: "12px 16px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "6px 16px", fontSize: 11 }}>
+      <div className="crm-intelligence-grid">
         <div>Recency: <span style={{ color: c.paper }}>{score.components.daysSinceLastContact ?? "—"}d ago</span></div>
         <div>Activity (90d): <span style={{ color: c.paper }}>{score.components.activityCount90d}</span></div>
         <div>Referral volume (12mo): <span style={{ color: c.paper }}>{score.components.referralVolume12mo}</span></div>
@@ -69,7 +69,7 @@ export function RelationshipIntelligencePanel({ organizationId }: { organization
         <div>Active pipeline: <span style={{ color: c.paper }}>{score.components.activePipelineCount}</span></div>
         <div>Open commitments: <span style={{ color: c.paper }}>{score.components.outstandingCommitments}</span></div>
       </div>
-      <div style={{ padding: "12px 16px", borderTop: `1px solid ${c.divider}`, display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "6px 16px", fontSize: 11 }}>
+      <div className="crm-intelligence-grid crm-intelligence-results">
         <div>Leads referred: <span style={{ color: c.paper }}>{analytics.leadsReferred}</span></div>
         <div>Deals funded: <span style={{ color: c.paper }}>{analytics.dealsFunded}</span></div>
         <div>Loan volume: <span style={{ color: c.paper }}>{centsToDollars(analytics.loanVolumeCents)}</span></div>

@@ -74,3 +74,12 @@ test("schema reconciliation is repeat-safe and restores signing idempotency", ()
   assert.match(migration, /CREATE UNIQUE INDEX IF NOT EXISTS ux_signing_requests_idempotency_key/i);
   assert.match(migration, /WHERE idempotency_key IS NOT NULL/i);
 });
+
+test("production schema reconciliation is deliberate and verifies the repair", () => {
+  const workflow = read(".github/workflows/brokerage-schema-reconcile.yml");
+  assert.match(workflow, /RECONCILE_BROKERAGE_SCHEMA/);
+  assert.match(workflow, /environment: Production/);
+  assert.match(workflow, /DRIFT_DETECT_DB_URL/);
+  assert.match(workflow, /ux_signing_requests_idempotency_key/);
+  assert.doesNotMatch(workflow, /SUPABASE_SERVICE_ROLE_KEY/);
+});

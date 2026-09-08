@@ -5,6 +5,7 @@ import { crmColors as c } from "@/components/brokerage/tokens";
 import { CrmModal, useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
 import { useCrmDraftGuard } from "@/components/brokerage/useCrmDraftGuard";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
+import { STARTER_MESSAGE_TEMPLATES } from "@/lib/crm/starterMessageTemplates";
 
 const TRIGGER_KEYS = [
   "initial_lead_response",
@@ -38,6 +39,8 @@ export default function CrmTemplatesPage() {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [saving, setSaving] = useState(false);
+  const configured = templates.filter((template) => template.active).length;
+  const possible = TRIGGER_KEYS.length * 2;
 
   useCrmDraftGuard(Boolean(editing));
   async function load() {
@@ -86,10 +89,34 @@ export default function CrmTemplatesPage() {
     }
   }
 
+  async function createStarterLibrary() {
+    if (!window.confirm("Create Buddy's editable starter messages for every empty email and SMS slot? Existing messages will not be changed, and nothing will be sent.")) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/brokerage/crm/comms/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create_starter_library" }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "starter library failed");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "starter library failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div style={{ padding: "18px 24px 40px" }}>
       <CrmTabs />
       {workspace && <header className="crm-page-intro"><div><p className="crm-eyebrow">A PERSONAL TOUCH, EVERY TIME</p><h1>Message library</h1><p>Reusable starting points for the conversations that move lending forward. Saving a template does not send a message.</p></div></header>}
+      <section className="crm-template-readiness" aria-label="Message readiness">
+        <div><strong>{configured} of {possible} ready</strong><span>Email and text messages are separate. Review them any time before using them.</span></div>
+        <progress max={possible} value={configured}>{configured} of {possible}</progress>
+        {configured < possible ? <button className="crm-button" disabled={saving} onClick={() => void createStarterLibrary()}>{saving ? "Creating…" : "Create editable starter library"}</button> : <span className="crm-ready-mark">✓ Message library ready</span>}
+      </section>
       <label className="crm-template-search">Find a message<input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by purpose, such as documents or referral" /></label>
 
       <div style={{ fontSize: 12.5, color: c.textSecondary, marginBottom: 16 }}>
@@ -106,12 +133,17 @@ export default function CrmTemplatesPage() {
         <div style={{ padding: 20, fontSize: 12, color: c.textMuted, textAlign: "center" }}>Loading…</div>
       ) : (
         <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
-          {TRIGGER_KEYS.filter(key => key.replaceAll("_", " ").includes(search.toLowerCase())).map((key) => {
+          {TRIGGER_KEYS.filter((key) => {
+            const definition = STARTER_MESSAGE_TEMPLATES.find((item) => item.key === key);
+            const searchable = [key.replaceAll("_", " "), definition?.label, definition?.explanation].filter(Boolean).join(" ").toLowerCase();
+            return searchable.includes(search.trim().toLowerCase());
+          }).map((key) => {
+            const definition = STARTER_MESSAGE_TEMPLATES.find((item) => item.key === key);
             const emailTemplate = templates.find((t) => t.trigger_key === key && t.channel === "email");
             const smsTemplate = templates.find((t) => t.trigger_key === key && t.channel === "sms");
             return (
               <div className="crm-template-card" key={key} style={{ padding: "12px 16px", borderBottom: `1px solid ${c.divider}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontSize: 12.5, color: c.paper }}>{key.replace(/_/g, " ")}</div>
+                <div className="crm-template-purpose"><strong>{definition?.label ?? key.replace(/_/g, " ")}</strong><span>{definition?.explanation}</span></div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={() => startEdit(key, "email")} style={{ fontSize: 10.5, padding: "4px 9px", borderRadius: 4, border: `1px solid ${c.border}`, background: emailTemplate ? "rgba(184,144,91,.12)" : "transparent", color: emailTemplate ? c.brassBright : c.textMuted, cursor: "pointer" }}>
                     {emailTemplate ? "Edit email" : "+ Email"}
