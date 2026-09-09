@@ -95,3 +95,41 @@ test("[snapshot] no website → failed with reason, no throw", async () => {
   assert.equal(s.status, "failed");
   assert.match(s.error ?? "", /no usable website/);
 });
+
+test("[snapshot] 403 to the identified client → one retry with a browser profile → collected", async () => {
+  // Production deal c0f6caab: the borrower's host answered 403 to
+  // "BuddyTheUnderwriter/1.0" on every mission since 2026-08-31.
+  const orig = globalThis.fetch;
+  const agents: string[] = [];
+  globalThis.fetch = (async (_url: string, init: any) => {
+    const ua = String(init?.headers?.["User-Agent"] ?? "");
+    agents.push(ua);
+    return ua.startsWith("BuddyTheUnderwriter")
+      ? mockResponse(403, "<title>403 Forbidden</title>")
+      : mockResponse(200, "<title>Buff Guys Mobile Detailing</title>");
+  }) as any;
+  try {
+    const snap = await fetchBorrowerWebsiteSnapshot("https://www.ceramiccoatingandppf.com/", "ceramiccoatingandppf.com");
+    assert.equal(snap.status, "collected");
+    assert.equal(snap.http_status, 200);
+    assert.equal(snap.title, "Buff Guys Mobile Detailing");
+    assert.equal(agents.length, 2);
+    assert.ok(agents[0].startsWith("BuddyTheUnderwriter"), "identifies honestly first");
+    assert.ok(agents[1].startsWith("Mozilla/5.0"), "retries with a browser profile");
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+test("[snapshot] a plain 404 is not retried", async () => {
+  const orig = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => { calls += 1; return mockResponse(404, "nope"); }) as any;
+  try {
+    const snap = await fetchBorrowerWebsiteSnapshot("https://example.com/", "example.com");
+    assert.equal(snap.status, "failed");
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
