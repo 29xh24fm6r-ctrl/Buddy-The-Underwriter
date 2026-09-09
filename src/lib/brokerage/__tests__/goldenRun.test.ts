@@ -16,7 +16,7 @@ class RpcGS extends GS {
   rpc(_n:string,_p:any){
     const claimId = "rpc-claim-1";
     this.tables.marketplace_claims.push({ id: claimId, listing_id: _p.p_listing_id, lender_bank_id: _p.p_lender_bank_id, status: "active" });
-    return Promise.resolve({data:{status:"claimed",claim_id:claimId},error:null});
+    return Promise.resolve({data:{status:"active",claim_id:claimId},error:null});
   }
 }
 class GQ {
