@@ -51,5 +51,12 @@ export interface BuddySignalBase {
   ts: number;
   source: string; // file/module/system emitting this signal
   dealId?: string | null;
+  /**
+   * Tenant override for callers that already hold a verified bank id (a
+   * service grant, a route that resolved the session). Deal-scoped signals
+   * resolve from the deal row when this is absent; only signals with neither
+   * consult the Clerk session.
+   */
+  bankId?: string | null;
   payload?: Record<string, any>;
 }
