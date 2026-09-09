@@ -41,5 +41,5 @@ jobs:
       - name: Verify repaired contract
         shell: bash
         run: |
-          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from information_schema.columns where table_schema='public' and table_name='signing_requests' and column_name='idempotency_key'")" = "1"
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_attribute a join pg_class c on c.oid=a.attrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='signing_requests' and a.attname='idempotency_key' and a.attnum > 0 and not a.attisdropped")" = "1"
           test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_indexes where schemaname='public' and indexname='ux_signing_requests_idempotency_key'")" = "1"
