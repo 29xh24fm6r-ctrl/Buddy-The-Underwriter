@@ -1,0 +1,45 @@
+name: Brokerage Schema Reconciliation
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type RECONCILE_BROKERAGE_SCHEMA to apply the reviewed idempotent repair"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: brokerage-schema-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: inputs.confirmation == 'RECONCILE_BROKERAGE_SCHEMA'
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    env:
+      MIGRATION_DATABASE_URL: ${{ secrets.BROKERAGE_MIGRATION_DB_URL }}
+      VERIFICATION_DATABASE_URL: ${{ secrets.DRIFT_DETECT_DB_URL }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require production database connections
+        shell: bash
+        run: |
+          test -n "$MIGRATION_DATABASE_URL"
+          test -n "$VERIFICATION_DATABASE_URL"
+      - name: Require signing-request table ownership
+        shell: bash
+        run: |
+          test "$(psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select pg_has_role(current_user, c.relowner, 'USAGE') from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname = 'signing_requests'")" = "t"
+      - name: Apply repeat-safe signing-request reconciliation
+        shell: bash
+        run: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260908173321_reconcile_signing_request_idempotency.sql
+      - name: Verify repaired contract
+        shell: bash
+        run: |
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_attribute a join pg_class c on c.oid=a.attrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='signing_requests' and a.attname='idempotency_key' and a.attnum > 0 and not a.attisdropped")" = "1"
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_indexes where schemaname='public' and indexname='ux_signing_requests_idempotency_key'")" = "1"

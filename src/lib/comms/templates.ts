@@ -13,6 +13,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { SB } from "@/lib/crm/types";
+import { STARTER_MESSAGE_TEMPLATES } from "@/lib/crm/starterMessageTemplates";
 
 export const TEMPLATE_TRIGGER_KEYS = [
   "initial_lead_response",
@@ -72,7 +73,14 @@ export type UpsertTemplateInput = {
 };
 
 export async function upsertTemplate(input: UpsertTemplateInput, sb: SB = supabaseAdmin()): Promise<MessageTemplate> {
-  const existing = await getTemplate(input.bankId, input.triggerKey, input.channel, sb);
+  const { data: existing, error: existingError } = await sb
+    .from("crm_message_templates")
+    .select("*")
+    .eq("bank_id", input.bankId)
+    .eq("trigger_key", input.triggerKey)
+    .eq("channel", input.channel)
+    .maybeSingle();
+  if (existingError) throw new Error(`upsertTemplate lookup failed: ${existingError.message}`);
   if (existing) {
     const { data, error } = await sb
       .from("crm_message_templates")
@@ -90,6 +98,17 @@ export async function upsertTemplate(input: UpsertTemplateInput, sb: SB = supaba
     .single();
   if (error) throw new Error(`upsertTemplate insert failed: ${error.message}`);
   return data as MessageTemplate;
+}
+
+export async function createStarterTemplateLibrary(bankId: string, sb: SB = supabaseAdmin()): Promise<{ created: number; preserved: number }> {
+  const existing = await listTemplates(bankId, sb);
+  const existingKeys = new Set(existing.map((template) => `${template.trigger_key}:${template.channel}`));
+  const candidates = STARTER_MESSAGE_TEMPLATES.flatMap((definition) => [
+    { triggerKey: definition.key, channel: "email" as const, subject: definition.emailSubject, body: definition.emailBody },
+    { triggerKey: definition.key, channel: "sms" as const, subject: null, body: definition.smsBody },
+  ]).filter((template) => !existingKeys.has(`${template.triggerKey}:${template.channel}`));
+  await Promise.all(candidates.map((template) => upsertTemplate({ bankId, ...template, active: true }, sb)));
+  return { created: candidates.length, preserved: existing.length };
 }
 
 /** Literal {{key}} substitution — unknown keys are left as-is rather than silently blanked, so a typo is visible instead of hidden. */

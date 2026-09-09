@@ -242,6 +242,20 @@ test("renderTemplate substitutes known fields and leaves unknown placeholders vi
   assert.equal(rendered, "Hello Sam, your {{unknown_field}} is ready.");
 });
 
+test("starter library fills all 26 message slots without replacing existing copy", async () => {
+  const db = new FakeDb();
+  await templates.upsertTemplate({ bankId: BANK_A, triggerKey: "initial_lead_response", channel: "email", subject: "My subject", body: "My custom message" }, db as any);
+
+  const first = await templates.createStarterTemplateLibrary(BANK_A, db as any);
+  assert.deepEqual(first, { created: 25, preserved: 1 });
+  assert.equal(db.tables.crm_message_templates.length, 26);
+  assert.equal(db.tables.crm_message_templates.find((row) => row.trigger_key === "initial_lead_response" && row.channel === "email")?.body, "My custom message");
+
+  const second = await templates.createStarterTemplateLibrary(BANK_A, db as any);
+  assert.deepEqual(second, { created: 0, preserved: 26 });
+  assert.equal(db.tables.crm_message_templates.length, 26);
+});
+
 // ---------------------------------------------------------------------
 // Tenant isolation
 // ---------------------------------------------------------------------

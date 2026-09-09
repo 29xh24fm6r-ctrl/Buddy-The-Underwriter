@@ -3,7 +3,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
-import { listTemplates, upsertTemplate, TEMPLATE_TRIGGER_KEYS } from "@/lib/comms/templates";
+import { createStarterTemplateLibrary, listTemplates, upsertTemplate, TEMPLATE_TRIGGER_KEYS } from "@/lib/comms/templates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +22,25 @@ export async function GET() {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    await requireBrokerageStaff();
+  } catch {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+  const body = await req.json().catch(() => ({}));
+  if (body?.action !== "create_starter_library") {
+    return NextResponse.json({ ok: false, error: "unsupported action" }, { status: 400 });
+  }
+  try {
+    const brokerageBankId = await getBrokerageBankId();
+    const result = await createStarterTemplateLibrary(brokerageBankId);
+    return NextResponse.json({ ok: true, ...result });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
 

@@ -167,8 +167,9 @@ async function dispatch(method: Method, req: NextRequest, ctx: Ctx) {
       return METHOD_NOT_ALLOWED(["POST"]);
     case "comms/templates":
       if (method === "GET") return (await import("./_handlers/comms-templates")).GET();
+      if (method === "POST") return (await import("./_handlers/comms-templates")).POST(req);
       if (method === "PUT") return (await import("./_handlers/comms-templates")).PUT(req);
-      return METHOD_NOT_ALLOWED(["GET", "PUT"]);
+      return METHOD_NOT_ALLOWED(["GET", "POST", "PUT"]);
     case "intelligence/ai-assist":
       if (method === "POST") return (await import("./_handlers/intelligence-ai-assist")).POST(req);
       return METHOD_NOT_ALLOWED(["POST"]);

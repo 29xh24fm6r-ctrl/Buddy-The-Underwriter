@@ -249,11 +249,31 @@ export async function computeDealGaps(args: {
     }
     const resolvedIds = selectResolvedGapIds((openRows ?? []) as OpenGapRow[], gaps);
     if (resolvedIds.length > 0) {
+      const resolvedAt = new Date().toISOString();
       const { error: resolveError } = await sb
         .from("deal_gap_queue")
-        .update({ status: "resolved", resolved_at: new Date().toISOString() })
+        .update({ status: "resolved", resolved_at: resolvedAt })
         .in("id", resolvedIds);
-      if (resolveError) {
+      if (resolveError?.code === "23505") {
+        // A schema that keeps a full unique constraint over (…, status)
+        // rejects a second resolved row for the same key. The batch is
+        // all-or-nothing, so retry row by row and delete the one stale open
+        // row that collides: an identical resolved row already records it.
+        for (const id of resolvedIds) {
+          const { error: rowError } = await sb
+            .from("deal_gap_queue")
+            .update({ status: "resolved", resolved_at: resolvedAt })
+            .eq("id", id);
+          if (!rowError) continue;
+          if (rowError.code !== "23505") {
+            return { ok: false, error: `gap_queue_resolve_failed:${rowError.message}` };
+          }
+          const { error: deleteError } = await sb.from("deal_gap_queue").delete().eq("id", id);
+          if (deleteError) {
+            return { ok: false, error: `gap_queue_resolve_failed:${deleteError.message}` };
+          }
+        }
+      } else if (resolveError) {
         return { ok: false, error: `gap_queue_resolve_failed:${resolveError.message}` };
       }
     }

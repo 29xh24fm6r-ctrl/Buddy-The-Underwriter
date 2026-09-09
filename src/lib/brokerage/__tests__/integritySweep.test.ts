@@ -40,3 +40,10 @@ test("PII name leak", () => { assert.ok(m.checkNoPiiInListingPreview([{id:"l1",d
 test("PII email leak", () => { assert.ok(m.checkNoPiiInListingPreview([{id:"l1",deal_id:"d1",status:"claiming",kfs:{contact:"s@s.com"}}],[{id:"d1",borrower_email:"s@s.com"}]).length > 0); });
 test("golden complete", () => { assert.equal(m.checkGoldenRunDiagnostics({id:"g1"},{hasStory:true,hasScore:true,hasTrident:true,sealed:true,conciergeProgressPct:100}).length, 0); });
 test("golden sealed no score", () => { assert.ok(m.checkGoldenRunDiagnostics({id:"g1"},{hasStory:true,hasScore:false,hasTrident:true,sealed:true,conciergeProgressPct:100}).length > 0); });
+test("orchestrator fails closed without a database", async () => { const result = await m.runIntegritySweep({ sb: null }); assert.equal(result.ok, false); assert.equal(result.critical, 1); });
+test("orchestrator fails closed when a table cannot be loaded", async () => {
+  const sb = { from: (table:string) => ({ select: () => ({ range: async () => ({ data: null, error: { message: `${table} unavailable` } }) }) }) };
+  const result = await m.runIntegritySweep({ sb });
+  assert.equal(result.ok, false);
+  assert.match(result.issues[0].message, /unavailable/);
+});

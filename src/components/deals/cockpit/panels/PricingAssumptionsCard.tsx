@@ -333,7 +333,11 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
         throw new Error(json?.error ?? "Failed to save pricing assumptions");
       }
 
-      setStatus({ kind: "success", message: "Pricing assumptions saved." });
+      setStatus({
+        kind: "success",
+        message:
+          "Pricing assumptions saved. Next: generate pricing scenarios below and approve one to finalize pricing.",
+      });
       onSave?.();
     } catch (err: any) {
       setStatus({ kind: "error", message: err?.message ?? "Save failed" });

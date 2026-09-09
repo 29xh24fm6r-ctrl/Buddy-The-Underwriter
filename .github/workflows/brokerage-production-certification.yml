@@ -41,6 +41,18 @@ jobs:
         run: |
           deployed_sha="$(curl --fail --silent --show-error https://app.buddytheunderwriter.com/api/meta/build | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).commitSha||""))')"
           test "$deployed_sha" = "$GITHUB_SHA"
+      - name: Verify production schema contract
+        env:
+          DATABASE_URL: ${{ secrets.DRIFT_DETECT_DB_URL }}
+        shell: bash
+        run: |
+          test -n "$DATABASE_URL"
+          idempotency_column_count="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_attribute a join pg_class c on c.oid=a.attrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='signing_requests' and a.attname='idempotency_key' and a.attnum > 0 and not a.attisdropped")"
+          marketplace_rpc_count="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='claim_marketplace_listing'")"
+          echo "idempotency_column_count=$idempotency_column_count"
+          echo "marketplace_rpc_count=$marketplace_rpc_count"
+          test "$idempotency_column_count" = "1"
+          test "$marketplace_rpc_count" -ge "1"
       - name: Run borrower production journey
         run: pnpm synth:borrowers
         env:

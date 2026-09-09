@@ -48,6 +48,7 @@ type Ctx = {
   sb: any; brokerageBankId: string; dealId: string; lenderBankId: string;
   sealedPackageId: string; listingId: string; claimId: string;
   pickId: string; accessId: string; score: number; band: string;
+  preserveLenderBank: boolean;
 };
 
 const NAME = "Golden Test Manufacturing LLC";
@@ -74,7 +75,7 @@ async function s2(c: Ctx): Promise<StepResult> {
   if (e1) return { ok: false, error: `concierge: ${e1.message}` };
   const { error: e2 } = await c.sb.from("borrower_applications").upsert({ deal_id: c.dealId, business_legal_name: NAME, industry: "Metal fabrication", naics: "332710", loan_amount: AMOUNT, loan_type: "7a" }, { onConflict: "deal_id" });
   if (e2) return { ok: false, error: `app: ${e2.message}` };
-  const { error: e3 } = await c.sb.from("deal_financial_facts").insert([{ deal_id: c.dealId, bank_id: c.brokerageBankId, fact_type: "concierge", fact_key: "TOTAL_REVENUE", fact_value_num: 2000000, fact_period_start: "2025-01-01", fact_period_end: "2025-12-31", provenance: { source: "concierge", golden_test: true } }, { deal_id: c.dealId, bank_id: c.brokerageBankId, fact_type: "concierge", fact_key: "YEARS_IN_BUSINESS", fact_value_num: 8, provenance: { source: "concierge", golden_test: true } }]);
+  const { error: e3 } = await c.sb.from("deal_financial_facts").insert([{ deal_id: c.dealId, bank_id: c.brokerageBankId, fact_type: "concierge", fact_key: "TOTAL_REVENUE", fact_value_num: 2000000, fact_period_start: "2025-01-01", fact_period_end: "2025-12-31", provenance: { source: "concierge", golden_test: true } }, { deal_id: c.dealId, bank_id: c.brokerageBankId, fact_type: "concierge", fact_key: "YEARS_IN_BUSINESS", fact_value_num: 8, fact_period_start: "2025-01-01", fact_period_end: "2025-12-31", provenance: { source: "concierge", golden_test: true } }]);
   if (e3) return { ok: false, error: `facts: ${e3.message}` };
   return { ok: true };
 }
@@ -126,6 +127,18 @@ async function s8(c: Ctx): Promise<StepResult> {
 }
 
 async function s9(c: Ctx): Promise<StepResult> {
+  const { data: fixture, error: fixtureError } = await c.sb
+    .from("banks")
+    .select("id")
+    .eq("name", LENDER)
+    .eq("is_sandbox", true)
+    .limit(1)
+    .maybeSingle();
+  if (fixtureError) return { ok: false, error: `bank lookup: ${fixtureError.message}` };
+  if (fixture?.id) {
+    c.lenderBankId = String(fixture.id);
+    c.preserveLenderBank = true;
+  }
   const { data: ex } = await c.sb.from("banks").select("id").eq("id", c.lenderBankId).maybeSingle();
   if (!ex) { const { error } = await c.sb.from("banks").insert({ id: c.lenderBankId, code: `GOLDEN_TEST_${c.lenderBankId.slice(0, 8)}`, name: LENDER, bank_kind: "commercial_bank", is_sandbox: true }); if (error && !error.message?.includes("duplicate")) return { ok: false, error: `bank: ${error.message}` }; }
   const { data: ag } = await c.sb.from("lender_marketplace_agreements").select("id").eq("lender_bank_id", c.lenderBankId).eq("status", "active").maybeSingle();
@@ -145,8 +158,18 @@ async function s10(c: Ctx): Promise<StepResult> {
     await c.sb.from("marketplace_audit_log").insert({ listing_id: c.listingId, deal_id: c.dealId, actor_bank_id: c.lenderBankId, actor_scope: "lender", action: "claim_succeeded", metadata: { claim_id: cid, golden_test: true } });
     c.claimId = cid; return { ok: true, data: { method: "direct" } };
   }
-  const r = data as any;
-  if (!r?.ok) return { ok: false, error: `claim rpc: ${r?.error ?? "unknown"}` };
+  const raw = Array.isArray(data) ? data[0] : data;
+  const r = raw as any;
+  // The production RPC contract returns `{ status: "claimed", claim_id }`.
+  // Older deployments returned `{ ok: true, claim_id }`; accept both while
+  // remaining fail-closed for every other status or malformed response.
+  const claimed = r?.ok === true || r?.status === "claimed";
+  if (!claimed || !r?.claim_id) {
+    return {
+      ok: false,
+      error: `claim rpc: ${r?.error ?? r?.status ?? "malformed_response"}`,
+    };
+  }
   c.claimId = String(r.claim_id); return { ok: true, data: { method: "rpc" } };
 }
 
@@ -189,7 +212,7 @@ const STEPS: Array<{ name: string; fn: (c: Ctx) => Promise<StepResult> }> = [
   { name: "ops_validation", fn: s13 },
 ];
 
-export async function cleanupGoldenRun(sb: any, dealId: string): Promise<void> {
+export async function cleanupGoldenRun(sb: any, dealId: string, lenderBankId?: string): Promise<void> {
   // marketplace_claims has no deal_id — resolve via the deal's listings.
   const { data: listings } = await sb.from("marketplace_listings").select("id").eq("deal_id", dealId);
   const listingIds = ((listings ?? []) as Array<{ id: string }>).map((l) => l.id);
@@ -200,22 +223,33 @@ export async function cleanupGoldenRun(sb: any, dealId: string): Promise<void> {
     await sb.from(t).delete().eq("deal_id", dealId);
   }
   await sb.from("deals").delete().eq("id", dealId);
+  if (lenderBankId) {
+    const { data: bank } = await sb
+      .from("banks")
+      .select("*")
+      .eq("id", lenderBankId)
+      .maybeSingle();
+    if (bank?.is_sandbox === true && String(bank.code ?? "").startsWith("GOLDEN_TEST_")) {
+      await sb.from("lender_marketplace_agreements").delete().eq("lender_bank_id", lenderBankId);
+      await sb.from("banks").delete().eq("id", lenderBankId);
+    }
+  }
 }
 
 export async function runGoldenBrokerageRun(args: {
   sb: any; brokerageBankId: string; lenderBankId?: string; cleanup?: boolean;
 }): Promise<GoldenRunResult> {
   const start = Date.now();
-  const c: Ctx = { sb: args.sb, brokerageBankId: args.brokerageBankId, dealId: "", lenderBankId: args.lenderBankId ?? uuid(), sealedPackageId: "", listingId: "", claimId: "", pickId: "", accessId: "", score: 0, band: "" };
+  const c: Ctx = { sb: args.sb, brokerageBankId: args.brokerageBankId, dealId: "", lenderBankId: args.lenderBankId ?? uuid(), sealedPackageId: "", listingId: "", claimId: "", pickId: "", accessId: "", score: 0, band: "", preserveLenderBank: Boolean(args.lenderBankId) };
 
   for (const step of STEPS) {
     const r = await step.fn(c);
     if (!r.ok) {
-      if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId).catch(() => {});
+      if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId, c.preserveLenderBank ? undefined : c.lenderBankId).catch(() => {});
       return { ok: false, dealId: c.dealId, listingId: c.listingId, claimId: c.claimId, pickId: c.pickId, accessId: c.accessId, lenderBankId: c.lenderBankId, lenderName: LENDER, score: c.score, band: c.band, elapsed: Date.now() - start, evidenceClass: "synthetic_direct_insert", commissionsGoldenTrident: false, failedStage: step.name, failedReason: r.error };
     }
   }
 
-  if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId).catch(() => {});
+  if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId, c.preserveLenderBank ? undefined : c.lenderBankId).catch(() => {});
   return { ok: true, dealId: c.dealId, listingId: c.listingId, claimId: c.claimId, pickId: c.pickId, accessId: c.accessId, lenderBankId: c.lenderBankId, lenderName: LENDER, score: c.score, band: c.band, elapsed: Date.now() - start, evidenceClass: "synthetic_direct_insert", commissionsGoldenTrident: false };
 }
