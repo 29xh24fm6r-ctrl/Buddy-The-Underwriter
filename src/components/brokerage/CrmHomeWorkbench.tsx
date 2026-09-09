@@ -89,16 +89,16 @@ export function CrmHomeWorkbench({ loading: relationshipLoading, error: relation
               {([["all", "All priorities"], ["critical", "Critical"], ["unassigned", "Needs an owner"], ["stalled", "Stalled"]] as const).map(([id, label]) => <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}
             </div>
             <div className="crm-command-worklist">
-              {work.slice(0, 12).map((item, index) => (
+              {work.slice(0, 5).map((item, index) => (
                 <article key={item.id} className={`crm-command-work crm-command-${item.severity}`}>
                   <span className="crm-command-rank">{String(index + 1).padStart(2, "0")}</span>
                   <div><div className="crm-command-work-meta"><span>{humanLabel(item.stageGroup)}</span>{item.daysInStage !== null ? <span>{item.daysInStage} days in stage</span> : null}{item.amount ? <span>{money(item.amount)}</span> : null}</div><h3>{item.title}</h3><p>{item.reasons.join(" · ")}</p>{item.nextTask ? <small>Next: {item.nextTask.title}</small> : <small>Buddy needs a named next action before this deal can disappear from the queue.</small>}</div>
                   <Link className="crm-row-action" href={`/admin/brokerage/pipeline/${item.id}`}>Move it forward →</Link>
                 </article>
               ))}
-              {!work.length ? <div className="crm-empty"><span className="crm-empty-symbol">✓</span><h3>This queue is clear</h3><p>Choose another filter or keep building relationships.</p></div> : null}
+              {!work.length ? <div className="crm-empty crm-command-celebration"><span className="crm-empty-symbol">✓</span><h3>You cleared this view</h3><p>No hidden work here. Choose another filter or invest the time in a relationship.</p><Link className="crm-secondary-button" href={`${CRM_ROOT}?view=relationships`}>Choose a relationship →</Link></div> : null}
             </div>
-            {work.length > 12 ? <footer><Link className="crm-text-link" href="/admin/brokerage/pipeline?attention=1">See all {work.length} deals needing attention →</Link></footer> : null}
+            {work.length > 5 ? <footer><span>Showing the five highest priorities.</span><Link className="crm-text-link" href="/admin/brokerage/pipeline?attention=1">Open all {work.length} in the rescue queue →</Link></footer> : null}
           </section>
 
           <section className="crm-command-funnel">
