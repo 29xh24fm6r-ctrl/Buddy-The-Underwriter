@@ -66,13 +66,25 @@ function createFakeSupabase(seed: FakeTables) {
           return { data: rows[0], error: null };
         },
         update(patch: Row) {
-          return {
-            eq: async (key: string, value: any) => {
-              const rows = applyFilters(tables[tableName], [{ key, value }]);
-              rows.forEach((row) => Object.assign(row, patch));
-              return { data: rows[0] ?? null, error: null };
+          // Chainable AND awaitable, like the real client: `.eq().eq().select()`
+          // and `await ...update().eq()` both apply the patch to matching rows.
+          const filters: Array<{ key: string; value: any }> = [];
+          const apply = () => {
+            const rows = applyFilters(tables[tableName], filters);
+            rows.forEach((row) => Object.assign(row, patch));
+            return rows;
+          };
+          const chain: any = {
+            eq(key: string, value: any) {
+              filters.push({ key, value });
+              return chain;
+            },
+            select: async () => ({ data: apply().map((r) => ({ id: r.id })), error: null }),
+            then(resolve: (v: any) => void, reject?: (e: any) => void) {
+              return Promise.resolve({ data: apply()[0] ?? null, error: null }).then(resolve, reject);
             },
           };
+          return chain;
         },
         upsert: async (rows: Row[]) => {
           rows.forEach((row) => {

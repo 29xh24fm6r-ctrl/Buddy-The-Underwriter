@@ -100,10 +100,16 @@ export async function advanceDealLifecycle(params: {
     } as const;
   }
 
-  const { error: updateErr } = await sb
+  // Conditional on the stage this call read: two callers that both saw
+  // `current` (2026-09-09 16:15 UTC: the rail poll and the readiness refresh
+  // both advanced underwriting → ready and both wrote a transition) can only
+  // have one of them match. The loser matches zero rows.
+  const { data: affected, error: updateErr } = await sb
     .from("deals")
     .update({ stage: toStage })
-    .eq("id", dealId);
+    .eq("id", dealId)
+    .eq("stage", current)
+    .select("id");
 
   if (updateErr) {
     return { ok: false, error: "lifecycle_update_failed" } as const;
@@ -125,6 +131,13 @@ export async function advanceDealLifecycle(params: {
       from: current,
       to: toStage,
     } as const;
+  }
+
+  if ((affected ?? []).length === 0) {
+    // Another caller performed this exact transition between our read and
+    // our write. The stage is where we wanted it; the transition has already
+    // been recorded once, and it must not be recorded again.
+    return { ok: true, already: true, stage: toStage, concurrent: true } as const;
   }
 
   const ledgerResult = await ledgerWrite({
