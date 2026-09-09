@@ -22,17 +22,24 @@ jobs:
     environment: Production
     timeout-minutes: 10
     env:
-      DATABASE_URL: ${{ secrets.DRIFT_DETECT_DB_URL }}
+      MIGRATION_DATABASE_URL: ${{ secrets.BROKERAGE_MIGRATION_DB_URL }}
+      VERIFICATION_DATABASE_URL: ${{ secrets.DRIFT_DETECT_DB_URL }}
     steps:
       - uses: actions/checkout@v6
-      - name: Require production database connection
+      - name: Require production database connections
         shell: bash
-        run: test -n "$DATABASE_URL"
+        run: |
+          test -n "$MIGRATION_DATABASE_URL"
+          test -n "$VERIFICATION_DATABASE_URL"
+      - name: Require signing-request table ownership
+        shell: bash
+        run: |
+          test "$(psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select pg_has_role(current_user, c.relowner, 'USAGE') from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname = 'signing_requests'")" = "t"
       - name: Apply repeat-safe signing-request reconciliation
         shell: bash
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260908173321_reconcile_signing_request_idempotency.sql
+        run: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260908173321_reconcile_signing_request_idempotency.sql
       - name: Verify repaired contract
         shell: bash
         run: |
-          test "$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from information_schema.columns where table_schema='public' and table_name='signing_requests' and column_name='idempotency_key'")" = "1"
-          test "$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_indexes where schemaname='public' and indexname='ux_signing_requests_idempotency_key'")" = "1"
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from information_schema.columns where table_schema='public' and table_name='signing_requests' and column_name='idempotency_key'")" = "1"
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_indexes where schemaname='public' and indexname='ux_signing_requests_idempotency_key'")" = "1"
