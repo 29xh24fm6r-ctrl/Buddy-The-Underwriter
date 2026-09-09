@@ -48,6 +48,7 @@ type Ctx = {
   sb: any; brokerageBankId: string; dealId: string; lenderBankId: string;
   sealedPackageId: string; listingId: string; claimId: string;
   pickId: string; accessId: string; score: number; band: string;
+  preserveLenderBank: boolean;
 };
 
 const NAME = "Golden Test Manufacturing LLC";
@@ -126,6 +127,18 @@ async function s8(c: Ctx): Promise<StepResult> {
 }
 
 async function s9(c: Ctx): Promise<StepResult> {
+  const { data: fixture, error: fixtureError } = await c.sb
+    .from("banks")
+    .select("id")
+    .eq("name", LENDER)
+    .eq("is_sandbox", true)
+    .limit(1)
+    .maybeSingle();
+  if (fixtureError) return { ok: false, error: `bank lookup: ${fixtureError.message}` };
+  if (fixture?.id) {
+    c.lenderBankId = String(fixture.id);
+    c.preserveLenderBank = true;
+  }
   const { data: ex } = await c.sb.from("banks").select("id").eq("id", c.lenderBankId).maybeSingle();
   if (!ex) { const { error } = await c.sb.from("banks").insert({ id: c.lenderBankId, code: `GOLDEN_TEST_${c.lenderBankId.slice(0, 8)}`, name: LENDER, bank_kind: "commercial_bank", is_sandbox: true }); if (error && !error.message?.includes("duplicate")) return { ok: false, error: `bank: ${error.message}` }; }
   const { data: ag } = await c.sb.from("lender_marketplace_agreements").select("id").eq("lender_bank_id", c.lenderBankId).eq("status", "active").maybeSingle();
@@ -227,16 +240,16 @@ export async function runGoldenBrokerageRun(args: {
   sb: any; brokerageBankId: string; lenderBankId?: string; cleanup?: boolean;
 }): Promise<GoldenRunResult> {
   const start = Date.now();
-  const c: Ctx = { sb: args.sb, brokerageBankId: args.brokerageBankId, dealId: "", lenderBankId: args.lenderBankId ?? uuid(), sealedPackageId: "", listingId: "", claimId: "", pickId: "", accessId: "", score: 0, band: "" };
+  const c: Ctx = { sb: args.sb, brokerageBankId: args.brokerageBankId, dealId: "", lenderBankId: args.lenderBankId ?? uuid(), sealedPackageId: "", listingId: "", claimId: "", pickId: "", accessId: "", score: 0, band: "", preserveLenderBank: Boolean(args.lenderBankId) };
 
   for (const step of STEPS) {
     const r = await step.fn(c);
     if (!r.ok) {
-      if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId, args.lenderBankId ? undefined : c.lenderBankId).catch(() => {});
+      if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId, c.preserveLenderBank ? undefined : c.lenderBankId).catch(() => {});
       return { ok: false, dealId: c.dealId, listingId: c.listingId, claimId: c.claimId, pickId: c.pickId, accessId: c.accessId, lenderBankId: c.lenderBankId, lenderName: LENDER, score: c.score, band: c.band, elapsed: Date.now() - start, evidenceClass: "synthetic_direct_insert", commissionsGoldenTrident: false, failedStage: step.name, failedReason: r.error };
     }
   }
 
-  if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId, args.lenderBankId ? undefined : c.lenderBankId).catch(() => {});
+  if (args.cleanup && c.dealId) await cleanupGoldenRun(args.sb, c.dealId, c.preserveLenderBank ? undefined : c.lenderBankId).catch(() => {});
   return { ok: true, dealId: c.dealId, listingId: c.listingId, claimId: c.claimId, pickId: c.pickId, accessId: c.accessId, lenderBankId: c.lenderBankId, lenderName: LENDER, score: c.score, band: c.band, elapsed: Date.now() - start, evidenceClass: "synthetic_direct_insert", commissionsGoldenTrident: false };
 }
