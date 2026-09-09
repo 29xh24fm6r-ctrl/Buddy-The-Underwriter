@@ -88,22 +88,9 @@ export async function advanceDealLifecycle(
     };
   }
 
-  // 4. Emit lifecycle advancement event
-  await writeEvent({
-    dealId,
-    kind: LedgerEventType.lifecycle_advanced,
-    actorUserId: actor.id,
-    input: {
-      from: state.stage,
-      to: nextStage,
-      actor: {
-        type: actor.type,
-        id: actor.id,
-      },
-    },
-  });
-
-  // 5. Advance underlying stage model if needed
+  // 4. Advance the underlying stage model first. Its write is conditional on
+  // the stage it read, so exactly one of two concurrent callers owns the
+  // transition; the other learns it already happened and records nothing.
   const underlyingStage = mapToUnderlyingStage(nextStage);
   if (underlyingStage) {
     const result = await advanceDealLifecycleCore({
@@ -118,6 +105,16 @@ export async function advanceDealLifecycle(
       },
     });
 
+    if (result.ok && result.already && "concurrent" in result && result.concurrent) {
+      const settled = await deriveLifecycleState(dealId);
+      return {
+        ok: true,
+        advanced: false,
+        state: settled,
+        reason: `already_advanced_concurrently_to_${nextStage}`,
+      };
+    }
+
     // If the underlying advance fails, it's not necessarily a problem
     // The unified stage may have advanced without the underlying stage changing
     if (!result.ok && result.error !== "invalid_transition") {
@@ -127,6 +124,21 @@ export async function advanceDealLifecycle(
       );
     }
   }
+
+  // 5. Emit lifecycle advancement event — once, by the caller that owns it
+  await writeEvent({
+    dealId,
+    kind: LedgerEventType.lifecycle_advanced,
+    actorUserId: actor.id,
+    input: {
+      from: state.stage,
+      to: nextStage,
+      actor: {
+        type: actor.type,
+        id: actor.id,
+      },
+    },
+  });
 
   // 6. Sync borrower-facing deal_status (fail-soft)
   await syncBorrowerStatus(dealId, nextStage, actor);

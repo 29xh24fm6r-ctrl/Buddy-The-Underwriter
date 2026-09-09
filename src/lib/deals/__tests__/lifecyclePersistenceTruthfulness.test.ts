@@ -9,6 +9,8 @@ function createLifecycleDb(opts?: {
   lookupError?: Error | null;
   updateError?: Error | null;
   silentUpdate?: boolean;
+  /** Another caller advances the row between this caller's read and write. */
+  concurrentWinner?: boolean;
 }) {
   let stage = opts?.stage ?? "collecting";
   const bankId = opts?.bankId === undefined ? "bank-1" : opts.bankId;
@@ -33,12 +35,29 @@ function createLifecycleDb(opts?: {
           error: opts?.lookupError ?? null,
         }),
         update(patch: { stage: string }) {
-          return {
-            eq: async () => {
-              if (!opts?.updateError && !opts?.silentUpdate) stage = patch.stage;
-              return { error: opts?.updateError ?? null };
+          const filters: Array<[string, string]> = [];
+          const chain: any = {
+            eq(column: string, value: string) {
+              filters.push([column, value]);
+              return chain;
+            },
+            select: async () => {
+              if (opts?.updateError) return { data: null, error: opts.updateError };
+              if (opts?.silentUpdate) return { data: [], error: null };
+              if (opts?.concurrentWinner) {
+                // The other caller's write landed first: the row is already at
+                // the target, and our conditional write matched nothing.
+                stage = patch.stage;
+                return { data: [], error: null };
+              }
+              // Conditional write: only matches when the stage filter still holds.
+              const stageFilter = filters.find(([c]) => c === "stage")?.[1];
+              if (stageFilter !== undefined && stageFilter !== stage) return { data: [], error: null };
+              stage = patch.stage;
+              return { data: [{ id: "deal-1" }], error: null };
             },
           };
+          return chain;
         },
       };
       return builder;
@@ -129,4 +148,42 @@ test("reports success only after state and both evidence writes persist", async 
     to: "underwriting",
   });
   assert.equal(sb.stage, "underwriting");
+});
+
+test("a caller that lost a concurrent race reports already:true and records no transition", async () => {
+  // Production 2026-09-09 16:15 UTC: the rail poll and the readiness refresh
+  // both read "underwriting", both advanced to "ready", and both wrote a
+  // deal.lifecycle.advanced event for the same transition.
+  const sb = createLifecycleDb({ stage: "underwriting", concurrentWinner: true });
+  let events = 0;
+  const result = await advanceDealLifecycle({
+    ...params(sb),
+    toStage: "ready" as const,
+    deps: {
+      sb,
+      writeEvent: async () => { events += 1; return { ok: true }; },
+      logLedgerEvent: async () => { events += 1; return { ok: true }; },
+    },
+  });
+  assert.deepEqual(result, { ok: true, already: true, stage: "ready", concurrent: true });
+  assert.equal(events, 0, "the loser must not record the transition again");
+  assert.equal(sb.stage, "ready");
+});
+
+test("the caller whose conditional write matches records exactly one transition", async () => {
+  const sb = createLifecycleDb({ stage: "underwriting" });
+  let events = 0;
+  const result = await advanceDealLifecycle({
+    ...params(sb),
+    toStage: "ready" as const,
+    deps: {
+      sb,
+      writeEvent: async () => { events += 1; return { ok: true }; },
+      logLedgerEvent: async () => ({ ok: true }),
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal((result as any).already, undefined);
+  assert.equal(events, 1);
+  assert.equal(sb.stage, "ready");
 });
