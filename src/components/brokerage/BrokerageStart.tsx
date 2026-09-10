@@ -13,9 +13,9 @@ export function BrokerageStart() {
     <section className="sba-start" aria-labelledby="sba-start-title">
       <div className="sba-start-heading">
         <div>
-          <p className="sba-eyebrow">BUDDY SBA · TEAM WORKSPACE</p>
-          <h1 id="sba-start-title">Your brokerage. One place to work.</h1>
-          <p>Start with the relationship. Keep the deal moving. Bring your team with you.</p>
+          <p className="sba-eyebrow">BUDDY SBA · BROKERAGE HQ</p>
+          <h1 id="sba-start-title">Run the whole brokerage.</h1>
+          <p>Your business command deck for relationships, deals, lenders, revenue, and team access.</p>
         </div>
         <Link className="sba-primary" href="/admin/brokerage/pipeline/new">+ Add a brokerage deal</Link>
       </div>

@@ -14,7 +14,8 @@ test("every executive surface uses one authoritative operating snapshot", () => 
   assert.match(loader, /buildRevenueOperatingSystem/);
   assert.match(api, /loadRevenueOperatingSystem/);
   assert.match(owner, /loadRevenueOperatingSystem/);
-  assert.match(home, /redirect\("\/admin\/brokerage\/crm"\)/);
+  assert.match(home, /return null/);
+  assert.doesNotMatch(home, /redirect\(/);
   assert.doesNotMatch(home, /from\("deals"\)/);
 });
 
@@ -27,9 +28,9 @@ test("owner command stays inside the brokerage workspace", () => {
   assert.match(legacy, /redirect\("\/admin\/brokerage\/owner"\)/);
   assert.match(owner, /CrmWorkspaceFrame/);
   assert.doesNotMatch(owner, /className="crm-unified/);
-  assert.match(crmFrame, /className="crm-admin-return" href="\/admin"/);
-  assert.match(crmFrame, /className="crm-admin-home-link" href="\/admin"/);
-  assert.match(crmFrame, />Buddy Admin</);
+  assert.match(crmFrame, /className="crm-admin-return" href="\/admin\/brokerage"/);
+  assert.match(crmFrame, /className="crm-admin-home-link" href="\/admin\/brokerage"/);
+  assert.match(crmFrame, />Brokerage HQ</);
 });
 
 test("production certification is explicit, identity-bound, and evidence preserving", () => {

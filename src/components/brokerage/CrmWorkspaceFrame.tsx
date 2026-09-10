@@ -140,9 +140,9 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
             </details>
           </nav>
           <div className="crm-rail-bottom">
-            <Link className="crm-admin-return" href="/admin" prefetch={false}>
+            <Link className="crm-admin-return" href="/admin/brokerage" prefetch={false}>
               <span aria-hidden="true">⌂</span>
-              <span><strong>Buddy Admin</strong><small>Platform tools &amp; settings</small></span>
+              <span><strong>Brokerage HQ</strong><small>Run the business</small></span>
               <span aria-hidden="true">↗</span>
             </Link>
             <button onClick={() => setGuide((v) => !v)}>
@@ -178,8 +178,8 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
               </span>
             </span>
             <div className="crm-account-actions">
-              <Link className="crm-admin-home-link" href="/admin" prefetch={false}>
-                <span aria-hidden="true">⌂</span> Buddy Admin
+              <Link className="crm-admin-home-link" href="/admin/brokerage" prefetch={false}>
+                <span aria-hidden="true">⌂</span> Brokerage HQ
               </Link>
               <button onClick={() => setSearch(true)}>
                 Find a company or person <span aria-hidden="true">⌕</span>
