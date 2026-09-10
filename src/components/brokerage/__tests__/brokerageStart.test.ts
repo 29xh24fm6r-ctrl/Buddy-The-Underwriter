@@ -6,10 +6,11 @@ import { BrokerageStart } from "../BrokerageStart";
 
 test("brokerage home offers the real staff workflows without routing to bank deals", () => {
   const html = renderToStaticMarkup(React.createElement(BrokerageStart));
-  for (const href of ["/admin/brokerage/pipeline", "/admin/brokerage/pipeline/new", "/admin/brokerage/crm", "/admin/brokerage/crm/buyers", "/admin/brokerage/team", "/admin/brokerage/billing"]) {
+  for (const href of ["/admin/brokerage/pipeline", "/admin/brokerage/pipeline/new", "/admin/brokerage/crm", "/admin/brokerage/crm/buyers", "/admin/brokerage/team", "/admin/brokerage/billing", "/admin/brokerage/owner"]) {
     assert.ok(html.includes(`href="${href}"`), href);
   }
   assert.doesNotMatch(html, /href="\/deals"/);
+  assert.doesNotMatch(html, /href="\/admin\/brokerage-owner"/);
   assert.match(html, /Documents and underwriting stay attached to each deal/);
   assert.match(html, /<h1/);
 });

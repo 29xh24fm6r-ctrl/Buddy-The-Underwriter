@@ -12,6 +12,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolveLenderIdentity } from "@/lib/brokerage/lenderAuth";
+import { parseMarketplaceClaimRpcResponse } from "@/lib/brokerage/marketplaceClaimContract";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,12 +47,14 @@ export async function POST(
     const status = CONFLICT.has(reason) ? 409 : 400;
     return NextResponse.json({ ok: false, error: reason }, { status });
   }
-  const claim = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
-  if (!claim || claim.status !== "claimed" || typeof claim.claim_id !== "string") {
-    const reason = typeof claim?.status === "string" ? claim.status : "malformed_claim_response";
+  const parsed = parseMarketplaceClaimRpcResponse(data);
+  if (!parsed) {
+    const raw = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
+    const reason = typeof raw?.status === "string" ? raw.status : "malformed_claim_response";
     const status = CONFLICT.has(reason) ? 409 : 400;
     return NextResponse.json({ ok: false, error: reason }, { status });
   }
+  const { claim, claimId } = parsed;
 
   // Confirm to the lender (best-effort, non-fatal).
   try {
@@ -60,7 +63,7 @@ export async function POST(
       "claim_confirmed",
       {
         listingId,
-        claimId: claim.claim_id,
+        claimId,
         lenderBankId: lender.lenderBankId,
         stage: "claim",
       },

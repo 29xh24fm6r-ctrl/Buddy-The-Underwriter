@@ -64,7 +64,9 @@ test("borrower certification validates the journey it actually performs", () => 
   assert.doesNotMatch(runner, /SYNTH_POLL_MAX_ATTEMPTS/);
   assert.match(runner, /response\.status !== 429/);
   assert.match(runner, /response\.headers\.get\("retry-after"\)/);
-  assert.match(runner, /rate limited; pacing next turn/);
+  assert.match(runner, /rate limited; pacing \$\{operation\}/);
+  assert.match(runner, /fetchWithRateLimitPacing\([\s\S]*?upload\/prepare/);
+  assert.match(runner, /"upload preparation"/);
 });
 
 test("schema reconciliation is repeat-safe and restores signing idempotency", () => {

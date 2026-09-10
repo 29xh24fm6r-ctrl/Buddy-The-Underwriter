@@ -74,20 +74,12 @@ function captureSetCookieJar(headers: Headers): string {
     .join("; ");
 }
 
-async function postConciergeWithRateLimitPacing(args: {
-  baseUrl: string;
-  cookieJar: string;
-  userMessage: string;
-}): Promise<Response> {
+async function fetchWithRateLimitPacing(
+  request: () => Promise<Response>,
+  operation: string,
+): Promise<Response> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const response = await fetch(`${args.baseUrl}/api/brokerage/concierge`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(args.cookieJar ? { cookie: args.cookieJar } : {}),
-      },
-      body: JSON.stringify({ userMessage: args.userMessage }),
-    });
+    const response = await request();
     if (response.status !== 429 || attempt === 2) return response;
 
     const retryAfter = Number(response.headers.get("retry-after") ?? "60");
@@ -96,11 +88,29 @@ async function postConciergeWithRateLimitPacing(args: {
       65,
     );
     console.log(
-      `[synth-borrower-e2e] rate limited; pacing next turn for ${waitSeconds}s`,
+      `[synth-borrower-e2e] rate limited; pacing ${operation} for ${waitSeconds}s`,
     );
     await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
   }
-  throw new Error("unreachable concierge retry state");
+  throw new Error("unreachable rate-limit retry state");
+}
+
+async function postConciergeWithRateLimitPacing(args: {
+  baseUrl: string;
+  cookieJar: string;
+  userMessage: string;
+}): Promise<Response> {
+  return fetchWithRateLimitPacing(
+    () => fetch(`${args.baseUrl}/api/brokerage/concierge`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(args.cookieJar ? { cookie: args.cookieJar } : {}),
+      },
+      body: JSON.stringify({ userMessage: args.userMessage }),
+    }),
+    "next turn",
+  );
 }
 
 async function runFixture(
@@ -169,13 +179,16 @@ async function runFixture(
   }
 
   // Mint an upload link (idempotent — repeat call returns same token).
-  const prep = await fetch(`${baseUrl}/api/brokerage/upload/prepare`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      cookie: cookieJar,
-    },
-  });
+  const prep = await fetchWithRateLimitPacing(
+    () => fetch(`${baseUrl}/api/brokerage/upload/prepare`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: cookieJar,
+      },
+    }),
+    "upload preparation",
+  );
   if (!prep.ok) {
     return {
       fixture_id: fixture.fixture_id,

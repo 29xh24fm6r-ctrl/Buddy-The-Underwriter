@@ -24,6 +24,8 @@
  *     active, losing claims expire
  */
 
+import { parseMarketplaceClaimRpcResponse } from "./marketplaceClaimContract";
+
 export type GoldenRunResult = {
   ok: boolean;
   dealId: string;
@@ -158,19 +160,16 @@ async function s10(c: Ctx): Promise<StepResult> {
     await c.sb.from("marketplace_audit_log").insert({ listing_id: c.listingId, deal_id: c.dealId, actor_bank_id: c.lenderBankId, actor_scope: "lender", action: "claim_succeeded", metadata: { claim_id: cid, golden_test: true } });
     c.claimId = cid; return { ok: true, data: { method: "direct" } };
   }
-  const raw = Array.isArray(data) ? data[0] : data;
-  const r = raw as any;
-  // The production RPC contract returns `{ status: "claimed", claim_id }`.
-  // Older deployments returned `{ ok: true, claim_id }`; accept both while
-  // remaining fail-closed for every other status or malformed response.
-  const claimed = r?.ok === true || r?.status === "claimed";
-  if (!claimed || !r?.claim_id) {
+  const parsed = parseMarketplaceClaimRpcResponse(data);
+  if (!parsed) {
+    const raw = Array.isArray(data) ? data[0] : data;
+    const r = raw as any;
     return {
       ok: false,
       error: `claim rpc: ${r?.error ?? r?.status ?? "malformed_response"}`,
     };
   }
-  c.claimId = String(r.claim_id); return { ok: true, data: { method: "rpc" } };
+  c.claimId = parsed.claimId; return { ok: true, data: { method: "rpc" } };
 }
 
 async function s11(c: Ctx): Promise<StepResult> {

@@ -18,6 +18,10 @@ const FUNNEL_LABELS: Record<string, string> = {
   qualifying: "Qualifying", packaging: "Packaging", out_to_banks: "Out to banks",
   term_sheet: "Term sheet", closing: "Closing", funded: "Funded",
 };
+const MISSION_ICONS: Record<string, string> = {
+  "deal-owners": "◎", "next-actions": "↗", "relationship-owners": "◇",
+  "lender-readiness": "⌁", "message-readiness": "✦",
+};
 
 export function CrmHomeWorkbench({ loading: relationshipLoading, error: relationshipError, activity, organizations = [] }: React.ComponentProps<typeof CrmToday>) {
   const workspace = useCrmWorkspace();
@@ -56,12 +60,32 @@ export function CrmHomeWorkbench({ loading: relationshipLoading, error: relation
 
   const setupPercent = Math.round((command.setup.complete / command.setup.total) * 100);
   const maxFunnel = Math.max(...command.funnel.map((stage) => stage.count), 1);
+  const nextBestMove = command.work[0];
   return (
     <div className="crm-home crm-command-home">
       <section className="crm-command-hero">
-        <div><p className="crm-eyebrow">TODAY AT BUDDY SBA</p><h1>Turn attention into momentum.</h1><p>One operating picture for every lead, relationship, deal, lender, and next action.</p></div>
-        <div className="crm-command-actions"><Link className="crm-secondary-button" href="/admin/brokerage/pipeline?attention=1">Rescue the pipeline</Link><Link className="crm-button" href="/admin/brokerage/pipeline/new">+ Load a deal</Link></div>
+        <div><p className="crm-eyebrow">TODAY AT BUDDY SBA</p><h1>Make today count.</h1><p>Buddy has already organized the brokerage. Start with the move that creates the most momentum.</p></div>
+        <div className="crm-command-actions"><Link className="crm-secondary-button" href="/admin/brokerage/pipeline?attention=1">Open rescue queue</Link><Link className="crm-button" href="/admin/brokerage/pipeline/new">+ Load a deal</Link></div>
       </section>
+
+      <section className={`crm-daily-move ${nextBestMove ? "" : "crm-daily-move-clear"}`} aria-labelledby="crm-daily-move-title">
+        <div className="crm-daily-sparks" aria-hidden="true"><i /><i /><i /><i /><i /></div>
+        <div className="crm-daily-orbit" aria-hidden="true"><i /><i /><b>{nextBestMove ? "01" : "✓"}</b></div>
+        <div className="crm-daily-copy">
+          <p className="crm-eyebrow">YOUR NEXT BEST MOVE</p>
+          <h2 id="crm-daily-move-title">{nextBestMove ? nextBestMove.title : "The priority queue is clear."}</h2>
+          {nextBestMove ? <><p>{nextBestMove.reasons.join(" · ")}</p><small>{nextBestMove.nextTask ? `Next action: ${nextBestMove.nextTask.title}` : "Add a clear next action so the team always knows how to advance this deal."}</small></> : <p>No active deal is missing an owner, next action, or timely follow-through. Invest the next block in a relationship.</p>}
+        </div>
+        <div className="crm-daily-action">{nextBestMove ? <Link className="crm-button" href={`/admin/brokerage/pipeline/${nextBestMove.id}`}>Focus this deal →</Link> : <Link className="crm-button" href={`${CRM_ROOT}?view=relationships`}>Strengthen a relationship →</Link>}<span>{nextBestMove?.amount ? money(nextBestMove.amount) : "Queue complete"}</span></div>
+      </section>
+
+      <nav className="crm-quick-launch" aria-label="Quick actions">
+        <span>QUICK START</span>
+        <Link href={`${CRM_ROOT}/leads`}>Capture a lead <b>+</b></Link>
+        <Link href="/admin/brokerage/pipeline/new">Load a qualified deal <b>+</b></Link>
+        <Link href={`${CRM_ROOT}?view=relationships`}>Add a company <b>+</b></Link>
+        <Link href={`${CRM_ROOT}/buyers`}>Record a lender placement <b>↗</b></Link>
+      </nav>
 
       <section className="crm-command-scoreboard" aria-label="Brokerage operating totals">
         <Link href="/admin/brokerage/pipeline"><span>ACTIVE DEALS</span><strong>{command.metrics.activeDeals}</strong><small>{money(command.metrics.pipelineValue)} in pipeline</small></Link>
@@ -89,16 +113,16 @@ export function CrmHomeWorkbench({ loading: relationshipLoading, error: relation
               {([["all", "All priorities"], ["critical", "Critical"], ["unassigned", "Needs an owner"], ["stalled", "Stalled"]] as const).map(([id, label]) => <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}
             </div>
             <div className="crm-command-worklist">
-              {work.slice(0, 12).map((item, index) => (
+              {work.slice(0, 5).map((item, index) => (
                 <article key={item.id} className={`crm-command-work crm-command-${item.severity}`}>
                   <span className="crm-command-rank">{String(index + 1).padStart(2, "0")}</span>
                   <div><div className="crm-command-work-meta"><span>{humanLabel(item.stageGroup)}</span>{item.daysInStage !== null ? <span>{item.daysInStage} days in stage</span> : null}{item.amount ? <span>{money(item.amount)}</span> : null}</div><h3>{item.title}</h3><p>{item.reasons.join(" · ")}</p>{item.nextTask ? <small>Next: {item.nextTask.title}</small> : <small>Buddy needs a named next action before this deal can disappear from the queue.</small>}</div>
                   <Link className="crm-row-action" href={`/admin/brokerage/pipeline/${item.id}`}>Move it forward →</Link>
                 </article>
               ))}
-              {!work.length ? <div className="crm-empty"><span className="crm-empty-symbol">✓</span><h3>This queue is clear</h3><p>Choose another filter or keep building relationships.</p></div> : null}
+              {!work.length ? <div className="crm-empty crm-command-celebration"><span className="crm-empty-symbol">✓</span><h3>You cleared this view</h3><p>No hidden work here. Choose another filter or invest the time in a relationship.</p><Link className="crm-secondary-button" href={`${CRM_ROOT}?view=relationships`}>Choose a relationship →</Link></div> : null}
             </div>
-            {work.length > 12 ? <footer><Link className="crm-text-link" href="/admin/brokerage/pipeline?attention=1">See all {work.length} deals needing attention →</Link></footer> : null}
+            {work.length > 5 ? <footer><span>Showing the five highest priorities.</span><Link className="crm-text-link" href="/admin/brokerage/pipeline?attention=1">Open all {work.length} in the rescue queue →</Link></footer> : null}
           </section>
 
           <section className="crm-command-funnel">
@@ -109,6 +133,12 @@ export function CrmHomeWorkbench({ loading: relationshipLoading, error: relation
         </main>
 
         <aside className="crm-command-aside">
+          <section className="crm-momentum-card">
+            <header><div><p className="crm-eyebrow">MOMENTUM ENGINE</p><span className="crm-level-chip">LEVEL {command.momentum.levelNumber}</span><h2>{command.momentum.level}</h2><p>{command.momentum.nextLevel ? `${command.momentum.nextLevelAt - command.momentum.percent} points to unlock ${command.momentum.nextLevel}` : "Every operating foundation is ready."}</p></div><div className="crm-momentum-ring" style={{ "--momentum": `${command.momentum.percent * 3.6}deg` } as React.CSSProperties}><span>{command.momentum.percent}<small>%</small></span></div></header>
+            <div className="crm-level-track"><i style={{ width: `${command.momentum.percent}%` }} /><span style={{ left: `${Math.min(command.momentum.nextLevelAt, 100)}%` }} /></div>
+            <div className="crm-momentum-signals" aria-label="Momentum missions">{command.momentum.signals.map((signal) => <Link href={signal.href} key={signal.id} className={signal.percent === 100 ? "crm-mission-complete" : ""}><em aria-hidden="true">{MISSION_ICONS[signal.id] ?? "✦"}</em><div><span><strong>{signal.label}</strong><b>{signal.percent === 100 ? "Complete" : `+${signal.potential} potential`}</b></span><i><b style={{ width: `${signal.percent}%` }} /></i><small>{signal.detail}</small></div><span aria-hidden="true">{signal.percent === 100 ? "✓" : "→"}</span></Link>)}</div>
+            <details><summary>Why this score is trustworthy</summary><p>Momentum is the equal-weight average of the five visible readiness signals. It only rises when real operating records improve. Empty deal and relationship lists count as covered; missing lender or template foundations do not.</p></details>
+          </section>
           <section className="crm-setup-card">
             <header><div><p className="crm-eyebrow">BROKERAGE SETUP</p><h2>{command.setup.complete} of {command.setup.total} ready</h2></div><span>{setupPercent}%</span></header>
             <div className="crm-setup-progress"><i style={{ width: `${setupPercent}%` }} /></div><p>Finish these once. Buddy will then tell the team what matters every day.</p>

@@ -4,37 +4,29 @@ import "server-only";
 import type { BuddySignalBase } from "@/buddy/signals";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { resolveSignalBankId, type SignalTenantDeps } from "@/buddy/server/resolveSignalBankId";
 
-/**
- * Resolve the tenant for a signal. Browser and route callers carry a Clerk
- * session; background workers (cron ticks, outbox processors, spread jobs)
- * do not, and for them the deal row is the tenant authority. Returns null
- * when neither is available so the caller can skip the write instead of
- * rejecting: an unawaited rejection here has crashed worker invocations
- * (Node exit 128 on the worker tick while the checklist engine emitted
- * signals from a serverless cron context).
- */
-async function resolveSignalBankId(signal: BuddySignalBase): Promise<string | null> {
-  try {
-    return await getCurrentBankId();
-  } catch {
-    // No session (or Clerk not configured) — fall through to the deal.
-  }
-  if (!signal.dealId) return null;
-  try {
-    const { data } = await supabaseAdmin()
-      .from("deals")
-      .select("bank_id")
-      .eq("id", signal.dealId)
-      .maybeSingle();
-    return (data as { bank_id?: string | null } | null)?.bank_id ?? null;
-  } catch {
-    return null;
-  }
+async function lookupDealBankId(dealId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin()
+    .from("deals")
+    .select("bank_id")
+    .eq("id", dealId)
+    .maybeSingle();
+  return (data as { bank_id?: string | null } | null)?.bank_id ?? null;
 }
 
+/**
+ * Deal-scoped signals resolve their tenant from the deal row; only signals
+ * without a deal consult the Clerk session. See resolveSignalBankId for why
+ * the order is load-bearing (worker contexts have no request for Clerk).
+ */
+const signalTenantDeps: SignalTenantDeps = {
+  dealBankId: lookupDealBankId,
+  sessionBankId: getCurrentBankId,
+};
+
 export async function writeBuddySignal(signal: BuddySignalBase) {
-  const bankId = await resolveSignalBankId(signal);
+  const bankId = await resolveSignalBankId(signal, signalTenantDeps);
   if (!bankId) {
     console.warn("[writeBuddySignal] skipped: no tenant for signal", {
       type: signal.type,

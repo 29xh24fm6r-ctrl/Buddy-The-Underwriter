@@ -15,7 +15,7 @@ import { CrmActivityComposer } from "./CrmActivityComposer";
 import { CrmTaskControl } from "./CrmTaskControl";
 import { confirmCrmDiscard } from "./useCrmDraftGuard";
 import { useClerk } from "@clerk/nextjs";
-import { BROKERAGE_WORKSPACE_LINKS } from "@/lib/brokerage/workspaceNavigation";
+import { BROKERAGE_COMMAND, BROKERAGE_WORKSPACE_LINKS } from "@/lib/brokerage/workspaceNavigation";
 
 type RecordTarget = {
   id: string;
@@ -102,7 +102,7 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
     >
       <div className="crm-unified">
         <aside className="crm-rail">
-          <Link href="/admin/brokerage" className="crm-brand">
+          <Link href={CRM_ROOT} className="crm-brand" aria-label="Buddy SBA CRM home">
             <span>B</span>
             <div>
               buddy<span className="crm-brand-caption">SBA BROKERAGE</span>
@@ -166,7 +166,7 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
         <div className="crm-workspace-body">
           <div className="crm-topline">
             <span>
-              <Link href="/admin/brokerage">Buddy SBA</Link>{" "}
+              <Link href={BROKERAGE_COMMAND}>Buddy SBA command</Link>{" "}
               <span className="crm-topline-muted">
                 / CRM & relationships
               </span>
@@ -195,24 +195,27 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
             <section className="crm-onboarding" aria-label="Getting started">
               <div>
                 <p className="crm-eyebrow">A SIMPLE WAY TO WORK</p>
-                <h2>Build the relationship. Move the opportunity.</h2>
+                <h2>One simple path from first hello to funded.</h2>
+                <p>Start wherever the work is today. Buddy keeps the context connected as it moves forward.</p>
               </div>
               <ol>
                 <li>
                   <Link href={`${CRM_ROOT}?view=relationships`}>
-                    Add your companies and people
+                    1. Know the relationship
                   </Link>
-                  <p>Keep everyone connected to one shared record.</p>
+                  <p>Add the company and the people involved. This becomes the shared history.</p>
                 </li>
                 <li>
-                  <Link href={`${CRM_ROOT}/leads`}>Move a lead forward</Link>
-                  <p>Qualify the opportunity and choose its next step.</p>
+                  <Link href={`${CRM_ROOT}/leads`}>2. Qualify the opportunity</Link>
+                  <p>Capture the first conversation, assign an owner, and name the next action.</p>
                 </li>
                 <li>
-                  <Link href={CRM_ROOT}>Keep your commitments</Link>
-                  <p>
-                    Record a conversation, schedule a task, and close the loop.
-                  </p>
+                  <Link href="/admin/brokerage/pipeline">3. Build the deal</Link>
+                  <p>Move qualified work into the brokerage pipeline and prepare the borrower file.</p>
+                </li>
+                <li>
+                  <Link href={`${CRM_ROOT}/buyers`}>4. Place and close</Link>
+                  <p>Match the right lenders, track every response, and keep follow-ups visible.</p>
                 </li>
               </ol>
               <button onClick={() => setGuide(false)}>Close guide</button>

@@ -262,7 +262,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
     </div>
 
     {error && <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12 }}>{error}</div>}
-    {enabled && <details className="crm-quick-capture"><summary>+ Add note · Log call · Log meeting · Set follow-up</summary><CrmActivityComposer key={orgId} organizationId={orgId} organizationName={org.name} onSaved={() => { void load(); }} /></details>}
+    {enabled && <details className="crm-quick-capture"><summary aria-label={`Record activity or set a follow-up for ${org.name}`}><span>+ Record activity or set a follow-up</span><small>Note, call, meeting, or task</small></summary><CrmActivityComposer key={orgId} organizationId={orgId} organizationName={org.name} onSaved={() => { void load(); }} /></details>}
 
     {complete < setup.length && <div style={{ background: "linear-gradient(100deg, rgba(184,144,91,.12), rgba(184,144,91,.035))", border: "1px solid rgba(184,144,91,.28)", borderRadius: 9, padding: 14, marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 10 }}><strong style={{ color: c.paper, fontSize: 13 }}>Finish setting up this relationship</strong><span style={{ color: c.brassBright, fontSize: 11 }}>{complete} of {setup.length} complete</span></div>

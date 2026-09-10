@@ -38,6 +38,21 @@ test("home loads the unified brokerage command center and preserves the full tas
   assert.match(source, /No totals are being presented as zero/);
   assert.match(source, /Your first real opportunity, without the learning curve/);
   assert.match(source, /Capture the opportunity/);
+  assert.match(source, /work\.slice\(0, 5\)/);
+  assert.match(source, /Showing the five highest priorities/);
+  assert.match(source, /You cleared this view/);
+  assert.match(source, /YOUR NEXT BEST MOVE/);
+  assert.match(source, /MOMENTUM ENGINE/);
+  assert.match(source, /Why this score is trustworthy/);
+  assert.match(source, /Momentum missions/);
+  assert.match(source, /Capture a lead/);
+});
+
+test("CRM guidance explains the complete brokerage lifecycle in plain language", () => {
+  const frame = readFileSync("src/components/brokerage/CrmWorkspaceFrame.tsx", "utf8");
+  for (const step of ["Know the relationship", "Qualify the opportunity", "Build the deal", "Place and close"]) {
+    assert.match(frame, new RegExp(step));
+  }
 });
 test("company directory preserves full record links and derived metrics", () => {
   const html = renderToStaticMarkup(
