@@ -40,6 +40,7 @@ export function BuddyPanel() {
     setPanelWidth,
   } = useBuddy();
   const pathname = usePathname();
+  const isCrmWorkspace = pathname?.startsWith("/admin/brokerage/crm") ?? false;
   const [showRaw, setShowRaw] = useState(false);
   const [nowTick, setNowTick] = useState(0);
   const [panelPos, setPanelPos] = useState(() => ({ x: 16, y: 92 }));
@@ -76,7 +77,7 @@ export function BuddyPanel() {
     if (!pathname?.startsWith("/admin/brokerage/crm")) return;
     const placeAwayFromNavigation = () => {
       setPanelPos((current) => ({
-        x: Math.max(8, window.innerWidth - (isMinimized ? 300 : panelWidth) - 20),
+        x: Math.max(8, window.innerWidth - (isMinimized && isCrmWorkspace ? 190 : isMinimized ? 300 : panelWidth) - 20),
         y: Math.max(78, current.y),
       }));
     };
@@ -86,7 +87,7 @@ export function BuddyPanel() {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", placeAwayFromNavigation);
     };
-  }, [isMinimized, panelWidth, pathname]);
+  }, [isCrmWorkspace, isMinimized, panelWidth, pathname]);
   const dealId = useMemo(() => (pathname ? getDealIdFromPath(pathname) : null), [pathname]);
   const aegis = useAegisHealth({ dealId, enabled: true });
   const items = useMemo(() => {
@@ -268,7 +269,7 @@ export function BuddyPanel() {
         <BuddyAvatar size={32} healthSeverity={aegis.severity} />
         <div className="min-w-0">
           <div className="text-sm font-semibold flex items-center gap-2">
-            <span>{header}</span>
+            <span>{isMinimized && isCrmWorkspace ? "Buddy" : header}</span>
             <BuddyStatusDot healthSeverity={aegis.severity} />
           </div>
           {!isMinimized && (
@@ -321,7 +322,7 @@ export function BuddyPanel() {
             data-no-drag="true"
             aria-label={isMinimized ? "Expand Buddy panel" : "Minimize Buddy panel"}
           >
-            {isMinimized ? "Expand" : "Minimize"}
+            {isMinimized ? (isCrmWorkspace ? "Open" : "Expand") : "Minimize"}
           </button>
         </div>
       </div>

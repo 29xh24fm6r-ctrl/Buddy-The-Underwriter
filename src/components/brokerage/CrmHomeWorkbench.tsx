@@ -56,12 +56,31 @@ export function CrmHomeWorkbench({ loading: relationshipLoading, error: relation
 
   const setupPercent = Math.round((command.setup.complete / command.setup.total) * 100);
   const maxFunnel = Math.max(...command.funnel.map((stage) => stage.count), 1);
+  const nextBestMove = command.work[0];
   return (
     <div className="crm-home crm-command-home">
       <section className="crm-command-hero">
-        <div><p className="crm-eyebrow">TODAY AT BUDDY SBA</p><h1>Turn attention into momentum.</h1><p>One operating picture for every lead, relationship, deal, lender, and next action.</p></div>
-        <div className="crm-command-actions"><Link className="crm-secondary-button" href="/admin/brokerage/pipeline?attention=1">Rescue the pipeline</Link><Link className="crm-button" href="/admin/brokerage/pipeline/new">+ Load a deal</Link></div>
+        <div><p className="crm-eyebrow">TODAY AT BUDDY SBA</p><h1>Make today count.</h1><p>Buddy has already organized the brokerage. Start with the move that creates the most momentum.</p></div>
+        <div className="crm-command-actions"><Link className="crm-secondary-button" href="/admin/brokerage/pipeline?attention=1">Open rescue queue</Link><Link className="crm-button" href="/admin/brokerage/pipeline/new">+ Load a deal</Link></div>
       </section>
+
+      <section className={`crm-daily-move ${nextBestMove ? "" : "crm-daily-move-clear"}`} aria-labelledby="crm-daily-move-title">
+        <div className="crm-daily-orbit" aria-hidden="true"><i /><i /><b>{nextBestMove ? "01" : "✓"}</b></div>
+        <div className="crm-daily-copy">
+          <p className="crm-eyebrow">YOUR NEXT BEST MOVE</p>
+          <h2 id="crm-daily-move-title">{nextBestMove ? nextBestMove.title : "The priority queue is clear."}</h2>
+          {nextBestMove ? <><p>{nextBestMove.reasons.join(" · ")}</p><small>{nextBestMove.nextTask ? `Next action: ${nextBestMove.nextTask.title}` : "Add a clear next action so the team always knows how to advance this deal."}</small></> : <p>No active deal is missing an owner, next action, or timely follow-through. Invest the next block in a relationship.</p>}
+        </div>
+        <div className="crm-daily-action">{nextBestMove ? <Link className="crm-button" href={`/admin/brokerage/pipeline/${nextBestMove.id}`}>Focus this deal →</Link> : <Link className="crm-button" href={`${CRM_ROOT}?view=relationships`}>Strengthen a relationship →</Link>}<span>{nextBestMove?.amount ? money(nextBestMove.amount) : "Queue complete"}</span></div>
+      </section>
+
+      <nav className="crm-quick-launch" aria-label="Quick actions">
+        <span>QUICK START</span>
+        <Link href={`${CRM_ROOT}/leads`}>Capture a lead <b>+</b></Link>
+        <Link href="/admin/brokerage/pipeline/new">Load a qualified deal <b>+</b></Link>
+        <Link href={`${CRM_ROOT}?view=relationships`}>Add a company <b>+</b></Link>
+        <Link href={`${CRM_ROOT}/buyers`}>Record a lender placement <b>↗</b></Link>
+      </nav>
 
       <section className="crm-command-scoreboard" aria-label="Brokerage operating totals">
         <Link href="/admin/brokerage/pipeline"><span>ACTIVE DEALS</span><strong>{command.metrics.activeDeals}</strong><small>{money(command.metrics.pipelineValue)} in pipeline</small></Link>
@@ -109,6 +128,12 @@ export function CrmHomeWorkbench({ loading: relationshipLoading, error: relation
         </main>
 
         <aside className="crm-command-aside">
+          <section className="crm-momentum-card">
+            <header><div><p className="crm-eyebrow">OPERATING MOMENTUM</p><h2>{command.momentum.percent}% ready to move</h2></div><div className="crm-momentum-ring" style={{ "--momentum": `${command.momentum.percent * 3.6}deg` } as React.CSSProperties}><span>{command.momentum.percent}</span></div></header>
+            <p>Real workflow readiness, not points. Raise it by assigning ownership, setting next actions, and completing lender and message intelligence.</p>
+            <div className="crm-momentum-signals">{command.momentum.signals.map((signal) => <div key={signal.id}><span><strong>{signal.label}</strong><b>{signal.percent}%</b></span><i><b style={{ width: `${signal.percent}%` }} /></i><small>{signal.detail}</small></div>)}</div>
+            <details><summary>How momentum is calculated</summary><p>It is the equal-weight average of the five readiness signals above. Empty deal and relationship lists count as covered; missing lender or template foundations do not.</p></details>
+          </section>
           <section className="crm-setup-card">
             <header><div><p className="crm-eyebrow">BROKERAGE SETUP</p><h2>{command.setup.complete} of {command.setup.total} ready</h2></div><span>{setupPercent}%</span></header>
             <div className="crm-setup-progress"><i style={{ width: `${setupPercent}%` }} /></div><p>Finish these once. Buddy will then tell the team what matters every day.</p>

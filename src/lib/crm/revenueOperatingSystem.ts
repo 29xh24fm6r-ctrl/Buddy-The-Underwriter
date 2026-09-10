@@ -35,6 +35,7 @@ export type RevenueTemplateCoverage = {
 export type RevenueOperatingSystem = ReturnType<typeof buildRevenueOperatingSystem>;
 
 const money = (value: number | null | undefined) => Number(value ?? 0) || 0;
+const coverage = (ready: number, total: number) => total === 0 ? 100 : Math.round((ready / total) * 100);
 
 export function buildRevenueOperatingSystem(input: {
   deals: RevenueDeal[];
@@ -62,6 +63,14 @@ export function buildRevenueOperatingSystem(input: {
   const templatePercent = input.templates.possible
     ? Math.round((input.templates.active / input.templates.possible) * 100)
     : 0;
+  const momentumSignals = [
+    { id: "deal-owners", label: "Deal ownership", percent: coverage(activeDeals.length - unassignedDeals.length, activeDeals.length), detail: `${activeDeals.length - unassignedDeals.length} of ${activeDeals.length} active deals assigned` },
+    { id: "next-actions", label: "Next-action coverage", percent: coverage(activeDeals.length - dealsWithoutNextAction.length, activeDeals.length), detail: `${activeDeals.length - dealsWithoutNextAction.length} of ${activeDeals.length} active deals ready to move` },
+    { id: "relationship-owners", label: "Relationship ownership", percent: coverage(input.organizations.length - unassignedOrganizations.length, input.organizations.length), detail: `${input.organizations.length - unassignedOrganizations.length} of ${input.organizations.length} companies assigned` },
+    { id: "lender-readiness", label: "Lender intelligence", percent: input.lenders.length ? coverage(input.lenders.length - incompleteLenders.length, input.lenders.length) : 0, detail: input.lenders.length ? `${input.lenders.length - incompleteLenders.length} of ${input.lenders.length} lender profiles ready` : "Add the first lender profile" },
+    { id: "message-readiness", label: "Message readiness", percent: templatePercent, detail: `${input.templates.active} of ${input.templates.possible} approved templates active` },
+  ];
+  const momentumPercent = Math.round(momentumSignals.reduce((sum, signal) => sum + signal.percent, 0) / momentumSignals.length);
 
   const work = activeDeals
     .map((deal) => {
@@ -170,6 +179,10 @@ export function buildRevenueOperatingSystem(input: {
       complete: setup.filter((item) => item.complete).length,
       total: setup.length,
       items: setup,
+    },
+    momentum: {
+      percent: momentumPercent,
+      signals: momentumSignals,
     },
     work,
     leads: activeLeads.slice(0, 12).map((lead) => ({

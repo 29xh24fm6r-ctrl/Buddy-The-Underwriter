@@ -38,6 +38,8 @@ test("combines deals, leads, relationships, lenders, and communications into one
   assert.equal(command.health.templatePercent, 25);
   assert.equal(command.setup.complete, 0);
   assert.equal(command.setup.total, 6);
+  assert.equal(command.momentum.percent, 5);
+  assert.deepEqual(command.momentum.signals.map((signal) => signal.percent), [0, 0, 0, 0, 25]);
 });
 
 test("does not manufacture attention work when the operating record is complete", () => {
@@ -51,4 +53,5 @@ test("does not manufacture attention work when the operating record is complete"
   assert.equal(command.metrics.needsAttention, 0);
   assert.deepEqual(command.work, []);
   assert.equal(command.setup.items.find((item) => item.id === "lenders")?.complete, true);
+  assert.equal(command.momentum.percent, 100);
 });
