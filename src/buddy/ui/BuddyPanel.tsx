@@ -72,6 +72,21 @@ export function BuddyPanel() {
   const isObserver = enabled && state.role === "builder";
   const open = isObserver ? true : state.isOpen;
   const panelWidth = state.panelWidth ?? 360;
+  useEffect(() => {
+    if (!pathname?.startsWith("/admin/brokerage/crm")) return;
+    const placeAwayFromNavigation = () => {
+      setPanelPos((current) => ({
+        x: Math.max(8, window.innerWidth - (isMinimized ? 300 : panelWidth) - 20),
+        y: Math.max(78, current.y),
+      }));
+    };
+    const frame = window.requestAnimationFrame(placeAwayFromNavigation);
+    window.addEventListener("resize", placeAwayFromNavigation);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", placeAwayFromNavigation);
+    };
+  }, [isMinimized, panelWidth, pathname]);
   const dealId = useMemo(() => (pathname ? getDealIdFromPath(pathname) : null), [pathname]);
   const aegis = useAegisHealth({ dealId, enabled: true });
   const items = useMemo(() => {

@@ -23,6 +23,13 @@ const TRIGGER_KEYS = [
   "referral_thank_you",
 ];
 
+const TEMPLATE_GROUPS = {
+  essentials: { label: "Start here", keys: ["initial_lead_response", "discovery_scheduling", "document_request", "engagement_follow_up"] },
+  borrower: { label: "Borrower journey", keys: ["incomplete_application", "underwriting_condition_request", "closing_coordination", "funding_notification"] },
+  lender: { label: "Lender placement", keys: ["lender_introduction", "lender_submission", "submission_follow_up"] },
+  referrals: { label: "Referral relationships", keys: ["referral_acknowledgment", "referral_thank_you"] },
+} as const;
+
 type Template = { id: string; trigger_key: string; channel: "email" | "sms"; subject: string | null; body: string; active: boolean; version: number };
 
 function inputStyle() {
@@ -32,6 +39,8 @@ function inputStyle() {
 export default function CrmTemplatesPage() {
   const workspace = useCrmWorkspace();
   const [search, setSearch] = useState("");
+  const [group, setGroup] = useState<"all" | keyof typeof TEMPLATE_GROUPS>("essentials");
+  const [readiness, setReadiness] = useState<"all" | "ready" | "missing">("all");
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +50,14 @@ export default function CrmTemplatesPage() {
   const [saving, setSaving] = useState(false);
   const configured = templates.filter((template) => template.active).length;
   const possible = TRIGGER_KEYS.length * 2;
+  const visibleKeys = TRIGGER_KEYS.filter((key) => {
+    const definition = STARTER_MESSAGE_TEMPLATES.find((item) => item.key === key);
+    const searchable = [key.replaceAll("_", " "), definition?.label, definition?.explanation].filter(Boolean).join(" ").toLowerCase();
+    const inGroup = group === "all" || (TEMPLATE_GROUPS[group].keys as readonly string[]).includes(key);
+    const channelCount = templates.filter((template) => template.trigger_key === key && template.active).length;
+    const inReadiness = readiness === "all" || (readiness === "ready" ? channelCount === 2 : channelCount < 2);
+    return inGroup && inReadiness && searchable.includes(search.trim().toLowerCase());
+  });
 
   useCrmDraftGuard(Boolean(editing));
   async function load() {
@@ -119,6 +136,14 @@ export default function CrmTemplatesPage() {
       </section>
       <label className="crm-template-search">Find a message<input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by purpose, such as documents or referral" /></label>
 
+      <div className="crm-template-controls">
+        <div role="group" aria-label="Message category">
+          <button aria-pressed={group === "all"} onClick={() => setGroup("all")}>All</button>
+          {Object.entries(TEMPLATE_GROUPS).map(([key, value]) => <button key={key} aria-pressed={group === key} onClick={() => setGroup(key as keyof typeof TEMPLATE_GROUPS)}>{value.label}</button>)}
+        </div>
+        <label>Readiness<select value={readiness} onChange={(event) => setReadiness(event.target.value as typeof readiness)}><option value="all">All messages</option><option value="missing">Needs review</option><option value="ready">Email & SMS ready</option></select></label>
+      </div>
+
       <div style={{ fontSize: 12.5, color: c.textSecondary, marginBottom: 16 }}>
         Message templates support <code>{"{{merge_field}}"}</code> substitution. Each trigger has an independent email and SMS version.
       </div>
@@ -133,17 +158,13 @@ export default function CrmTemplatesPage() {
         <div style={{ padding: 20, fontSize: 12, color: c.textMuted, textAlign: "center" }}>Loading…</div>
       ) : (
         <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
-          {TRIGGER_KEYS.filter((key) => {
-            const definition = STARTER_MESSAGE_TEMPLATES.find((item) => item.key === key);
-            const searchable = [key.replaceAll("_", " "), definition?.label, definition?.explanation].filter(Boolean).join(" ").toLowerCase();
-            return searchable.includes(search.trim().toLowerCase());
-          }).map((key) => {
+          {visibleKeys.map((key) => {
             const definition = STARTER_MESSAGE_TEMPLATES.find((item) => item.key === key);
             const emailTemplate = templates.find((t) => t.trigger_key === key && t.channel === "email");
             const smsTemplate = templates.find((t) => t.trigger_key === key && t.channel === "sms");
             return (
               <div className="crm-template-card" key={key} style={{ padding: "12px 16px", borderBottom: `1px solid ${c.divider}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div className="crm-template-purpose"><strong>{definition?.label ?? key.replace(/_/g, " ")}</strong><span>{definition?.explanation}</span></div>
+                <div className="crm-template-purpose"><strong>{definition?.label ?? key.replace(/_/g, " ")}</strong><span>{definition?.explanation}</span><small>{Number(Boolean(emailTemplate?.active)) + Number(Boolean(smsTemplate?.active))} of 2 channels ready</small></div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={() => startEdit(key, "email")} style={{ fontSize: 10.5, padding: "4px 9px", borderRadius: 4, border: `1px solid ${c.border}`, background: emailTemplate ? "rgba(184,144,91,.12)" : "transparent", color: emailTemplate ? c.brassBright : c.textMuted, cursor: "pointer" }}>
                     {emailTemplate ? "Edit email" : "+ Email"}
@@ -155,6 +176,7 @@ export default function CrmTemplatesPage() {
               </div>
             );
           })}
+          {!visibleKeys.length ? <div className="crm-template-empty"><strong>No messages match this view.</strong><span>Try another category, readiness filter, or search phrase.</span></div> : null}
         </div>
       )}
 

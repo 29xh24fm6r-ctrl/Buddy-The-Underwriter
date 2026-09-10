@@ -31,6 +31,9 @@ test("API gates access and records lifecycle history", () => {
 test("operator surface includes bank appetite, banker, placement, and closing workflows", () => {
   for (const copy of ["Lender network", "Add a bank relationship", "Record a placement", "Placement tracker", "Final closed amount"]) assert.match(page, new RegExp(copy, "i"));
   assert.match(page, /Confirm status/);
+  assert.match(page, /Filter placements by status/);
+  assert.match(page, /Next follow-up/);
+  assert.match(page, /Update placement status for/);
 });
 
 
