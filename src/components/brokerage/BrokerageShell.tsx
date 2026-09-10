@@ -62,7 +62,6 @@ const TITLES: Record<string, [string, string]> = {
   "/admin/brokerage/lenders": ["Lenders", "Partner banks · matching criteria & terms"],
   "/admin/brokerage/crm": ["CRM", "Relationship command center"],
   "/admin/brokerage/billing": ["Billing", "Lender referral-fee invoices"],
-  "/admin/brokerage-owner": ["Owner command center", "Business-level view"],
   "/admin/brokerage/owner": ["Owner command", "Revenue, risk, and readiness"],
   "/admin/brokerage/team": ["Team & roles", "Access and workload"],
   "/admin/brokerage/listings": ["Ops health", "Listings & sessions"],

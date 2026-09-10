@@ -31,7 +31,7 @@ export function BrokerageStart() {
         <span>Working together</span>
         <Link href="/admin/brokerage/team">Manage team & access →</Link>
         <Link href="/admin/brokerage/crm#crm-tasks">Relationship tasks →</Link>
-        <Link href="/admin/brokerage-owner">Owner reporting →</Link>
+        <Link href="/admin/brokerage/owner">Owner command →</Link>
       </div>
       <p className="sba-context-note">Documents and underwriting stay attached to each deal. Start in Brokerage deals to keep the right file in context.</p>
     </section>

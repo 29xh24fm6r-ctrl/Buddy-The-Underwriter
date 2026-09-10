@@ -1,7 +1,8 @@
 /** Staff workspace routes. Never substitute the bank-facing /deals list. */
 export const BROKERAGE_HOME = "/admin/brokerage";
+export const BROKERAGE_COMMAND = `${BROKERAGE_HOME}/owner`;
 export const BROKERAGE_WORKSPACE_LINKS = [
-  { label: "Brokerage home", href: BROKERAGE_HOME },
+  { label: "Owner command", href: BROKERAGE_COMMAND },
   { label: "Brokerage deals", href: `${BROKERAGE_HOME}/pipeline` },
   { label: "CRM & follow-ups", href: `${BROKERAGE_HOME}/crm` },
   { label: "Lender placements", href: `${BROKERAGE_HOME}/crm/buyers` },
