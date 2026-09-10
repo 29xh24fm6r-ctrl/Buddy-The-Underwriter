@@ -31,15 +31,15 @@ type SubmissionRow = {
   status: string;
 };
 
-export default async function BrokeragePipelinePage() {
+export default async function BrokeragePipelinePage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
+  const showArchived = (await searchParams).view === "archived";
   const bankId = await getBrokerageBankId();
   const sb = supabaseAdmin();
   // "Mine" has to mean the person looking at the board, not the first row of
   // the roster. Null when Clerk is unreachable; the filter hides itself then.
   const currentUserId = (await clerkAuth()).userId ?? null;
 
-  const [{ data: dealRows, error: dealsError }, { data: submissions }, { data: tasks }, team] = await Promise.all([
-    sb
+  let dealsQuery = sb
       .from("deals")
       // loan_amount is the only amount column on deals. The page this
       // replaced selected a non-existent `amount`, so PostgREST rejected the
@@ -49,12 +49,15 @@ export default async function BrokeragePipelinePage() {
       .select(
         "id, display_name, nickname, borrower_name, name, loan_amount, state, product_type, " +
           "brokerage_stage, brokerage_stage_entered_at, brokerage_stage_owner_clerk_user_id, " +
-          "intake_mode, crm_tracking_only, created_at, is_test",
+          "intake_mode, crm_tracking_only, created_at, is_test, archived_at",
       )
       .eq("bank_id", bankId)
-      .is("archived_at", null)
       .order("created_at", { ascending: false })
-      .limit(300),
+      .limit(300);
+  dealsQuery = showArchived ? dealsQuery.not("archived_at", "is", null) : dealsQuery.is("archived_at", null);
+
+  const [{ data: dealRows, error: dealsError }, { data: submissions }, { data: tasks }, team] = await Promise.all([
+    dealsQuery,
     sb
       .from("crm_deal_lender_submissions")
       .select("deal_id, lender_profile_id, status")
@@ -82,7 +85,9 @@ export default async function BrokeragePipelinePage() {
   }
 
   const deals: PipelineDeal[] = ((dealRows ?? []) as any[])
-    .filter((d) => !d.is_test)
+    // Test records stay out of daily work, but an admin must still be able to
+    // find and remove them after they have been archived.
+    .filter((d) => showArchived || !d.is_test)
     .map((d) => {
       const label = resolveDealLabel({
         id: d.id,
@@ -105,6 +110,7 @@ export default async function BrokeragePipelinePage() {
         ownerClerkUserId: d.brokerage_stage_owner_clerk_user_id ?? null,
         intakeMode: d.intake_mode ?? (d.crm_tracking_only ? "tracking_only" : null),
         createdAt: d.created_at ?? null,
+        archivedAt: d.archived_at ?? null,
         banksSent: own.filter((s) => s.status !== "planned").length,
         banksReviewing: own.filter((s) => ["reviewing", "interested"].includes(s.status)).length,
         banksAdvanced: own.filter((s) => ["term_sheet", "approved", "closed"].includes(s.status)).length,
@@ -119,6 +125,7 @@ export default async function BrokeragePipelinePage() {
       team={team}
       currentUserId={currentUserId}
       loadError={dealsError?.message ?? null}
+      showArchived={showArchived}
     />
   );
 }
