@@ -34,7 +34,9 @@ import { getBrokerageBankId } from "@/lib/tenant/brokerage";
  *   - requireBrokerageStaffPage()   — page/layout-safe, redirect()s to /deals
  */
 
-async function resolveBrokerageStaffUserId(): Promise<string | null> {
+export type BrokerageStaffRole = "super_admin" | "bank_admin" | "underwriter";
+
+async function resolveBrokerageStaff(): Promise<{ userId: string; role: BrokerageStaffRole } | null> {
   if (!isClerkConfigured()) return null;
   const { userId } = await clerkAuth();
   if (!userId) return null;
@@ -44,7 +46,7 @@ async function resolveBrokerageStaffUserId(): Promise<string | null> {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (allow.includes(userId)) return userId;
+  if (allow.includes(userId)) return { userId, role: "super_admin" };
 
   // Global super_admin via Clerk publicMetadata.
   try {
@@ -53,7 +55,7 @@ async function resolveBrokerageStaffUserId(): Promise<string | null> {
       const user = await client.users.getUser(userId);
       const roleRaw = (user.publicMetadata as any)?.role;
       if (isBuddyRole(roleRaw) && roleRaw === "super_admin") {
-        return userId;
+        return { userId, role: "super_admin" };
       }
     }
   } catch (e) {
@@ -74,7 +76,7 @@ async function resolveBrokerageStaffUserId(): Promise<string | null> {
 
     const role = normalizeBuddyRole(data?.role);
     if (role === "bank_admin" || role === "underwriter") {
-      return userId;
+      return { userId, role };
     }
   } catch (e) {
     console.error("[requireBrokerageStaff] membership lookup failed:", e);
@@ -89,14 +91,34 @@ export async function requireBrokerageStaff(): Promise<{ userId: string }> {
   const { userId } = await clerkAuth();
   if (!userId) throw new Error("unauthorized");
 
-  const resolved = await resolveBrokerageStaffUserId();
+  const resolved = await resolveBrokerageStaff();
   if (!resolved) throw new Error("forbidden");
-  return { userId: resolved };
+  return { userId: resolved.userId };
+}
+
+/** Destructive CRM operations are limited to brokerage and platform admins. */
+export async function requireBrokerageAdmin(): Promise<{ userId: string; role: "super_admin" | "bank_admin" }> {
+  if (!isClerkConfigured()) throw new Error("auth_not_configured");
+  const { userId } = await clerkAuth();
+  if (!userId) throw new Error("unauthorized");
+
+  const resolved = await resolveBrokerageStaff();
+  if (!resolved || resolved.role === "underwriter") throw new Error("forbidden");
+  return { userId: resolved.userId, role: resolved.role };
+}
+
+export async function canDeleteBrokerageCrmRecords(): Promise<boolean> {
+  try {
+    await requireBrokerageAdmin();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Page/layout-safe. Uses redirect() on failure — never use inside route.ts handlers. */
 export async function requireBrokerageStaffPage(): Promise<{ userId: string }> {
-  const resolved = await resolveBrokerageStaffUserId();
+  const resolved = await resolveBrokerageStaff();
   if (!resolved) redirect("/deals");
-  return { userId: resolved };
+  return { userId: resolved.userId };
 }

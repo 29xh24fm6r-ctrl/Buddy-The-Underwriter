@@ -9,6 +9,7 @@ import { useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
 import { CrmCompanyPicker } from "@/components/brokerage/CrmCompanyPicker";
 import { CrmActivityComposer } from "@/components/brokerage/CrmActivityComposer";
 import { CrmTaskControl } from "@/components/brokerage/CrmTaskControl";
+import { CrmActivityDeleteButton, CrmRecordDeleteControl } from "@/components/brokerage/CrmDeleteControls";
 
 type Person = {
   id: string;
@@ -74,6 +75,7 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [canDelete, setCanDelete] = useState(false);
 
   const [showLink, setShowLink] = useState(false);
   const [linkOrgId, setLinkOrgId] = useState("");
@@ -90,6 +92,7 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
       setOrgRoles(json.organizationRoles ?? []);
       setDealRoles(json.dealRoles ?? []);
       setActivities(json.activities ?? []);
+      setCanDelete(Boolean(json.permissions?.canDelete));
       setError(null);
 
       const ids: string[] = Array.from(new Set((json.organizationRoles ?? []).map((r: OrgRole) => r.organization_id)));
@@ -273,7 +276,7 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
               activities.slice(0, 15).map((a) => (
                 <div key={a.id} style={{ padding: "11px 16px", borderBottom: `1px solid ${c.divider}` }}>
                   <div style={{ fontSize: 12, color: c.paper }}>{a.title ?? a.kind}</div>
-                  {workspace && <>{a.properties?.body && <p>{a.properties.body}</p>}{a.kind === "task" && <CrmTaskControl id={a.id} completed={!!a.completed_at} dueAt={a.due_at} onSaved={() => void load()} />}</>}
+                  {workspace && <>{a.properties?.body && <p>{a.properties.body}</p>}{a.kind === "task" && <CrmTaskControl id={a.id} completed={!!a.completed_at} dueAt={a.due_at} onSaved={() => void load()} />}{canDelete ? <CrmActivityDeleteButton id={a.id} label={a.title ?? a.kind} onDeleted={() => void load()} /> : null}</>}
                   <div style={{ fontSize: 10.5, color: c.textMuted, marginTop: 2 }}>{new Date(a.happens_at).toLocaleString()}</div>
                 </div>
               ))
@@ -281,6 +284,7 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
           </div>
         </div>
       </div>
+      {canDelete ? <CrmRecordDeleteControl endpoint={`/api/admin/brokerage/crm/people/${personId}`} label={name} recordType="person" consequence="This removes the person, their company links, and their CRM activity history. Deal-party roles must be disconnected first." redirectTo="/admin/brokerage/crm/people" /> : null}
     </div>
   );
 }

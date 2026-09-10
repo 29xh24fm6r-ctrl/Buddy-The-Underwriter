@@ -1,12 +1,13 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
+import { requireBrokerageAdmin, requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { changeCrmTask, parseTaskChange } from "@/lib/crm/taskActions";
 import { listCrmTasks } from "@/lib/crm/taskInventory";
 import { logActivity, type ActivityKind, type ActivityChannel, type ActivityDirection } from "@/lib/comms/activities";
+import { beginCrmDeletion, finishCrmDeletion } from "@/lib/crm/adminDeletion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -108,4 +109,34 @@ export async function POST(req: NextRequest) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
+}
+
+export async function DELETE(req: NextRequest) {
+  let actorUserId: string;
+  try {
+    ({ userId: actorUserId } = await requireBrokerageAdmin());
+  } catch {
+    return NextResponse.json({ ok: false, error: "admin_required" }, { status: 403 });
+  }
+  const body = await req.json().catch(() => ({})) as { id?: unknown };
+  if (typeof body?.id !== "string" || !body.id) {
+    return NextResponse.json({ ok: false, error: "id_required" }, { status: 400 });
+  }
+  const bankId = await getBrokerageBankId();
+  const sb = supabaseAdmin();
+  const { data: activity, error: activityError } = await sb
+    .from("crm_activities").select("*").eq("id", body.id).eq("bank_id", bankId).maybeSingle();
+  if (activityError) return NextResponse.json({ ok: false, error: activityError.message }, { status: 500 });
+  if (!activity) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  let auditId: string;
+  try {
+    auditId = await beginCrmDeletion({ sb, bankId, actorUserId, entityType: "activity", entityId: activity.id, entityLabel: activity.title || activity.kind, snapshot: activity });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "deletion_audit_failed" }, { status: 500 });
+  }
+  const { data: deleted, error: deleteError } = await sb.from("crm_activities").delete().eq("id", activity.id).eq("bank_id", bankId).select("id").maybeSingle();
+  const finalDeleteError = deleteError ?? (!deleted ? new Error("delete_not_confirmed") : null);
+  await finishCrmDeletion(sb, auditId, finalDeleteError ? { ok: false, reason: finalDeleteError.message } : { ok: true });
+  if (finalDeleteError) return NextResponse.json({ ok: false, error: finalDeleteError.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }

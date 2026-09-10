@@ -1,13 +1,14 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
+import { canDeleteBrokerageCrmRecords, requireBrokerageAdmin, requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { updateOrganization, ORGANIZATION_TYPES } from "@/lib/crm/organizations";
 import { listPeopleForOrganization } from "@/lib/crm/people";
 import { resolveDealRolesForOrganization } from "@/lib/crm/resolve";
 import { bankBuyerGET, bankBuyerPATCH, bankBuyerPOST } from "@/lib/crm/bankBuyerRoute";
+import { beginCrmDeletion, confirmationMatches, finishCrmDeletion } from "@/lib/crm/adminDeletion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -149,6 +150,7 @@ export async function GET(
 
   return NextResponse.json({
     ok: true,
+    permissions: { canDelete: await canDeleteBrokerageCrmRecords() },
     organization: org,
     people: people ?? [],
     peopleWithRoles,
@@ -159,6 +161,66 @@ export async function GET(
     lenderProfile: lenderProfile ?? null,
     lenderSubmissions,
   });
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ orgId: string }> },
+) {
+  let actorUserId: string;
+  try {
+    ({ userId: actorUserId } = await requireBrokerageAdmin());
+  } catch {
+    return NextResponse.json({ ok: false, error: "admin_required" }, { status: 403 });
+  }
+
+  const { orgId } = await params;
+  if (orgId === "buyers") return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  const bankId = await getBrokerageBankId();
+  const sb = supabaseAdmin();
+  const { data: organization, error: organizationError } = await sb
+    .from("crm_organizations").select("*").eq("id", orgId).eq("bank_id", bankId).maybeSingle();
+  if (organizationError) return NextResponse.json({ ok: false, error: organizationError.message }, { status: 500 });
+  if (!organization) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+
+  const body = await req.json().catch(() => ({})) as { confirmation?: unknown };
+  if (!confirmationMatches(body?.confirmation, organization.name)) {
+    return NextResponse.json({ ok: false, error: "confirmation_mismatch" }, { status: 400 });
+  }
+
+  const [referredDealsResult, referredLeadsResult, partyRolesResult, lenderProfileResult] = await Promise.all([
+    sb.from("deals").select("id").eq("bank_id", bankId).eq("referral_source_org_id", orgId).limit(1),
+    sb.from("brokerage_leads").select("id").eq("bank_id", bankId).eq("referral_source_org_id", orgId).limit(1),
+    sb.from("deal_party_roles").select("id").eq("bank_id", bankId).eq("organization_id", orgId).limit(1),
+    sb.from("crm_lender_profiles").select("id").eq("bank_id", bankId).eq("organization_id", orgId).maybeSingle(),
+  ]);
+  const preflightError = [referredDealsResult.error, referredLeadsResult.error, partyRolesResult.error, lenderProfileResult.error].find(Boolean);
+  if (preflightError) return NextResponse.json({ ok: false, error: "delete_preflight_failed" }, { status: 500 });
+  const lenderSubmissionsResult = lenderProfileResult.data
+    ? await sb.from("crm_deal_lender_submissions").select("id").eq("bank_id", bankId).eq("lender_profile_id", lenderProfileResult.data.id).limit(1)
+    : { data: [], error: null };
+  if (lenderSubmissionsResult.error) return NextResponse.json({ ok: false, error: "delete_preflight_failed" }, { status: 500 });
+  const blockers = [
+    referredDealsResult.data?.length ? "a referred deal" : null,
+    referredLeadsResult.data?.length ? "a referred lead" : null,
+    partyRolesResult.data?.length ? "a deal-party role" : null,
+    lenderSubmissionsResult.data?.length ? "a lender placement" : null,
+  ].filter(Boolean);
+  if (blockers.length) {
+    return NextResponse.json({ ok: false, error: "record_in_use", blockers }, { status: 409 });
+  }
+
+  let auditId: string;
+  try {
+    auditId = await beginCrmDeletion({ sb, bankId, actorUserId, entityType: "organization", entityId: orgId, entityLabel: organization.name, snapshot: organization });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "deletion_audit_failed" }, { status: 500 });
+  }
+  const { data: deleted, error: deleteError } = await sb.from("crm_organizations").delete().eq("id", orgId).eq("bank_id", bankId).select("id").maybeSingle();
+  const finalDeleteError = deleteError ?? (!deleted ? new Error("delete_not_confirmed") : null);
+  await finishCrmDeletion(sb, auditId, finalDeleteError ? { ok: false, reason: finalDeleteError.message } : { ok: true });
+  if (finalDeleteError) return NextResponse.json({ ok: false, error: finalDeleteError.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }
 
 export async function PATCH(

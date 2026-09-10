@@ -2,6 +2,7 @@ import "server-only";
 
 import Link from "next/link";
 import { loadRevenueOperatingSystem } from "@/lib/crm/loadRevenueOperatingSystem";
+import { CrmWorkspaceFrame } from "@/components/brokerage/CrmWorkspaceFrame";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,8 @@ export default async function BrokerageOwnerPage() {
   const command = await loadRevenueOperatingSystem();
   const setupPercent = Math.round((command.setup.complete / command.setup.total) * 100);
   return (
-    <div className="crm-unified crm-home crm-command-home crm-owner-command" style={{ padding: "18px 24px 40px", minHeight: "100%", background: "#f5f7fa" }}>
+    <CrmWorkspaceFrame>
+    <div className="crm-home crm-command-home crm-owner-command">
       <section className="crm-command-hero">
         <div><p className="crm-eyebrow">OWNER COMMAND</p><h1>Know the business. Move the business.</h1><p>Revenue, risk, team execution, and relationship readiness from the same operating ledger your team uses every day.</p></div>
         <div className="crm-command-actions"><Link className="crm-secondary-button" href="/admin/brokerage/crm">Open today&apos;s work</Link><Link className="crm-button" href="/admin/brokerage/pipeline/new">+ New opportunity</Link></div>
@@ -46,5 +48,6 @@ export default async function BrokerageOwnerPage() {
       </div>
       <p className="crm-owner-asof">Authoritative operating snapshot · {new Date(command.generatedAt).toLocaleString()}</p>
     </div>
+    </CrmWorkspaceFrame>
   );
 }
