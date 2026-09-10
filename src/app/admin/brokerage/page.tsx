@@ -1,7 +1,10 @@
 import "server-only";
-import { redirect } from "next/navigation";
 
-/** The CRM command center is the brokerage's one authoritative front door. */
+/**
+ * BrokerageShell owns the business-facing HQ experience for this exact route.
+ * Keep this page intentionally empty so the shell can render BrokerageStart
+ * without redirecting staff back into one of its child workspaces.
+ */
 export default function BrokerageHomePage() {
-  redirect("/admin/brokerage/crm");
+  return null;
 }
