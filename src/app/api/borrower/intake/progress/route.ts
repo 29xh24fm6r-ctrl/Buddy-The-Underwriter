@@ -22,6 +22,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
+import { isSameInstant } from "@/lib/borrower/sameInstant";
 
 const LOG_PREFIX = "[intake-progress]";
 
@@ -129,10 +130,14 @@ async function persistConciergeFacts(
         .select("id, updated_at")
         .maybeSingle();
 
+  // Compare the instant, not the spelling: PostgREST returns the timestamptz
+  // as `…+00:00` with trailing fractional zeros trimmed, while `updatedAt` is
+  // a JS `…Z` string. A string `!==` here reported every successful write as
+  // a concurrent conflict (500) even though the row had been updated.
   if (
     result.error ||
     !result.data?.id ||
-    result.data.updated_at !== updatedAt
+    !isSameInstant(result.data.updated_at, updatedAt)
   ) {
     throw new Error(
       result.error?.message ||
