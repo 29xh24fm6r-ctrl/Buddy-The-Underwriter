@@ -52,6 +52,7 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
   const [revision, setRevision] = useState(0);
   const [search, setSearch] = useState(false);
   const [guide, setGuide] = useState(false);
+  const isOwnerCommand = pathname === BROKERAGE_COMMAND;
   const scrollToTasks = useCallback(() => {
     let attempts = 0;
     const findAndScroll = () => {
@@ -114,7 +115,7 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
           <p className="crm-rail-label">YOUR BROKERAGE</p>
           <nav aria-label="Buddy SBA workspace">
             {BROKERAGE_WORKSPACE_LINKS.filter(({ href }) => !href.includes("/crm")).map(({ label, href }) => (
-              <Link key={href} href={href} prefetch={false}>{label}</Link>
+              <Link key={href} href={href} prefetch={false} aria-current={pathname === href ? "page" : undefined}>{label}</Link>
             ))}
           </nav>
           <p className="crm-rail-label">CRM & RELATIONSHIPS</p>
@@ -168,7 +169,7 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
             <span>
               <Link href={BROKERAGE_COMMAND}>Buddy SBA command</Link>{" "}
               <span className="crm-topline-muted">
-                / CRM & relationships
+                / {isOwnerCommand ? "Owner command" : "CRM & relationships"}
               </span>
             </span>
             <div className="crm-account-actions">

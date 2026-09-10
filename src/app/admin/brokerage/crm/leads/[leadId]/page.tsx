@@ -8,6 +8,7 @@ import { CommsPanel } from "@/components/brokerage/CommsPanel";
 import { useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
 import { CrmActivityComposer } from "@/components/brokerage/CrmActivityComposer";
 import { CrmTaskControl } from "@/components/brokerage/CrmTaskControl";
+import { CrmActivityDeleteButton, CrmRecordDeleteControl } from "@/components/brokerage/CrmDeleteControls";
 
 type Lead = {
   id: string;
@@ -104,6 +105,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [canDelete, setCanDelete] = useState(false);
 
   const [qualFields, setQualFields] = useState<Record<string, string>>({});
   const [qualProvenance, setQualProvenance] = useState<Record<string, string>>({});
@@ -132,6 +134,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
       setLead(json.lead);
       setQualification(json.qualification);
       setActivities(json.activities ?? []);
+      setCanDelete(Boolean(json.permissions?.canDelete));
       if (json.qualification) {
         const f: Record<string, string> = {};
         for (const key of QUALIFICATION_FIELDS) {
@@ -476,7 +479,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
               activities.map((a) => (
                 <div key={a.id} style={{ padding: "10px 16px", borderBottom: `1px solid ${c.divider}` }}>
                   <div style={{ fontSize: 11.5, color: c.paper }}>{a.title ?? a.kind}</div>
-                  {workspace && <>{typeof a.properties?.body === "string" && <p>{a.properties.body}</p>}{a.kind === "task" && <CrmTaskControl id={a.id} completed={!!a.completed_at} dueAt={a.due_at} onSaved={() => void load()} />}</>}
+                  {workspace && <>{typeof a.properties?.body === "string" && <p>{a.properties.body}</p>}{a.kind === "task" && <CrmTaskControl id={a.id} completed={!!a.completed_at} dueAt={a.due_at} onSaved={() => void load()} />}{canDelete ? <CrmActivityDeleteButton id={a.id} label={a.title ?? a.kind} onDeleted={() => void load()} /> : null}</>}
                   <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{new Date(a.happens_at).toLocaleString()}</div>
                 </div>
               ))
@@ -538,6 +541,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
           </button>
         </div>
       </div>
+      {canDelete ? <CrmRecordDeleteControl endpoint={`/api/admin/brokerage/crm/leads/${leadId}`} label={name} recordType="lead" consequence="This removes the lead, its qualification, sequences, and CRM activity history. A lead that has already become a deal cannot be deleted here." redirectTo="/admin/brokerage/crm/leads" /> : null}
     </div>
   );
 }

@@ -21,8 +21,11 @@ test("every executive surface uses one authoritative operating snapshot", () => 
 test("owner command stays inside the brokerage workspace", () => {
   const shell = read("src/components/brokerage/BrokerageShell.tsx");
   const legacy = read("src/app/(app)/admin/brokerage-owner/page.tsx");
+  const owner = read("src/app/admin/brokerage/owner/page.tsx");
   assert.match(shell, /href: "\/admin\/brokerage\/owner"/);
   assert.match(legacy, /redirect\("\/admin\/brokerage\/owner"\)/);
+  assert.match(owner, /CrmWorkspaceFrame/);
+  assert.doesNotMatch(owner, /className="crm-unified/);
 });
 
 test("production certification is explicit, identity-bound, and evidence preserving", () => {
