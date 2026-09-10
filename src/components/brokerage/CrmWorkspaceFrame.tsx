@@ -140,6 +140,11 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
             </details>
           </nav>
           <div className="crm-rail-bottom">
+            <Link className="crm-admin-return" href="/admin" prefetch={false}>
+              <span aria-hidden="true">⌂</span>
+              <span><strong>Buddy Admin</strong><small>Platform tools &amp; settings</small></span>
+              <span aria-hidden="true">↗</span>
+            </Link>
             <button onClick={() => setGuide((v) => !v)}>
               ✧ Getting started
             </button>
@@ -173,6 +178,9 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
               </span>
             </span>
             <div className="crm-account-actions">
+              <Link className="crm-admin-home-link" href="/admin" prefetch={false}>
+                <span aria-hidden="true">⌂</span> Buddy Admin
+              </Link>
               <button onClick={() => setSearch(true)}>
                 Find a company or person <span aria-hidden="true">⌕</span>
               </button>
