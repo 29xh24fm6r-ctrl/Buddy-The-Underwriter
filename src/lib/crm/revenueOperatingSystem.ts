@@ -64,13 +64,23 @@ export function buildRevenueOperatingSystem(input: {
     ? Math.round((input.templates.active / input.templates.possible) * 100)
     : 0;
   const momentumSignals = [
-    { id: "deal-owners", label: "Deal ownership", percent: coverage(activeDeals.length - unassignedDeals.length, activeDeals.length), detail: `${activeDeals.length - unassignedDeals.length} of ${activeDeals.length} active deals assigned` },
-    { id: "next-actions", label: "Next-action coverage", percent: coverage(activeDeals.length - dealsWithoutNextAction.length, activeDeals.length), detail: `${activeDeals.length - dealsWithoutNextAction.length} of ${activeDeals.length} active deals ready to move` },
-    { id: "relationship-owners", label: "Relationship ownership", percent: coverage(input.organizations.length - unassignedOrganizations.length, input.organizations.length), detail: `${input.organizations.length - unassignedOrganizations.length} of ${input.organizations.length} companies assigned` },
-    { id: "lender-readiness", label: "Lender intelligence", percent: input.lenders.length ? coverage(input.lenders.length - incompleteLenders.length, input.lenders.length) : 0, detail: input.lenders.length ? `${input.lenders.length - incompleteLenders.length} of ${input.lenders.length} lender profiles ready` : "Add the first lender profile" },
-    { id: "message-readiness", label: "Message readiness", percent: templatePercent, detail: `${input.templates.active} of ${input.templates.possible} approved templates active` },
+    { id: "deal-owners", label: "Deal ownership", href: "/admin/brokerage/pipeline?owner=unassigned", percent: coverage(activeDeals.length - unassignedDeals.length, activeDeals.length), detail: `${activeDeals.length - unassignedDeals.length} of ${activeDeals.length} active deals assigned` },
+    { id: "next-actions", label: "Next-action coverage", href: "/admin/brokerage/pipeline?attention=1", percent: coverage(activeDeals.length - dealsWithoutNextAction.length, activeDeals.length), detail: `${activeDeals.length - dealsWithoutNextAction.length} of ${activeDeals.length} active deals ready to move` },
+    { id: "relationship-owners", label: "Relationship ownership", href: "/admin/brokerage/crm?view=relationships&owner=unassigned", percent: coverage(input.organizations.length - unassignedOrganizations.length, input.organizations.length), detail: `${input.organizations.length - unassignedOrganizations.length} of ${input.organizations.length} companies assigned` },
+    { id: "lender-readiness", label: "Lender intelligence", href: "/admin/brokerage/crm/buyers", percent: input.lenders.length ? coverage(input.lenders.length - incompleteLenders.length, input.lenders.length) : 0, detail: input.lenders.length ? `${input.lenders.length - incompleteLenders.length} of ${input.lenders.length} lender profiles ready` : "Add the first lender profile" },
+    { id: "message-readiness", label: "Message readiness", href: "/admin/brokerage/crm/templates", percent: templatePercent, detail: `${input.templates.active} of ${input.templates.possible} approved templates active` },
   ];
   const momentumPercent = Math.round(momentumSignals.reduce((sum, signal) => sum + signal.percent, 0) / momentumSignals.length);
+  const momentumLevels = [
+    { name: "Launchpad", at: 0 },
+    { name: "Building momentum", at: 20 },
+    { name: "Deal flow", at: 40 },
+    { name: "High velocity", at: 60 },
+    { name: "Elite operator", at: 80 },
+    { name: "Brokerage mastery", at: 100 },
+  ];
+  const levelIndex = momentumLevels.reduce((current, level, index) => momentumPercent >= level.at ? index : current, 0);
+  const nextLevel = momentumLevels[levelIndex + 1] ?? null;
 
   const work = activeDeals
     .map((deal) => {
@@ -182,7 +192,14 @@ export function buildRevenueOperatingSystem(input: {
     },
     momentum: {
       percent: momentumPercent,
-      signals: momentumSignals,
+      level: momentumLevels[levelIndex].name,
+      levelNumber: levelIndex + 1,
+      nextLevel: nextLevel?.name ?? null,
+      nextLevelAt: nextLevel?.at ?? 100,
+      signals: momentumSignals.map((signal) => ({
+        ...signal,
+        potential: Math.ceil((100 - signal.percent) / momentumSignals.length),
+      })),
     },
     work,
     leads: activeLeads.slice(0, 12).map((lead) => ({

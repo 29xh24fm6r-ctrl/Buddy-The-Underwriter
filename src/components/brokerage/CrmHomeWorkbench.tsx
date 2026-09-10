@@ -18,6 +18,10 @@ const FUNNEL_LABELS: Record<string, string> = {
   qualifying: "Qualifying", packaging: "Packaging", out_to_banks: "Out to banks",
   term_sheet: "Term sheet", closing: "Closing", funded: "Funded",
 };
+const MISSION_ICONS: Record<string, string> = {
+  "deal-owners": "◎", "next-actions": "↗", "relationship-owners": "◇",
+  "lender-readiness": "⌁", "message-readiness": "✦",
+};
 
 export function CrmHomeWorkbench({ loading: relationshipLoading, error: relationshipError, activity, organizations = [] }: React.ComponentProps<typeof CrmToday>) {
   const workspace = useCrmWorkspace();
@@ -65,6 +69,7 @@ export function CrmHomeWorkbench({ loading: relationshipLoading, error: relation
       </section>
 
       <section className={`crm-daily-move ${nextBestMove ? "" : "crm-daily-move-clear"}`} aria-labelledby="crm-daily-move-title">
+        <div className="crm-daily-sparks" aria-hidden="true"><i /><i /><i /><i /><i /></div>
         <div className="crm-daily-orbit" aria-hidden="true"><i /><i /><b>{nextBestMove ? "01" : "✓"}</b></div>
         <div className="crm-daily-copy">
           <p className="crm-eyebrow">YOUR NEXT BEST MOVE</p>
@@ -129,10 +134,10 @@ export function CrmHomeWorkbench({ loading: relationshipLoading, error: relation
 
         <aside className="crm-command-aside">
           <section className="crm-momentum-card">
-            <header><div><p className="crm-eyebrow">OPERATING MOMENTUM</p><h2>{command.momentum.percent}% ready to move</h2></div><div className="crm-momentum-ring" style={{ "--momentum": `${command.momentum.percent * 3.6}deg` } as React.CSSProperties}><span>{command.momentum.percent}</span></div></header>
-            <p>Real workflow readiness, not points. Raise it by assigning ownership, setting next actions, and completing lender and message intelligence.</p>
-            <div className="crm-momentum-signals">{command.momentum.signals.map((signal) => <div key={signal.id}><span><strong>{signal.label}</strong><b>{signal.percent}%</b></span><i><b style={{ width: `${signal.percent}%` }} /></i><small>{signal.detail}</small></div>)}</div>
-            <details><summary>How momentum is calculated</summary><p>It is the equal-weight average of the five readiness signals above. Empty deal and relationship lists count as covered; missing lender or template foundations do not.</p></details>
+            <header><div><p className="crm-eyebrow">MOMENTUM ENGINE</p><span className="crm-level-chip">LEVEL {command.momentum.levelNumber}</span><h2>{command.momentum.level}</h2><p>{command.momentum.nextLevel ? `${command.momentum.nextLevelAt - command.momentum.percent} points to unlock ${command.momentum.nextLevel}` : "Every operating foundation is ready."}</p></div><div className="crm-momentum-ring" style={{ "--momentum": `${command.momentum.percent * 3.6}deg` } as React.CSSProperties}><span>{command.momentum.percent}<small>%</small></span></div></header>
+            <div className="crm-level-track"><i style={{ width: `${command.momentum.percent}%` }} /><span style={{ left: `${Math.min(command.momentum.nextLevelAt, 100)}%` }} /></div>
+            <div className="crm-momentum-signals" aria-label="Momentum missions">{command.momentum.signals.map((signal) => <Link href={signal.href} key={signal.id} className={signal.percent === 100 ? "crm-mission-complete" : ""}><em aria-hidden="true">{MISSION_ICONS[signal.id] ?? "✦"}</em><div><span><strong>{signal.label}</strong><b>{signal.percent === 100 ? "Complete" : `+${signal.potential} potential`}</b></span><i><b style={{ width: `${signal.percent}%` }} /></i><small>{signal.detail}</small></div><span aria-hidden="true">{signal.percent === 100 ? "✓" : "→"}</span></Link>)}</div>
+            <details><summary>Why this score is trustworthy</summary><p>Momentum is the equal-weight average of the five visible readiness signals. It only rises when real operating records improve. Empty deal and relationship lists count as covered; missing lender or template foundations do not.</p></details>
           </section>
           <section className="crm-setup-card">
             <header><div><p className="crm-eyebrow">BROKERAGE SETUP</p><h2>{command.setup.complete} of {command.setup.total} ready</h2></div><span>{setupPercent}%</span></header>

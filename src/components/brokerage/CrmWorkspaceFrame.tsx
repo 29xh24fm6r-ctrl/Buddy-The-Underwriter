@@ -15,7 +15,7 @@ import { CrmActivityComposer } from "./CrmActivityComposer";
 import { CrmTaskControl } from "./CrmTaskControl";
 import { confirmCrmDiscard } from "./useCrmDraftGuard";
 import { useClerk } from "@clerk/nextjs";
-import { BROKERAGE_WORKSPACE_LINKS } from "@/lib/brokerage/workspaceNavigation";
+import { BROKERAGE_COMMAND, BROKERAGE_WORKSPACE_LINKS } from "@/lib/brokerage/workspaceNavigation";
 
 type RecordTarget = {
   id: string;
@@ -102,7 +102,7 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
     >
       <div className="crm-unified">
         <aside className="crm-rail">
-          <Link href="/admin/brokerage" className="crm-brand">
+          <Link href={CRM_ROOT} className="crm-brand" aria-label="Buddy SBA CRM home">
             <span>B</span>
             <div>
               buddy<span className="crm-brand-caption">SBA BROKERAGE</span>
@@ -166,7 +166,7 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
         <div className="crm-workspace-body">
           <div className="crm-topline">
             <span>
-              <Link href="/admin/brokerage">Buddy SBA</Link>{" "}
+              <Link href={BROKERAGE_COMMAND}>Buddy SBA command</Link>{" "}
               <span className="crm-topline-muted">
                 / CRM & relationships
               </span>

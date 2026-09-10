@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { BROKERAGE_HOME, BROKERAGE_WORKSPACE_LINKS, brokerageAdminEntryPath, activeBrokerageWorkspaceLink } from "../workspaceNavigation";
+import { BROKERAGE_COMMAND, BROKERAGE_HOME, BROKERAGE_WORKSPACE_LINKS, brokerageAdminEntryPath, activeBrokerageWorkspaceLink } from "../workspaceNavigation";
 
 test("BuddySBA admin entry opens brokerage home and preserves explicit admin destinations", () => {
   assert.equal(brokerageAdminEntryPath(), BROKERAGE_HOME);
@@ -13,23 +13,22 @@ test("BuddySBA admin entry opens brokerage home and preserves explicit admin des
 test("primary workspace links resolve to existing staff pages, not the bank deal list", () => {
   for (const { href } of BROKERAGE_WORKSPACE_LINKS) {
     assert.ok(href.startsWith("/admin/brokerage"));
-    if (href === "/admin/brokerage/crm/buyers") {
-      const router = readFileSync(path.join(process.cwd(), "src/app/admin/brokerage/crm/[orgId]/page.tsx"), "utf8");
-      assert.match(router, /orgId === "buyers"/);
-      assert.match(router, /<BankBuyersWorkspace/);
-    } else {
-      assert.ok(existsSync(path.join(process.cwd(), "src/app", href, "page.tsx")), href);
-    }
+    assert.ok(existsSync(path.join(process.cwd(), "src/app", href, "page.tsx")), href);
   }
 });
 test("lender placements is selected instead of the parent CRM destination", () => {
-  assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage"), "/admin/brokerage");
+  assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage"), undefined);
+  assert.equal(activeBrokerageWorkspaceLink(BROKERAGE_COMMAND), BROKERAGE_COMMAND);
   assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage/pipeline/new"), "/admin/brokerage/pipeline");
   assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage/unlisted"), undefined);
   assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage/crm-other"), undefined);
   assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage/crm/buyers"), "/admin/brokerage/crm/buyers");
   assert.equal(activeBrokerageWorkspaceLink("/admin/brokerage/crm/people"), "/admin/brokerage/crm");
   assert.equal(activeBrokerageWorkspaceLink("/deals"), undefined);
+});
+test("brokerage command and CRM today are distinct, intentional destinations", () => {
+  assert.equal(BROKERAGE_COMMAND, "/admin/brokerage/owner");
+  assert.notEqual(BROKERAGE_COMMAND, "/admin/brokerage/crm");
 });
 test("both public admin gateways use the shared entry while staff authentication stays intact", () => {
   for (const route of ["brokerage", "go"]) {

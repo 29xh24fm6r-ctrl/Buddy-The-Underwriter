@@ -42,8 +42,9 @@ test("home loads the unified brokerage command center and preserves the full tas
   assert.match(source, /Showing the five highest priorities/);
   assert.match(source, /You cleared this view/);
   assert.match(source, /YOUR NEXT BEST MOVE/);
-  assert.match(source, /OPERATING MOMENTUM/);
-  assert.match(source, /How momentum is calculated/);
+  assert.match(source, /MOMENTUM ENGINE/);
+  assert.match(source, /Why this score is trustworthy/);
+  assert.match(source, /Momentum missions/);
   assert.match(source, /Capture a lead/);
 });
 
