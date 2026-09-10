@@ -27,6 +27,7 @@ export type PipelineDeal = {
   ownerClerkUserId: string | null;
   intakeMode: string | null;
   createdAt: string | null;
+  archivedAt: string | null;
   banksSent: number;
   banksReviewing: number;
   banksAdvanced: number;
@@ -86,12 +87,14 @@ export default function PipelineBoard({
   team,
   currentUserId,
   loadError = null,
+  showArchived = false,
 }: {
   deals: PipelineDeal[];
   team: BrokerageTeamMember[];
   currentUserId: string | null;
   /** Set when the deals query itself failed — never show an empty board for it. */
   loadError?: string | null;
+  showArchived?: boolean;
 }) {
   const params = useSearchParams();
   const [rows, setRows] = useState(deals);
@@ -183,7 +186,7 @@ export default function PipelineBoard({
       <select
         aria-label={`Owner for ${deal.title}`}
         value={deal.ownerClerkUserId ?? ""}
-        disabled={assigning === deal.id}
+        disabled={showArchived || assigning === deal.id}
         onClick={(e) => e.stopPropagation()}
         onChange={(e) => {
           e.stopPropagation();
@@ -222,9 +225,9 @@ export default function PipelineBoard({
           gap: 7,
         }}
       >
-        <label style={{ display: "flex", gap: 7, alignItems: "center", color: c.textMuted, fontSize: 10 }}>
+        {!showArchived ? <label style={{ display: "flex", gap: 7, alignItems: "center", color: c.textMuted, fontSize: 10 }}>
           <input type="checkbox" checked={selected.includes(deal.id)} onChange={() => toggleSelected(deal.id)} /> Select for rescue
-        </label>
+        </label> : null}
         <Link href={`/admin/brokerage/pipeline/${deal.id}`} style={{ textDecoration: "none", display: "grid", gap: 3 }}>
           <span style={{ color: c.paper, fontSize: 12.5, fontWeight: 600, lineHeight: 1.3 }}>{deal.title}</span>
           <span style={{ color: c.textMuted, fontSize: 10.5 }}>
@@ -266,11 +269,15 @@ export default function PipelineBoard({
         <div>
           <h1 style={{ margin: 0, color: c.paper, fontFamily: "var(--font-brokerage-display)", fontSize: 22 }}>Pipeline</h1>
           <p style={{ margin: "4px 0 0", color: c.textMuted, fontSize: 12 }}>
-            {rows.length} open deal{rows.length === 1 ? "" : "s"}
-            {attentionCount > 0 && <span style={{ color: c.brick }}> · {attentionCount} need attention</span>}
+            {rows.length} {showArchived ? "archived" : "open"} deal{rows.length === 1 ? "" : "s"}
+            {!showArchived && attentionCount > 0 && <span style={{ color: c.brick }}> · {attentionCount} need attention</span>}
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <Link href={showArchived ? "/admin/brokerage/pipeline" : "/admin/brokerage/pipeline?view=archived"} style={{ ...control, textDecoration: "none", color: c.textSecondary }}>
+            {showArchived ? "Active deals" : "Archived deals"}
+          </Link>
+          {!showArchived ? <>
           <Link href="/admin/brokerage/pipeline/queues" style={{ ...control, textDecoration: "none", color: c.textSecondary }}>
             My work →
           </Link>
@@ -280,6 +287,7 @@ export default function PipelineBoard({
           >
             + Load a deal
           </Link>
+          </> : null}
         </div>
       </div>
 
@@ -306,7 +314,7 @@ export default function PipelineBoard({
           ))}
           <option value="unspecified">Unspecified</option>
         </select>
-        <button
+        {!showArchived ? <button
           type="button"
           onClick={() => setOnlyAttention((v) => !v)}
           style={{
@@ -317,7 +325,7 @@ export default function PipelineBoard({
           }}
         >
           Needs attention
-        </button>
+        </button> : null}
         <button
           type="button"
           onClick={() => setView((v) => (v === "board" ? "list" : "board"))}
@@ -327,7 +335,7 @@ export default function PipelineBoard({
         </button>
       </div>
 
-      {selected.length > 0 && (
+      {!showArchived && selected.length > 0 && (
         <section aria-label="Selected deal rescue actions" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: 12, marginBottom: 14, border: `1px solid ${c.brass}`, borderRadius: 7, background: "rgba(184,130,63,.08)" }}>
           <strong style={{ color: c.paper, fontSize: 12 }}>{selected.length} selected</strong>
           <select aria-label="Bulk owner" value={bulkOwner} onChange={(event) => setBulkOwner(event.target.value)} style={control}><option value="">Choose owner…</option>{team.map((member) => <option key={member.clerkUserId} value={member.clerkUserId}>{member.name}</option>)}</select>
@@ -408,16 +416,16 @@ export default function PipelineBoard({
         <div style={{ padding: "54px 20px", textAlign: "center" }}>
           <div style={{ fontSize: 30, opacity: 0.35, marginBottom: 8 }}>{loadError ? "!" : "▦"}</div>
           <div style={{ fontFamily: "var(--font-brokerage-display)", fontSize: 16, color: loadError ? c.brick : "#C9C3B6", marginBottom: 4 }}>
-            {loadError ? "The pipeline could not be loaded" : "No deals in the pipeline"}
+            {loadError ? "The pipeline could not be loaded" : showArchived ? "No archived deals" : "No deals in the pipeline"}
           </div>
           <div style={{ fontSize: 12, color: c.textMuted }}>
-            {loadError ?? "Load one by hand, or wait for the next referral to arrive."}
+            {loadError ?? (showArchived ? "Deals you archive will be safely kept here." : "Load one by hand, or wait for the next referral to arrive.")}
           </div>
         </div>
       )}
 
       <p style={{ marginTop: 16, color: c.textFaint, fontSize: 10.5 }}>
-        Owner assignment saves immediately. Nameless teammates mean Clerk was unreachable — assignment still works.
+        {showArchived ? "Open an archived deal to restore it or, if you are an admin, permanently remove an accidental record." : "Owner assignment saves immediately. Nameless teammates mean Clerk was unreachable — assignment still works."}
       </p>
     </div>
   );
