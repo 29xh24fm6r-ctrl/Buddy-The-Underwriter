@@ -1,11 +1,12 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
+import { canDeleteBrokerageCrmRecords, requireBrokerageAdmin, requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { getQualification } from "@/lib/leads/qualification";
 import { updateLeadFields } from "@/lib/leads/pipeline";
+import { beginCrmDeletion, confirmationMatches, finishCrmDeletion } from "@/lib/crm/adminDeletion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,7 +59,45 @@ export async function GET(
     .order("happens_at", { ascending: false })
     .limit(50);
 
-  return NextResponse.json({ ok: true, lead, qualification, activities: activities ?? [] });
+  return NextResponse.json({ ok: true, lead, qualification, activities: activities ?? [], permissions: { canDelete: await canDeleteBrokerageCrmRecords() } });
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ leadId: string }> },
+) {
+  let actorUserId: string;
+  try {
+    ({ userId: actorUserId } = await requireBrokerageAdmin());
+  } catch {
+    return NextResponse.json({ ok: false, error: "admin_required" }, { status: 403 });
+  }
+  const { leadId } = await params;
+  const bankId = await getBrokerageBankId();
+  const sb = supabaseAdmin();
+  const { data: lead, error: leadError } = await sb
+    .from("brokerage_leads").select("*").eq("id", leadId).eq("bank_id", bankId).maybeSingle();
+  if (leadError) return NextResponse.json({ ok: false, error: leadError.message }, { status: 500 });
+  if (!lead) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  const label = lead.business_name || [lead.first_name, lead.last_name].filter(Boolean).join(" ") || lead.email || "Unnamed lead";
+  const body = await req.json().catch(() => ({})) as { confirmation?: unknown };
+  if (!confirmationMatches(body?.confirmation, label)) {
+    return NextResponse.json({ ok: false, error: "confirmation_mismatch" }, { status: 400 });
+  }
+  if (lead.converted_deal_id) {
+    return NextResponse.json({ ok: false, error: "record_in_use", blockers: ["a converted deal"] }, { status: 409 });
+  }
+  let auditId: string;
+  try {
+    auditId = await beginCrmDeletion({ sb, bankId, actorUserId, entityType: "lead", entityId: leadId, entityLabel: label, snapshot: lead });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "deletion_audit_failed" }, { status: 500 });
+  }
+  const { data: deleted, error: deleteError } = await sb.from("brokerage_leads").delete().eq("id", leadId).eq("bank_id", bankId).select("id").maybeSingle();
+  const finalDeleteError = deleteError ?? (!deleted ? new Error("delete_not_confirmed") : null);
+  await finishCrmDeletion(sb, auditId, finalDeleteError ? { ok: false, reason: finalDeleteError.message } : { ok: true });
+  if (finalDeleteError) return NextResponse.json({ ok: false, error: finalDeleteError.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }
 
 export async function PATCH(

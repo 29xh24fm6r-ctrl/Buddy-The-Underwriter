@@ -126,7 +126,8 @@ async function dispatch(method: Method, req: NextRequest, ctx: Ctx) {
       if (method === "GET") return (await import("./_handlers/activities")).GET(req);
       if (method === "POST") return (await import("./_handlers/activities")).POST(req);
       if (method === "PATCH") return (await import("./_handlers/activities")).PATCH(req);
-      return METHOD_NOT_ALLOWED(["GET", "POST", "PATCH"]);
+      if (method === "DELETE") return (await import("./_handlers/activities")).DELETE(req);
+      return METHOD_NOT_ALLOWED(["GET", "POST", "PATCH", "DELETE"]);
     case "command-center":
       if (method === "GET") return (await import("./_handlers/command-center")).GET();
       return METHOD_NOT_ALLOWED(["GET"]);
@@ -181,21 +182,23 @@ async function dispatch(method: Method, req: NextRequest, ctx: Ctx) {
       const handlerCtx = { params: Promise.resolve({ leadId: route.params.leadId }) };
       if (method === "GET") return (await import("./_handlers/leads-leadId")).GET(req, handlerCtx);
       if (method === "PATCH") return (await import("./_handlers/leads-leadId")).PATCH(req, handlerCtx);
-      return METHOD_NOT_ALLOWED(["GET", "PATCH"]);
+      if (method === "DELETE") return (await import("./_handlers/leads-leadId")).DELETE(req, handlerCtx);
+      return METHOD_NOT_ALLOWED(["GET", "PATCH", "DELETE"]);
     }
     case "organizations/:orgId": {
       const handlerCtx = { params: Promise.resolve({ orgId: route.params.orgId }) };
       if (method === "GET") return (await import("./_handlers/organizations-orgId")).GET(req, handlerCtx);
       if (method === "PATCH") return (await import("./_handlers/organizations-orgId")).PATCH(req, handlerCtx);
       if (method === "POST") return (await import("./_handlers/organizations-orgId")).POST(req, handlerCtx);
-      return METHOD_NOT_ALLOWED(["GET", "PATCH", "POST"]);
+      if (method === "DELETE") return (await import("./_handlers/organizations-orgId")).DELETE(req, handlerCtx);
+      return METHOD_NOT_ALLOWED(["GET", "PATCH", "POST", "DELETE"]);
     }
     case "people/:personId": {
       const handlerCtx = { params: Promise.resolve({ personId: route.params.personId }) };
       if (method === "GET") return (await import("./_handlers/people-personId")).GET(req, handlerCtx);
       if (method === "PATCH") return (await import("./_handlers/people-personId")).PATCH(req, handlerCtx);
       if (method === "POST") return (await import("./_handlers/people-personId")).POST(req, handlerCtx);
-      if (method === "DELETE") return (await import("./_handlers/people-personId")).DELETE(req);
+      if (method === "DELETE") return (await import("./_handlers/people-personId")).DELETE(req, handlerCtx);
       return METHOD_NOT_ALLOWED(["GET", "PATCH", "POST", "DELETE"]);
     }
     case "deals/:dealId/parties": {

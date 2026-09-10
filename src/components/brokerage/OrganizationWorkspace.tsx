@@ -11,6 +11,7 @@ import { CrmTaskControl } from "./CrmTaskControl";
 import { CrmActivityComposer } from "./CrmActivityComposer";
 import { CommsPanel } from "./CommsPanel";
 import { hasLenderWorkspace } from "@/lib/crm/activityDraft";
+import { CrmActivityDeleteButton, CrmRecordDeleteControl } from "./CrmDeleteControls";
 
 type Tab = "overview" | "people" | "marketplace" | "appetite" | "deals" | "activity";
 type Json = Record<string, any>;
@@ -327,8 +328,9 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
 
     {tab === "activity" && <div style={{ display: "grid", gridTemplateColumns: "minmax(300px,1fr) minmax(280px,.7fr)", gap: 14 }}>
       {enabled ? <CommsPanel targetType="organization" targetId={orgId} onSent={load} /> : <Card title="Add a note"><textarea style={{ ...field(), minHeight: 100, resize: "vertical" }} placeholder="What happened? Include context and next steps…" value={note} onChange={e => setNote(e.target.value)} /><div style={{ marginTop: 9 }}><Button onClick={logNote} primary disabled={busy || !note.trim()}>Save note</Button></div></Card>}
-      <Card title="Relationship history">{data.activities?.length ? data.activities.map((a: Json) => <div key={a.id} style={{ padding: "12px 0", borderBottom: `1px solid ${c.divider}` }}><div style={{ color: c.paper, fontSize: 13 }}>{a.title || a.kind}</div>{enabled && <><div style={{ color: c.textMuted, fontSize: 12 }}>{a.kind === "task" ? `${a.completed_at ? "Completed" : "Open follow-up"}${a.due_at ? ` · Due ${new Date(a.due_at).toLocaleString()}` : " · No due date"}` : a.kind.replaceAll("_", " ")}</div>{a.kind === "task" && <CrmTaskControl id={a.id} completed={!!a.completed_at} dueAt={a.due_at} onSaved={() => void load()} />}{typeof a.properties?.body === "string" && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 13 }}>{a.properties.body}</p>}</>}<div style={{ color: c.textMuted, fontSize: 11, marginTop: 3 }}>{new Date(a.happens_at).toLocaleString()}</div></div>) : <Empty>No activity yet.</Empty>}</Card>
+      <Card title="Relationship history">{data.activities?.length ? data.activities.map((a: Json) => <div key={a.id} style={{ padding: "12px 0", borderBottom: `1px solid ${c.divider}` }}><div style={{ color: c.paper, fontSize: 13 }}>{a.title || a.kind}</div>{enabled && <><div style={{ color: c.textMuted, fontSize: 12 }}>{a.kind === "task" ? `${a.completed_at ? "Completed" : "Open follow-up"}${a.due_at ? ` · Due ${new Date(a.due_at).toLocaleString()}` : " · No due date"}` : a.kind.replaceAll("_", " ")}</div>{a.kind === "task" && <CrmTaskControl id={a.id} completed={!!a.completed_at} dueAt={a.due_at} onSaved={() => void load()} />}{typeof a.properties?.body === "string" && <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 13 }}>{a.properties.body}</p>}{data.permissions?.canDelete ? <CrmActivityDeleteButton id={a.id} label={a.title || a.kind} onDeleted={() => void load()} /> : null}</>}<div style={{ color: c.textMuted, fontSize: 11, marginTop: 3 }}>{new Date(a.happens_at).toLocaleString()}</div></div>) : <Empty>No activity yet.</Empty>}</Card>
     </div>}
+    {data.permissions?.canDelete ? <CrmRecordDeleteControl endpoint={`/api/admin/brokerage/crm/organizations/${orgId}`} label={org.name} recordType="company" consequence="This removes the company, its relationship history, and any unused lender profile. People remain in the CRM but are unlinked. Connected deal or placement records must be resolved first." redirectTo="/admin/brokerage/crm?view=relationships" /> : null}
   </div>;
 }
 
