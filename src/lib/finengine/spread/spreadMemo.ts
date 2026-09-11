@@ -21,12 +21,13 @@ import { SENTINEL_PERIOD, type EntityScope } from "@/lib/finengine/shadow/dealIn
 const isReal = (p: string) => p !== SENTINEL_PERIOD && p !== "SERIES" && /^\d{4}-\d{2}-\d{2}$/.test(p);
 
 /** The chronological real periods present for a scope (ascending). */
-export function realPeriods(spread: DealSpread, scope: EntityScope): string[] {
-  return [...new Set(spread.cells.filter((c) => c.scope === scope && isReal(c.period)).map((c) => c.period))].sort();
+export function realPeriods(spread: DealSpread, scope: EntityScope, entityId?: string | null): string[] {
+  return [...new Set(spread.cells.filter((c) => c.scope === scope && isReal(c.period) &&
+    (entityId === undefined || (c.entityId ?? null) === entityId)).map((c) => c.period))].sort();
 }
 
-function latestRealPeriod(spread: DealSpread, scope: EntityScope): string | null {
-  const ps = realPeriods(spread, scope);
+function latestRealPeriod(spread: DealSpread, scope: EntityScope, entityId?: string | null): string | null {
+  const ps = realPeriods(spread, scope, entityId);
   return ps.length ? ps[ps.length - 1] : null;
 }
 
@@ -36,11 +37,16 @@ function latestRealPeriod(spread: DealSpread, scope: EntityScope): string | null
  * so the memo's metric list is self-describing; `passesFloor` mirrors the
  * interpretation rating (flag/weak ⇒ does not pass).
  */
-export function dealSpreadToMetricResults(spread: DealSpread, scope: EntityScope = "BUSINESS", period?: string): MetricResult[] {
-  const p = period ?? latestRealPeriod(spread, scope);
+export function dealSpreadToMetricResults(spread: DealSpread, scope: EntityScope = "BUSINESS", period?: string, entityId?: string | null): MetricResult[] {
+  // MetricResult has no entity dimension. An unscoped scalar list cannot represent
+  // multiple entities, even if their latest periods differ.
+  const entities = new Set(spread.cells.filter((c) => c.scope === scope && isReal(c.period)).map((c) => c.entityId ?? null));
+  if (entityId === undefined && entities.size > 1) return [];
+  const selectedEntity = entityId === undefined ? [...entities][0] : entityId;
+  const p = period ?? latestRealPeriod(spread, scope, selectedEntity);
   if (!p) return [];
   return spread.cells
-    .filter((c) => c.scope === scope && c.period === p && c.value != null)
+    .filter((c) => c.scope === scope && (c.entityId ?? null) === selectedEntity && c.period === p && c.value != null)
     .map((c) => {
       const i = c.interpretation;
       const passesFloor = c.rating === "flag" || c.rating === "weak" ? false : c.rating === "strong" || c.rating === "adequate" ? true : undefined;
@@ -76,33 +82,39 @@ function fmtVal(metric: string, v: number | null): string {
  */
 export function buildSpreadMemoSection(
   spread: DealSpread,
-  opts?: { scope?: EntityScope; validation?: { unexpected: number; cutoverBlocked: boolean } },
+  opts?: { scope?: EntityScope; entityId?: string | null; validation?: { unexpected: number; cutoverBlocked: boolean; reason?: string } },
 ): MemoSection {
   const scope = opts?.scope ?? "BUSINESS";
-  const periods = realPeriods(spread, scope);
+  const periods = realPeriods(spread, scope, opts?.entityId);
   const hasData = periods.length > 0;
 
   const lines: string[] = [];
   if (hasData) {
-    lines.push(`Credit spread — ${scope.toLowerCase()} entity, ${periods.length} period(s): ${periods.join(", ")}.`);
+    const entities = [...new Set(spread.cells.filter((c) => c.scope === scope && isReal(c.period) &&
+      (opts?.entityId === undefined || (c.entityId ?? null) === opts.entityId)).map((c) => c.entityId ?? null))].sort();
+    if (entities.length > 1) lines.push("Multiple entities: metrics below remain separate. Select an entity before using a borrower-level ratio.");
+    for (const entityId of entities) {
+      const entityPeriods = realPeriods(spread, scope, entityId);
+      lines.push(`Credit spread — ${scope.toLowerCase()} entity${entityId ? ` ${entityId}` : " (unassigned)"}, ${entityPeriods.length} period(s): ${entityPeriods.join(", ")}.`);
 
-    // Headline metric rows: metric → value per period, with the latest period's rating.
-    const cellAt = (metric: string, period: string) => spread.cells.find((c) => c.scope === scope && c.metric === metric && c.period === period);
-    const present = HEADLINE.filter((m) => periods.some((p) => cellAt(m, p)?.value != null));
-    for (const metric of present) {
-      const cols = periods.map((p) => fmtVal(metric, cellAt(metric, p)?.value ?? null)).join("  |  ");
-      const last = cellAt(metric, periods[periods.length - 1]);
-      lines.push(`  ${metric}: ${cols}  [${last?.rating ?? "n/a"}]`);
-    }
+      // Headline metric rows: metric → value per period, with the latest period's rating.
+      const cellAt = (metric: string, period: string) => spread.cells.find((c) => c.scope === scope && (c.entityId ?? null) === entityId && c.metric === metric && c.period === period);
+      const present = HEADLINE.filter((m) => entityPeriods.some((p) => cellAt(m, p)?.value != null));
+      for (const metric of present) {
+        const cols = entityPeriods.map((p) => fmtVal(metric, cellAt(metric, p)?.value ?? null)).join("  |  ");
+        const last = cellAt(metric, entityPeriods[entityPeriods.length - 1]);
+        lines.push(`  ${metric}: ${cols}  [${last?.rating ?? "n/a"}]`);
+      }
 
-    // Red flags across all periods (deduped, capped).
-    const flags = [...new Set(
-      spread.cells.filter((c) => c.scope === scope).flatMap((c) => c.interpretation.redFlags.map((f) => `${c.period}: ${f}`)),
-    )];
-    if (flags.length) {
-      lines.push("Red flags:");
-      for (const f of flags.slice(0, 12)) lines.push(`  ⚠ ${f}`);
-      if (flags.length > 12) lines.push(`  …and ${flags.length - 12} more.`);
+      // Red flags across all periods (deduped, capped).
+      const flags = [...new Set(
+        spread.cells.filter((c) => c.scope === scope && (c.entityId ?? null) === entityId).flatMap((c) => c.interpretation.redFlags.map((f) => `${c.period}: ${f}`)),
+      )];
+      if (flags.length) {
+        lines.push("Red flags:");
+        for (const f of flags.slice(0, 12)) lines.push(`  ⚠ ${f}`);
+        if (flags.length > 12) lines.push(`  …and ${flags.length - 12} more.`);
+      }
     }
 
     // Validation / cutover status (when the caller ran validateSpread).
@@ -110,7 +122,7 @@ export function buildSpreadMemoSection(
       const { unexpected, cutoverBlocked } = opts.validation;
       lines.push(
         cutoverBlocked
-          ? `Validation: ${unexpected} UNEXPECTED divergence(s) vs the independent golden — CUTOVER BLOCKED; analyst review required.`
+            ? `Validation: ${opts.validation.reason ?? `${unexpected} UNEXPECTED divergence(s) vs the independent golden`} — CUTOVER BLOCKED; analyst review required.`
           : `Validation: engine agrees with the independent golden (no unexpected divergences) — spread is cutover-clean.`,
       );
     }
@@ -127,8 +139,8 @@ export function buildSpreadMemoSection(
 /** Both contributions at once, to feed `MemoInputs.metrics` and append the section. */
 export function spreadToMemoContribution(
   spread: DealSpread,
-  opts?: { scope?: EntityScope; validation?: { unexpected: number; cutoverBlocked: boolean } },
+  opts?: { scope?: EntityScope; entityId?: string | null; validation?: { unexpected: number; cutoverBlocked: boolean; reason?: string } },
 ): { metrics: MetricResult[]; section: MemoSection } {
   const scope = opts?.scope ?? "BUSINESS";
-  return { metrics: dealSpreadToMetricResults(spread, scope), section: buildSpreadMemoSection(spread, opts) };
+  return { metrics: dealSpreadToMetricResults(spread, scope, undefined, opts?.entityId), section: buildSpreadMemoSection(spread, opts) };
 }

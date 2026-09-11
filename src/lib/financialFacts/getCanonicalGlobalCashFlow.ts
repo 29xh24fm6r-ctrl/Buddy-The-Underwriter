@@ -64,7 +64,7 @@ export async function getCanonicalGlobalCashFlow(
     (sb as any)
       .from("deal_financial_facts")
       .select(
-        "fact_key, fact_value_num, fact_type, owner_type, owner_entity_id, fact_period_end, created_at, is_superseded",
+        "fact_key, fact_value_num, fact_type, owner_type, owner_entity_id, fact_period_end, created_at, is_superseded, resolution_status",
       )
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)

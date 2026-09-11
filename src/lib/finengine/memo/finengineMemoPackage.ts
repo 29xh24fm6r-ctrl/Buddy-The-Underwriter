@@ -18,7 +18,7 @@
 import { computeDealSpread, type DealSpread } from "@/lib/finengine/spread/dealSpread";
 import type { IndustryProfile } from "@/lib/industryIntelligence/types";
 import { validateSpread, type SpreadValidation, type IntendedDivergence, type HardAnchor } from "@/lib/finengine/spread/validateSpread";
-import { spreadToMemoContribution } from "@/lib/finengine/spread/spreadMemo";
+import { dealSpreadToMetricResults, spreadToMemoContribution } from "@/lib/finengine/spread/spreadMemo";
 import { buildCreditMemo, type MemoInputs, type MemoSection } from "@/lib/finengine/memo/buildCreditMemo";
 import type { CertifiedFactRow, EntityScope } from "@/lib/finengine/shadow/dealInputAdapter";
 import type { PolicyContext } from "@/lib/finengine/contracts";
@@ -42,7 +42,9 @@ export function memoGate(validation: SpreadValidation): CutoverGate {
     blocked,
     unexpected: validation.unexpected,
     reason: blocked
-      ? `${validation.unexpected} UNEXPECTED divergence(s) vs the independent golden — analyst review or a registered exception is required before this memo can finalize.`
+      ? validation.checks.length === 0 && validation.unexpected === 0
+        ? "No comparable accepted financial evidence — this memo cannot finalize until financial evidence is available and validated."
+        : `${validation.unexpected} UNEXPECTED divergence(s) vs the independent golden — analyst review or a registered exception is required before this memo can finalize.`
       : "Spread agrees with the independent golden — cleared for finalization.",
   };
 }
@@ -106,10 +108,7 @@ export type FinengineMemoPackage = {
 
 /** Latest real-period value of a metric in the spread (for enrichment). */
 function latestMetric(spread: DealSpread, scope: EntityScope, metric: string): number | null {
-  const cells = spread.cells
-    .filter((c) => c.scope === scope && c.metric === metric && /^\d{4}-\d{2}-\d{2}$/.test(c.period))
-    .sort((a, b) => (a.period < b.period ? -1 : 1));
-  return cells.length ? cells[cells.length - 1].value : null;
+  return dealSpreadToMetricResults(spread, scope).find((cell) => cell.metric === metric)?.value ?? null;
 }
 
 /** Run the engine modules over the signals to produce the memo's financial sections. */
@@ -182,7 +181,7 @@ export function buildFinengineMemoPackage(
 
   const { metrics, section } = spreadToMemoContribution(spread, {
     scope,
-    validation: { unexpected: validation.unexpected, cutoverBlocked: validation.cutoverBlocked },
+    validation: { unexpected: validation.unexpected, cutoverBlocked: validation.cutoverBlocked, reason: gate.reason },
   });
 
   const engineInputs = engineSections(spread, scope, opts?.signals);

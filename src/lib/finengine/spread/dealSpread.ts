@@ -27,6 +27,7 @@ export type MetricCell = {
   family: string;
   metric: string;
   scope: EntityScope;
+  entityId?: string;
   period: string; // 'YYYY-MM-DD' or 'SERIES' for multi-period
   value: number | null;
   rating: Interpretation["rating"];
@@ -178,22 +179,23 @@ export function computeDealSpread(dealId: string, rows: CertifiedFactRow[], opts
   const warnings: string[] = [];
 
   // Single-period metrics for every snapshot.
-  const viewsByScope = new Map<EntityScope, Array<{ period: string; v: CanonicalInputs }>>();
+  const viewsByScope = new Map<string, { scope: EntityScope; entityId?: string; series: Array<{ period: string; v: CanonicalInputs }> }>();
   for (const snap of snapshots) {
     const view = canonicalView(snap.facts);
-    cells.push(...singlePeriodCells(view, snap));
+    cells.push(...singlePeriodCells(view, snap).map((c) => ({ ...c, entityId: snap.entityId })));
     if (isReal(snap.fiscalPeriodEnd)) {
-      const arr = viewsByScope.get(snap.entityScope) ?? [];
-      arr.push({ period: snap.fiscalPeriodEnd, v: view.v });
-      viewsByScope.set(snap.entityScope, arr);
+      const key = JSON.stringify([snap.entityScope, snap.entityId ?? null]);
+      const group = viewsByScope.get(key) ?? { scope: snap.entityScope, entityId: snap.entityId, series: [] };
+      group.series.push({ period: snap.fiscalPeriodEnd, v: view.v });
+      viewsByScope.set(key, group);
     }
     warnings.push(...snap.warnings.map((w) => `[${snap.entityScope} ${snap.fiscalPeriodEnd}] ${w}`));
   }
 
   // Multi-period metrics per scope (chronological real periods only).
-  for (const [scope, arr] of viewsByScope) {
-    const ordered = arr.filter((a) => isReal(a.period)).sort((a, b) => (a.period < b.period ? -1 : 1));
-    cells.push(...multiPeriodCells(scope, ordered));
+  for (const { scope, entityId, series } of viewsByScope.values()) {
+    const ordered = series.filter((a) => isReal(a.period)).sort((a, b) => (a.period < b.period ? -1 : 1));
+    cells.push(...multiPeriodCells(scope, ordered).map((c) => ({ ...c, entityId })));
   }
 
   return { dealId, scopes, snapshots, cells, warnings };
