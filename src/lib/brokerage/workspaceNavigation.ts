@@ -3,7 +3,8 @@ export const BROKERAGE_HOME = "/admin/brokerage";
 export const BROKERAGE_COMMAND = `${BROKERAGE_HOME}/owner`;
 export const BROKERAGE_WORKSPACE_LINKS = [
   { label: "Owner command", href: BROKERAGE_COMMAND },
-  { label: "Brokerage deals", href: `${BROKERAGE_HOME}/pipeline` },
+  { label: "My work", href: `${BROKERAGE_HOME}/pipeline/queues` },
+  { label: "Deal pipeline", href: `${BROKERAGE_HOME}/pipeline` },
   { label: "CRM & follow-ups", href: `${BROKERAGE_HOME}/crm` },
   { label: "Lender placements", href: `${BROKERAGE_HOME}/crm/buyers` },
   { label: "Billing", href: `${BROKERAGE_HOME}/billing` },

@@ -9,6 +9,7 @@ import { useClerk } from "@clerk/nextjs";
 import { useState } from "react";
 import "./workspace.css";
 import { activeBrokerageWorkspaceLink } from "@/lib/brokerage/workspaceNavigation";
+import { BrokerageCreateLauncher } from "./BrokerageCreateLauncher";
 
 /**
  * Nav rail + top bar shell for the brokerage system. Ported from the
@@ -32,7 +33,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Do the work",
     items: [
       { label: "Brokerage home", href: "/admin/brokerage", icon: "◈" },
-      { label: "Brokerage deals", href: "/admin/brokerage/pipeline", icon: "▦" },
+      { label: "My work", href: "/admin/brokerage/pipeline/queues", icon: "✓" },
+      { label: "Deal pipeline", href: "/admin/brokerage/pipeline", icon: "▦" },
       { label: "CRM & follow-ups", href: "/admin/brokerage/crm", icon: "◇" },
       { label: "Lender placements", href: "/admin/brokerage/crm/buyers", icon: "↗" },
       { label: "Lender agreements", href: "/admin/brokerage/lenders", icon: "▤" },
@@ -59,6 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
 const TITLES: Record<string, [string, string]> = {
   "/admin/brokerage": ["Command center", "Your daily front door"],
   "/admin/brokerage/pipeline": ["Deals pipeline", "Your brokerage's working deals"],
+  "/admin/brokerage/pipeline/queues": ["My work", "The next actions that move revenue"],
   "/admin/brokerage/lenders": ["Lenders", "Partner banks · matching criteria & terms"],
   "/admin/brokerage/crm": ["CRM", "Relationship command center"],
   "/admin/brokerage/billing": ["Billing", "Lender referral-fee invoices"],
@@ -271,6 +274,7 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
             </div>
             {subtitle && <div style={{ fontSize: 11, color: c.textMuted, marginTop: 1 }}>{subtitle}</div>}
           </div>
+          <BrokerageCreateLauncher compact />
           <Link href="/profile">My profile</Link>
           <button className="sba-sign-out" onClick={() => {
             void signOut({ redirectUrl: "/" }).catch(() => setAccountError("Sign out failed. Please try again."));

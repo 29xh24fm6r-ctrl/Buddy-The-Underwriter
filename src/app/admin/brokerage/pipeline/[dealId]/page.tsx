@@ -26,7 +26,7 @@ export default async function BrokerageDealPage({ params }: { params: Promise<{ 
   const [{ data: deal }, team, auth, canManageDeal] = await Promise.all([
     supabaseAdmin()
       .from("deals")
-      .select("id, display_name, name, borrower_name, loan_amount, state, product_type, intake_mode, crm_tracking_only, external_deal_source, archived_at")
+      .select("id, display_name, name, borrower_name, loan_amount, state, product_type, intake_mode, crm_tracking_only, external_deal_source, archived_at, brokerage_stage, brokerage_stage_entered_at, brokerage_stage_owner_clerk_user_id")
       .eq("id", dealId)
       .eq("bank_id", bankId)
       .maybeSingle(),
@@ -64,7 +64,15 @@ export default async function BrokerageDealPage({ params }: { params: Promise<{ 
         </Link>
       </div>
 
-      <DealWorkspaceClient dealId={dealId} team={team} currentUserId={auth.userId ?? null} />
+      <DealWorkspaceClient
+        dealId={dealId}
+        team={team}
+        currentUserId={auth.userId ?? null}
+        initialExecution={{
+          ownerClerkUserId: deal.brokerage_stage_owner_clerk_user_id ?? null,
+          brokerageStage: deal.brokerage_stage ?? null,
+        }}
+      />
       {canManageDeal ? <DealLifecycleControls dealId={dealId} label={title} archivedAt={deal.archived_at ?? null} /> : null}
     </div>
   );
