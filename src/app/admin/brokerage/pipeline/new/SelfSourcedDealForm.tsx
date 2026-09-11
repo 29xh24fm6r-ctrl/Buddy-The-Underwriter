@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 import { US_STATES } from "@/lib/crm/geography";
 import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
 

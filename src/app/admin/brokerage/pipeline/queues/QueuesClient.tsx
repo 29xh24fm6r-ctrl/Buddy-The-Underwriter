@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 import { STAGE_LABELS } from "@/lib/dealStage/board";
 import type { BrokerageTeamMember } from "@/lib/brokerage/team";
 
@@ -150,7 +150,7 @@ export default function QueuesClient({ team }: { team: BrokerageTeamMember[] }) 
   }
 
   return (
-    <div style={{ padding: "18px 24px 40px" }}>
+    <div className="sba-work-surface sba-work-queues" style={{ padding: "24px 28px 48px" }}>
       <Link href="/admin/brokerage/pipeline" style={{ fontSize: 11.5, color: c.textMuted, textDecoration: "none" }}>← Pipeline</Link>
 
       <h1 style={{ margin: "14px 0 4px", color: c.paper, fontFamily: "var(--font-brokerage-display)", fontSize: 22 }}>My work</h1>
