@@ -6564,6 +6564,7 @@
 "borrower_email",
 "borrower_id",
 "borrower_name",
+"brokerage_comms_last_run_at",
 "brokerage_session_token_hash",
 "brokerage_stage",
 "brokerage_stage_entered_at",

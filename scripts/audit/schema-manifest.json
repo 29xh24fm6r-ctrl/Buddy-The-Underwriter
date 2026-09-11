@@ -643,5 +643,10 @@
     "name": "crm_admin_deletion_log",
     "type": "table",
     "migration": "20260910152547_crm_admin_deletion_audit.sql"
+  },
+  {
+    "name": "deals.brokerage_comms_last_run_at",
+    "type": "column",
+    "migration": "20260908183000_deals_brokerage_comms_last_run_at.sql"
   }
 ]
