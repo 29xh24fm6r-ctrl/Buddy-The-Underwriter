@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
+import { POST as recomputeSnapshot } from "@/app/api/deals/[dealId]/financial-snapshot/recompute/route";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 type Ctx = { params: Promise<{ dealId: string }> };
 
 /**
  * POST /api/deals/[dealId]/financial-validation/rebuild
  *
- * Banker-initiated snapshot rebuild. Idempotent.
+ * Banker-initiated snapshot rebuild using the standard immutable snapshot pipeline.
  * Auth: Clerk session + deal cockpit access.
  */
 export async function POST(_req: NextRequest, ctx: Ctx) {
@@ -34,12 +36,9 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       },
     });
 
-    // Trigger snapshot recompute via the existing financial snapshot endpoint
-    // This delegates to the standard recompute path which rebuilds the snapshot
-    const { recomputeDealReady } = await import("@/lib/deals/readiness");
-    await recomputeDealReady(dealId);
-
-    return NextResponse.json({ ok: true, status: "accepted" });
+    // Reuse the existing authenticated computation/persistence path. Return its
+    // real result, including preflight and persistence failures, to the banker.
+    return await recomputeSnapshot(_req, ctx);
   } catch (err: any) {
     console.error("[financial-validation/rebuild] Failed", {
       dealId,

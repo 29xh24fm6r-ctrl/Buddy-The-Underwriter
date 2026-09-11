@@ -25,6 +25,7 @@ type Provenance = {
 };
 
 type SnapshotInfo = {
+  ready: boolean;
   exists: boolean;
   status: string | null;
   completenessPercent: number | null;
@@ -56,26 +57,30 @@ export function FinancialValidationWorkbench({ dealId }: { dealId: string }) {
   const [snapshot, setSnapshot] = useState<SnapshotInfo | null>(null);
   const [lifecycle, setLifecycle] = useState<LifecycleImpact | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [rebuilding, setRebuilding] = useState(false);
   const [expandedGap, setExpandedGap] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       // Load gap queue + provenance
       const gapRes = await fetch(`/api/deals/${dealId}/gap-queue`);
       const gapData = await gapRes.json();
+      if (!gapRes.ok || !gapData.ok) throw new Error(gapData.error ?? "Financial validation could not be loaded");
       if (gapData.ok) {
         setGaps(gapData.gaps ?? []);
         setProvenance(gapData.provenance ?? {});
         setSnapshot({
+          ready: gapData.snapshotGate?.ready === true,
           exists: gapData.financialSnapshotExists ?? false,
-          status: null,
-          completenessPercent: gapData.completenessScore ?? null,
+          status: gapData.snapshotGate?.evidence?.lastBuildStatus ?? null,
+          completenessPercent: gapData.snapshotCompletenessPercent ?? null,
           openReviewItems: (gapData.gaps ?? []).length,
           unresolvedConflicts: (gapData.gaps ?? []).filter((g: Gap) => g.gap_type === "conflict").length,
           unresolvedMissingFacts: (gapData.gaps ?? []).filter((g: Gap) => g.gap_type === "missing_fact").length,
-          lastBuiltAt: null,
+          lastBuiltAt: gapData.snapshotGate?.evidence?.lastBuiltAt ?? null,
         });
       }
 
@@ -93,7 +98,10 @@ export function FinancialValidationWorkbench({ dealId }: { dealId: string }) {
             : null,
         });
       }
-    } catch { /* degrade */ }
+    } catch (err) {
+      setSnapshot(null);
+      setError(err instanceof Error ? err.message : "Financial validation could not be loaded");
+    }
     finally { setLoading(false); }
   }, [dealId]);
 
@@ -101,10 +109,15 @@ export function FinancialValidationWorkbench({ dealId }: { dealId: string }) {
 
   const handleRebuild = async () => {
     setRebuilding(true);
+    setError(null);
     try {
-      await fetch(`/api/deals/${dealId}/financial-validation/rebuild`, { method: "POST" });
+      const response = await fetch(`/api/deals/${dealId}/financial-validation/rebuild`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.message ?? result.error ?? "Snapshot rebuild failed");
       await load();
-    } catch { /* degrade */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Snapshot rebuild failed");
+    }
     finally { setRebuilding(false); }
   };
 
@@ -122,10 +135,11 @@ export function FinancialValidationWorkbench({ dealId }: { dealId: string }) {
   const missing = gaps.filter((g) => g.gap_type === "missing_fact");
   const lowConf = gaps.filter((g) => g.gap_type === "low_confidence");
 
-  const badge = STATUS_BADGES[snapshot?.exists ? "needs_review" : "not_started"] ?? STATUS_BADGES.not_started;
-  const overallBadge = gaps.length === 0 && snapshot?.exists
+  const overallBadge = snapshot?.status === "stale"
+    ? STATUS_BADGES.stale
+    : snapshot?.ready === true
     ? STATUS_BADGES.validated
-    : gaps.length > 0
+    : snapshot?.exists || gaps.length > 0
     ? STATUS_BADGES.needs_review
     : STATUS_BADGES.not_started;
 
@@ -152,6 +166,8 @@ export function FinancialValidationWorkbench({ dealId }: { dealId: string }) {
           </a>
         </div>
       </div>
+
+      {error && <p role="alert" className="rounded-lg border border-red-400/30 bg-red-950/20 p-3 text-sm text-red-200">{error}</p>}
 
       {/* Snapshot Status Card */}
       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">

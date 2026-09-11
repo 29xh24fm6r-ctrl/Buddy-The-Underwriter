@@ -13,6 +13,9 @@ import {
   type SnapshotMetricValue,
   type MinimalFact,
 } from "@/lib/deals/financialSnapshotCore";
+import { loadSnapshotFactInputs } from "@/lib/financial/snapshot/loadSnapshotFactInputs";
+import { financialFactFingerprint } from "@/lib/financialFacts/fingerprint";
+import { isSelectableNumericFact } from "@/lib/financialFacts/acceptance";
 import { buildCanonicalEngineState } from "@/lib/financials/canonicalEngineState";
 import { upsertDealFinancialFact, SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 
@@ -168,14 +171,8 @@ export async function buildDealFinancialSnapshotForBank(args: {
   // active truth: banker overrides/provides (MANUAL), spreads, extractions.
   // The selectBestFact() priority (MANUAL > STRUCTURAL > SPREAD > DOC_EXTRACT)
   // ensures banker-resolved values win when present.
-  const [factsRes, rrRes, dealModeRes, loanReqRes] = await Promise.all([
-    (sb as any)
-      .from("deal_financial_facts")
-      .select("*")
-      .eq("deal_id", args.dealId)
-      .eq("bank_id", bankId)
-      .eq("is_superseded", false)
-      .neq("resolution_status", "rejected"),
+  const [inputFacts, rrRes, dealModeRes, loanReqRes] = await Promise.all([
+    loadSnapshotFactInputs(sb, args.dealId, bankId),
     (sb as any)
       .from("deal_rent_roll_rows")
       .select("*")
@@ -199,15 +196,11 @@ export async function buildDealFinancialSnapshotForBank(args: {
       .limit(5),
   ]);
 
-  if (factsRes.error) {
-    throw new Error(`deal_financial_facts_select_failed:${factsRes.error.message}`);
-  }
-
   if (rrRes.error) {
     throw new Error(`deal_rent_roll_rows_select_failed:${rrRes.error.message}`);
   }
 
-  const facts = (factsRes.data ?? []) as MinimalFact[];
+  const facts = (inputFacts as unknown as MinimalFact[]).filter(isSelectableNumericFact);
   const rrRows = (rrRes.data ?? []) as RentRollRow[];
   const rrAsOf = latestAsOfDateFromRentRollRows(rrRows);
   const waltYears = rrAsOf ? computeWaltYearsFromRentRoll({ rows: rrRows, asOfDate: rrAsOf }) : buildEmptyMetric();
@@ -229,7 +222,7 @@ export async function buildDealFinancialSnapshotForBank(args: {
   // spreads use) and overlay them so Financial Analysis can never diverge. This is
   // read-only over the already-loaded active facts — no writes, no extra IO.
   const engineState = buildCanonicalEngineState(facts as any);
-  return overlayCanonicalEngineState(base, engineState);
+  return { ...overlayCanonicalEngineState(base, engineState), input_facts_hash: financialFactFingerprint(inputFacts) };
 }
 
 /**

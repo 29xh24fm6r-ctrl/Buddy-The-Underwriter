@@ -41,7 +41,7 @@ type FactMap = Record<string, number | null>;
 
 function val(facts: FactMap, key: string): number | null {
   const v = facts[key];
-  return v === undefined ? null : v;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 function fmt(n: number): string {
@@ -51,7 +51,7 @@ function fmt(n: number): string {
 export function computeEbitda(
   facts: FactMap,
   formType: string,
-  methodologySlate?: MethodologySlate,
+  methodologySlate?: Pick<MethodologySlate, "ebitda_addback_stack"> & Partial<MethodologySlate>,
 ): EbitdaAnalysis {
   const reportedOBI = val(facts, "ORDINARY_BUSINESS_INCOME");
   const addBacks: EbitdaAddBack[] = [];
