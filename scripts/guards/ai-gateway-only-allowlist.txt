@@ -34,6 +34,23 @@
 # routed through the gateway — this worklist section is intentionally
 # empty. Only the PERMANENT EXEMPTION entries below remain.
 
+# INDIRECT SDK MIGRATION DEBT (discovered 2026-09-11): the original literal
+# guard did not follow imports through openaiClient.ts. These consumers are
+# now detected explicitly, so new indirect call sites fail CI and this list
+# can only shrink as the remaining legacy consumers move to runRole()/embed().
+src/app/api/banks/[bankId]/policy/query/route.ts
+src/app/api/deals/[dealId]/ask/route.ts
+src/app/api/deals/[dealId]/committee/blended/route.ts
+src/app/api/deals/[dealId]/documents/auto-request/route.ts
+src/app/api/deals/[dealId]/memo/generate/route.ts
+src/app/api/deals/[dealId]/risk/explain/route.ts
+src/lib/gatekeeper/classifyWithOpenAI.ts
+src/lib/retrieval/embeddings.ts
+src/lib/retrieval/rerank.ts
+src/lib/retrieval/retrieve.ts
+src/lib/sba/committee.ts
+src/lib/sba/committeeGodMode.ts
+
 # PERMANENT EXEMPTION (SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §5, extended by
 # SPEC-M1.1) — NOT migration debt, do not attempt to "finish" migrating
 # these.

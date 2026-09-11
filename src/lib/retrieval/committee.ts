@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getOpenAI, getModel } from "@/lib/ai/openaiClient";
+import { runRole } from "@/lib/ai/gateway";
 import type { RetrievedChunk, CommitteeAnswer, Citation } from "@/lib/retrieval/types";
 import { lookupBestSpanForChunk } from "@/lib/retrieval/spans";
 import { assertGroundedCommitteeCitations } from "@/lib/committee/grounding";
@@ -24,9 +24,7 @@ function snippetFromContent(content: string, max = 220) {
   return s.length <= max ? s : s.slice(0, max - 1) + "…";
 }
 
-export async function rerankChunks(question: string, retrieved: RetrievedChunk[]) {
-  const openai = getOpenAI();
-  const model = getModel();
+export async function rerankChunks(question: string, retrieved: RetrievedChunk[], dealId?: string) {
 
   const candidates = retrieved.slice(0, 20).map((c) => ({
     chunk_id: c.chunk_id,
@@ -45,26 +43,24 @@ export async function rerankChunks(question: string, retrieved: RetrievedChunk[]
     ...candidates.map((c, i) => `${i + 1}. id=${c.chunk_id} sim=${c.similarity.toFixed(3)} text="${c.content}"`),
   ].join("\n");
 
-  const resp = await openai.chat.completions.create({
-    model: model,
-    messages: [
-      { role: "system", content: "You are a helpful assistant that returns only valid JSON." },
-      { role: "user", content: prompt }
-    ],
-    response_format: { type: "json_object" },
+  const resp = await runRole("structurer", {
+    prompt,
+    systemInstruction: "You are a helpful assistant that returns only valid JSON.",
+    responseJsonObject: true,
+    purpose: "committee_rerank",
+    dealId,
+    npiTagged: true,
     temperature: 0.1,
   });
 
-  const text = resp.choices[0]?.message?.content?.trim();
+  const text = resp.text.trim();
   if (!text) throw new Error("Empty rerank response");
 
   const json = JSON.parse(text);
   return RerankSchema.parse(json);
 }
 
-export async function answerWithCitations(question: string, selected: RetrievedChunk[]) {
-  const openai = getOpenAI();
-  const model = getModel();
+export async function answerWithCitations(question: string, selected: RetrievedChunk[], dealId?: string) {
 
   const context = selected.map((c, idx) => {
     const clean = c.content.replace(/\s+/g, " ").trim();
@@ -80,17 +76,17 @@ export async function answerWithCitations(question: string, selected: RetrievedC
     `{"answer": "...", "citations":[{"chunk_id":"...","quote":"..."}]}`,
   ].join("\n");
 
-  const resp = await openai.chat.completions.create({
-    model: model,
-    messages: [
-      { role: "system", content: instructions },
-      { role: "user", content: `Question: ${question}\n\n${context}` },
-    ],
-    response_format: { type: "json_object" },
+  const resp = await runRole("structurer", {
+    prompt: `Question: ${question}\n\n${context}`,
+    systemInstruction: instructions,
+    responseJsonObject: true,
+    purpose: "committee_grounded_answer",
+    dealId,
+    npiTagged: true,
     temperature: 0.2,
   });
 
-  const text = resp.choices[0]?.message?.content?.trim();
+  const text = resp.text.trim();
   if (!text) throw new Error("Empty answer response");
 
   const json = JSON.parse(text);
@@ -113,7 +109,7 @@ export async function committeeAnswer(opts: {
     };
   }
 
-  const reranked = await rerankChunks(question, retrieved);
+  const reranked = await rerankChunks(question, retrieved, opts.dealId);
   const availableIds = new Set(retrieved.map((chunk) => chunk.chunk_id));
   if (
     reranked.selected_chunk_ids.some((chunkId) => !availableIds.has(chunkId))
@@ -129,7 +125,7 @@ export async function committeeAnswer(opts: {
     throw new Error("committee_evidence_selection_failed");
   }
 
-  const answered = await answerWithCitations(question, selected);
+  const answered = await answerWithCitations(question, selected, opts.dealId);
   assertGroundedCommitteeCitations(
     answered.citations.map((citation) => ({
       source_kind: "deal_doc_chunk" as const,
