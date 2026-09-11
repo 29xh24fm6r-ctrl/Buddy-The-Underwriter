@@ -105,13 +105,16 @@ describe("dry-run: real deal 098850d1 (EQUIPMENT)", () => {
     const model = buildFinancialModel(DEAL_ID, REAL_FACTS);
     const latest = model.periods[model.periods.length - 1];
 
-    // EBITDA is derived from operating results; debt service is a coverage
-    // denominator and must never be relabeled as interest expense.
-    // T12 revenue=1360479, COGS=392171.16, OpEx=423818, depreciation=228574.
-    const expected = 1360479 - 392171.16 - 423818 + 228574;
+    // The shared engine selects the reported book income instead of discarding
+    // it for a larger revenue-minus-expense subtotal. No tax provision or
+    // interest expense is supplied, so preserve the missing-tax review warning.
+    // Debt service remains a coverage denominator, never an interest add-back.
+    const expected = 204096.14 + 228574;
     assert.ok(latest.cashflow.ebitda !== undefined, "EBITDA must be derived");
     assert.equal(latest.cashflow.ebitda, expected, `EBITDA mismatch: got ${latest.cashflow.ebitda}, expected ${expected}`);
     assert.equal(latest.cashflow.annualDebtService, 80520, "Debt service must remain a separate coverage input");
+    assert.ok(latest.qualityFlags.some(flag => flag.startsWith("EBITDA_REVIEW:") && flag.includes("no tax provision")),
+      "Missing tax evidence must remain visible instead of certifying pre-tax earnings");
   });
 
   it("full pipeline completes (snapshot → policy → stress → pricing → memo)", () => {

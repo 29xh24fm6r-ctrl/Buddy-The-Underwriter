@@ -67,6 +67,8 @@ Baseline: `7955a9db4366bfab0c23b6859ed1e6279b0c881a` (main with #1081 merged).
 
 **Rollout behavior:** Existing snapshots without an input fingerprint require a real rebuild before this financial committee gate can pass. No database migration or production-record mutation is performed by this code change. Low-confidence gaps remain advisory under the existing committee policy; this change does not silently tighten that rule.
 
+**CI follow-up:** The first full run found two failures: a source-signature regex and a legacy dry-run expectation that discarded reported net income for a larger subtotal. The regex was removed while retaining its variant behavior tests; the dry-run now expects reported income plus depreciation and explicitly requires the missing-tax warning.
+
 **Verification before PR:** 718 tests across the focused financial suites pass; TypeScript no-emit and client API-reference checking pass. CI must verify the repository-wide suite and build on its configured Node versions.
 
 **Still open:** Fact-review POSTs/UI still mix canonical fact IDs and v2 snapshot fact IDs and need an actual accepted-fact review transaction; immutable snapshot/decision pair persistence needs atomicity; direct rent-roll, loan-term and policy changes need their own snapshot dependency/freshness contracts. The legacy recompute handler retains runtime backfill paths. Consolidated snapshot reading does not certify those computations. Global/proposed/operating DSCR definitions, remaining GCF writers, output adapters, entity semantics in the model engine, orchestration and full deal-folder acceptance remain part of the broader build.
