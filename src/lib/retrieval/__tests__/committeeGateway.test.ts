@@ -1,11 +1,21 @@
 import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
-import {
+
+require.cache[require.resolve("server-only")] = {
+  id: require.resolve("server-only"),
+  filename: require.resolve("server-only"),
+  loaded: true,
+  exports: {},
+  children: [],
+  paths: [],
+} as unknown as NodeModule;
+
+const {
   __resetGatewayTestOverrides,
   __setLogGatewayCallForTests,
   __setProviderImplForTests,
-} from "@/lib/ai/gateway";
-import { rerankChunks } from "../committee";
+} = require("@/lib/ai/gateway") as typeof import("@/lib/ai/gateway");
+const { rerankChunks } = require("../committee") as typeof import("../committee");
 
 afterEach(() => __resetGatewayTestOverrides());
 
