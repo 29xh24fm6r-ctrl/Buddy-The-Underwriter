@@ -251,25 +251,4 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
       "Entity netIncome fallback chain: NOI_TTM → EBITDA → CASH_FLOW_AVAILABLE — soft dependency on aggregator's bootstrap.",
   },
 
-  persistGcfComputedFacts: {
-    name: "persistGcfComputedFacts",
-    role: "persist_render",
-    ownedFactKeys: ["GCF_GLOBAL_CASH_FLOW", "GCF_DSCR", "GCF_CASH_AVAILABLE"],
-    bootstrapsForDownstream: [],
-    reads: {
-      spreadTypes: ["GLOBAL_CASH_FLOW"],
-    },
-    runsAfter: ["GLOBAL_CASH_FLOW renderSpread"],
-    runsBefore: ["next canonical chain step (within spreadsProcessor)"],
-    invariant:
-      "On exit, for each PERSIST_KEY whose rendered row has a non-null numeric value: " +
-      "the corresponding canonical fact exists with that value.",
-    loadBearing: true,
-    notes:
-      "Fire-and-forget from renderSpread. Persists rendered GCF metrics back to canonical facts " +
-      "so Standard spread, snapshot, and memo can reference them without re-computing. " +
-      "Overlap with persistGlobalCashFlow on GCF_GLOBAL_CASH_FLOW and GCF_DSCR is intentional: " +
-      "this writer captures render-time computed values; persistGlobalCashFlow captures pure-function computed values. " +
-      "Last-writer-wins on shared keys; both writers run within the same canonical chain.",
-  },
 };

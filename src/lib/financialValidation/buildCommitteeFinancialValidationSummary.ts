@@ -24,6 +24,8 @@ export type CommitteeFinancialValidationSummary = {
   narrative: string;
 };
 
+type EvaluatedFinancialSnapshotGate = Extract<FinancialSnapshotGate, { evaluationStatus: "evaluated" }>;
+
 /**
  * Build a committee-facing financial validation summary for a deal.
  * Uses the same gate as lifecycle to ensure consistency.
@@ -32,6 +34,23 @@ export async function buildCommitteeFinancialValidationSummary(
   dealId: string,
 ): Promise<CommitteeFinancialValidationSummary> {
   const gate = await getFinancialSnapshotGate(dealId);
+
+  if (gate.evaluationStatus === "unavailable") {
+    return {
+      status: "blocked",
+      memoSafe: false,
+      decisionSafe: false,
+      completenessPercent: 0,
+      criticalMissingCount: 0,
+      unresolvedConflictCount: 0,
+      staleReasons: [],
+      overrideCount: 0,
+      openFollowUpCount: 0,
+      snapshotBuiltAt: null,
+      recommendedAction: gate.message,
+      narrative: "Financial validation could not be evaluated. No readiness or clean-review evidence has been inferred; retry validation before preparing a memo or decision.",
+    };
+  }
 
   const status = deriveCommitteeStatus(gate);
   const memoSafe = gate.ready || !gate.blockerCode || gate.blockerCode === "financial_validation_open";
@@ -57,7 +76,7 @@ export async function buildCommitteeFinancialValidationSummary(
   };
 }
 
-function deriveCommitteeStatus(gate: FinancialSnapshotGate): CommitteeFinancialValidationSummary["status"] {
+function deriveCommitteeStatus(gate: EvaluatedFinancialSnapshotGate): CommitteeFinancialValidationSummary["status"] {
   if (!gate.evidence.snapshotExists) return "missing";
   if (gate.blockerCode === "financial_snapshot_stale") return "stale";
   if (gate.blockerCode === "financial_validation_open") return "needs_review";
@@ -66,14 +85,14 @@ function deriveCommitteeStatus(gate: FinancialSnapshotGate): CommitteeFinancialV
   return "needs_review";
 }
 
-function estimateCompleteness(gate: FinancialSnapshotGate): number {
+function estimateCompleteness(gate: EvaluatedFinancialSnapshotGate): number {
   const total = gate.evidence.openReviewItems + 10; // baseline assumption
   const resolved = total - gate.evidence.openReviewItems;
   return Math.min(100, Math.round((resolved / total) * 100));
 }
 
 function buildNarrative(
-  gate: FinancialSnapshotGate,
+  gate: EvaluatedFinancialSnapshotGate,
   status: string,
   memoSafe: boolean,
   decisionSafe: boolean,

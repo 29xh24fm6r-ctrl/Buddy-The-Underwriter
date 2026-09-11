@@ -2,10 +2,8 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
-import { SENTINEL_UUID, upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
+import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { reconcileAegisFindingsForSpread } from "@/lib/aegis/reconcileSpreadFindings";
-import { writeSystemEvent } from "@/lib/aegis";
-import { extractGcfFactsFromRendered } from "@/lib/financialSpreads/gcfFactsFromRendered";
 import type { RenderedSpread, RentRollRow, SpreadType } from "@/lib/financialSpreads/types";
 
 function emptyErrorSpread(type: SpreadType, message: string): RenderedSpread {
@@ -165,106 +163,7 @@ export async function renderSpread(args: {
     console.error("[renderSpread] writeSpreadLineItems failed:", lineItemErr);
   }
 
-  // ── Persist GCF computed metrics back to deal_financial_facts ─────────────
-  // SPEC-GCF-READY-SPREAD-MUST-MATERIALIZE-CANONICAL-FACTS-1: a ready GCF spread
-  // MUST materialize canonical facts, otherwise memo readiness keeps blocking on
-  // missing_global_cash_flow even though the spread shows a value. This is now
-  // AWAITED and any failure is surfaced as a visible Aegis system event rather
-  // than swallowed by a fire-and-forget .catch(). The spread itself is already
-  // persisted above, so a persistence failure does not fail the render.
-  if (args.spreadType === "GLOBAL_CASH_FLOW") {
-    try {
-      const res = await persistGcfComputedFacts({
-        dealId: args.dealId,
-        bankId: args.bankId,
-        rendered,
-      });
-      if (!res.ok || res.written.length === 0) {
-        void writeSystemEvent({
-          event_type: "warning",
-          severity: res.written.length === 0 ? "error" : "warning",
-          source_system: "spreads_processor",
-          deal_id: args.dealId,
-          bank_id: args.bankId,
-          error_code: "GCF_FACT_MATERIALIZE_INCOMPLETE",
-          error_message:
-            res.written.length === 0
-              ? "Ready GCF spread rendered but NO canonical facts were materialized"
-              : "Ready GCF spread materialized only some canonical facts",
-          payload: { written: res.written, errors: res.errors },
-        });
-      }
-    } catch (err: any) {
-      void writeSystemEvent({
-        event_type: "error",
-        severity: "error",
-        source_system: "spreads_processor",
-        deal_id: args.dealId,
-        bank_id: args.bankId,
-        error_code: "GCF_FACT_MATERIALIZE_FAILED",
-        error_message: err?.message ?? String(err),
-        payload: {},
-      });
-    }
-  }
-
   return { ok: true as const };
-}
-
-/**
- * After a successful GCF spread render, persist the computed GCF metrics
- * back to deal_financial_facts so the Standard spread, snapshot, and
- * credit memo can reference them.
- *
- * Only writes non-null computed values. Idempotent — upsertDealFinancialFact
- * handles conflicts.
- */
-async function persistGcfComputedFacts(args: {
-  dealId: string;
-  bankId: string;
-  rendered: RenderedSpread;
-}): Promise<{ ok: boolean; written: string[]; errors: Array<{ factKey: string; message: string }> }> {
-  // Canonical keys + legacy alias, extracted with cell-shape tolerance.
-  const facts = extractGcfFactsFromRendered(args.rendered);
-  const written: string[] = [];
-  const errors: Array<{ factKey: string; message: string }> = [];
-
-  for (const f of facts) {
-    try {
-      const res = await upsertDealFinancialFact({
-        dealId: args.dealId,
-        bankId: args.bankId,
-        sourceDocumentId: SENTINEL_UUID,
-        factType: "FINANCIAL_ANALYSIS",
-        factKey: f.factKey,
-        factValueNum: f.value,
-        confidence: 0.85,
-        provenance: {
-          source_type: "SPREAD",
-          source_ref: "deal_spreads:GLOBAL_CASH_FLOW",
-          as_of_date: args.rendered.asOf ?? null,
-          extractor: "gcfTemplate:v3:persisted",
-        },
-        ownerType: "DEAL",
-        ownerEntityId: SENTINEL_UUID,
-        // SPEC-CURRENT-STAGE-AUDIT-FIX-2: deal-level derived GCF scalar — opt into the sentinel
-        // period so the MIN_VALID_PERIOD_DATE guard persists it instead of silently skipping.
-        allowSentinelPeriod: true,
-      });
-      // SPEC-CURRENT-STAGE-AUDIT-FIX-2: the guarded writer returns {ok:false} (it does NOT throw)
-      // when it rejects a write — count it as an error, never a silent success.
-      if (res.ok) {
-        written.push(f.factKey);
-      } else {
-        errors.push({ factKey: f.factKey, message: (res as { error: string }).error });
-      }
-    } catch (err: any) {
-      // Collected and surfaced by the caller — NOT swallowed silently.
-      errors.push({ factKey: f.factKey, message: err?.message ?? String(err) });
-    }
-  }
-
-  return { ok: errors.length === 0, written, errors };
 }
 
 /**

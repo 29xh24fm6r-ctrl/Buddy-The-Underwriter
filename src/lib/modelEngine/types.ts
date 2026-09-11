@@ -10,6 +10,11 @@
 // ---------------------------------------------------------------------------
 
 export type PeriodType = "FYE" | "TTM" | "YTD";
+export type IncomeBaseKind =
+  | "ordinary_business_income"
+  | "book_net_income"
+  | "taxable_income"
+  | "adjusted_gross_income";
 
 export interface FinancialPeriod {
   periodId: string;
@@ -23,6 +28,8 @@ export interface FinancialPeriod {
     depreciation?: number;
     interest?: number;
     netIncome?: number;
+    /** Identifies the accounting/tax meaning of netIncome; never infer it from the value. */
+    netIncomeBase?: IncomeBaseKind;
     // Operating-expense detail lines (SPEC-FINENGINE-CANONICAL-FACT-BRIDGE-1).
     // Display-only — they do not feed EBITDA (operatingExpenses owns that).
     officerComp?: number;
@@ -70,6 +77,8 @@ export interface FinancialPeriod {
     ebitda?: number;
     capex?: number;
     cfads?: number;
+    /** Coverage denominator. Debt service is never an interest expense add-back. */
+    annualDebtService?: number;
   };
 
   qualityFlags: string[];
