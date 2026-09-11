@@ -12,7 +12,7 @@
  * - Derived values computed from available inputs only
  */
 
-import type { FinancialModel, FinancialPeriod, PeriodType } from "./types";
+import type { FinancialModel, FinancialPeriod, IncomeBaseKind, PeriodType } from "./types";
 import { normalizeFactKey } from "@/lib/finengine/factKeyRegistry";
 
 // ---------------------------------------------------------------------------
@@ -65,7 +65,12 @@ function isSentinelDate(d: string | null | undefined): boolean {
  *
  * Within the same priority tier, the first fact encountered wins (stable).
  */
-type IncomeSlot = { field: keyof FinancialPeriod["income"]; priority: number };
+type NumericIncomeField = Exclude<keyof FinancialPeriod["income"], "netIncomeBase">;
+type IncomeSlot = {
+  field: NumericIncomeField;
+  priority: number;
+  incomeBase?: IncomeBaseKind;
+};
 export const INCOME_PRIORITY: Record<string, IncomeSlot> = {
   // ── revenue ───────────────────────────────────────────────────────────
   TOTAL_REVENUE:             { field: "revenue", priority: 10 },
@@ -79,13 +84,12 @@ export const INCOME_PRIORITY: Record<string, IncomeSlot> = {
   // ── depreciation ──────────────────────────────────────────────────────
   DEPRECIATION:              { field: "depreciation", priority: 10 },
   // ── interest ──────────────────────────────────────────────────────────
-  DEBT_SERVICE:              { field: "interest", priority: 10 },
   INTEREST_EXPENSE:          { field: "interest", priority: 8 },  // 1065 line 15 / 1120 line 18
   // ── netIncome ─────────────────────────────────────────────────────────
-  ORDINARY_BUSINESS_INCOME:  { field: "netIncome", priority: 10 }, // 1065 line 23 / 1120 line 28
-  NET_INCOME:                { field: "netIncome", priority: 8 },
-  TAXABLE_INCOME:            { field: "netIncome", priority: 5 },  // 1040 line 15
-  ADJUSTED_GROSS_INCOME:     { field: "netIncome", priority: 3 },  // 1040 line 11 — lowest
+  ORDINARY_BUSINESS_INCOME:  { field: "netIncome", priority: 10, incomeBase: "ordinary_business_income" }, // 1065 line 23 / 1120 line 28
+  NET_INCOME:                { field: "netIncome", priority: 8, incomeBase: "book_net_income" },
+  TAXABLE_INCOME:            { field: "netIncome", priority: 5, incomeBase: "taxable_income" },  // 1040 line 15
+  ADJUSTED_GROSS_INCOME:     { field: "netIncome", priority: 3, incomeBase: "adjusted_gross_income" },  // 1040 line 11 — lowest
   // ── operating-expense line items (SPEC-FINENGINE-CANONICAL-FACT-BRIDGE-1) ─
   // Display-only detail lines (they do not feed EBITDA — TOTAL_OPERATING_EXPENSES
   // owns that). Fed from normalized source-line _IS keys so the standard spread's
@@ -130,6 +134,7 @@ export const BALANCE_MAP: Record<string, NumericBalanceField> = {
 
 const CASHFLOW_MAP: Record<string, keyof FinancialPeriod["cashflow"]> = {
   CAPITAL_EXPENDITURES: "capex",
+  DEBT_SERVICE: "annualDebtService",
 };
 
 // Fact types we care about
@@ -264,6 +269,9 @@ export function buildFinancialModel(
         const cur = fieldPriority[slot.field] ?? -1;
         if (slot.priority > cur) {
           period.income[slot.field] = f.fact_value_num!;
+          if (slot.field === "netIncome") {
+            period.income.netIncomeBase = slot.incomeBase;
+          }
           fieldPriority[slot.field] = slot.priority;
         }
         continue;
@@ -328,12 +336,12 @@ export function buildFinancialModel(
 function deriveComputedValues(period: FinancialPeriod): void {
   const { income, balance, cashflow } = period;
 
-  // EBITDA derivation — prefer netIncome-based formula.
-  // When operatingExpenses comes from TOTAL_DEDUCTIONS (tax returns), it
-  // already includes depreciation and interest, so the old formula
-  // (revenue - cogs - opex + depr) missed the interest add-back.
-  // Correct formula: netIncome + depreciation + interest.
-  if (income.netIncome !== undefined) {
+  // EBITDA may be derived from ordinary business income because that base has
+  // defined pass-through semantics and its deductions include depreciation
+  // and interest. Book net income, taxable income, and personal AGI are not
+  // interchangeable bases; without tax/amortization detail they must remain
+  // reviewable inputs rather than silently producing EBITDA.
+  if (income.netIncome !== undefined && income.netIncomeBase === "ordinary_business_income") {
     const dep = income.depreciation ?? 0;
     const ie  = income.interest ?? 0;
     cashflow.ebitda = income.netIncome + dep + ie;
@@ -345,6 +353,8 @@ function deriveComputedValues(period: FinancialPeriod): void {
     const dep  = income.depreciation ?? 0;
     const ie   = income.interest ?? 0;
     cashflow.ebitda = income.revenue - cogs - opex + dep + ie;
+  } else if (income.netIncome !== undefined) {
+    period.qualityFlags.push(`EBITDA_UNAVAILABLE:unsupported_income_base:${income.netIncomeBase ?? "unknown"}`);
   }
 
   // SPEC-FINENGINE-COMPLETE-DERIVATION-1: comprehensive balance-sheet

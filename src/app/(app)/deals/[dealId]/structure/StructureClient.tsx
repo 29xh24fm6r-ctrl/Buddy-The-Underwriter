@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSpreadOutput } from "@/hooks/useSpreadOutput";
 import { usePricingInputs } from "@/hooks/usePricingInputs";
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 
 // ─── Math ───────────────────────────────────────────────────────────────────
 
@@ -60,16 +61,16 @@ function fmtX(n: number | null | undefined): string {
   return `${n.toFixed(2)}x`;
 }
 
-function dscrColor(n: number | null): string {
+function dscrColor(n: number | null, policyFloor: number | null): string {
   if (n == null) return "text-white/60";
-  if (n >= 1.25) return "text-emerald-400";
+  if (policyFloor != null && n >= policyFloor) return "text-emerald-400";
   if (n >= 1.0) return "text-amber-400";
   return "text-rose-400";
 }
 
-function dscrBg(n: number | null): string {
+function dscrBg(n: number | null, policyFloor: number | null): string {
   if (n == null) return "";
-  if (n >= 1.25) return "bg-emerald-950/30 border-emerald-500/30";
+  if (policyFloor != null && n >= policyFloor) return "bg-emerald-950/30 border-emerald-500/30";
   if (n >= 1.0) return "bg-amber-950/30 border-amber-500/30";
   return "bg-rose-950/30 border-rose-500/30";
 }
@@ -164,8 +165,8 @@ function SliderRow({
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 const POLICY_MAX_LEVERAGE = 4.5;
-const POLICY_MIN_DSCR = 1.2;
-const POLICY_MIN_DSCR_HARD = 1.0;
+const POLICY_MIN_DSCR = resolvePolicy("dscr_floor").effective;
+const POLICY_MIN_DSCR_HARD = resolvePolicy("stress_dscr_min").effective;
 
 export default function StructureClient({ dealId }: { dealId: string }) {
   const { data: spread, loading: spreadLoading } = useSpreadOutput(dealId);
@@ -244,8 +245,8 @@ export default function StructureClient({ dealId }: { dealId: string }) {
   });
 
   // Policy breaches
-  const breachDscr = dscr != null && dscr < POLICY_MIN_DSCR;
-  const breachDscrHard = dscr != null && dscr < POLICY_MIN_DSCR_HARD;
+  const breachDscr = dscr != null && POLICY_MIN_DSCR != null && dscr < POLICY_MIN_DSCR;
+  const breachDscrHard = dscr != null && POLICY_MIN_DSCR_HARD != null && dscr < POLICY_MIN_DSCR_HARD;
   const breachLeverage =
     ebitda != null && ebitda > 0 ? loan / ebitda > POLICY_MAX_LEVERAGE : false;
 
@@ -323,7 +324,7 @@ export default function StructureClient({ dealId }: { dealId: string }) {
             {savedDscr != null && (
               <div>
                 <span className="text-white/50 text-xs">Saved DSCR </span>
-                <span className={`font-semibold ${dscrColor(savedDscr)}`}>
+                <span className={`font-semibold ${dscrColor(savedDscr, POLICY_MIN_DSCR)}`}>
                   {fmtX(savedDscr)}
                 </span>
               </div>
@@ -424,7 +425,7 @@ export default function StructureClient({ dealId }: { dealId: string }) {
                   ? `NCADS ${fmtDollars(ncads)}`
                   : "NCADS unavailable"
               }
-              highlight={`border ${dscrBg(dscr)} ${dscr != null ? (dscr >= 1.25 ? "text-emerald-300" : dscr >= 1.0 ? "text-amber-300" : "text-rose-300") : "text-white"}`}
+              highlight={`border ${dscrBg(dscr, POLICY_MIN_DSCR)} ${dscr != null ? (POLICY_MIN_DSCR != null && dscr >= POLICY_MIN_DSCR ? "text-emerald-300" : POLICY_MIN_DSCR_HARD != null && dscr >= POLICY_MIN_DSCR_HARD ? "text-amber-300" : "text-rose-300") : "text-white"}`}
             />
             <OutputCell
               label="Covenant Headroom"
@@ -440,7 +441,7 @@ export default function StructureClient({ dealId }: { dealId: string }) {
           {/* Policy breaches */}
           <div className="space-y-2">
             <PolicyBreach
-              label="DSCR below policy minimum (1.20x)"
+              label={`DSCR below policy minimum (${POLICY_MIN_DSCR?.toFixed(2) ?? "unresolved"}x)`}
               breached={breachDscr && !breachDscrHard}
             />
             <PolicyBreach
@@ -505,7 +506,7 @@ export default function StructureClient({ dealId }: { dealId: string }) {
                     {fmtDollars(s.ads)}
                   </td>
                   <td
-                    className={`text-right px-4 py-2.5 tabular-nums font-semibold ${dscrColor(s.dscr)}`}
+                    className={`text-right px-4 py-2.5 tabular-nums font-semibold ${dscrColor(s.dscr, POLICY_MIN_DSCR)}`}
                   >
                     {fmtX(s.dscr)}
                   </td>

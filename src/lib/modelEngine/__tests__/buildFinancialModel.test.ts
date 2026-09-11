@@ -80,6 +80,31 @@ describe("buildFinancialModel", () => {
     assert.equal(model.periods[0].cashflow.ebitda, 450000);
   });
 
+  it("never classifies debt service as interest or an EBITDA add-back", () => {
+    const facts: FactInput[] = [
+      { fact_type: "TAX_RETURN", fact_key: "ORDINARY_BUSINESS_INCOME", fact_value_num: 100000, fact_period_end: "2025-12-31" },
+      { fact_type: "TAX_RETURN", fact_key: "INTEREST_EXPENSE", fact_value_num: 20000, fact_period_end: "2025-12-31" },
+      { fact_type: "INCOME_STATEMENT", fact_key: "DEBT_SERVICE", fact_value_num: 170000, fact_period_end: "2025-12-31" },
+    ];
+
+    const period = buildFinancialModel("deal-debt-service", facts).periods[0];
+    assert.equal(period.income.interest, 20000);
+    assert.equal(period.cashflow.annualDebtService, 170000);
+    assert.equal(period.cashflow.ebitda, 120000);
+  });
+
+  it("does not derive business EBITDA from personal adjusted gross income", () => {
+    const facts: FactInput[] = [
+      { fact_type: "PERSONAL_INCOME", fact_key: "ADJUSTED_GROSS_INCOME", fact_value_num: 250000, fact_period_end: "2025-12-31" },
+      { fact_type: "PERSONAL_INCOME", fact_key: "INTEREST_EXPENSE", fact_value_num: 50000, fact_period_end: "2025-12-31" },
+    ];
+
+    const period = buildFinancialModel("deal-personal-income", facts).periods[0];
+    assert.equal(period.income.netIncomeBase, "adjusted_gross_income");
+    assert.equal(period.cashflow.ebitda, undefined);
+    assert.ok(period.qualityFlags.includes("EBITDA_UNAVAILABLE:unsupported_income_base:adjusted_gross_income"));
+  });
+
   it("derives equity from totalAssets - totalLiabilities", () => {
     const facts: FactInput[] = [
       { fact_type: "BALANCE_SHEET", fact_key: "TOTAL_ASSETS", fact_value_num: 3000000, fact_period_end: "2025-12-31" },

@@ -20,16 +20,15 @@ function read(p: string): string {
   return readFileSync(p, "utf8");
 }
 
-// ── Test 1: Registry exists with all five writers ──────────────────────────
+// ── Test 1: Registry contains only the four pre-render writers ─────────────
 
-test("[pr5i-1] canonicalWriters.ts has all five writer entries", () => {
+test("[pr5i-1] canonicalWriters.ts has all four authoritative writer entries", () => {
   const body = read(REGISTRY_PATH);
   for (const writer of [
     "runCashFlowAggregator",
     "backfillCanonicalFactsFromSpreads",
     "computeTotalDebtService",
     "persistGlobalCashFlow",
-    "persistGcfComputedFacts",
   ]) {
     assert.match(
       body,
@@ -40,9 +39,10 @@ test("[pr5i-1] canonicalWriters.ts has all five writer entries", () => {
   // All marked loadBearing
   const matches = body.match(/loadBearing:\s*true/g) ?? [];
   assert.ok(
-    matches.length >= 5,
-    `All five writers must be loadBearing: true. Found ${matches.length}.`,
+    matches.length >= 4,
+    `All four writers must be loadBearing: true. Found ${matches.length}.`,
   );
+  assert.doesNotMatch(body, /persistGcfComputedFacts/, "render output must not be a canonical fact writer");
 });
 
 // ── Test 2: Aggregator comment block with DO NOT REMOVE sentinel ───────────

@@ -597,12 +597,16 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
       const gate = await getFinancialSnapshotGate(dealId);
       derived.financialSnapshotGateReady = gate.ready;
       derived.financialSnapshotGateCode = gate.blockerCode;
-      derived.financialSnapshotOpenReviewCount = gate.evidence.openReviewItems;
-      derived.financialSnapshotLastBuiltAt = gate.evidence.lastBuiltAt;
-      derived.financialSnapshotStale = gate.evidence.lastBuildStatus === "stale";
+      if (gate.evaluationStatus === "evaluated") {
+        derived.financialSnapshotOpenReviewCount = gate.evidence.openReviewItems;
+        derived.financialSnapshotLastBuiltAt = gate.evidence.lastBuiltAt;
+        derived.financialSnapshotStale = gate.evidence.lastBuildStatus === "stale";
+      }
     } catch {
-      // Non-fatal — financial gate failure must never block lifecycle derivation
-      derived.financialSnapshotGateReady = true; // fail-open
+      // Lifecycle can still render, but committee readiness must never be
+      // granted when the financial validation boundary is unavailable.
+      derived.financialSnapshotGateReady = false;
+      derived.financialSnapshotGateCode = "financial_validation_unavailable";
     }
   }
 

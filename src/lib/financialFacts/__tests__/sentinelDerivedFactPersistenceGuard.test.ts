@@ -41,11 +41,10 @@ test("persistGlobalCashFlow opts into the sentinel period for GCF facts", () => 
   assert.match(src, /allowSentinelPeriod:\s*true/, "GCF writes must opt in");
 });
 
-test("renderSpread persistGcfComputedFacts opts in and counts rejections as errors", () => {
+test("renderSpread never feeds rendered values back into canonical facts", () => {
   const src = read("src/lib/financialSpreads/renderSpread.ts");
-  assert.match(src, /allowSentinelPeriod:\s*true/, "GCF persisted-fact write must opt in");
-  // The guarded writer returns {ok:false} (it does NOT throw) on rejection — must be treated as error.
-  assert.match(src, /if\s*\(res\.ok\)/, "must branch on the writer's ok flag, not assume success");
+  assert.doesNotMatch(src, /upsertDealFinancialFact/, "renderer must not write facts");
+  assert.doesNotMatch(src, /persistGcfComputedFacts/, "render-to-fact feedback must stay retired");
 });
 
 test("materializeDebtServiceFact opts into the sentinel period for ADS", () => {
