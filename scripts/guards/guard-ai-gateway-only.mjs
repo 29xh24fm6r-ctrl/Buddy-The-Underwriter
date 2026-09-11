@@ -42,6 +42,10 @@ const BANNED_PATTERNS = [
   { pattern: /@anthropic-ai\/sdk/, label: "@anthropic-ai/sdk import" },
   { pattern: /api\.openai\.com/, label: "direct OpenAI REST endpoint" },
   { pattern: /from\s+["']openai["']/, label: 'openai SDK import (from "openai")' },
+  {
+    pattern: /from\s+["']@\/lib\/ai\/openaiClient["']/,
+    label: "indirect OpenAI SDK access through openaiClient",
+  },
 ];
 
 function walkFiles(dir) {
