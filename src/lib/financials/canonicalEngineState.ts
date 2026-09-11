@@ -17,6 +17,8 @@
  * keys covered here.
  */
 
+import { isSelectableNumericFact } from "@/lib/financialFacts/acceptance";
+
 import {
   resolveGcfFactValue,
   evaluateGcfPrerequisites,
@@ -81,12 +83,7 @@ export type CanonicalFinancialEngineState = {
 const EMPTY_VALUE: CanonicalEngineValue = { value: null, source: null, factKey: null, asOf: null };
 
 function isActiveNumeric(r: EngineFactRow): boolean {
-  return (
-    r.is_superseded !== true &&
-    (r.resolution_status ?? "").toLowerCase() !== "rejected" &&
-    typeof r.fact_value_num === "number" &&
-    Number.isFinite(r.fact_value_num)
-  );
+  return isSelectableNumericFact(r);
 }
 
 function recency(r: EngineFactRow): string {
@@ -162,12 +159,7 @@ function certifyDealKey(rows: EngineFactRow[], factKey: string): CanonicalEngine
     }
   }
   if (!best) {
-    // Certification dropped everything (superseded / micro-stub / conflict): fall
-    // back to the latest active fact so a real value is not silently hidden.
-    const active = latestActive(rows, factKey, "DEAL");
-    if (active?.fact_value_num != null) {
-      return { value: Number(active.fact_value_num), source: "active_fact", factKey, asOf: active.fact_period_end ?? null };
-    }
+    // Certification is authoritative. Rejected inputs cannot re-enter via a fallback.
     return EMPTY_VALUE;
   }
   return { value: best.value, source: "certified_fact", factKey, asOf: best.asOf };
@@ -190,6 +182,7 @@ export function buildCanonicalEngineState(rows: EngineFactRow[]): CanonicalFinan
     fact_period_end: r.fact_period_end ?? null,
     created_at: r.created_at ?? null,
     is_superseded: r.is_superseded ?? null,
+    resolution_status: r.resolution_status ?? null,
   }));
   const gcfFact = resolveGcfFactValue(gcfRows);
   const gcfDscrRow = latestActive(rows, GCF_DSCR_FACT_KEY);

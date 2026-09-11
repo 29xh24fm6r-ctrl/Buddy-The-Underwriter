@@ -9,6 +9,8 @@
  * reason; it BLOCKS any future cutover and must be root-caused. Read-only.
  */
 
+import { factEntityId } from "@/lib/financialFacts/acceptance";
+
 import type { DealSpread, MetricCell } from "@/lib/finengine/spread/dealSpread";
 import type { CertifiedFactRow, EntityScope } from "@/lib/finengine/shadow/dealInputAdapter";
 import { SENTINEL_PERIOD } from "@/lib/finengine/shadow/dealInputAdapter";
@@ -22,6 +24,7 @@ export type Classification = "ZERO" | "INTENDED" | "UNEXPECTED";
 
 export type SpreadCheck = {
   scope: EntityScope;
+  entityId?: string;
   period: string;
   metric: string;
   engine: number | null;
@@ -34,6 +37,7 @@ export type SpreadCheck = {
 
 export type IntendedDivergence = {
   metric: string;
+  entityId?: string | null;
   period?: string;
   expected: number | null;
   rationale: string;
@@ -74,7 +78,7 @@ const GOLDEN_VS_ENGINE: Array<{
 ];
 
 /** A pre-registered, raw-anchored expected value — independent of the adapter's selection (NG5). */
-export type HardAnchor = { metric: string; period: string; expected: number; source: string };
+export type HardAnchor = { metric: string; period: string; expected: number; source: string; entityId?: string | null };
 
 /**
  * Validate a DealSpread for one scope (default BUSINESS) against the independent
@@ -88,15 +92,21 @@ export function validateSpread(
   const intended = opts?.intended ?? [];
   const checks: SpreadCheck[] = [];
 
-  const cellFor = (metric: string, period: string): MetricCell | undefined =>
-    spread.cells.find((c) => c.scope === scope && c.metric === metric && c.period === period);
+  const scopeEntities = new Set(spread.snapshots.filter((s) => s.entityScope === scope).map((s) => s.entityId ?? null));
+  const exceptionApplies = (i: IntendedDivergence, entityId: string | null | undefined) =>
+    i.entityId === undefined ? scopeEntities.size <= 1 : i.entityId === (entityId ?? null);
+  const cellFor = (metric: string, period: string, entityId?: string | null): MetricCell | undefined => {
+    const matches = spread.cells.filter((c) => c.scope === scope && c.metric === metric && c.period === period &&
+      (entityId === undefined || (c.entityId ?? null) === entityId));
+    return matches.length === 1 ? matches[0] : undefined;
+  };
 
   for (const snap of spread.snapshots) {
     if (snap.entityScope !== scope || !isReal(snap.fiscalPeriodEnd)) continue;
 
     // --- Computation goldens (engine value vs independent derivation) ---
     for (const g of GOLDEN_VS_ENGINE) {
-      const cell = cellFor(g.metric, snap.fiscalPeriodEnd);
+      const cell = cellFor(g.metric, snap.fiscalPeriodEnd, snap.entityId ?? null);
       if (!cell) continue; // metric not surfaced by the spread — nothing to validate yet
       const { value: golden, source } = g.derive(snap.facts);
       if (golden == null) continue; // golden undefined on this period
@@ -107,13 +117,13 @@ export function validateSpread(
       if (eq(engine, golden)) {
         classification = "ZERO";
       } else {
-        const reg = intended.find((i) => i.metric === g.metric && (i.period == null || i.period === snap.fiscalPeriodEnd) && eq(engine, i.expected));
+        const reg = intended.find((i) => exceptionApplies(i, snap.entityId) && i.metric === g.metric && (i.period == null || i.period === snap.fiscalPeriodEnd) && eq(engine, i.expected));
         if (reg) { classification = "INTENDED"; note = reg.rationale; }
         else { classification = "UNEXPECTED"; note = "engine diverges from the independent golden with no registered reason"; }
       }
 
       checks.push({
-        scope, period: snap.fiscalPeriodEnd, metric: g.metric,
+        scope, entityId: snap.entityId, period: snap.fiscalPeriodEnd, metric: g.metric,
         engine, golden, absDelta: engine != null && golden != null ? Math.abs(engine - golden) : null,
         classification, goldenSource: source, note,
       });
@@ -121,9 +131,9 @@ export function validateSpread(
 
     // --- Selection-layer guard (adapter's chosen value vs independent raw selection) ---
     if (opts?.rawRows) {
-      for (const sc of selectionChecks(snap.facts, opts.rawRows, scope, snap.fiscalPeriodEnd)) {
+      for (const sc of selectionChecks(snap.facts, opts.rawRows.filter((r) => factEntityId(r.owner_entity_id) === (snap.entityId ?? null)), scope, snap.fiscalPeriodEnd)) {
         checks.push({
-          scope, period: sc.period, metric: `SELECT:${sc.factKey}`,
+          scope, entityId: snap.entityId, period: sc.period, metric: `SELECT:${sc.factKey}`,
           engine: sc.adapterValue, golden: sc.independentValue,
           absDelta: Math.abs(sc.adapterValue! - sc.independentValue!),
           classification: sc.agrees ? "ZERO" : "UNEXPECTED",
@@ -136,11 +146,12 @@ export function validateSpread(
 
   // --- Hard anchors (pre-registered audited values, independent of snap.facts) ---
   for (const a of opts?.hardAnchors ?? []) {
-    const engine = cellFor(a.metric, a.period)?.value ?? null;
+    const engine = a.entityId === undefined && scopeEntities.size > 1
+      ? null : cellFor(a.metric, a.period, a.entityId)?.value ?? null;
     const agrees = eq(engine, a.expected);
-    const reg = !agrees && intended.find((i) => i.metric === a.metric && (i.period == null || i.period === a.period) && eq(engine, i.expected));
+    const reg = !agrees && intended.find((i) => exceptionApplies(i, a.entityId) && i.metric === a.metric && (i.period == null || i.period === a.period) && eq(engine, i.expected));
     checks.push({
-      scope, period: a.period, metric: `ANCHOR:${a.metric}`,
+      scope, entityId: a.entityId ?? undefined, period: a.period, metric: `ANCHOR:${a.metric}`,
       engine, golden: a.expected, absDelta: engine != null ? Math.abs(engine - a.expected) : null,
       classification: agrees ? "ZERO" : reg ? "INTENDED" : "UNEXPECTED",
       goldenSource: a.source,
@@ -151,5 +162,6 @@ export function validateSpread(
   const zero = checks.filter((c) => c.classification === "ZERO").length;
   const intendedN = checks.filter((c) => c.classification === "INTENDED").length;
   const unexpected = checks.filter((c) => c.classification === "UNEXPECTED").length;
-  return { dealId: spread.dealId, checks, zero, intended: intendedN, unexpected, cutoverBlocked: unexpected > 0 };
+  // No comparable evidence is an unevaluated spread, never proof of agreement.
+  return { dealId: spread.dealId, checks, zero, intended: intendedN, unexpected, cutoverBlocked: unexpected > 0 || checks.length === 0 };
 }

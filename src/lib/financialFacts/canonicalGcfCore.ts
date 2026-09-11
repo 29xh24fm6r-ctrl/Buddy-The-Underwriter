@@ -10,6 +10,8 @@
  * Canonical spread owner_type: GLOBAL         (DEAL rows are legacy fallback)
  */
 
+import { isSelectableNumericFact } from "./acceptance";
+
 export const GCF_CANONICAL_FACT_KEY = "GCF_GLOBAL_CASH_FLOW";
 export const GCF_LEGACY_FACT_KEY = "GLOBAL_CASH_FLOW";
 export const GCF_DSCR_FACT_KEY = "GCF_DSCR";
@@ -82,6 +84,7 @@ export type GcfFactRow = {
   fact_period_end?: string | null;
   created_at?: string | null;
   is_superseded?: boolean | null;
+  resolution_status?: string | null;
 };
 
 export type GcfSpreadRow = {
@@ -100,7 +103,7 @@ function recency(f: GcfFactRow): string {
 /** Latest non-superseded fact for a key (prefer canonical DEAL owner, then most recent). */
 function latestFact(rows: GcfFactRow[], factKey: string): GcfFactRow | null {
   const candidates = rows.filter(
-    (r) => r.fact_key === factKey && r.is_superseded !== true && typeof r.fact_value_num === "number",
+    (r) => r.fact_key === factKey && isSelectableNumericFact(r),
   );
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => {
@@ -169,8 +172,7 @@ function makeHas(factRows: GcfFactRow[]) {
     factRows.some(
       (r) =>
         r.fact_key === key &&
-        r.is_superseded !== true &&
-        typeof r.fact_value_num === "number" &&
+        isSelectableNumericFact(r) &&
         (ownerType == null || r.owner_type === ownerType),
     );
 }

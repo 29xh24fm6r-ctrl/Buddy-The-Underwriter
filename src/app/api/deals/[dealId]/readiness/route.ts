@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getDealReadiness } from "@/lib/deals/readiness";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { requireDealAccess } from "@/lib/auth/requireDealAccess";
 import { buildUnifiedDealReadiness } from "@/lib/deals/readiness/buildUnifiedDealReadiness";
@@ -26,14 +25,11 @@ export async function GET(_req: Request, ctx: Context) {
     const { dealId } = await ctx.params;
     await requireDealAccess(dealId);
 
-    const [legacy, unified] = await Promise.all([
-      getDealReadiness(dealId).catch(() => ({ ready: false, reason: null })),
-      buildUnifiedDealReadiness({
-        dealId,
-        runReconciliation: true,
-        runSelfHeal: true,
-      }),
-    ]);
+    const unified = await buildUnifiedDealReadiness({
+      dealId,
+      runReconciliation: false,
+      runSelfHeal: false,
+    });
 
     if (!unified.ok) {
       // Map the failure to a banker-visible recovery blocker so the rail
@@ -59,8 +55,7 @@ export async function GET(_req: Request, ctx: Context) {
             fixLabel: "Refresh deal state",
           },
           error: unified.error ?? null,
-          // Surface legacy fields when available so callers keep working.
-          ready: (legacy as { ready?: boolean }).ready ?? false,
+          ready: false,
         },
         { status: unified.reason === "tenant_mismatch" ? 403 : 500 },
       );
@@ -69,8 +64,8 @@ export async function GET(_req: Request, ctx: Context) {
     return NextResponse.json({
       ok: true,
       // Legacy fields — DealStatusBanner expects these.
-      ready: (legacy as { ready?: boolean }).ready ?? unified.readiness.ready,
-      reason: (legacy as { reason?: unknown }).reason ?? null,
+      ready: unified.readiness.ready,
+      reason: unified.readiness.blockers[0]?.label ?? null,
       // Unified readiness — preferred by JourneyRail, DealShell, memo-inputs.
       readiness: unified.readiness,
     });
