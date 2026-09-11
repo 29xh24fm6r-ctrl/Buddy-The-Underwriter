@@ -33,6 +33,15 @@ test("relationship intelligence uses the CRM light palette", () => {
   assert.match(css, /\.crm-intelligence-panel span[\s\S]*#17263d/);
 });
 
+test("CRM home preserves a color-forward daylight glass system", () => {
+  const css = read("src/app/admin/brokerage/crm/unified.css");
+  assert.match(css, /--crm-daylight-blue:#e8efff/);
+  assert.match(css, /--crm-daylight-coral:#fff0f2/);
+  assert.match(css, /--crm-daylight-mint:#e4fbf2/);
+  assert.match(css, /\.crm-command-scoreboard > \*:nth-child\(4\)[\s\S]*var\(--crm-daylight-mint\)/);
+  assert.match(css, /\.crm-command-health[\s\S]*rgba\(255,247,217,\.93\)/);
+});
+
 test("production certification checks schema and both durable journeys", () => {
   const workflow = read(".github/workflows/brokerage-production-certification.yml");
   const readiness = read("src/app/admin/brokerage/launch-readiness/page.tsx");
