@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   BOARD_COLUMNS,
+  boardLabelForStage,
   columnForStage,
   daysInStage,
   isParked,
@@ -45,6 +46,12 @@ test("stages map to the column a broker would expect", () => {
   assert.equal(columnForStage("document_collection"), "packaging");
   assert.equal(columnForStage("funded"), "funded");
   assert.equal(columnForStage("lost"), "parked");
+});
+
+test("exact workflow steps share one plain-language pipeline phase", () => {
+  assert.equal(boardLabelForStage("document_collection"), "Packaging");
+  assert.equal(boardLabelForStage("lender_review"), "Out to banks");
+  assert.equal(boardLabelForStage(null), "Qualifying");
 });
 
 test("parked covers every terminal and held stage", () => {

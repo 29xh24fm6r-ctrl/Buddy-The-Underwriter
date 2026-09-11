@@ -90,6 +90,7 @@ export default function QueuesClient({ team }: { team: BrokerageTeamMember[] }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [counts, setCounts] = useState<Partial<Record<QueueId, number>>>({});
 
   const active = QUEUES.find((q) => q.id === queue)!;
   const nameById = useMemo(() => Object.fromEntries(team.map((m) => [m.clerkUserId, m.name])), [team]);
@@ -114,6 +115,20 @@ export default function QueuesClient({ team }: { team: BrokerageTeamMember[] }) 
 
   useEffect(() => { void load(); }, [load]);
 
+  const loadCounts = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ summary: "1", role });
+      const res = await fetch(`/api/admin/brokerage/queues?${params.toString()}`);
+      const json = await res.json();
+      if (res.ok && json.ok) setCounts(json.counts ?? {});
+    } catch {
+      // Counts are navigation help; the selected queue remains fully usable.
+    }
+  }, [role]);
+
+  useEffect(() => { void loadCounts(); }, [loadCounts]);
+  useEffect(() => { if (!loading) setCounts((current) => ({ ...current, [queue]: items.length })); }, [items.length, loading, queue]);
+
   async function reassign(task: QueueItem, assignedToClerkUserId: string | null) {
     if (!task.deal_id) return;
     setBusyId(task.id);
@@ -127,6 +142,7 @@ export default function QueuesClient({ team }: { team: BrokerageTeamMember[] }) 
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "Could not reassign.");
       await load();
+      await loadCounts();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -144,6 +160,7 @@ export default function QueuesClient({ team }: { team: BrokerageTeamMember[] }) 
         body: JSON.stringify({ action: "update_task", taskId: task.id, status: "completed" }),
       });
       await load();
+      await loadCounts();
     } finally {
       setBusyId(null);
     }
@@ -172,7 +189,7 @@ export default function QueuesClient({ team }: { team: BrokerageTeamMember[] }) 
               cursor: "pointer",
             }}
           >
-            {q.label}
+            {q.label} <strong aria-label={`${counts[q.id] ?? "unknown"} items`} style={{ marginLeft: 4, color: queue === q.id ? c.paper : c.textFaint }}>{counts[q.id] ?? "…"}</strong>
           </button>
         ))}
       </div>

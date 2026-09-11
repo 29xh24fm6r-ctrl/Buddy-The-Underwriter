@@ -27,6 +27,17 @@ export default async function BrokerageOwnerPage() {
         <Link href="/admin/brokerage/crm/leads"><span>ACTIVE LEADS</span><strong>{command.metrics.activeLeads}</strong><small>{command.metrics.convertedLeads} converted</small></Link>
         <Link href="/admin/brokerage/crm/buyers"><span>LENDER PLACEMENTS</span><strong>{command.metrics.activeSubmissions}</strong><small>Active lender conversations</small></Link>
       </section>
+      <section className="crm-command-funnel" aria-label="Executive operating signals">
+        <header><div><p className="crm-eyebrow">EXECUTIVE SIGNALS</p><h2>The decisions behind the totals</h2></div><Link className="crm-text-link" href="/admin/brokerage/pipeline/queues">Open team work →</Link></header>
+        <div className="crm-funnel-stages">
+          <div><span>deal ownership</span><strong>{command.executive.ownershipCoverage}%</strong><small>active book assigned</small></div>
+          <div><span>next-action coverage</span><strong>{command.executive.nextActionCoverage}%</strong><small>ready for a next move</small></div>
+          <div><span>average stage age</span><strong>{command.executive.averageStageAgeDays ?? "—"}</strong><small>{command.executive.averageStageAgeDays === null ? "not yet known" : "days across active deals"}</small></div>
+          <div><span>capital exposed</span><strong>{money(command.executive.criticalPipelineValue)}</strong><small>pipeline with a critical gap</small></div>
+          <div><span>lender distributed</span><strong>{command.executive.distributedDeals}</strong><small>active deals sent to banks</small></div>
+          <div><span>overdue deals</span><strong>{command.executive.overdueDeals}</strong><small>with a past-due task</small></div>
+        </div>
+      </section>
       <div className="crm-command-layout">
         <main className="crm-command-main">
           <section className="crm-command-funnel">
