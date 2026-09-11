@@ -16,6 +16,8 @@ body:has(.sba-workspace-shell) .app-nav-spacer { display: none !important; }
 .sba-workspace-shell:not(:has(.crm-unified)) > main { overflow: visible !important; }
 .sba-workspace-shell .brokerage-shell-title { min-height: 68px; }
 .sba-sign-out { border: 1px solid #60718b; border-radius: 8px; padding: 7px 12px; }
+.sba-admin-shortcut { color: #dce7ff; border: 1px solid #60718b; border-radius: 8px; padding: 7px 12px; text-decoration: none; font-weight: 650; }
+.sba-admin-shortcut:hover { color: #fff; border-color: #80a2ff; background: rgba(91,111,245,.16); }
 .sba-connected-tools { display: grid; gap: 14px; padding: 14px 8px; }
 .sba-mobile-nav-toggle { display: none; }
 .sba-workspace-shell a:focus-visible,

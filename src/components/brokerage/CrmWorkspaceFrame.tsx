@@ -17,6 +17,7 @@ import { confirmCrmDiscard } from "./useCrmDraftGuard";
 import { useClerk } from "@clerk/nextjs";
 import { BROKERAGE_COMMAND, BROKERAGE_WORKSPACE_LINKS } from "@/lib/brokerage/workspaceNavigation";
 import { BrokerageCreateLauncher } from "./BrokerageCreateLauncher";
+import { STAGE_LABELS, boardLabelForStage } from "@/lib/dealStage/board";
 
 type RecordTarget = {
   id: string;
@@ -181,6 +182,9 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
             </span>
             <div className="crm-account-actions">
               <BrokerageCreateLauncher compact />
+              <Link className="crm-admin-home-link" href="/admin" prefetch={false}>
+                Admin tools
+              </Link>
               <Link className="crm-admin-home-link" href="/admin/brokerage" prefetch={false}>
                 <span aria-hidden="true">⌂</span> Brokerage HQ
               </Link>
@@ -267,20 +271,23 @@ export function CrmModal({
   className,
   onClose,
   children,
+  initialFocusRef,
 }: {
   title: string;
   className: string;
   onClose: () => void;
   children: React.ReactNode;
+  initialFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     dialog.current?.showModal();
+    window.requestAnimationFrame(() => initialFocusRef?.current?.focus());
     return () => {
       previous?.focus();
     };
-  }, []);
+  }, [initialFocusRef]);
   const close = () => {
     if (confirmCrmDiscard(dialog.current)) onClose();
   };
@@ -315,6 +322,7 @@ function CrmSearchDialog({
   const [q, setQ] = useState("");
   const [results, setResults] = useState<SearchTarget[]>([]);
   const [status, setStatus] = useState("");
+  const searchInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const controller = new AbortController();
     const timer = setTimeout(async () => {
@@ -358,7 +366,7 @@ function CrmSearchDialog({
             name: d.display_name || d.borrower_name || d.name || "Untitled deal",
             kind: "deal" as const,
             meta: [
-              d.brokerage_stage?.replaceAll("_", " "),
+              d.brokerage_stage ? `${boardLabelForStage(d.brokerage_stage)} · ${STAGE_LABELS[d.brokerage_stage] ?? d.brokerage_stage}` : "Qualifying · Intake",
               d.loan_amount ? `$${Math.round(d.loan_amount).toLocaleString("en-US")}` : null,
             ].filter(Boolean).join(" · ") || "Active deal",
           })),
@@ -384,9 +392,10 @@ function CrmSearchDialog({
       title="Find anything in the brokerage"
       className="crm-search-dialog"
       onClose={onClose}
+      initialFocusRef={searchInput}
     >
       <input
-        autoFocus
+        ref={searchInput}
         aria-label="Search companies, people, and deals"
         placeholder="Company, person, deal, email or phone…"
         value={q}

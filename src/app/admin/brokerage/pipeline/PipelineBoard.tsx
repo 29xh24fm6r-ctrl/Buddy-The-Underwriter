@@ -8,6 +8,7 @@ import {
   BOARD_COLUMNS,
   INTAKE_MODE_LABELS,
   STAGE_LABELS,
+  boardLabelForStage,
   columnForStage,
   daysInStage,
   isStalled,
@@ -108,6 +109,8 @@ export default function PipelineBoard({
   const [bulkOwner, setBulkOwner] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [assignmentNotice, setAssignmentNotice] = useState<{ dealId: string; title: string; previous: string | null } | null>(null);
+  const [expandedColumns, setExpandedColumns] = useState<Set<BoardColumnId>>(new Set());
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -132,7 +135,7 @@ export default function PipelineBoard({
     return map;
   }, [visible]);
 
-  async function assign(dealId: string, ownerClerkUserId: string | null) {
+  async function assign(dealId: string, ownerClerkUserId: string | null, announce = true) {
     setAssigning(dealId);
     setError(null);
     const previous = rows;
@@ -145,9 +148,15 @@ export default function PipelineBoard({
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "Could not assign the deal.");
+      if (announce) {
+        const changed = previous.find((deal) => deal.id === dealId);
+        if (changed) setAssignmentNotice({ dealId, title: changed.title, previous: changed.ownerClerkUserId });
+      }
+      return true;
     } catch (e) {
       setRows(previous);
       setError(e instanceof Error ? e.message : String(e));
+      return false;
     } finally {
       setAssigning(null);
     }
@@ -243,7 +252,7 @@ export default function PipelineBoard({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <span style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 13, color: c.brassBright }}>{money(deal.amount)}</span>
           <span style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 10, color: stalled ? c.brick : c.textFaint }}>
-            {age === null ? "—" : `${age}d in ${STAGE_LABELS[deal.stage ?? ""] ?? "stage"}`}
+            {age === null ? "—" : `${age}d in ${boardLabelForStage(deal.stage)} · ${STAGE_LABELS[deal.stage ?? ""] ?? "Intake"}`}
           </span>
         </div>
 
@@ -262,7 +271,10 @@ export default function PipelineBoard({
             : "No next action"}
         </div>
 
-        <OwnerPicker deal={deal} />
+        <div style={{ display: "grid", gap: 3 }}>
+          <small style={{ color: c.textFaint, fontSize: 9.5 }}>Owner · saves now, with Undo</small>
+          <OwnerPicker deal={deal} />
+        </div>
       </div>
     );
   }
@@ -364,10 +376,26 @@ export default function PipelineBoard({
         </div>
       )}
 
+      {assignmentNotice && !error && (
+        <div role="status" style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${c.sage}`, background: "rgba(83,166,134,.1)", color: c.textSecondary, borderRadius: 6, padding: 11, fontSize: 12, marginBottom: 14 }}>
+          <span style={{ flex: 1 }}>Owner updated for <strong style={{ color: c.paper }}>{assignmentNotice.title}</strong>.</span>
+          <button type="button" disabled={assigning === assignmentNotice.dealId} onClick={() => void assign(assignmentNotice.dealId, assignmentNotice.previous, false).then((ok) => { if (ok) setAssignmentNotice(null); })} style={{ ...control, cursor: "pointer", color: c.sage }}>Undo</button>
+          <button type="button" aria-label="Dismiss owner update" onClick={() => setAssignmentNotice(null)} style={{ ...control, cursor: "pointer" }}>✕</button>
+        </div>
+      )}
+
       {view === "board" ? (
         <div style={{ display: "grid", gridAutoFlow: "column", gridAutoColumns: "minmax(258px, 1fr)", gap: 12, overflowX: "auto", paddingBottom: 8 }}>
           {BOARD_COLUMNS.map((column) => {
             const columnDeals = byColumn.get(column.id) ?? [];
+            const filtered = !!search.trim() || owner !== "all" || intake !== "all" || onlyAttention;
+            const orderedDeals = [...columnDeals].sort((a, b) => {
+              const priority = (deal: PipelineDeal) => (!deal.ownerClerkUserId ? 4 : 0) + (!deal.nextTask ? 3 : 0) + (isStalled(deal.stage, deal.stageEnteredAt) ? 2 : 0);
+              return priority(b) - priority(a) || (b.amount ?? 0) - (a.amount ?? 0);
+            });
+            const expanded = filtered || expandedColumns.has(column.id);
+            const displayedDeals = expanded ? orderedDeals : orderedDeals.slice(0, 6);
+            const hiddenCount = orderedDeals.length - displayedDeals.length;
             const columnValue = columnDeals.reduce((sum, d) => sum + (d.amount ?? 0), 0);
             return (
               <section key={column.id} style={{ display: "grid", gap: 9, alignContent: "start" }}>
@@ -380,8 +408,10 @@ export default function PipelineBoard({
                 {columnDeals.length === 0 ? (
                   <p style={{ margin: 0, padding: "14px 4px", color: c.textFaint, fontSize: 11, lineHeight: 1.5 }}>{column.emptyHint}</p>
                 ) : (
-                  columnDeals.map((deal) => <Card key={deal.id} deal={deal} />)
+                  displayedDeals.map((deal) => <Card key={deal.id} deal={deal} />)
                 )}
+                {hiddenCount > 0 ? <button type="button" onClick={() => setExpandedColumns((current) => new Set([...current, column.id]))} style={{ ...control, cursor: "pointer", color: c.brassBright }}>Show {hiddenCount} more</button> : null}
+                {!filtered && expanded && orderedDeals.length > 6 ? <button type="button" onClick={() => setExpandedColumns((current) => { const next = new Set(current); next.delete(column.id); return next; })} style={{ ...control, cursor: "pointer", color: c.textMuted }}>Show priorities only</button> : null}
               </section>
             );
           })}
@@ -437,7 +467,7 @@ export default function PipelineBoard({
       )}
 
       <p style={{ marginTop: 16, color: c.textFaint, fontSize: 10.5 }}>
-        {showArchived ? "Open an archived deal to restore it or, if you are an admin, permanently remove an accidental record." : "Owner assignment saves immediately. Nameless teammates mean Clerk was unreachable — assignment still works."}
+        {showArchived ? "Open an archived deal to restore it or, if you are an admin, permanently remove an accidental record." : "Priority view shows the deals most likely to stall first. Filters always show every match."}
       </p>
     </div>
   );

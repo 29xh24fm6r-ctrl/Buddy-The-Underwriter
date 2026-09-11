@@ -43,6 +43,14 @@ test("combines deals, leads, relationships, lenders, and communications into one
   assert.equal(command.momentum.nextLevelAt, 20);
   assert.deepEqual(command.momentum.signals.map((signal) => signal.percent), [0, 0, 0, 0, 25]);
   assert.equal(command.momentum.signals[0].href, "/admin/brokerage/pipeline?owner=unassigned");
+  assert.deepEqual(command.executive, {
+    ownershipCoverage: 0,
+    nextActionCoverage: 0,
+    averageStageAgeDays: 38,
+    criticalPipelineValue: 500_000,
+    distributedDeals: 0,
+    overdueDeals: 0,
+  });
 });
 
 test("does not manufacture attention work when the operating record is complete", () => {
@@ -59,4 +67,7 @@ test("does not manufacture attention work when the operating record is complete"
   assert.equal(command.momentum.percent, 100);
   assert.equal(command.momentum.level, "Brokerage mastery");
   assert.equal(command.momentum.nextLevel, null);
+  assert.equal(command.executive.ownershipCoverage, 100);
+  assert.equal(command.executive.nextActionCoverage, 100);
+  assert.equal(command.executive.distributedDeals, 1);
 });
