@@ -1,6 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getFinancialSnapshotGate } from "../getFinancialSnapshotGate";
+
+// The production module is server-only. Stub that framework marker before the
+// CommonJS test runner loads the module so this behavioral test exercises the
+// gate rather than Next's client-import sentinel.
+require.cache[require.resolve("server-only")] = {
+  id: require.resolve("server-only"),
+  filename: require.resolve("server-only"),
+  loaded: true,
+  exports: {},
+  children: [],
+  paths: [],
+} as unknown as NodeModule;
+
+const { getFinancialSnapshotGate } = require("../getFinancialSnapshotGate") as typeof import("../getFinancialSnapshotGate");
 
 test("database uncertainty blocks readiness without fabricating evidence", async () => {
   const failingQuery = {
