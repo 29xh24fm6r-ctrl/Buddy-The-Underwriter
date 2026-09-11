@@ -64,3 +64,64 @@ body:has(.sba-workspace-shell) .app-nav-spacer { display: none !important; }
   .sba-workspace-shell .brokerage-shell-title { padding: 12px !important; height: auto !important; gap: 10px !important; flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { .sba-journey { transition: none; } .sba-journey:hover { transform: none; } }
+
+/* The revenue workflow shares CRM's bright, prismatic visual language. */
+.sba-work-surface {
+  --crm-ink:#edf3ff;
+  --crm-inkHeader:rgba(255,255,255,.72);
+  --crm-card:rgba(255,255,255,.78);
+  --crm-cardHover:rgba(255,255,255,.94);
+  --crm-border:rgba(173,194,228,.58);
+  --crm-borderStrong:rgba(119,149,204,.58);
+  --crm-borderStronger:rgba(76,111,178,.62);
+  --crm-divider:rgba(177,196,224,.45);
+  --crm-paper:#142442;
+  --crm-textSecondary:#445b7c;
+  --crm-textMuted:#637692;
+  --crm-textFaint:#8291aa;
+  --crm-brass:#526ff5;
+  --crm-brassBright:#315ce7;
+  --crm-brassOnBrass:#fff;
+  --crm-sage:#169a83;
+  --crm-brick:#df536b;
+  position:relative;
+  isolation:isolate;
+  min-height:calc(100dvh - 68px);
+  color:var(--crm-paper);
+  background:
+    radial-gradient(circle at 4% 2%,rgba(118,87,255,.25),transparent 27rem),
+    radial-gradient(circle at 96% 10%,rgba(18,185,233,.22),transparent 31rem),
+    radial-gradient(circle at 72% 92%,rgba(57,213,170,.17),transparent 28rem),
+    radial-gradient(circle at 33% 58%,rgba(255,111,125,.10),transparent 24rem),
+    linear-gradient(145deg,#edf2ff 0%,#f7f9ff 48%,#eafaf7 100%);
+}
+.sba-work-surface::before,.sba-work-surface::after { content:""; position:fixed; z-index:-1; border-radius:50%; pointer-events:none; filter:blur(42px); opacity:.72; }
+.sba-work-surface::before { width:24rem; height:24rem; right:6%; top:18%; background:conic-gradient(from 80deg,rgba(96,83,255,.2),rgba(24,199,228,.24),rgba(55,216,171,.19),rgba(96,83,255,.2)); animation:sba-prism-drift 18s linear infinite; }
+.sba-work-surface::after { width:18rem; height:18rem; left:22%; bottom:4%; background:radial-gradient(circle,rgba(255,112,157,.18),transparent 68%); animation:sba-prism-float 11s ease-in-out infinite; }
+.sba-work-surface input,.sba-work-surface select,.sba-work-surface textarea { box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 7px 20px rgba(42,68,111,.06); }
+.sba-work-surface button,.sba-work-surface a { transition:transform .18s ease,box-shadow .18s ease,background .18s ease,border-color .18s ease; }
+.sba-work-surface button:hover:not(:disabled),.sba-work-surface a:hover { transform:translateY(-2px); }
+.sba-pipeline > div:last-of-type,
+.sba-work-queues > div,
+.sba-deal-workspace > div,
+.sba-deal-intake form > section {
+  -webkit-backdrop-filter:blur(24px) saturate(165%);
+  backdrop-filter:blur(24px) saturate(165%);
+}
+.sba-pipeline section > div[style*="background"],
+.sba-deal-workspace section,
+.sba-deal-intake form > section {
+  box-shadow:0 18px 48px rgba(38,61,101,.10),inset 0 1px 0 rgba(255,255,255,.94);
+}
+.sba-pipeline section > div[style*="background"]:hover { transform:translateY(-3px); border-color:rgba(82,111,245,.48) !important; box-shadow:0 24px 58px rgba(42,70,119,.16),inset 0 1px 0 #fff !important; }
+.sba-flow-pulse { display:grid; grid-template-columns:auto minmax(260px,1fr) auto; align-items:center; gap:20px; margin:0 0 18px; padding:18px 22px; border:1px solid rgba(255,255,255,.76); border-radius:18px; color:#fff; background:radial-gradient(circle at 92% 0,rgba(64,226,191,.34),transparent 17rem),radial-gradient(circle at 0 100%,rgba(126,91,255,.38),transparent 19rem),linear-gradient(120deg,#17284a,#24527b); box-shadow:0 25px 62px rgba(31,55,95,.22),inset 0 1px 0 rgba(255,255,255,.18); overflow:hidden; }
+.sba-flow-orbit { display:grid; place-items:center; width:72px; height:72px; border-radius:50%; background:conic-gradient(#6ef0cf var(--flow),rgba(255,255,255,.13) 0); box-shadow:0 0 28px rgba(77,231,198,.25); position:relative; }
+.sba-flow-orbit::before { content:""; position:absolute; inset:7px; border-radius:50%; background:#1b3154; box-shadow:inset 0 0 16px rgba(0,0,0,.24); }
+.sba-flow-orbit strong { position:relative; font-size:20px; }.sba-flow-orbit small { font-size:10px; color:#a8bdd8; }
+.sba-flow-copy span { color:#9fb5ff; font-size:9px; font-weight:850; letter-spacing:.17em; }.sba-flow-copy h2 { margin:4px 0; font-size:19px; }.sba-flow-copy p { margin:0; color:#b8c8dc; font-size:11px; }
+.sba-flow-stats { display:flex; gap:8px; }.sba-flow-stats span { min-width:76px; padding:10px; border:1px solid rgba(255,255,255,.13); border-radius:11px; background:rgba(255,255,255,.07); color:#bbcadc; font-size:9px; text-align:center; }.sba-flow-stats b { display:block; color:#fff; font-size:18px; }
+@keyframes sba-prism-drift { to { transform:rotate(360deg); } }
+@keyframes sba-prism-float { 50% { transform:translate3d(18px,-22px,0) scale(1.06); } }
+@media (max-width:900px) { .sba-flow-pulse { grid-template-columns:auto 1fr; }.sba-flow-stats { grid-column:1/-1; }.sba-flow-stats span { flex:1; } }
+@media (max-width:620px) { .sba-work-surface { padding:20px 14px 40px !important; }.sba-flow-pulse { grid-template-columns:1fr; }.sba-flow-orbit { width:62px; height:62px; }.sba-flow-stats { grid-column:auto; } }
+@media (prefers-reduced-motion:reduce) { .sba-work-surface::before,.sba-work-surface::after { animation:none; }.sba-work-surface button,.sba-work-surface a { transition:none; }.sba-work-surface button:hover:not(:disabled),.sba-work-surface a:hover,.sba-pipeline section > div[style*="background"]:hover { transform:none; } }

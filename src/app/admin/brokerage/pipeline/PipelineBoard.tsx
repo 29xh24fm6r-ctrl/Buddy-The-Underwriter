@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 import {
   BOARD_COLUMNS,
   INTAKE_MODE_LABELS,
@@ -180,6 +180,10 @@ export default function PipelineBoard({
   const attentionCount = rows.filter(
     (d) => isStalled(d.stage, d.stageEnteredAt) || !d.nextTask || !d.ownerClerkUserId,
   ).length;
+  const flowReadyCount = rows.filter(
+    (d) => d.ownerClerkUserId && d.nextTask && !isStalled(d.stage, d.stageEnteredAt),
+  ).length;
+  const flowPercent = rows.length ? Math.round((flowReadyCount / rows.length) * 100) : 100;
 
   function OwnerPicker({ deal }: { deal: PipelineDeal }) {
     return (
@@ -264,7 +268,7 @@ export default function PipelineBoard({
   }
 
   return (
-    <div style={{ padding: "18px 24px 40px" }}>
+    <div className="sba-work-surface sba-pipeline" style={{ padding: "24px 28px 48px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap", marginBottom: 14 }}>
         <div>
           <h1 style={{ margin: 0, color: c.paper, fontFamily: "var(--font-brokerage-display)", fontSize: 22 }}>Pipeline</h1>
@@ -290,6 +294,14 @@ export default function PipelineBoard({
           </> : null}
         </div>
       </div>
+
+      {!showArchived ? (
+        <section className="sba-flow-pulse" aria-label="Pipeline flow health">
+          <div className="sba-flow-orbit" style={{ "--flow": `${flowPercent * 3.6}deg` } as React.CSSProperties}><strong>{flowPercent}<small>%</small></strong></div>
+          <div className="sba-flow-copy"><span>PIPELINE FLOW</span><h2>{flowPercent === 100 ? "Everything is ready to move." : `${flowReadyCount} of ${rows.length} deals are ready to move.`}</h2><p>Real momentum: every ready deal has an owner, a next action, and no stalled stage.</p></div>
+          <div className="sba-flow-stats"><span><b>{rows.length - flowReadyCount}</b> to unlock</span><span><b>{rows.length - attentionCount}</b> clear</span><span><b>{flowReadyCount}</b> moving</span></div>
+        </section>
+      ) : null}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         <input

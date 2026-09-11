@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CrmModal } from "@/components/brokerage/CrmWorkspaceFrame";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 
 export default function DealLifecycleControls({ dealId, label, archivedAt }: { dealId: string; label: string; archivedAt: string | null }) {
   const router = useRouter();

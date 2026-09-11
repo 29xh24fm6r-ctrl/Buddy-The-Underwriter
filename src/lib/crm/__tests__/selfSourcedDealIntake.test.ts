@@ -61,6 +61,23 @@ test("the pipeline can rescue several neglected deals without hiding partial fai
   assert.match(board, /params\.get\("attention"\) === "1"/);
 });
 
+test("the revenue workflow uses truthful momentum inside a light prismatic workspace", () => {
+  const delightBoard = readFileSync("src/app/admin/brokerage/pipeline/PipelineBoard.tsx", "utf8");
+  const workspaceCss = readFileSync("src/components/brokerage/workspace.css", "utf8");
+  const deal = readFileSync("src/app/admin/brokerage/pipeline/[dealId]/page.tsx", "utf8");
+  const intake = readFileSync("src/app/admin/brokerage/pipeline/new/page.tsx", "utf8");
+
+  assert.match(delightBoard, /crmColors as c/);
+  assert.match(delightBoard, /flowReadyCount/);
+  assert.match(delightBoard, /ownerClerkUserId && d\.nextTask && !isStalled/);
+  assert.match(delightBoard, /sba-flow-pulse/);
+  assert.match(workspaceCss, /linear-gradient\(145deg,#edf2ff/);
+  assert.match(workspaceCss, /backdrop-filter:blur\(24px\) saturate\(165%\)/);
+  assert.match(workspaceCss, /prefers-reduced-motion:reduce/);
+  assert.match(deal, /sba-deal-workspace/);
+  assert.match(intake, /sba-deal-intake/);
+});
+
 test("the deal workspace ranks banks and records distribution on the canonical ledger", () => {
   assert.match(workspace, /\/api\/admin\/brokerage\/crm\/organizations\/buyers/);
   assert.match(workspace, /lender-matches/);

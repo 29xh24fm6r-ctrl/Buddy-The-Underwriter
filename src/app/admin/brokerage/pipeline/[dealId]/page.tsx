@@ -6,7 +6,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { listBrokerageTeam } from "@/lib/brokerage/team";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 import { INTAKE_MODE_LABELS } from "@/lib/dealStage/board";
 import DealWorkspaceClient from "./DealWorkspaceClient";
 import DealLifecycleControls from "./DealLifecycleControls";
@@ -40,7 +40,7 @@ export default async function BrokerageDealPage({ params }: { params: Promise<{ 
   const intakeMode = deal.intake_mode ?? (deal.crm_tracking_only ? "tracking_only" : null);
 
   return (
-    <div style={{ padding: "20px 24px 48px" }}>
+    <div className="sba-work-surface sba-deal-workspace" style={{ padding: "24px 28px 48px" }}>
       <Link href={deal.archived_at ? "/admin/brokerage/pipeline?view=archived" : "/admin/brokerage/pipeline"} style={{ color: c.brassBright, fontSize: 11, textDecoration: "none" }}>← {deal.archived_at ? "Archived deals" : "Pipeline"}</Link>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap", margin: "16px 0 22px" }}>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 import { STAGE_LABELS } from "@/lib/dealStage/board";
 import { ExistingDebtCard } from "@/components/brokerage/ExistingDebtCard";
 import type { BrokerageTeamMember } from "@/lib/brokerage/team";
