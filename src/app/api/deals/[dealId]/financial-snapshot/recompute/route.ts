@@ -501,27 +501,8 @@ export async function POST(_req: Request, ctx: Ctx) {
       sba,
     });
 
-    // Infer entity_type from document types if not set on the deal
-    if (!(dealMeta as any)?.entity_type) {
-      try {
-        const { data: form1120 } = await (sb as any)
-          .from("deal_documents")
-          .select("id")
-          .eq("deal_id", dealId)
-          .eq("canonical_type", "BUSINESS_TAX_RETURN")
-          .limit(1)
-          .maybeSingle();
-        if (form1120) {
-          await (sb as any)
-            .from("deals")
-            .update({ entity_type: "C_CORP" })
-            .eq("id", dealId)
-            .is("entity_type", null);
-        }
-      } catch {
-        // Non-fatal — entity_type inference is best-effort
-      }
-    }
+    // A generic business tax return does not establish legal entity type.
+    // Preserve the recorded entity type; missing classification stays unresolved.
 
     const snapRow = await persistFinancialSnapshot({
       dealId,

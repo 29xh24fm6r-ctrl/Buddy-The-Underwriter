@@ -1,19 +1,6 @@
-/**
- * SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1 — classic-spread EBITDA, reconciled to canonical.
- *
- * The classic spread previously computed EBITDA as NET_INCOME + interest + D&A. For a C-corp (Form
- * 1120), NET_INCOME is AFTER tax, so that omitted the income-tax add-back the canonical EBITDA engine
- * applies — the printed PDF/classic EBITDA disagreed with the canonical fact and the /financials panel
- * for the same period/entity. This helper routes the classic EBITDA base through the SAME canonical
- * resolver (resolveEbitdaBaseIncome: OBI → pre-tax TAXABLE_INCOME/M1 → NET_INCOME + tax provision),
- * then adds the traditional interest + depreciation + amortization add-backs. With no §179/non-recurring
- * facts (which the classic spread intentionally does not apply) this equals computeEbitda's output, so
- * canonical EBITDA and rendered EBITDA reconcile for the same period/entity.
- *
- * Pure — no DB, safe for both the server-only loader and the pure ratios module.
- */
+/** Classic spread adapter for the shared conservative EBITDA calculation. Pure, no I/O. */
 
-import { resolveEbitdaBaseIncome } from "@/lib/financialIntelligence/ebitdaBase";
+import { computeEbitda } from "@/lib/financialIntelligence/ebitdaEngine";
 
 /** Fact keys the canonical base resolver reads (C-corp tax reconstruction). */
 const EBITDA_BASE_KEYS = [
@@ -23,6 +10,9 @@ const EBITDA_BASE_KEYS = [
   "NET_INCOME",
   "TOTAL_TAX",
   "M1_FEDERAL_TAX_BOOK",
+  "INTEREST_EXPENSE",
+  "DEPRECIATION",
+  "AMORTIZATION",
 ] as const;
 
 /**
@@ -36,15 +26,5 @@ export function classicTraditionalEbitda(get: (key: string) => number | null): n
   const facts: Record<string, number | null> = {};
   for (const k of EBITDA_BASE_KEYS) facts[k] = get(k);
 
-  const base = resolveEbitdaBaseIncome(facts);
-  if (base.baseValue == null) return null;
-
-  // Reconstruct the PRE-TAX base (adds the C-corp tax provision back when the base fell through to
-  // after-tax NET_INCOME) — identical to computeEbitda's base handling.
-  const preTaxBase = base.baseValue + (base.taxAddBack?.value ?? 0);
-
-  const interest = get("INTEREST_EXPENSE") ?? 0;
-  const depreciation = get("DEPRECIATION") ?? 0;
-  const amortization = get("AMORTIZATION") ?? 0;
-  return preTaxBase + interest + depreciation + amortization;
+  return computeEbitda(facts, "UNKNOWN", { ebitda_addback_stack: "conservative" }).adjustedEbitda;
 }

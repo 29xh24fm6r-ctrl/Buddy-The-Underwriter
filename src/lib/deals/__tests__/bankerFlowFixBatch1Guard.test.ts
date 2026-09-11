@@ -41,12 +41,6 @@ describe("SPEC-BANKER-FLOW-FIX-BATCH-1 guards", () => {
     assert.ok(SBA_SRC.includes('"not_applicable"'));
   });
 
-  // Fix 4
-  test("recompute route infers entity_type from BUSINESS_TAX_RETURN", () => {
-    assert.ok(RECOMPUTE_SRC.includes("BUSINESS_TAX_RETURN"));
-    assert.ok(RECOMPUTE_SRC.includes('entity_type: "C_CORP"'));
-  });
-
   // Fix 5
   test("spread observer sets status to queued not error on timeout", () => {
     // The observer should set status: "queued" in the auto-heal block

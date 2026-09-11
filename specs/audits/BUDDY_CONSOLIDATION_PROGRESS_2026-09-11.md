@@ -51,3 +51,23 @@ Matt authorized publishing this checkpoint to `29xh24fm6r-ctrl/Buddy-The-Underwr
 5. **Output and retirement.** Connect accepted facts, rules, questions, research and final package versions through the chosen contract. Remove the superseded writers/routes only after supported user journeys pass.
 
 The Atlanta Ceramic/OmniCare source folders and the two hand-built workbooks have not been replayed in this checkpoint. Existing checked-in fixtures are useful regressions, not a substitute for that acceptance run. Database activation, complete end-to-end package correctness, and elimination of all 31 duplication families remain unverified.
+
+## Next checkpoint after merged #1081: financial authority and real rebuild
+
+Baseline: `7955a9db4366bfab0c23b6859ed1e6279b0c881a` (main with #1081 merged).
+
+- The model engine and classic spread now call the shared conservative EBITDA engine. C-corp book income receives the available tax-provision add-back; amortization is retained; ordinary/taxable income does not add tax twice. Explicit zero tax is valid evidence. Revenue alone cannot become EBITDA by treating missing expenses as zero. The model excludes rejected, superseded, system-invalidated and non-finite facts before calculation.
+- The snapshot recompute handler no longer labels an unknown business a C-corp merely because it has a generic business tax return. The source-text test enforcing that incorrect inference was removed.
+- The rebuild button invokes the existing authenticated snapshot recompute handler, including actual persistence, and propagates its success or failure. It no longer calls only readiness and returns a fictitious acceptance. This reuses the existing orchestrator; it does not add another snapshot builder.
+- `financial_snapshots` is the production immutable snapshot authority for validation and lifecycle gates. The validation API and gap/workbench API use the same loader and gate. The disconnected v2 table and the unrelated truth snapshot count no longer determine those surfaces. Historical rows and v2 modules/tables are preserved pending their separate retirement and data inventory.
+- Snapshot generation records an input-fact fingerprint. The gate compares current inputs, blocks changed/rejected/reassigned evidence, checks snapshot completeness and open blocking gaps, and fails closed on read errors. Construction and comparison share a paginated fact loader. The known stress output written by this same computation is excluded from its own input fingerprint, preventing self-invalidation.
+- The workbench uses the server gate for its badge and displays rebuild/load failures. Required-key review counts use distinct keys rather than duplicate fact rows.
+- Two text guards enforcing v2-first/fallback source code are replaced by behavioral tests. New tests cover hand-calculated EBITDA, route delegation/error propagation, validation/lifecycle agreement, malformed/incomplete snapshots, stale evidence, tenant scoping, paginated inputs and database failure.
+
+**Rollout behavior:** Existing snapshots without an input fingerprint require a real rebuild before this financial committee gate can pass. No database migration or production-record mutation is performed by this code change. Low-confidence gaps remain advisory under the existing committee policy; this change does not silently tighten that rule.
+
+**Verification before PR:** 716 tests across the focused financial suites pass (the added pagination case replaces the removed assertion that generic business returns imply C-corp status); TypeScript no-emit and client API-reference checking pass. CI must verify the repository-wide suite and build on its configured Node versions.
+
+**Still open:** Fact-review POSTs/UI still mix canonical fact IDs and v2 snapshot fact IDs and need an actual accepted-fact review transaction; immutable snapshot/decision pair persistence needs atomicity; direct rent-roll, loan-term and policy changes need their own snapshot dependency/freshness contracts. The legacy recompute handler retains runtime backfill paths. Consolidated snapshot reading does not certify those computations. Global/proposed/operating DSCR definitions, remaining GCF writers, output adapters, entity semantics in the model engine, orchestration and full deal-folder acceptance remain part of the broader build.
+
+The audit's proposed-only aggregator warning was rechecked: current code already writes `PROPOSED_LOAN_COVERAGE` separately and leaves total debt-service DSCR to structural pricing. Do not re-add existing debt in the aggregator and create double counting.
