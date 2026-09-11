@@ -279,7 +279,13 @@ export function renderFromFinancialModel(
       // which are never emitted into the period fact map and so fall through).
       const rawValue = enrichedFacts[row.key] ?? null;
       let value: number | null;
-      if (rawValue !== null) {
+      if (row.formulaId === "EBITDA" || row.formulaId === "EBITDA_CALC") {
+        // EBITDA has already been calculated with its income basis and tax
+        // provision. Display the same result in every section; null means the
+        // model could not establish business earnings, not permission to retry
+        // a legacy formula using an aliased personal/book-income value.
+        value = period.cashflow.ebitda ?? null;
+      } else if (rawValue !== null) {
         value = rawValue;
       } else if (row.formulaId) {
         value = evaluateStandardFormula(row.formulaId, enrichedFacts);

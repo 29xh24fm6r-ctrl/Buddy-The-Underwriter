@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildFinancialModel, type FactInput } from "../buildFinancialModel";
+import { renderFromFinancialModel } from "../renderer/v2Adapter";
+import { extractBaseValues } from "../extractBaseValues";
 import { classicTraditionalEbitda } from "@/lib/classicSpread/classicEbitda";
 import { computeEbitda } from "@/lib/financialIntelligence/ebitdaEngine";
 
@@ -16,7 +18,13 @@ for (const [name, values, expected] of [
   ["explicit zero income remains zero", { NET_INCOME: 0, TOTAL_TAX: 0 }, 0],
 ] as Array<[string, Record<string, number>, number]>) {
   test(name, () => {
-    assert.equal(buildFinancialModel("deal", rows(values)).periods[0].cashflow.ebitda, expected);
+    const model = buildFinancialModel("deal", rows(values));
+    assert.equal(model.periods[0].cashflow.ebitda, expected);
+    assert.equal(extractBaseValues(model).EBITDA, expected);
+    const rendered = renderFromFinancialModel(model).sections.flatMap(section => section.rows);
+    for (const key of ["EBITDA", "R_EBITDA_DOLLARS", "ES_EBITDA"]) {
+      assert.equal(rendered.find(row => row.key === key)?.valueByCol["2025-12-31"], expected, key);
+    }
     assert.equal(classicTraditionalEbitda(key => values[key] ?? null), expected);
     assert.equal(computeEbitda(values, "UNKNOWN", { ebitda_addback_stack: "conservative" }).adjustedEbitda, expected);
   });
@@ -47,3 +55,13 @@ test("invalidated evidence and weaker duplicates cannot change EBITDA", () => {
     assert.equal(buildFinancialModel("deal", input).periods[0].cashflow.ebitda, 130000);
   }
 });
+
+for (const values of [{ ADJUSTED_GROSS_INCOME: 250000 }, { TOTAL_REVENUE: 1000000 }] as Array<Record<string, number>>) {
+  test(`renderer cannot recreate unavailable business EBITDA from ${Object.keys(values)[0]}`, () => {
+    const model = buildFinancialModel("deal", rows(values));
+    const rendered = renderFromFinancialModel(model).sections.flatMap(section => section.rows);
+    for (const key of ["EBITDA", "R_EBITDA_DOLLARS", "ES_EBITDA", "R_EBITDA_MARGIN", "ES_EBITDA_MARGIN"]) {
+      assert.equal(rendered.find(row => row.key === key)?.valueByCol["2025-12-31"], null, key);
+    }
+  });
+}
