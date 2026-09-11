@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assemblePackageBundle } from "../package-bundle";
+require.cache[require.resolve("server-only")] = {
+  id: require.resolve("server-only"),
+  filename: require.resolve("server-only"),
+  loaded: true,
+  exports: {},
+  children: [],
+  paths: [],
+} as unknown as NodeModule;
+
+const { assemblePackageBundle } = require("../package-bundle") as typeof import("../package-bundle");
 
 const completePaths = {
   businessPlanPdf: "deal/final/business-plan.pdf",
