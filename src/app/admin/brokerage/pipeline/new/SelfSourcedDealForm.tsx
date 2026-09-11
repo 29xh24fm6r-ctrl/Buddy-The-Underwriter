@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 import { US_STATES } from "@/lib/crm/geography";
 import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
 
@@ -53,9 +53,9 @@ const input: React.CSSProperties = {
 
 const labelStyle: React.CSSProperties = { display: "grid", gap: 6, color: c.textSecondary, fontSize: 11.5 };
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function Section({ title, hint, children, hidden = false }: { title: string; hint?: string; children: React.ReactNode; hidden?: boolean }) {
   return (
-    <section style={{ border: `1px solid ${c.border}`, borderRadius: 8, background: c.card, padding: 18 }}>
+    <section hidden={hidden} style={{ border: `1px solid ${c.border}`, borderRadius: 8, background: c.card, padding: 18 }}>
       <h2 style={{ margin: "0 0 3px", color: c.paper, fontSize: 14.5, fontWeight: 650 }}>{title}</h2>
       {hint && <p style={{ margin: "0 0 14px", color: c.textMuted, fontSize: 11.5 }}>{hint}</p>}
       <div style={{ display: "grid", gap: 14 }}>{children}</div>
@@ -77,8 +77,10 @@ export default function SelfSourcedDealForm() {
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [intakeMode, setIntakeMode] = useState("self_sourced");
+  const [step, setStep] = useState(1);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -107,6 +109,16 @@ export default function SelfSourcedDealForm() {
       return [...current, ...next.filter((f) => !seen.has(`${f.name}:${f.size}`))];
     });
   }, []);
+
+  function continueToNextStep() {
+    const activeFields = formRef.current?.querySelectorAll<HTMLElement>("section:not([hidden]) input, section:not([hidden]) select, section:not([hidden]) textarea");
+    for (const field of activeFields ?? []) {
+      if (field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement) {
+        if (!field.reportValidity()) return;
+      }
+    }
+    setStep((current) => Math.min(3, current + 1));
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -162,8 +174,21 @@ export default function SelfSourcedDealForm() {
   }
 
   return (
-    <form onSubmit={submit} style={{ maxWidth: 760, display: "grid", gap: 16 }}>
-      <Section title="How this deal reached you" hint="Sets how it is grouped in the pipeline and how the referral is credited.">
+    <form ref={formRef} onSubmit={submit} style={{ maxWidth: 760, display: "grid", gap: 16 }}>
+      <div className="sba-intake-progress" aria-label={`Deal intake step ${step} of 3`}>
+        {[
+          [1, "Know the deal", "Source, business, and contact"],
+          [2, "Shape the request", "Financing and available files"],
+          [3, "Review and open", "Final context before the workspace"],
+        ].map(([number, title, description]) => (
+          <button key={number} type="button" disabled={Number(number) > step} aria-current={step === Number(number) ? "step" : undefined} onClick={() => setStep(Number(number))}>
+            <span>{Number(number) < step ? "✓" : number}</span><strong>{title}</strong><small>{description}</small>
+          </button>
+        ))}
+      </div>
+      <div className="sba-intake-promise"><strong>Only the first step is needed to begin.</strong><span>Buddy keeps every field when you move between steps. Nothing is saved until you open the deal workspace.</span></div>
+
+      <Section hidden={step !== 1} title="How this deal reached you" hint="Sets how it is grouped in the pipeline and how the referral is credited.">
         <div style={{ display: "grid", gap: 8 }}>
           {INTAKE_MODES.map(([value, title, description]) => (
             <label
@@ -213,7 +238,7 @@ export default function SelfSourcedDealForm() {
         </label>
       </Section>
 
-      <Section title="The business">
+      <Section hidden={step !== 1} title="The business">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <label style={labelStyle}>Business or deal name<input name="businessName" required maxLength={160} style={input} placeholder="Gulf Coast Marine" /></label>
           <label style={labelStyle}>Primary borrower / guarantor<input name="borrowerName" required maxLength={160} style={input} /></label>
@@ -244,7 +269,7 @@ export default function SelfSourcedDealForm() {
         </label>
       </Section>
 
-      <Section title="The request">
+      <Section hidden={step !== 2} title="The request">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <label style={labelStyle}>Requested loan amount<input name="loanAmount" type="number" min="1" max="100000000" step="1" required style={input} /></label>
           <label style={labelStyle}>
@@ -256,7 +281,7 @@ export default function SelfSourcedDealForm() {
         </div>
       </Section>
 
-      <Section title="Who to talk to" hint="Saved as a contact on the borrower's CRM record, so the relationship and the deal stay one thing.">
+      <Section hidden={step !== 1} title="Who to talk to" hint="Saved as a contact on the borrower's CRM record, so the relationship and the deal stay one thing.">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <label style={labelStyle}>Contact name<input name="contactName" maxLength={160} style={input} /></label>
           <label style={labelStyle}>Title<input name="contactJobTitle" maxLength={120} style={input} placeholder="Owner" /></label>
@@ -267,7 +292,7 @@ export default function SelfSourcedDealForm() {
         </div>
       </Section>
 
-      <Section title="The financials" hint="Tax returns, personal financial statements, debt schedules — anything you already have. They upload into this deal's secure workspace as soon as it is created.">
+      <Section hidden={step !== 2} title="The financials" hint="Tax returns, personal financial statements, debt schedules — anything you already have. They upload into this deal's secure workspace as soon as it is created.">
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
@@ -323,7 +348,15 @@ export default function SelfSourcedDealForm() {
         )}
       </Section>
 
-      <Section title="Notes">
+      <Section hidden={step !== 3} title="Review before opening the workspace" hint="Buddy will create one connected deal record. Owner, next action, documents, and lender placement can be completed in its workspace.">
+        <div className="sba-intake-review">
+          <span><b>1</b><strong>Relationship connected</strong><small>Source, business, and primary contact travel with the deal.</small></span>
+          <span><b>2</b><strong>Request ready</strong><small>The amount, program, and available documents establish the file.</small></span>
+          <span><b>3</b><strong>Next move is guided</strong><small>The new workspace will prompt for its owner and first action.</small></span>
+        </div>
+      </Section>
+
+      <Section hidden={step !== 3} title="Anything else the team should know?">
         <label style={labelStyle}>
           Anything worth knowing
           <textarea name="notes" maxLength={2000} rows={3} style={{ ...input, resize: "vertical" }} placeholder="Seller financing in place, borrower is buying out a partner…" />
@@ -333,12 +366,14 @@ export default function SelfSourcedDealForm() {
       {error && <div role="alert" style={{ color: c.brick, fontSize: 12, border: `1px solid ${c.brick}`, borderRadius: 6, padding: 11 }}>{error}</div>}
       {progress && <div role="status" style={{ color: c.textSecondary, fontSize: 12 }}>{progress}</div>}
 
-      <button
-        disabled={busy}
-        style={{ justifySelf: "start", border: 0, borderRadius: 5, padding: "11px 18px", background: c.brass, color: c.brassOnBrass, fontWeight: 700, fontSize: 13, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.6 : 1 }}
-      >
-        {busy ? "Working…" : files.length ? `Create deal and upload ${files.length} file${files.length === 1 ? "" : "s"}` : "Create deal"}
-      </button>
+      <div className="sba-intake-actions">
+        {step > 1 ? <button type="button" onClick={() => setStep((current) => current - 1)}>← Back</button> : <span />}
+        {step < 3 ? <button type="button" className="sba-intake-next" onClick={continueToNextStep}>Continue →</button> : (
+          <button disabled={busy} className="sba-intake-next">
+            {busy ? "Opening workspace…" : files.length ? `Open deal and upload ${files.length} file${files.length === 1 ? "" : "s"}` : "Open deal workspace →"}
+          </button>
+        )}
+      </div>
     </form>
   );
 }

@@ -361,14 +361,14 @@ async function executeStage9_Package(runId: string, dealId: string, bankId: stri
   const sb = supabaseAdmin();
 
   // Get truth snapshot ID from pipeline run
-  const { data: run } = await sb
+  const { data: run, error: runError } = await sb
     .from("deal_pipeline_runs")
     .select("truth_snapshot_id")
     .eq("id", runId)
     .single();
 
-  if (!run?.truth_snapshot_id) {
-    throw new Error("No truth snapshot found for package assembly");
+  if (runError || !run?.truth_snapshot_id) {
+    throw new Error(runError?.message || "No truth snapshot found for package assembly");
   }
 
   // Assemble bundle
@@ -379,10 +379,14 @@ async function executeStage9_Package(runId: string, dealId: string, bankId: stri
   }
 
   // Store bundle ID in pipeline run
-  await sb
+  const { error: persistError } = await sb
     .from("deal_pipeline_runs")
     .update({ package_bundle_id: result.bundleId })
     .eq("id", runId);
+
+  if (persistError) {
+    throw new Error(`Package generated but pipeline linkage failed: ${persistError.message}`);
+  }
 
   await logStage(runId, "S9_PACKAGE", "succeeded", "Package bundle ready for download");
 }

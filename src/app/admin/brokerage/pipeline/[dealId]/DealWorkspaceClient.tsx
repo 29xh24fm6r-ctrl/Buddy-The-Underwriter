@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 import { STAGE_LABELS } from "@/lib/dealStage/board";
 import { ExistingDebtCard } from "@/components/brokerage/ExistingDebtCard";
 import type { BrokerageTeamMember } from "@/lib/brokerage/team";
@@ -92,13 +92,18 @@ export default function DealWorkspaceClient({
   dealId,
   team,
   currentUserId,
+  initialExecution,
 }: {
   dealId: string;
   team: BrokerageTeamMember[];
   currentUserId: string | null;
+  initialExecution: {
+    ownerClerkUserId: string | null;
+    brokerageStage: string | null;
+  };
 }) {
-  const [owner, setOwner] = useState<string | null>(null);
-  const [stage, setStage] = useState<string | null>(null);
+  const [owner, setOwner] = useState<string | null>(initialExecution.ownerClerkUserId);
+  const [stage, setStage] = useState<string | null>(initialExecution.brokerageStage);
   const [stageAgeDays, setStageAgeDays] = useState<number | null>(null);
   const [transitions, setTransitions] = useState<Transition[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -111,6 +116,7 @@ export default function DealWorkspaceClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [executionStatus, setExecutionStatus] = useState<"refreshing" | "ready" | "error">("refreshing");
 
   const nameById = useMemo(() => Object.fromEntries(team.map((m) => [m.clerkUserId, m.name])), [team]);
 
@@ -121,16 +127,21 @@ export default function DealWorkspaceClient({
       fetch(BUYERS_ENDPOINT, { cache: "no-store" }),
     ]);
 
-    if (execRes.ok && execRes.status !== 204) {
-      const json = await execRes.json();
-      if (json.ok) {
-        setOwner(json.deal.stageOwnerClerkUserId ?? null);
-        setStage(json.deal.brokerageStage ?? null);
-        setStageAgeDays(json.deal.stageAgeDays ?? null);
-        setTransitions(json.candidateTransitions ?? []);
-        setTasks(json.tasks ?? []);
-      }
+    if (!execRes.ok || execRes.status === 204) {
+      setExecutionStatus("error");
+      throw new Error("Buddy could not refresh this deal's owner, stage, and next actions. The last verified values remain visible; retry before changing execution details.");
     }
+    const execution = await execRes.json();
+    if (!execution.ok || !execution.deal) {
+      setExecutionStatus("error");
+      throw new Error("Buddy received an incomplete execution record. The last verified values remain visible; retry before changing execution details.");
+    }
+    setOwner(execution.deal.stageOwnerClerkUserId ?? null);
+    setStage(execution.deal.brokerageStage ?? null);
+    setStageAgeDays(execution.deal.stageAgeDays ?? null);
+    setTransitions(execution.candidateTransitions ?? []);
+    setTasks(execution.tasks ?? []);
+    setExecutionStatus("ready");
     if (matchRes.ok) {
       const json = await matchRes.json();
       if (json.ok) setMatches(json.matches ?? []);
@@ -183,6 +194,12 @@ export default function DealWorkspaceClient({
     <div style={{ display: "grid", gap: 14 }}>
       {error && <div role="alert" style={{ border: `1px solid ${c.brick}`, color: c.brick, borderRadius: 6, padding: 11, fontSize: 12 }}>{error}</div>}
       {notice && <div role="status" style={{ border: `1px solid ${c.sage}`, color: c.sage, borderRadius: 6, padding: 11, fontSize: 12 }}>{notice}</div>}
+      <div className={`sba-deal-truth sba-deal-truth--${executionStatus}`} role="status">
+        <span aria-hidden="true">{executionStatus === "ready" ? "✓" : executionStatus === "error" ? "!" : "↻"}</span>
+        <strong>{executionStatus === "ready" ? "Deal execution is current" : executionStatus === "error" ? "Execution refresh needs attention" : "Refreshing the operating record"}</strong>
+        <small>{executionStatus === "error" ? "Last verified owner and stage are preserved." : "Owner, stage, tasks, and lender activity share one operating record."}</small>
+        {executionStatus === "error" ? <button type="button" onClick={() => { setError(null); setExecutionStatus("refreshing"); void load().catch((e) => setError(e instanceof Error ? e.message : String(e))); }}>Retry</button> : null}
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
         <Panel title="Ownership and stage">

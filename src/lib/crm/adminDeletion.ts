@@ -3,7 +3,7 @@ import "server-only";
 import type { Json } from "@/types/supabase";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-type DeletionEntity = "organization" | "person" | "lead" | "activity";
+type DeletionEntity = "organization" | "person" | "lead" | "activity" | "deal";
 type AdminClient = ReturnType<typeof supabaseAdmin>;
 
 export function confirmationMatches(received: unknown, expected: string): boolean {

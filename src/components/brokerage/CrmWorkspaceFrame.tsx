@@ -16,12 +16,14 @@ import { CrmTaskControl } from "./CrmTaskControl";
 import { confirmCrmDiscard } from "./useCrmDraftGuard";
 import { useClerk } from "@clerk/nextjs";
 import { BROKERAGE_COMMAND, BROKERAGE_WORKSPACE_LINKS } from "@/lib/brokerage/workspaceNavigation";
+import { BrokerageCreateLauncher } from "./BrokerageCreateLauncher";
 
 type RecordTarget = {
   id: string;
   name: string;
   kind: "organization" | "person" | "lead";
 };
+type SearchTarget = RecordTarget | { id: string; name: string; kind: "deal"; meta: string };
 const WorkspaceContext = createContext<{
   openRecord: (record: RecordTarget) => void;
   refresh: () => void;
@@ -140,9 +142,9 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
             </details>
           </nav>
           <div className="crm-rail-bottom">
-            <Link className="crm-admin-return" href="/admin" prefetch={false}>
+            <Link className="crm-admin-return" href="/admin/brokerage" prefetch={false}>
               <span aria-hidden="true">⌂</span>
-              <span><strong>Buddy Admin</strong><small>Platform tools &amp; settings</small></span>
+              <span><strong>Brokerage HQ</strong><small>Run the business</small></span>
               <span aria-hidden="true">↗</span>
             </Link>
             <button onClick={() => setGuide((v) => !v)}>
@@ -178,11 +180,12 @@ export function CrmWorkspaceFrame({ children }: { children: React.ReactNode }) {
               </span>
             </span>
             <div className="crm-account-actions">
-              <Link className="crm-admin-home-link" href="/admin" prefetch={false}>
-                <span aria-hidden="true">⌂</span> Buddy Admin
+              <BrokerageCreateLauncher compact />
+              <Link className="crm-admin-home-link" href="/admin/brokerage" prefetch={false}>
+                <span aria-hidden="true">⌂</span> Brokerage HQ
               </Link>
               <button onClick={() => setSearch(true)}>
-                Find a company or person <span aria-hidden="true">⌕</span>
+                Find anything <span aria-hidden="true">⌕</span>
               </button>
               <Link href="/profile">My profile</Link>
               <button
@@ -310,7 +313,7 @@ function CrmSearchDialog({
   onSelect: (record: RecordTarget) => void;
 }) {
   const [q, setQ] = useState("");
-  const [results, setResults] = useState<RecordTarget[]>([]);
+  const [results, setResults] = useState<SearchTarget[]>([]);
   const [status, setStatus] = useState("");
   useEffect(() => {
     const controller = new AbortController();
@@ -330,7 +333,7 @@ function CrmSearchDialog({
         const j = await r.json();
         if (!r.ok || !j.ok) throw new Error();
         if (controller.signal.aborted) return;
-        const found: RecordTarget[] = [
+        const found: SearchTarget[] = [
           ...j.organizations.map((o: { id: string; name: string }) => ({
             ...o,
             kind: "organization" as const,
@@ -350,11 +353,20 @@ function CrmSearchDialog({
               kind: "person" as const,
             }),
           ),
+          ...j.deals.map((d: { id: string; display_name?: string; borrower_name?: string; name?: string; loan_amount?: number; brokerage_stage?: string }) => ({
+            id: d.id,
+            name: d.display_name || d.borrower_name || d.name || "Untitled deal",
+            kind: "deal" as const,
+            meta: [
+              d.brokerage_stage?.replaceAll("_", " "),
+              d.loan_amount ? `$${Math.round(d.loan_amount).toLocaleString("en-US")}` : null,
+            ].filter(Boolean).join(" · ") || "Active deal",
+          })),
         ];
         setResults(found);
         setStatus(
           found.length
-            ? `${found.length} results · Up to 20 companies and 20 people`
+            ? `${found.length} results across companies, people, and active deals`
             : "No matches. Try a name, email, or phone number.",
         );
       } catch {
@@ -369,14 +381,14 @@ function CrmSearchDialog({
   }, [q]);
   return (
     <CrmModal
-      title="Find your next conversation"
+      title="Find anything in the brokerage"
       className="crm-search-dialog"
       onClose={onClose}
     >
       <input
         autoFocus
-        aria-label="Search companies and people"
-        placeholder="Company, person, email or phone…"
+        aria-label="Search companies, people, and deals"
+        placeholder="Company, person, deal, email or phone…"
         value={q}
         onChange={(e) => {
           setQ(e.target.value);
@@ -386,25 +398,34 @@ function CrmSearchDialog({
       />
       <p role="status">
         {status ||
-          "Search companies by name, or people by name, email and phone."}
+          "Search companies, people, and active deals from one place."}
       </p>
       <div className="crm-search-results">
-        {results.map((item) => (
-          <button
-            key={`${item.kind}:${item.id}`}
-            onClick={() => onSelect(item)}
-          >
+        {results.map((item) => item.kind === "deal" ? (
+          <Link key={`deal:${item.id}`} href={`/admin/brokerage/pipeline/${item.id}`} onClick={onClose}>
             <span className="crm-avatar">
               {item.name.slice(0, 2).toUpperCase()}
             </span>
             <span>
               <strong>{item.name}</strong>
-              <small>{item.kind === "person" ? "Person" : "Company"}</small>
+              <small>{item.meta}</small>
             </span>
+            <span>↗</span>
+          </Link>
+        ) : (
+          <button key={`${item.kind}:${item.id}`} onClick={() => onSelect(item)}>
+            <span className="crm-avatar">{item.name.slice(0, 2).toUpperCase()}</span>
+            <span><strong>{item.name}</strong><small>{item.kind === "person" ? "Person" : "Company"}</small></span>
             <span>↗</span>
           </button>
         ))}
       </div>
+      {!q.trim() ? <nav className="crm-search-starts" aria-label="Quick starts">
+        <Link href="/admin/brokerage/crm/leads?new=1" onClick={onClose}>✦ New conversation</Link>
+        <Link href="/admin/brokerage/pipeline/new" onClick={onClose}>↗ Qualified deal</Link>
+        <Link href="/admin/brokerage/pipeline/queues" onClick={onClose}>✓ My work</Link>
+        <Link href="/admin/brokerage/crm/buyers" onClick={onClose}>◇ Lender network</Link>
+      </nav> : null}
       <footer>
         <Link href={`${CRM_ROOT}?view=relationships`} onClick={onClose}>
           Browse all companies

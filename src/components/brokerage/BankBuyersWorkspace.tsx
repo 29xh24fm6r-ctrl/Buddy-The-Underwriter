@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import type { CSSProperties } from "react";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
 import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
@@ -14,10 +15,11 @@ function label(name: string, child: React.ReactNode) { return <label style={{ di
 function dateInput(days = 3) { const d = new Date(Date.now() + days * 86400000); return d.toISOString().slice(0, 16); }
 
 export function BankBuyersWorkspace() {
+  const params = useSearchParams();
   const [data, setData] = useState<any>({ profiles: [], submissions: [], deals: [], summary: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<"bank" | "submission" | null>(null);
+  const [mode, setMode] = useState<"bank" | "submission" | null>(params.get("create") === "placement" ? "submission" : null);
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState("active");
   const [dealSearch, setDealSearch] = useState("");

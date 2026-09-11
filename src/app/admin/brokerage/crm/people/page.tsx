@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { crmColors as c } from "@/components/brokerage/tokens";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
 import { useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
@@ -33,6 +34,7 @@ function inputStyle() {
 }
 
 export default function CrmPeoplePage() {
+  const params = useSearchParams();
   const workspace = useCrmWorkspace();
   const requestId = useRef(0);
   const [people, setPeople] = useState<Person[]>([]);
@@ -40,7 +42,7 @@ export default function CrmPeoplePage() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
 
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(params.get("create") === "1");
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", jobTitle: "" });
   const [saving, setSaving] = useState(false);
 

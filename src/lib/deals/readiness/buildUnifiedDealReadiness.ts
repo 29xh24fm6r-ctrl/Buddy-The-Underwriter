@@ -24,8 +24,8 @@ export type BuildUnifiedDealReadinessArgs = {
   dealId: string;
   // When true, the memo input package assembler runs reconciliation (writes
   // to deal_fact_conflicts). The submission pipeline calls with true; the
-  // GET /readiness endpoint also passes true so the rail reflects current
-  // state. Pass false from background workers that just want to read.
+  // GET /readiness endpoint passes false. Use the refresh/submission paths
+  // when reconciliation writes are required.
   runReconciliation?: boolean;
   // When true (default false), runs the self-heal layer before assembly.
   // Self-heal runs cheap auto-fixes (collateral extraction) and surfaces

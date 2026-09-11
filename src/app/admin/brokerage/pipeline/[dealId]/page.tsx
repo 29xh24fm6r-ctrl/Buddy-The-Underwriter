@@ -6,9 +6,11 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { listBrokerageTeam } from "@/lib/brokerage/team";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 import { INTAKE_MODE_LABELS } from "@/lib/dealStage/board";
 import DealWorkspaceClient from "./DealWorkspaceClient";
+import DealLifecycleControls from "./DealLifecycleControls";
+import { canDeleteBrokerageCrmRecords } from "@/lib/auth/requireBrokerageStaff";
 
 export const dynamic = "force-dynamic";
 
@@ -21,15 +23,16 @@ export default async function BrokerageDealPage({ params }: { params: Promise<{ 
   const { dealId } = await params;
   const bankId = await getBrokerageBankId();
 
-  const [{ data: deal }, team, auth] = await Promise.all([
+  const [{ data: deal }, team, auth, canManageDeal] = await Promise.all([
     supabaseAdmin()
       .from("deals")
-      .select("id, display_name, name, borrower_name, loan_amount, state, product_type, intake_mode, crm_tracking_only, external_deal_source")
+      .select("id, display_name, name, borrower_name, loan_amount, state, product_type, intake_mode, crm_tracking_only, external_deal_source, archived_at, brokerage_stage, brokerage_stage_entered_at, brokerage_stage_owner_clerk_user_id")
       .eq("id", dealId)
       .eq("bank_id", bankId)
       .maybeSingle(),
     listBrokerageTeam(bankId),
     clerkAuth(),
+    canDeleteBrokerageCrmRecords(),
   ]);
   if (!deal) notFound();
 
@@ -37,8 +40,8 @@ export default async function BrokerageDealPage({ params }: { params: Promise<{ 
   const intakeMode = deal.intake_mode ?? (deal.crm_tracking_only ? "tracking_only" : null);
 
   return (
-    <div style={{ padding: "20px 24px 48px" }}>
-      <Link href="/admin/brokerage/pipeline" style={{ color: c.brassBright, fontSize: 11, textDecoration: "none" }}>← Pipeline</Link>
+    <div className="sba-work-surface sba-deal-workspace" style={{ padding: "24px 28px 48px" }}>
+      <Link href={deal.archived_at ? "/admin/brokerage/pipeline?view=archived" : "/admin/brokerage/pipeline"} style={{ color: c.brassBright, fontSize: 11, textDecoration: "none" }}>← {deal.archived_at ? "Archived deals" : "Pipeline"}</Link>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap", margin: "16px 0 22px" }}>
         <div>
@@ -61,7 +64,16 @@ export default async function BrokerageDealPage({ params }: { params: Promise<{ 
         </Link>
       </div>
 
-      <DealWorkspaceClient dealId={dealId} team={team} currentUserId={auth.userId ?? null} />
+      <DealWorkspaceClient
+        dealId={dealId}
+        team={team}
+        currentUserId={auth.userId ?? null}
+        initialExecution={{
+          ownerClerkUserId: deal.brokerage_stage_owner_clerk_user_id ?? null,
+          brokerageStage: deal.brokerage_stage ?? null,
+        }}
+      />
+      {canManageDeal ? <DealLifecycleControls dealId={dealId} label={title} archivedAt={deal.archived_at ?? null} /> : null}
     </div>
   );
 }

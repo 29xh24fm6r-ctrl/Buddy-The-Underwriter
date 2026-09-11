@@ -51,18 +51,20 @@ before(() => {
   );
   // c) bare "openai" SDK import, not allowlisted — must fail
   writeFile("src/lib/unpatched/callsOpenAiSdk.ts", `import OpenAI from "openai";`);
-  // d) a file inside the allowed providers/ dir — never flagged, even though
+  // d) indirect SDK access through the legacy helper must also be detected
+  writeFile("src/lib/unpatched/callsOpenAiHelper.ts", `import { getOpenAI } from "@/lib/ai/openaiClient";`);
+  // e) a file inside the allowed providers/ dir — never flagged, even though
   //    it obviously calls the endpoint directly (that's its whole job)
   writeFile(
     "src/lib/ai/providers/google.ts",
     `const url = "https://generativelanguage.googleapis.com/v1beta/models/x:generateContent";`,
   );
-  // e) a file inside a __tests__ dir — excluded from scanning entirely
+  // f) a file inside a __tests__ dir — excluded from scanning entirely
   writeFile(
     "src/lib/unpatched/__tests__/fixture.test.ts",
     `const url = "https://generativelanguage.googleapis.com/v1beta/models/x:generateContent";`,
   );
-  // f) a clean file with no banned pattern at all
+  // g) a clean file with no banned pattern at all
   writeFile("src/lib/clean/util.ts", `export const x = 1;`);
 });
 
@@ -85,6 +87,7 @@ describe("guard-ai-gateway-only fixtures", () => {
       "src/lib/legacy/callsGemini.ts",
       "src/lib/unpatched/callsGemini.ts",
       "src/lib/unpatched/callsOpenAiSdk.ts",
+      "src/lib/unpatched/callsOpenAiHelper.ts",
     ]);
     assert.equal(res.status, 0, res.stdout + res.stderr);
     assert.match(res.stdout, /guard passed/);
@@ -102,6 +105,7 @@ describe("guard-ai-gateway-only fixtures", () => {
       "src/lib/legacy/callsGemini.ts",
       "src/lib/unpatched/callsGemini.ts",
       "src/lib/unpatched/callsOpenAiSdk.ts",
+      "src/lib/unpatched/callsOpenAiHelper.ts",
       "src/lib/clean/util.ts", // never violated — stale
     ]);
     assert.equal(res.status, 1);
@@ -117,6 +121,7 @@ describe("guard-ai-gateway-only fixtures", () => {
       "src/lib/legacy/callsGemini.ts",
       "src/lib/unpatched/callsGemini.ts",
       "src/lib/unpatched/callsOpenAiSdk.ts",
+      "src/lib/unpatched/callsOpenAiHelper.ts",
     ]);
     assert.equal(res.status, 0, res.stdout + res.stderr);
   });

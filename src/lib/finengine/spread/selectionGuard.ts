@@ -14,6 +14,8 @@
  * confidence bug in the adapter would surface as a mismatch. Pure — no DB.
  */
 
+import { isSelectableNumericFact } from "@/lib/financialFacts/acceptance";
+
 import {
   sourceCanonicalTypeToTrust,
   type CertifiedFactRow,
@@ -45,8 +47,7 @@ export function independentRawSelect(
     (r) =>
       r.fact_key === factKey &&
       r.fact_period_end === period &&
-      !r.is_superseded &&
-      r.fact_value_num != null &&
+      isSelectableNumericFact(r) &&
       !!r.source_canonical_type &&
       sources.has(r.source_canonical_type),
   );

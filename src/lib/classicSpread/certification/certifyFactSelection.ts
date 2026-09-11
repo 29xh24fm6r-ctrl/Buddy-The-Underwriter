@@ -22,6 +22,8 @@ import {
   type ConfidenceTier,
 } from "@/lib/financialFacts/reconcileFinancialFacts";
 
+import { factExclusionReason } from "@/lib/financialFacts/acceptance";
+
 // Micro-stub thresholds (mirror reconcileFinancialFacts): a value at/above MATERIAL_MIN is
 // "material"; below MICRO_ABS, or under TINY_RATIO of a material sibling, is a stub.
 const MATERIAL_MIN = 1000;
@@ -38,9 +40,6 @@ export type CertifiableFact = ReconcileFact & {
   is_superseded?: boolean | null;
   resolution_status?: string | null;
 };
-
-/** Resolution statuses that make a fact non-selectable regardless of value/confidence. */
-const NON_SELECTABLE_STATUSES = new Set(["rejected", "system_invalidated"]);
 
 export type FilteredFact = { fact: CertifiableFact; reason: string };
 
@@ -72,17 +71,9 @@ export function certifyFactSelection(facts: CertifiableFact[]): CertifiedSelecti
   const selectable: CertifiableFact[] = [];
 
   for (const f of facts) {
-    if (f.is_superseded === true) {
-      filtered.push({ fact: f, reason: "superseded fact — never selectable" });
-      continue;
-    }
-    const status = (f.resolution_status ?? "").toLowerCase();
-    if (NON_SELECTABLE_STATUSES.has(status)) {
-      filtered.push({ fact: f, reason: `resolution_status=${status} — never selectable` });
-      continue;
-    }
-    if (f.fact_value_num === null) {
-      filtered.push({ fact: f, reason: "null value — nothing to certify" });
+    const reason = factExclusionReason(f);
+    if (reason) {
+      filtered.push({ fact: f, reason });
       continue;
     }
     selectable.push(f);
@@ -161,8 +152,8 @@ export function certifyFactSelection(facts: CertifiableFact[]): CertifiedSelecti
 
 /**
  * Look up a certified direct value for a (key, period) — optionally pinned to an owner.
- * When owner is omitted, returns the first matching key/period across owners (business
- * spreads are single-owner so this is unambiguous). Returns null when no certified value
+ * When owner is omitted, requires exactly one matching key/period across owners.
+ * Returns null for ambiguous owners or when no certified value
  * exists for that slot (caller decides unavailable vs formula fallback).
  */
 export function getCertified(
@@ -176,8 +167,6 @@ export function getCertified(
     return selection.byKeyPeriod.get(selectionKey(factKey, period, ownerType, ownerEntityId ?? null)) ?? null;
   }
   const prefix = `${factKey}|${period}|`;
-  for (const [k, v] of selection.byKeyPeriod) {
-    if (k.startsWith(prefix)) return v;
-  }
-  return null;
+  const matches = [...selection.byKeyPeriod].filter(([k]) => k.startsWith(prefix));
+  return matches.length === 1 ? matches[0][1] : null;
 }

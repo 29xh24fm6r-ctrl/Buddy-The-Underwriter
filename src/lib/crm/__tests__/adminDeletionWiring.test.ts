@@ -38,3 +38,22 @@ test("destructive UI requires explicit confirmation and database keeps service-o
   assert.match(migration, /revoke all .* anon, authenticated/i);
   assert.match(migration, /grant all .* service_role/i);
 });
+
+test("deal lifecycle is admin-only, bank-scoped, recoverable, and audited", () => {
+  const route = read("src/app/api/admin/brokerage/deals/[dealId]/lifecycle/route.ts");
+  const detail = read("src/app/admin/brokerage/pipeline/[dealId]/page.tsx");
+  const controls = read("src/app/admin/brokerage/pipeline/[dealId]/DealLifecycleControls.tsx");
+  const pipeline = read("src/app/admin/brokerage/pipeline/page.tsx");
+  const migration = read("supabase/migrations/20260910190000_crm_admin_deal_lifecycle.sql");
+
+  assert.match(route, /requireBrokerageAdmin/);
+  assert.match(route, /\.eq\("bank_id", bankId\)/);
+  assert.match(route, /confirmationMatches/);
+  assert.match(route, /archive_required/);
+  assert.match(route, /beginCrmDeletion/);
+  assert.match(route, /record_in_use/);
+  assert.match(detail, /canDeleteBrokerageCrmRecords/);
+  assert.match(controls, /This cannot be undone/);
+  assert.match(pipeline, /showArchived/);
+  assert.match(migration, /'deal'/);
+});

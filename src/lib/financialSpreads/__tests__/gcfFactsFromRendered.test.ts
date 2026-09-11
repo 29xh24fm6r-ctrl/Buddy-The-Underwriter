@@ -83,25 +83,12 @@ test("skips null / non-finite values; no canonical → no legacy alias", () => {
   assert.deepEqual(keys, ["GCF_DSCR"]);
 });
 
-test("render path awaits GCF materialization and surfaces failures (not fire-and-forget)", () => {
+test("render path is read-only with respect to canonical financial facts", () => {
   const src = fs.readFileSync(
     path.resolve(process.cwd(), "src/lib/financialSpreads/renderSpread.ts"),
     "utf8",
   );
-  assert.ok(
-    /await persistGcfComputedFacts\(/.test(src),
-    "GCF fact persistence must be awaited, not fire-and-forget",
-  );
-  assert.ok(
-    !/persistGcfComputedFacts\(\{[\s\S]{0,120}\}\)\.catch\(/.test(src),
-    "the swallowing .catch() on persistGcfComputedFacts must be gone",
-  );
-  assert.ok(
-    /GCF_FACT_MATERIALIZE_(INCOMPLETE|FAILED)/.test(src),
-    "persistence failures must surface a visible Aegis system event",
-  );
-  assert.ok(
-    /extractGcfFactsFromRendered/.test(src),
-    "render path must use the shared extractor (writes the legacy alias too)",
-  );
+  assert.ok(!src.includes("persistGcfComputedFacts"));
+  assert.ok(!src.includes("upsertDealFinancialFact"));
+  assert.ok(!src.includes("gcfTemplate:v3:persisted"));
 });
