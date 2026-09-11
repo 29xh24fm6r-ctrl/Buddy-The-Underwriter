@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
 import { RefinedStamp } from "@/components/brokerage/StatusStamp";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
@@ -137,6 +138,7 @@ function Tile({ label, value, accent }: { label: string; value: string; accent: 
 }
 
 export default function BrokerageCrmPage() {
+  const params = useSearchParams();
   const { enabled, section } = useCrmExperience();
   const workspace = useCrmWorkspace();
   const [snapshotNow, setSnapshotNow] = useState(0);
@@ -148,7 +150,7 @@ export default function BrokerageCrmPage() {
   const [openTasks, setOpenTasks] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(params.get("create") === "organization");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [tagFilter, setTagFilter] = useState("all");

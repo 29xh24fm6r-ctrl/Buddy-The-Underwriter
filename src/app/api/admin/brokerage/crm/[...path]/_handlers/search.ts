@@ -8,7 +8,7 @@ import { searchCrm } from "@/lib/crm/search";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** GET /api/admin/brokerage/crm/search?q=... -- global search across organizations and people. */
+/** GET /api/admin/brokerage/crm/search?q=... -- global search across relationships and active deals. */
 export async function GET(req: NextRequest) {
   try {
     await requireBrokerageStaff();
