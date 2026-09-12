@@ -59,6 +59,43 @@ test("an explicit banker rate always wins", () => {
   assert.deepEqual(resolved, { status: "explicit", rate: 0.55 });
 });
 
+// ── Unit discipline: the rate is a fraction, never a percentage ───────
+//
+// Production held two rows storing `80` where every producer and consumer
+// means `0.80`. Nothing rejected it: computeCollateralFactValues multiplied
+// by it, so a $1.2M property reached the credit memo carrying $96,000,000 of
+// lendable value, and LTV read as a hundredth of the truth.
+
+test("a rate stored as a percentage is rejected, not multiplied by", () => {
+  const resolved = resolveAdvanceRate({ item_type: "real_estate", advance_rate: 80 });
+  assert.deepEqual(resolved, { status: "invalid_rate", itemType: "real_estate", rate: 80 });
+});
+
+test("a rate out of range is never repaired into a plausible one", () => {
+  // 80 is recoverable by eye as 0.80. Guessing that is how a number nobody
+  // entered reaches the memo, which is the failure this module removes.
+  const resolved = resolveAdvanceRate({ item_type: "real_estate", advance_rate: 80 });
+  assert.notEqual((resolved as { rate: number }).rate, 0.8);
+  assert.equal(resolved.status, "invalid_rate");
+});
+
+test("the valid range is the closed interval [0, 1]", () => {
+  for (const rate of [0, 0.5, 1]) {
+    assert.equal(
+      resolveAdvanceRate({ item_type: "real_estate", advance_rate: rate }).status,
+      "explicit",
+      `${rate} is a valid fraction of value`,
+    );
+  }
+  for (const rate of [-0.1, 1.01, 80, 100, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.notEqual(
+      resolveAdvanceRate({ item_type: "real_estate", advance_rate: rate }).status,
+      "explicit",
+      `${rate} is not a fraction of value and must not be underwritten to`,
+    );
+  }
+});
+
 test("an unrecognised type is reported, never defaulted", () => {
   const resolved = resolveAdvanceRate({ item_type: "crypto_pledge", advance_rate: null });
   assert.deepEqual(resolved, { status: "unknown_type", itemType: "crypto_pledge" });
@@ -99,4 +136,30 @@ test("collateral with no defensible rate is excluded and the gap is recorded", (
     missing.some((m) => m.reason === "collateral_advance_rate_required:purchase_target"),
     "the missing rate must be recorded, not priced in",
   );
+});
+
+test("a percentage-unit rate contributes nothing and records the gap", () => {
+  // The exact production row: real_estate, $1.2M, advance_rate stored as 80.
+  const { facts, missing } = computeCollateralFactValues({
+    collateral: [{ item_type: "real_estate", estimated_value: 1_200_000, advance_rate: 80 }],
+    bankLoanTotal: 500_000,
+  } as Parameters<typeof computeCollateralFactValues>[0]);
+
+  assert.equal(facts.COLLATERAL_GROSS_VALUE, 1_200_000);
+  assert.notEqual(facts.COLLATERAL_NET_VALUE, 96_000_000, "the memo must never carry 80x the collateral");
+  assert.equal(facts.COLLATERAL_NET_VALUE, undefined);
+  assert.ok(
+    missing.some((m) => m.reason === "collateral_advance_rate_out_of_range:real_estate:80"),
+    "the bad unit must be named in the gap, so the row can be found and fixed",
+  );
+});
+
+test("LTV is not reported off a rate the system rejected", () => {
+  const { facts } = computeCollateralFactValues({
+    collateral: [{ item_type: "real_estate", estimated_value: 1_200_000, advance_rate: 80 }],
+    bankLoanTotal: 960_000,
+  } as Parameters<typeof computeCollateralFactValues>[0]);
+
+  // 960k / 96M would read as 1% — spectacularly over-collateralised.
+  assert.equal(facts.LTV_NET, undefined);
 });

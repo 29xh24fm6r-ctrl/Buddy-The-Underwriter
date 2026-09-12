@@ -39,6 +39,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildMemoInputPackage } from "@/lib/creditMemo/inputs/buildMemoInputPackage";
 import { upsertBorrowerStory } from "@/lib/creditMemo/inputs/upsertBorrowerStory";
 import { upsertCollateralItem } from "@/lib/creditMemo/inputs/upsertCollateralItem";
+import { isValidAdvanceRate } from "@/lib/collateral/collateralTypes";
 import {
   upsertManagementProfile,
   deleteManagementProfile,
@@ -120,6 +121,13 @@ const PRINCIPAL_BIO_PREFIX = "principal_bio_";
 
 // ── Patch builders (verbatim from per-section routes) ───────────────────
 
+/**
+ * Thrown for a value that parses as a number but cannot mean what the column
+ * means. Distinct from "absent" — the caller sent something and got it wrong,
+ * so the request must fail loudly rather than persist it or drop it.
+ */
+class InvalidMemoInputError extends Error {}
+
 function buildCollateralPatch(body: Record<string, unknown>) {
   const patch: Record<string, unknown> = {};
   for (const k of COLLATERAL_STRING_KEYS) {
@@ -132,6 +140,19 @@ function buildCollateralPatch(body: Record<string, unknown>) {
       const n = Number(v.replace(/[$,\s]/g, ""));
       if (Number.isFinite(n)) patch[k] = n;
     } else if (v === null) patch[k] = null;
+  }
+  // advance_rate is a fraction of value, in [0, 1] — 0.70 means 70%. Two
+  // production rows once held 80, which multiplied a deal's collateral by
+  // eighty on its credit memo. The database now refuses such a row; rejecting
+  // it here turns that into an answerable error instead of a raw 23514, and
+  // covers every client of this route rather than one form.
+  if (
+    typeof patch.advance_rate === "number" &&
+    !isValidAdvanceRate(patch.advance_rate)
+  ) {
+    throw new InvalidMemoInputError(
+      `advance_rate must be a fraction between 0 and 1 (0.70 = 70%); received ${patch.advance_rate}`,
+    );
   }
   if (typeof body.valuation_date === "string") {
     patch.valuation_date = body.valuation_date;
@@ -709,6 +730,10 @@ export async function POST(
     );
   } catch (e: unknown) {
     rethrowNextErrors(e);
+    // A value the caller sent and got wrong is their error to fix, not ours.
+    if (e instanceof InvalidMemoInputError) {
+      return NextResponse.json({ ok: false, error: e.message }, { status: 400 });
+    }
     console.error("[memo-inputs POST]", e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
@@ -733,6 +758,10 @@ export async function PATCH(
     );
   } catch (e: unknown) {
     rethrowNextErrors(e);
+    // A value the caller sent and got wrong is their error to fix, not ours.
+    if (e instanceof InvalidMemoInputError) {
+      return NextResponse.json({ ok: false, error: e.message }, { status: 400 });
+    }
     console.error("[memo-inputs PATCH]", e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }

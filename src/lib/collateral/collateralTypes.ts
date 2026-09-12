@@ -73,21 +73,50 @@ export type AdvanceRateResolution =
   | { status: "explicit"; rate: number }
   | { status: "default"; rate: number; itemType: CollateralType }
   | { status: "needs_banker_rate"; itemType: CollateralType }
-  | { status: "unknown_type"; itemType: string };
+  | { status: "unknown_type"; itemType: string }
+  | { status: "invalid_rate"; itemType: string; rate: number };
+
+/**
+ * An advance rate is a fraction of value, not a percentage: 0.70 means 70%.
+ * Every producer and consumer in this system agrees — CollateralModal writes
+ * `Number(input) / 100`, the memo template renders `rate * 100`, and
+ * computeCollateralFactValues multiplies the item's value by it directly.
+ *
+ * Production nonetheless held two rows storing `80`, which multiplied their
+ * collateral by eighty rather than discounting it to four fifths: a
+ * $1.2M property carried onto the credit memo at $96,000,000 of lendable
+ * value. Nothing rejected it, because nothing checked the unit.
+ */
+export const ADVANCE_RATE_MIN = 0;
+export const ADVANCE_RATE_MAX = 1;
+
+export function isValidAdvanceRate(rate: number): boolean {
+  return (
+    Number.isFinite(rate) && rate >= ADVANCE_RATE_MIN && rate <= ADVANCE_RATE_MAX
+  );
+}
 
 /**
  * Resolve the advance rate for one collateral item.
  *
- * Never returns a silent fallback. An unrecognised type and a type with no
- * defensible default are each reported as such, so the caller can record a
- * data-quality gap instead of discounting the borrower's collateral by a
- * number nobody chose.
+ * Never returns a silent fallback. An unrecognised type, a type with no
+ * defensible default, and a stored rate outside [0, 1] are each reported as
+ * such, so the caller can record a data-quality gap instead of discounting —
+ * or inflating — the borrower's collateral by a number nobody chose.
+ *
+ * An out-of-range rate is reported, never repaired. `80` is recoverable by
+ * eye as `0.80`, but that is a guess about intent, and guessing is the
+ * failure this module exists to remove: a rate the banker did not enter must
+ * not reach the memo whichever direction it errs in. Fix the row.
  */
 export function resolveAdvanceRate(item: {
   item_type: string;
   advance_rate?: number | null;
 }): AdvanceRateResolution {
   if (typeof item.advance_rate === "number" && Number.isFinite(item.advance_rate)) {
+    if (!isValidAdvanceRate(item.advance_rate)) {
+      return { status: "invalid_rate", itemType: item.item_type, rate: item.advance_rate };
+    }
     return { status: "explicit", rate: item.advance_rate };
   }
 

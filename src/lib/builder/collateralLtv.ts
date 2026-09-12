@@ -5,6 +5,8 @@
  * LTV = loan_amount / total_lendable_value (NOT gross_value)
  */
 
+import { resolveAdvanceRate } from "@/lib/collateral/collateralTypes";
+
 import type { CollateralItem } from "./builderTypes";
 
 export type CollateralLtvSummary = {
@@ -15,35 +17,46 @@ export type CollateralLtvSummary = {
   withinPolicy: boolean | null;
 };
 
-/** Default advance rates by collateral type when none explicitly set */
-const DEFAULT_ADVANCE_RATES: Record<string, number> = {
-  real_estate: 0.80,
-  equipment: 0.75,
-  accounts_receivable: 0.80,
-  inventory: 0.50,
-  blanket_lien: 0.70,
-  vehicle: 0.75,
-  other: 0.50,
-};
+/*
+ * Advance rates come from src/lib/collateral/collateralTypes.ts, the one
+ * contract the credit memo also reads.
+ *
+ * This module used to keep its own table, and it had drifted to the same
+ * dead vocabulary the memo's copy had before #1022 fixed that one: keyed on
+ * `blanket_lien` where the classifiers emit `ucc_lien`, `other` where they
+ * emit `general`, and missing `insurance_backed` and `purchase_target`
+ * entirely — each falling through a silent `?? 0.50`. So the rate a banker
+ * read in the builder was not the rate the memo underwrote to. One table now,
+ * shared, and `null` where this system has no defensible default rather than
+ * a guess dressed up as a policy number.
+ */
 
 /** Default policy LTV limit (can be overridden by bank policy later) */
 const DEFAULT_POLICY_LTV_LIMIT = 0.80;
 
 /**
  * Compute lendable value for a single collateral item.
- * advance_rate from item takes precedence, then default by type.
+ *
+ * An item with no usable rate — an unrecognised type, a type carrying no
+ * defensible default, or a stored rate outside [0, 1] — lends nothing. It is
+ * left out of the total rather than admitted at an invented number, which
+ * matches how the credit memo treats the same item.
  */
 export function computeItemLendableValue(item: CollateralItem): number {
-  const grossValue = item.estimated_value ?? 0;
-  const advanceRate = item.advance_rate ?? DEFAULT_ADVANCE_RATES[item.item_type] ?? 0.50;
-  return grossValue * advanceRate;
+  const rate = getEffectiveAdvanceRate(item);
+  if (rate === null) return 0;
+  return (item.estimated_value ?? 0) * rate;
 }
 
 /**
- * Get effective advance rate for an item.
+ * Get the effective advance rate for an item, or null when this system has no
+ * rate it can defend for it. Callers must show the absence — never fill it.
  */
-export function getEffectiveAdvanceRate(item: CollateralItem): number {
-  return item.advance_rate ?? DEFAULT_ADVANCE_RATES[item.item_type] ?? 0.50;
+export function getEffectiveAdvanceRate(item: CollateralItem): number | null {
+  const resolution = resolveAdvanceRate(item);
+  return resolution.status === "explicit" || resolution.status === "default"
+    ? resolution.rate
+    : null;
 }
 
 /**

@@ -94,15 +94,20 @@ export function computeCollateralFactValues(input: {
       continue;
     }
 
-    // No defensible rate. Contributing the item at a rate nobody chose is how
-    // a UCC lien came to be discounted at 50% instead of 70% with nothing
-    // recorded; contribute nothing to the lendable total and say why, so the
-    // gap is visible rather than priced in.
+    // No usable rate. Contributing the item at a rate nobody chose is how a
+    // UCC lien came to be discounted at 50% instead of 70% with nothing
+    // recorded, and how a rate stored as `80` instead of `0.80` would carry a
+    // $1.2M property onto the memo at $96M of lendable value. Contribute
+    // nothing to the lendable total and say why, so the gap is visible rather
+    // than priced in.
     missing.push({
       factKey: "COLLATERAL_NET_VALUE",
-      reason: resolution.status === "needs_banker_rate"
-        ? `collateral_advance_rate_required:${resolution.itemType}`
-        : `collateral_type_unrecognised:${resolution.itemType}`,
+      reason:
+        resolution.status === "needs_banker_rate"
+          ? `collateral_advance_rate_required:${resolution.itemType}`
+          : resolution.status === "invalid_rate"
+            ? `collateral_advance_rate_out_of_range:${resolution.itemType}:${resolution.rate}`
+            : `collateral_type_unrecognised:${resolution.itemType}`,
     });
   }
 
