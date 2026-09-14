@@ -50,30 +50,22 @@ export async function POST(
       value,
     } = body;
 
-    // Log fact confirmation to deal_events
     const sb = supabaseAdmin();
-    await sb.from("deal_events").insert({
-      deal_id: dealId,
-      kind: "voice.fact_confirmed",
-      payload: {
-        actor_user_id: userId,
-        scope: "banker_voice_session",
-        action: "voice_confirmed",
-        meta: { intent, session_id: sessionId, gap_id: gapId, fact_key: factKey, value },
-      },
-    });
 
     // If we have enough structured info, resolve the gap directly
-    if (gapId && value && factKey) {
-      const numValue = parseFloat(value);
-      const resolvedValue = isNaN(numValue) ? value : numValue;
+    if (gapId && value != null && factKey) {
+      const numValue = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+      if (!Number.isFinite(numValue)) return NextResponse.json({ ok: false, error: "finite_value_required" }, { status: 422 });
 
       const result = await resolveDealGap({
         action: "provide_value",
         gapId,
         factType: "FINANCIAL",
         factKey,
-        value: resolvedValue,
+        value: numValue,
+        rationale: body.rationale,
+        resolvedPeriodStart: body.resolvedPeriodStart,
+        resolvedPeriodEnd: body.resolvedPeriodEnd,
         userId,
         dealId,
         bankId,
@@ -81,6 +73,15 @@ export async function POST(
 
       // God Tier #67 — fire-and-forget auto-complete check after fact confirmation
       if (result.ok) {
+        // The durable financial-review audit is already committed. This event
+        // is supplementary and must never turn a committed decision into failure.
+        try {
+          await sb.from("deal_events").insert({
+            deal_id: dealId, kind: "voice.fact_confirmed",
+            payload: { actor_user_id: userId, scope: "banker_voice_session", action: "voice_confirmed",
+              meta: { intent, session_id: sessionId, gap_id: gapId, fact_key: factKey, value } },
+          });
+        } catch { /* supplementary telemetry only */ }
         Promise.resolve().then(async () => {
           try {
             const { computeSpreadCompleteness } = await import(
@@ -153,9 +154,10 @@ export async function POST(
         ok: result.ok,
         message: result.ok
           ? `Confirmed: ${factKey} = ${value}`
-          : "Recorded for review",
+          : result.error,
+        ...(!result.ok ? { error: result.error } : {}),
         intent,
-      });
+      }, { status: result.ok ? 200 : 422 });
     }
 
     // Unstructured intent — acknowledge, let the realtime voice model continue the conversation

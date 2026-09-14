@@ -275,6 +275,7 @@ export function BrokerageShell({ children }: { children: ReactNode }) {
             {subtitle && <div style={{ fontSize: 11, color: c.textMuted, marginTop: 1 }}>{subtitle}</div>}
           </div>
           <BrokerageCreateLauncher compact />
+          <Link className="sba-admin-shortcut" href="/admin">Admin tools</Link>
           <Link href="/profile">My profile</Link>
           <button className="sba-sign-out" onClick={() => {
             void signOut({ redirectUrl: "/" }).catch(() => setAccountError("Sign out failed. Please try again."));

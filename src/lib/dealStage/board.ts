@@ -99,6 +99,12 @@ export function columnForStage(stage: string | null | undefined): BoardColumnId 
   return COLUMN_BY_STAGE.get(stage) ?? "qualifying";
 }
 
+/** The plain-language pipeline phase that contains an exact workflow step. */
+export function boardLabelForStage(stage: string | null | undefined): string {
+  const id = columnForStage(stage);
+  return BOARD_COLUMNS.find((column) => column.id === id)?.label ?? "Qualifying";
+}
+
 export function isParked(stage: string | null | undefined): boolean {
   return columnForStage(stage) === "parked";
 }

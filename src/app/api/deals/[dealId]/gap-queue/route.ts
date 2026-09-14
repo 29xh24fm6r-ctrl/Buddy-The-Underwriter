@@ -3,6 +3,7 @@ import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealC
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computeDealGaps, REQUIRED_FACT_KEYS } from "@/lib/gapEngine/computeDealGaps";
+import { loadFinancialSnapshotValidation } from "@/lib/financial/snapshot/getFinancialSnapshotGate";
 import { TRUSTED_RESOLUTION_FILTER } from "@/lib/financialReview/isTrustedFinancialResolution";
 
 export const runtime = "nodejs";
@@ -38,15 +39,13 @@ export async function GET(
       console.error("[gap-queue GET] computeDealGaps failed (non-fatal)", err);
     });
 
-    // Check if financial snapshot exists — gates whether review UI renders
-    const { count: snapshotCount } = await sb
-      .from("deal_truth_snapshots")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId);
+    const validation = await loadFinancialSnapshotValidation(dealId, { client: sb, bankId: auth.bankId });
+    if (validation.gate.evaluationStatus === "unavailable") {
+      return NextResponse.json({ ok: false, error: validation.gate.message }, { status: 503 });
+    }
+    const financialSnapshotExists = validation.gate.evidence.snapshotExists;
 
-    const financialSnapshotExists = (snapshotCount ?? 0) > 0;
-
-    const { data: gaps } = await sb
+    const { data: gaps, error: gapsError } = await sb
       .from("deal_gap_queue")
       .select("*")
       .eq("deal_id", dealId)
@@ -55,12 +54,14 @@ export async function GET(
       .order("priority", { ascending: false })
       .order("created_at", { ascending: true });
 
+    if (gapsError) throw gapsError;
+
     // Completeness score: banker-resolved required facts / total required facts
     // This is the ONLY accurate measure of deal completeness.
     // A deal is NOT complete just because the gap queue is empty —
     // it is complete only when all required facts have trusted resolution
     // (confirmed, overridden, or provided by banker).
-    const { data: resolvedFacts } = await sb
+    const { data: resolvedFacts, error: resolvedError } = await sb
       .from("deal_financial_facts")
       .select("fact_key")
       .eq("deal_id", dealId)
@@ -69,10 +70,10 @@ export async function GET(
       .eq("is_superseded", false)
       .in("fact_key", REQUIRED_FACT_KEYS as unknown as string[]);
 
+    if (resolvedError) throw resolvedError;
+
     const totalRequired = REQUIRED_FACT_KEYS.length;
-    const resolvedRequired = (resolvedFacts ?? []).filter(f =>
-      (REQUIRED_FACT_KEYS as readonly string[]).includes(f.fact_key)
-    ).length;
+    const resolvedRequired = new Set((resolvedFacts ?? []).map(f => f.fact_key)).size;
     const completenessScore = Math.round((resolvedRequired / totalRequired) * 100);
     const isGenuinelyComplete = resolvedRequired === totalRequired;
 
@@ -84,24 +85,38 @@ export async function GET(
     const factIdsToEnrich = reviewableGaps
       .map((g: any) => g.fact_id)
       .filter(Boolean) as string[];
+    const conflictIds = reviewableGaps.map((g: any) => g.conflict_id).filter(Boolean);
+    const conflictSources = new Map<string, string[]>();
+    if (conflictIds.length) {
+      const { data, error } = await sb.from("deal_fact_conflicts").select("id, conflicting_fact_ids")
+        .eq("deal_id", dealId).eq("bank_id", auth.bankId).in("id", conflictIds);
+      if (error) throw error;
+      for (const conflict of data ?? []) {
+        conflictSources.set(conflict.id, conflict.conflicting_fact_ids ?? []);
+        factIdsToEnrich.push(...(conflict.conflicting_fact_ids ?? []));
+      }
+    }
 
-    let provenanceMap: Record<string, any> = {};
+    const provenanceMap: Record<string, any> = {};
     if (factIdsToEnrich.length > 0) {
-      const { data: facts } = await sb
+      const { data: facts, error: factsError } = await sb
         .from("deal_financial_facts")
         .select("id, fact_key, fact_value_num, fact_period_start, fact_period_end, confidence, provenance, source_document_id")
-        .in("id", factIdsToEnrich);
+        .eq("deal_id", dealId).eq("bank_id", auth.bankId)
+        .eq("is_superseded", false).in("id", [...new Set(factIdsToEnrich)]);
+      if (factsError) throw factsError;
 
       // Load source document names for provenance display
       const docIds = (facts ?? [])
         .map((f: any) => f.source_document_id)
         .filter(Boolean) as string[];
-      let docNameMap: Record<string, string> = {};
+      const docNameMap: Record<string, string> = {};
       if (docIds.length > 0) {
-        const { data: docs } = await sb
+        const { data: docs, error: docsError } = await sb
           .from("deal_documents")
           .select("id, original_filename, document_type")
-          .in("id", docIds);
+          .eq("deal_id", dealId).in("id", docIds);
+        if (docsError) throw docsError;
         for (const d of docs ?? []) {
           docNameMap[d.id] = d.original_filename ?? d.document_type ?? "Unknown document";
         }
@@ -123,7 +138,14 @@ export async function GET(
     return NextResponse.json({
       ok: true,
       financialSnapshotExists,
-      gaps: gaps ?? [],
+      snapshotGate: validation.gate,
+      snapshotCompletenessPercent: validation.completenessPercent,
+      gaps: (gaps ?? []).map((gap: any) => ({
+        ...gap,
+        sourceCandidates: (conflictSources.get(gap.conflict_id) ?? [])
+          .filter(id => provenanceMap[id])
+          .map(id => ({ id, ...provenanceMap[id] })),
+      })),
       openCount: (gaps ?? []).length,
       completenessScore,
       // isGenuinelyComplete = ALL required facts have been banker-confirmed.

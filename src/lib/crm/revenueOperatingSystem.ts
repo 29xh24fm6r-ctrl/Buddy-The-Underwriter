@@ -164,6 +164,12 @@ export function buildRevenueOperatingSystem(input: {
     },
   ];
 
+  const knownStageAges = activeDeals
+    .map((deal) => daysInStage(deal.stageEnteredAt, now))
+    .filter((age): age is number => age !== null);
+  const criticalDealIds = new Set(work.filter((item) => item.severity === "critical").map((item) => item.id));
+  const overdueDealIds = new Set(work.filter((item) => item.reasons.includes("Task overdue")).map((item) => item.id));
+
   return {
     generatedAt: now.toISOString(),
     metrics: {
@@ -183,6 +189,14 @@ export function buildRevenueOperatingSystem(input: {
       unlinkedPeople: input.unlinkedPeople,
       incompleteLenders: incompleteLenders.length,
       templatePercent,
+    },
+    executive: {
+      ownershipCoverage: coverage(activeDeals.length - unassignedDeals.length, activeDeals.length),
+      nextActionCoverage: coverage(activeDeals.length - dealsWithoutNextAction.length, activeDeals.length),
+      averageStageAgeDays: knownStageAges.length ? Math.round(knownStageAges.reduce((sum, age) => sum + age, 0) / knownStageAges.length) : null,
+      criticalPipelineValue: activeDeals.filter((deal) => criticalDealIds.has(deal.id)).reduce((sum, deal) => sum + money(deal.amount), 0),
+      distributedDeals: activeDeals.filter((deal) => deal.banksSent > 0).length,
+      overdueDeals: overdueDealIds.size,
     },
     funnel,
     setup: {

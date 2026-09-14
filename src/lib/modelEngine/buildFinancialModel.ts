@@ -14,6 +14,8 @@
 
 import type { FinancialModel, FinancialPeriod, IncomeBaseKind, PeriodType } from "./types";
 import { normalizeFactKey } from "@/lib/finengine/factKeyRegistry";
+import { computeEbitda } from "@/lib/financialIntelligence/ebitdaEngine";
+import { isSelectableNumericFact } from "@/lib/financialFacts/acceptance";
 
 // ---------------------------------------------------------------------------
 // Sentinel dates that indicate "no real date" — skip these
@@ -155,6 +157,8 @@ export interface FactInput {
   fact_value_num: number | null;
   fact_period_end: string | null;
   confidence?: number | null;
+  resolution_status?: string | null;
+  is_superseded?: boolean | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +191,7 @@ export function buildFinancialModel(
   const realDates: string[] = [];
   for (const f of facts) {
     if (!RELEVANT_FACT_TYPES.has(f.fact_type)) continue;
-    if (f.fact_value_num === null) continue;
+    if (!isSelectableNumericFact(f)) continue;
     if (isInvalidPeriodDate(f.fact_period_end)) continue;
 
     const pe = f.fact_period_end!;
@@ -206,7 +210,7 @@ export function buildFinancialModel(
 
   if (sentinelProxy) {
     for (const f of facts) {
-      if (f.fact_value_num === null) continue;
+      if (!isSelectableNumericFact(f)) continue;
       if (!isInvalidPeriodDate(f.fact_period_end)) continue;
       if (f.fact_type !== "INCOME_STATEMENT" && f.fact_type !== "BALANCE_SHEET") continue;
 
@@ -246,7 +250,8 @@ export function buildFinancialModel(
     const normalizedValues = new Map<string, number>();
     for (const f of sorted) {
       if (f.fact_value_num === null) continue;
-      normalizedValues.set(normalizeFactKey(f.fact_key), f.fact_value_num);
+      const key = normalizeFactKey(f.fact_key);
+      if (!normalizedValues.has(key)) normalizedValues.set(key, f.fact_value_num);
     }
     const arValue = normalizedValues.get("ACCOUNTS_RECEIVABLE");
     const ocaValue = normalizedValues.get("OTHER_CURRENT_ASSETS");
@@ -300,7 +305,7 @@ export function buildFinancialModel(
     }
 
     // Derive computed values
-    deriveComputedValues(period);
+    deriveComputedValues(period, Object.fromEntries(normalizedValues));
 
     // Quality checks
     checkQuality(period);
@@ -333,28 +338,24 @@ export function buildFinancialModel(
 // Derived values
 // ---------------------------------------------------------------------------
 
-function deriveComputedValues(period: FinancialPeriod): void {
+function deriveComputedValues(period: FinancialPeriod, facts: Record<string, number | null>): void {
   const { income, balance, cashflow } = period;
 
-  // EBITDA may be derived from ordinary business income because that base has
-  // defined pass-through semantics and its deductions include depreciation
-  // and interest. Book net income, taxable income, and personal AGI are not
-  // interchangeable bases; without tax/amortization detail they must remain
-  // reviewable inputs rather than silently producing EBITDA.
-  if (income.netIncome !== undefined && income.netIncomeBase === "ordinary_business_income") {
-    const dep = income.depreciation ?? 0;
-    const ie  = income.interest ?? 0;
-    cashflow.ebitda = income.netIncome + dep + ie;
-  } else if (income.revenue !== undefined) {
-    // Fallback: income statement data where operatingExpenses is pure OPEX
-    // (excludes interest and depreciation). Add-backs are still required.
-    const cogs = income.cogs ?? 0;
-    const opex = income.operatingExpenses ?? 0;
-    const dep  = income.depreciation ?? 0;
-    const ie   = income.interest ?? 0;
-    cashflow.ebitda = income.revenue - cogs - opex + dep + ie;
+  // Keep the canonical fact keys: book income, taxable income and AGI are not
+  // interchangeable. The shared engine owns the base selection and all add-backs.
+  const ebitda = computeEbitda(facts, "UNKNOWN", { ebitda_addback_stack: "conservative" });
+  if (ebitda.adjustedEbitda !== null) {
+    cashflow.ebitda = ebitda.adjustedEbitda;
+    period.qualityFlags.push(...ebitda.warnings.map(w => `EBITDA_REVIEW:${w}`));
   } else if (income.netIncome !== undefined) {
     period.qualityFlags.push(`EBITDA_UNAVAILABLE:unsupported_income_base:${income.netIncomeBase ?? "unknown"}`);
+  } else if (income.revenue !== undefined && income.cogs !== undefined && income.operatingExpenses !== undefined) {
+    // Complete income-statement totals include the separately reported interest
+    // and depreciation deductions. Missing expenses must never be assumed zero.
+    const statementFacts = { ...facts, ORDINARY_BUSINESS_INCOME: income.revenue - income.cogs - income.operatingExpenses };
+    cashflow.ebitda = computeEbitda(statementFacts, "INCOME_STATEMENT", { ebitda_addback_stack: "conservative" }).adjustedEbitda ?? undefined;
+  } else {
+    period.qualityFlags.push("EBITDA_UNAVAILABLE:incomplete_income_statement");
   }
 
   // SPEC-FINENGINE-COMPLETE-DERIVATION-1: comprehensive balance-sheet

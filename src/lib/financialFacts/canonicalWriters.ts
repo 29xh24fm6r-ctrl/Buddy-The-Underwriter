@@ -64,11 +64,10 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
     notes:
       "BOOTSTRAP-WRITER-DO-NOT-REMOVE. " +
       "The GCF spread template (globalCashFlow.ts) READS the canonical CASH_FLOW_AVAILABLE fact rather than computing it from raw inputs. " +
-      "backfillCanonicalFactsFromSpreads reads the GCF spread's rendered_json. " +
+      "GCF rendered output is never propagated back into source facts. " +
       "Therefore on a fresh deal's first canonical chain run, only this writer can produce CASH_FLOW_AVAILABLE — without it, " +
       "backfill propagates null, computeTotalDebtService skips DSCR with MISSING_PREREQ_NOI, and the chain cannot recover. " +
-      "On steady-state runs (CASH_FLOW_AVAILABLE already exists from a prior run), the role is technically redundant with backfill, " +
-      "but the cold-start bootstrap role makes the writer load-bearing. " +
+      "This remains the cash-flow producer on both cold-start and subsequent runs. " +
       "Also called from the classic-spread route as defense-in-depth (banker-initiated PDF generation path).",
   },
 
@@ -76,8 +75,6 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
     name: "backfillCanonicalFactsFromSpreads",
     role: "propagate",
     ownedFactKeys: [
-      "CASH_FLOW_AVAILABLE", "ANNUAL_DEBT_SERVICE", "DSCR",
-      "DSCR_STRESSED_300BPS", "EXCESS_CASH_FLOW",
       "NOI_TTM", "TOTAL_INCOME_TTM", "OPEX_TTM",
       "REVENUE", "COGS", "GROSS_PROFIT", "EBITDA", "NET_INCOME",
       "IN_PLACE_RENT_MO", "OCCUPANCY_PCT", "VACANCY_PCT",
@@ -85,12 +82,11 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
       "WORKING_CAPITAL", "CURRENT_RATIO", "DEBT_TO_EQUITY",
       "PERSONAL_TOTAL_INCOME",
       "PFS_TOTAL_ASSETS", "PFS_TOTAL_LIABILITIES", "PFS_NET_WORTH",
-      "GCF_GLOBAL_CASH_FLOW", "GCF_DSCR",
     ],
     bootstrapsForDownstream: [],
     reads: {
       spreadTypes: [
-        "GLOBAL_CASH_FLOW", "T12", "RENT_ROLL", "BALANCE_SHEET",
+        "T12", "RENT_ROLL", "BALANCE_SHEET",
         "PERSONAL_INCOME", "PERSONAL_FINANCIAL_STATEMENT",
       ],
     },
@@ -103,8 +99,7 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
     notes:
       "Propagates rendered spread values back into the canonical facts table so " +
       "downstream consumers (memo, snapshot, advisor) can read them without re-rendering spreads. " +
-      "Note: does NOT bootstrap CASH_FLOW_AVAILABLE on cold-start deals because the GCF spread template " +
-      "reads the fact rather than computes it — chicken-and-egg. See runCashFlowAggregator.notes.",
+      "GCF, DSCR and debt service are excluded; their existing computation services own those facts.",
   },
 
   computeBusinessEbitdaFacts: {

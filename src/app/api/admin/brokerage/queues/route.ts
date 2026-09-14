@@ -26,6 +26,24 @@ export async function GET(req: NextRequest) {
   const queue = req.nextUrl.searchParams.get("queue");
   const role = req.nextUrl.searchParams.get("role");
 
+  if (req.nextUrl.searchParams.get("summary") === "1") {
+    try {
+      const results = await Promise.all(MANAGEMENT_QUEUES.map(async (queueId) => {
+        const items = await listManagementQueue({
+          bankId: brokerageBankId,
+          queue: queueId,
+          actorClerkUserId: userId,
+          actorRole: role ?? "broker",
+        });
+        return [queueId, items.length] as const;
+      }));
+      return NextResponse.json({ ok: true, counts: Object.fromEntries(results) });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    }
+  }
+
   if (!queue || !(MANAGEMENT_QUEUES as readonly string[]).includes(queue)) {
     return NextResponse.json({ ok: false, error: `queue is required and must be one of: ${MANAGEMENT_QUEUES.join(", ")}` }, { status: 400 });
   }

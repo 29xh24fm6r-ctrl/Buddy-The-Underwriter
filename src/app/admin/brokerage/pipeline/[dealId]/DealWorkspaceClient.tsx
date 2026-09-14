@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { crmColors as c } from "@/components/brokerage/tokens";
-import { STAGE_LABELS } from "@/lib/dealStage/board";
+import { STAGE_LABELS, boardLabelForStage } from "@/lib/dealStage/board";
 import { ExistingDebtCard } from "@/components/brokerage/ExistingDebtCard";
 import type { BrokerageTeamMember } from "@/lib/brokerage/team";
 
@@ -224,7 +224,8 @@ export default function DealWorkspaceClient({
             </label>
 
             <div style={{ fontSize: 12, color: c.textSecondary }}>
-              Stage: <strong style={{ color: c.paper }}>{STAGE_LABELS[stage ?? ""] ?? "Unstaged"}</strong>
+              Pipeline phase: <strong style={{ color: c.paper }}>{boardLabelForStage(stage)}</strong>
+              <span style={{ color: c.textFaint }}> · Current step: </span><strong style={{ color: c.paper }}>{STAGE_LABELS[stage ?? ""] ?? "Intake"}</strong>
               {stageAgeDays !== null && <span style={{ color: c.textMuted }}> · {stageAgeDays}d here</span>}
             </div>
 

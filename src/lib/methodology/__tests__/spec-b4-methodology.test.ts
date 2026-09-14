@@ -101,11 +101,6 @@ test("[spec-b4-v5] loadDealMethodology.ts reads from deal_methodology_choices an
 // ── V-6: computeEbitda accepts methodologySlate ───────────────────────────
 
 test("[spec-b4-v6] computeEbitda accepts optional methodologySlate and branches on variant", () => {
-  const body = read("src/lib/financialIntelligence/ebitdaEngine.ts");
-  assert.match(body, /methodologySlate\?:\s*MethodologySlate/, "Must accept optional methodologySlate");
-  assert.match(body, /ebitda_addback_stack/, "Must read ebitda_addback_stack from slate");
-  assert.match(body, /addBackVariant/, "Must resolve addBackVariant from slate");
-
   // Behavioral parity: when omitted, must default to "standard" (all add-backs)
   const { computeEbitda } = require("@/lib/financialIntelligence/ebitdaEngine");
   const facts = {

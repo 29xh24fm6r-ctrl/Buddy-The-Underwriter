@@ -18,6 +18,7 @@ const VALID_ACTIONS = new Set<ResolutionAction>([
   "override_value",
   "provide_value",
   "mark_follow_up",
+  "reject_value",
 ]);
 
 /**
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       action,
       factId: body.factId ?? null,
       conflictId: body.conflictId ?? null,
-      resolvedValue: body.resolvedValue != null ? Number(body.resolvedValue) : null,
+      resolvedValue: body.resolvedValue ?? null,
       resolvedPeriodStart: body.resolvedPeriodStart ?? null,
       resolvedPeriodEnd: body.resolvedPeriodEnd ?? null,
       rationale: body.rationale ?? null,

@@ -108,6 +108,8 @@ export type SnapshotSourceSummary = {
 
 export type DealFinancialSnapshotV1 = {
   version: 1;
+  /** Fingerprint of source facts at computation time, used to detect later edits. */
+  input_facts_hash?: string;
 
   // Required locked v1 fields
   total_income_ttm: SnapshotMetricValue;

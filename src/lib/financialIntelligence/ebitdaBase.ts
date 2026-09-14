@@ -37,13 +37,13 @@ type FactMap = Record<string, number | null>;
 
 function val(facts: FactMap, key: string): number | null {
   const v = facts[key];
-  return v === undefined ? null : v;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 /**
  * SPEC-CANONICAL-DSCR-NCADS-PERFECTION-PROGRAM-1 Phase 1: EBITDA base selection.
  * Pass-throughs (1120S/1065) report ORDINARY_BUSINESS_INCOME. C-corps (Form 1120)
- * do NOT — they report pre-tax TAXABLE_INCOME (line 30; tax is line 31). Since
+ * do NOT — they report pre-tax TAXABLE_INCOME. Since
  * EBITDA is a pre-tax figure (base + interest + D&A), TAXABLE_INCOME is the correct
  * C-corp base with NO tax add-back — symmetric with the pass-through path. Only if
  * TAXABLE_INCOME is absent do we reconstruct from after-tax NET_INCOME by adding the
@@ -60,7 +60,7 @@ export function resolveEbitdaBaseIncome(facts: FactMap): EbitdaBaseResult {
   if (reportedOBI === null) {
     const taxable = val(facts, "TAXABLE_INCOME");
     // Schedule M-1 "income per return" reconciles book income to taxable income —
-    // it IS pre-tax taxable income (same basis as line-30 TAXABLE_INCOME). When the
+    // it IS pre-tax taxable income (the canonical TAXABLE_INCOME basis). When the
     // plain TAXABLE_INCOME line was not extracted but the M-1 bridge was, M1 is the
     // correct pre-tax base. Without it, a C-corp with only M1 falls through to
     // after-tax NET_INCOME and EBITDA is silently understated by the full pre-tax
@@ -81,7 +81,7 @@ export function resolveEbitdaBaseIncome(facts: FactMap): EbitdaBaseResult {
       baseKey = "NET_INCOME";
       baseLabel = "Net income (after-tax, reconstructed to pre-tax)";
       baseValue = netIncome;
-      if (taxProvision !== null && taxProvision !== 0) {
+      if (taxProvision !== null) {
         taxAddBack = {
           value: taxProvision,
           key: totalTax !== null ? "TOTAL_TAX" : "M1_FEDERAL_TAX_BOOK",
