@@ -16,6 +16,7 @@ type Gap = {
   priority: number;
   fact_id: string | null;
   conflict_id: string | null;
+  sourceCandidates?: Array<Provenance & { id: string }>;
 };
 
 type Provenance = {
@@ -28,7 +29,7 @@ type Provenance = {
   extractionPath: string | null;
 };
 
-type ResolveAction = "confirm_value" | "choose_source_value" | "override_value" | "provide_value" | "mark_follow_up";
+type ResolveAction = "confirm_value" | "choose_source_value" | "override_value" | "provide_value" | "mark_follow_up" | "reject_value";
 
 type Props = {
   gap: Gap;
@@ -81,6 +82,9 @@ export default function FinancialReviewItem({ gap, provenance, dealId, onResolve
   const [expanded, setExpanded] = useState<ResolveAction | null>(null);
   const [rationale, setRationale] = useState("");
   const [overrideValue, setOverrideValue] = useState("");
+  const [selectedSource, setSelectedSource] = useState("");
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolved, setResolved] = useState<string | null>(null);
@@ -97,14 +101,23 @@ export default function FinancialReviewItem({ gap, provenance, dealId, onResolve
       const body: Record<string, unknown> = { gapId: gap.id, action };
 
       if (action === "confirm_value" || action === "choose_source_value") {
-        body.factId = gap.fact_id;
+        body.factId = action === "choose_source_value" ? selectedSource : gap.fact_id;
+      }
+      if (gap.gap_type === "conflict" && action !== "mark_follow_up") {
+        if (!selectedSource) { setError("Select the source being reviewed."); return; }
+        body.factId = selectedSource;
+        body.conflictId = gap.conflict_id;
       }
       if (action === "override_value" || action === "provide_value") {
-        const num = parseFloat(overrideValue);
-        if (isNaN(num)) { setError("Enter a valid number."); setSubmitting(false); return; }
+        const num = Number(overrideValue);
+        if (!overrideValue.trim() || !Number.isFinite(num)) { setError("Enter a valid number."); return; }
         body.resolvedValue = num;
+        if (action === "provide_value") {
+          body.resolvedPeriodStart = periodStart;
+          body.resolvedPeriodEnd = periodEnd;
+        }
       }
-      if (action === "override_value" || action === "provide_value" || action === "mark_follow_up") {
+      if (action === "override_value" || action === "provide_value" || action === "mark_follow_up" || action === "reject_value") {
         body.rationale = rationale;
       }
 
@@ -115,7 +128,7 @@ export default function FinancialReviewItem({ gap, provenance, dealId, onResolve
       });
 
       const json = await res.json();
-      if (json.ok) {
+      if (res.ok && json.ok) {
         setResolved(json.resolution?.resolvedStatus ?? "resolved");
         setExpanded(null);
         onResolved();
@@ -137,6 +150,7 @@ export default function FinancialReviewItem({ gap, provenance, dealId, onResolve
       resolved_selected_source: "Source selected",
       resolved_overridden: "Overridden",
       resolved_provided: "Provided manually",
+      resolved_rejected: "Rejected",
       deferred_follow_up: "Follow-up required",
     };
     return (
@@ -155,9 +169,10 @@ export default function FinancialReviewItem({ gap, provenance, dealId, onResolve
   if (gap.gap_type === "low_confidence") {
     actions.push({ key: "confirm_value", label: "Confirm value", primary: true });
     actions.push({ key: "override_value", label: "Override" });
+    actions.push({ key: "reject_value", label: "Reject" });
     actions.push({ key: "mark_follow_up", label: "Follow up" });
   } else if (gap.gap_type === "conflict") {
-    if (gap.fact_id) actions.push({ key: "choose_source_value", label: "Use this source", primary: true });
+    actions.push({ key: "choose_source_value", label: "Select source", primary: true });
     actions.push({ key: "override_value", label: "Override" });
     actions.push({ key: "mark_follow_up", label: "Follow up" });
   } else if (gap.gap_type === "missing_fact") {
@@ -166,7 +181,7 @@ export default function FinancialReviewItem({ gap, provenance, dealId, onResolve
   }
 
   const needsValueInput = expanded === "override_value" || expanded === "provide_value";
-  const needsRationale = expanded === "override_value" || expanded === "provide_value" || expanded === "mark_follow_up";
+  const needsRationale = expanded === "override_value" || expanded === "provide_value" || expanded === "mark_follow_up" || expanded === "reject_value";
 
   return (
     <div className="px-4 py-3">
@@ -187,7 +202,7 @@ export default function FinancialReviewItem({ gap, provenance, dealId, onResolve
             <button
               key={a.key}
               onClick={() => {
-                if (a.key === "confirm_value" || a.key === "choose_source_value") {
+                if (a.key === "confirm_value") {
                   submit(a.key);
                 } else {
                   setExpanded(expanded === a.key ? null : a.key);
@@ -241,6 +256,26 @@ export default function FinancialReviewItem({ gap, provenance, dealId, onResolve
       {/* Expanded inline form */}
       {expanded && (
         <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-2">
+          {gap.gap_type === "conflict" && expanded !== "mark_follow_up" && (
+            <label className="block text-xs">
+              Source and financial period
+              <select aria-label="Source and financial period" value={selectedSource} onChange={e => setSelectedSource(e.target.value)}
+                className="mt-1 w-full rounded bg-slate-900 p-2 text-white">
+                <option value="">Select a source</option>
+                {(gap.sourceCandidates ?? []).map(source => (
+                  <option key={source.id} value={source.id}>
+                    {source.sourceDocumentName ?? "Source document"} — {source.value ?? "Missing value"} — {source.periodStart} to {source.periodEnd}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {expanded === "provide_value" && (
+            <div className="flex gap-2 text-xs">
+              <label>Period start<input aria-label="Period start" type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className="block rounded bg-slate-900 p-2" /></label>
+              <label>Period end<input aria-label="Period end" type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className="block rounded bg-slate-900 p-2" /></label>
+            </div>
+          )}
           {needsValueInput && (
             <div>
               <label className="block text-[11px] text-white/40 mb-1">

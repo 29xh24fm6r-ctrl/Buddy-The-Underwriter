@@ -37,6 +37,7 @@ function failingOpenAI() {
 }
 
 let originalApiKey: string | undefined;
+const originalFetch = globalThis.fetch;
 
 before(() => {
   originalApiKey = process.env.GEMINI_API_KEY;
@@ -44,12 +45,14 @@ before(() => {
 });
 
 beforeEach(() => {
+  globalThis.fetch = async () => { throw new Error("Unit tests must provide an in-memory transport; live network is disabled."); };
   process.env.GEMINI_API_KEY = "test-key";
   delete process.env.AI_GATEWAY_BUDGET_GENERATOR;
   __setProviderImplForTests("openai", failingOpenAI());
 });
 
 after(() => {
+  globalThis.fetch = originalFetch;
   if (originalApiKey === undefined) delete process.env.GEMINI_API_KEY;
   else process.env.GEMINI_API_KEY = originalApiKey;
   __resetGatewayTestOverrides();
@@ -220,29 +223,21 @@ test("transient failure then success: retries and returns ok:true on attempt 2",
 
 // ─── streamGeminiText ────────────────────────────────────────────────────
 
-test("streamGeminiText: yields chunks from the gateway's interviewer role", async () => {
-  __setProviderImplForTests("google", async () => okResult("unused-for-stream"));
-  // runRoleStream calls streamGoogle directly (not the providerImpl seam),
-  // so this test exercises the real streamGoogle against a mocked fetch —
-  // see gateway.test.ts's own runRoleStream coverage for the non-google
-  // rejection path; here we only need modelOverride/thinkingLevel/
-  // maxOutputTokens to thread through without throwing before the first
-  // network call, which requires a live GEMINI_API_KEY-shaped environment.
-  // Given no live network access in this suite, assert instead that the
-  // async generator is constructed and the first chunk read attempt at
-  // least reaches the network layer (fails cleanly with a fetch error,
-  // not a "not implemented" or "missing field" error).
-  const original = process.env.GEMINI_API_KEY;
-  process.env.GEMINI_API_KEY = "test-key";
-  try {
-    const gen = streamGeminiText({
-      model: GEMINI_FLASH,
-      prompt: "hi",
-      logTag: "unit",
-    });
-    await assert.rejects(() => gen.next());
-  } finally {
-    if (original === undefined) delete process.env.GEMINI_API_KEY;
-    else process.env.GEMINI_API_KEY = original;
+test("streamGeminiText: yields chunks from an in-memory provider response", async () => {
+  let requests = 0;
+  globalThis.fetch = async (_url, init) => {
+    requests++;
+    const body = JSON.parse(String(init?.body));
+    assert.ok(body.contents);
+    return new Response(
+      'data: {"candidates":[{"content":{"parts":[{"text":"hello"}]},"finishReason":"STOP"}]}\n\n',
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    );
+  };
+  const chunks: string[] = [];
+  for await (const chunk of streamGeminiText({ model: GEMINI_FLASH, prompt: "hi", logTag: "unit" })) {
+    chunks.push(chunk);
   }
+  assert.deepEqual(chunks, ["hello"]);
+  assert.equal(requests, 1);
 });

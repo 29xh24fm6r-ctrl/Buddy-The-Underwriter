@@ -19,6 +19,8 @@ export default function TranscriptUploadPanel({ dealId }: { dealId: string }) {
   const [uploadId, setUploadId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<Set<number>>(new Set());
   const [confirmed, setConfirmed] = useState<Set<number>>(new Set());
+  const [periods, setPeriods] = useState<Record<number, { start?: string; end?: string }>>({});
+  const [reviewErrors, setReviewErrors] = useState<Record<number, string>>({});
 
   const upload = async () => {
     if (!text.trim()) return;
@@ -42,19 +44,37 @@ export default function TranscriptUploadPanel({ dealId }: { dealId: string }) {
 
   const confirmCandidate = async (idx: number, candidate: Candidate) => {
     setConfirming(prev => new Set(prev).add(idx));
-    await fetch(`/api/deals/${dealId}/gap-queue/resolve`, {
+    setReviewErrors(prev => ({ ...prev, [idx]: "" }));
+    try {
+      if (!periods[idx]?.start || !periods[idx]?.end) throw new Error("Enter the financial period before confirming.");
+      if (typeof candidate.value !== "number" || !Number.isFinite(candidate.value)) throw new Error("This item needs review; only numeric financial facts can be confirmed here.");
+      const queueResponse = await fetch(`/api/deals/${dealId}/gap-queue`);
+      const queue = await queueResponse.json();
+      if (!queueResponse.ok || !queue.ok) throw new Error(queue.error ?? "Could not load review items.");
+      const matches = (queue.gaps ?? []).filter((g: { fact_key: string; gap_type: string }) => g.fact_key === candidate.fact_key && g.gap_type === "missing_fact");
+      if (matches.length !== 1) throw new Error("Open Financial Review to review this fact against its existing sources.");
+      const response = await fetch(`/api/deals/${dealId}/gap-queue/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "provide_value",
-        gapId: "transcript-" + idx,
+        gapId: matches[0].id,
         factType: candidate.fact_type,
         factKey: candidate.fact_key,
         value: candidate.value,
+        resolvedPeriodStart: periods[idx].start,
+        resolvedPeriodEnd: periods[idx].end,
+        rationale: "Confirmed against uploaded transcript: " + candidate.snippet,
       }),
     });
-    setConfirmed(prev => new Set(prev).add(idx));
-    setConfirming(prev => { const s = new Set(prev); s.delete(idx); return s; });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? "Confirmation failed.");
+      setConfirmed(prev => new Set(prev).add(idx));
+    } catch (error) {
+      setReviewErrors(prev => ({ ...prev, [idx]: error instanceof Error ? error.message : "Confirmation failed." }));
+    } finally {
+      setConfirming(prev => { const s = new Set(prev); s.delete(idx); return s; });
+    }
   };
 
   const SOURCE_LABELS = ["Otter.ai", "Fireflies", "Fathom", "Teams recording", "Manual notes", "Other"];
@@ -112,6 +132,13 @@ export default function TranscriptUploadPanel({ dealId }: { dealId: string }) {
                     <span className="text-xs text-gray-400">{Math.round(c.confidence * 100)}% confident</span>
                   </div>
                   <div className="text-sm text-gray-900 font-medium">{String(c.value)}</div>
+                  {!confirmed.has(i) && (
+                    <div className="flex gap-2 my-2 text-xs text-gray-700">
+                      <label>Period start<input type="date" value={periods[i]?.start ?? ""} onChange={e => setPeriods(prev => ({ ...prev, [i]: { ...prev[i], start: e.target.value } }))} className="block border rounded p-1" /></label>
+                      <label>Period end<input type="date" value={periods[i]?.end ?? ""} onChange={e => setPeriods(prev => ({ ...prev, [i]: { ...prev[i], end: e.target.value } }))} className="block border rounded p-1" /></label>
+                    </div>
+                  )}
+                  {reviewErrors[i] && <p role="alert" className="text-xs text-amber-700">{reviewErrors[i]}</p>}
                   {c.snippet && (
                     <div className="text-xs text-gray-400 mt-0.5 italic">&quot;{c.snippet.slice(0, 120)}&quot;</div>
                   )}

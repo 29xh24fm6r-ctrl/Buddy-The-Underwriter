@@ -15,6 +15,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import FinancialReviewItem from "@/components/deals/financial-review/FinancialReviewItem";
 
 const SRC_ROOT = path.resolve(__dirname, "../../..");
 
@@ -149,23 +152,19 @@ describe("Provenance viewer — contract", () => {
 // ---------------------------------------------------------------------------
 
 describe("Financial fact decision form — contract", () => {
-  it("FinancialFactDecisionForm exists", () => {
-    assert.ok(fileExists("components/deals/FinancialFactDecisionForm.tsx"));
-  });
-
-  it("enforces rationale for adjust and reject", () => {
-    const content = readFile("components/deals/FinancialFactDecisionForm.tsx");
-    assert.ok(content.includes("adjust_fact") && content.includes("reject_fact"),
-      "must support adjust and reject");
-    assert.ok(content.includes("Rationale") || content.includes("rationale"),
-      "must require rationale input");
-  });
-
-  it("calls financial-validation POST API", () => {
-    const content = readFile("components/deals/FinancialFactDecisionForm.tsx");
-    assert.ok(content.includes("/api/deals/") && content.includes("financial-validation"),
-      "must POST to fact decision endpoint");
-  });
+  for (const gapType of ["low_confidence", "conflict", "missing_fact"] as const) {
+    it("renders the permitted review actions for " + gapType, () => {
+      const html = renderToStaticMarkup(React.createElement(FinancialReviewItem, {
+        dealId: "deal", provenance: null, onResolved: () => {},
+        gap: { id: "gap", gap_type: gapType, fact_key: "NET_INCOME",
+          description: "Review net income", priority: 90, fact_id: gapType === "low_confidence" ? "fact" : null,
+          conflict_id: gapType === "conflict" ? "conflict" : null },
+      }));
+      assert.ok(html.includes(gapType === "low_confidence" ? "Confirm value" : gapType === "conflict" ? "Select source" : "Provide value"));
+      if (gapType === "low_confidence") assert.ok(html.includes("Reject"));
+      else assert.ok(!html.includes("Confirm value"));
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -196,7 +195,7 @@ describe("Financial activation — no placeholder flows", () => {
     const files = [
       "components/deals/FinancialSnapshotGateCard.tsx",
       "components/deals/FinancialFactProvenanceViewer.tsx",
-      "components/deals/FinancialFactDecisionForm.tsx",
+      "components/deals/financial-review/FinancialReviewItem.tsx",
     ];
     for (const f of files) {
       const content = readFile(f);
