@@ -31,6 +31,28 @@ type DraftItem = {
   requires_review: boolean;
 };
 
+/** 0.755 → 75.5, without the float noise of a bare multiply. */
+function fractionToPercent(rate: number): number {
+  return Number((rate * 100).toFixed(4));
+}
+
+function percentToFraction(input: string): number {
+  return Number((Number(input) / 100).toFixed(6));
+}
+
+/**
+ * The banker types a percentage; the column stores a fraction in [0, 1] and
+ * the database now enforces it. Catching it here gives an answerable message
+ * at the field instead of a rejected write from two layers down.
+ */
+function advanceRateError(input: string): string | null {
+  if (input.trim() === "") return null;
+  const pct = Number(input);
+  if (!Number.isFinite(pct)) return "Advance rate must be a number";
+  if (pct < 0 || pct > 100) return "Advance rate must be between 0% and 100%";
+  return null;
+}
+
 function toDraft(i: DealCollateralItem): DraftItem {
   return {
     id: i.id,
@@ -39,7 +61,12 @@ function toDraft(i: DealCollateralItem): DraftItem {
     owner_name: i.owner_name ?? "",
     market_value: i.market_value === null ? "" : String(i.market_value),
     appraised_value: i.appraised_value === null ? "" : String(i.appraised_value),
-    advance_rate: i.advance_rate === null ? "" : String(i.advance_rate),
+    // Stored as a fraction, shown and entered as a percentage — the same
+    // convention as the builder's CollateralModal. Bankers think in percent,
+    // and this field previously round-tripped the raw fraction under a bare
+    // "Advance rate" label: typing the 80 they meant stored 80, which
+    // multiplied the deal's collateral by eighty on its own credit memo.
+    advance_rate: i.advance_rate === null ? "" : String(fractionToPercent(i.advance_rate)),
     lien_position: i.lien_position ?? "",
     valuation_date: i.valuation_date ?? "",
     valuation_source: i.valuation_source ?? "",
@@ -74,7 +101,7 @@ export default function CollateralItemsTable({ dealId, initial }: Props) {
       owner_name: d.owner_name,
       market_value: d.market_value.trim() === "" ? null : d.market_value,
       appraised_value: d.appraised_value.trim() === "" ? null : d.appraised_value,
-      advance_rate: d.advance_rate.trim() === "" ? null : d.advance_rate,
+      advance_rate: d.advance_rate.trim() === "" ? null : percentToFraction(d.advance_rate),
       lien_position: d.lien_position,
       valuation_date: d.valuation_date.trim() === "" ? null : d.valuation_date,
       valuation_source: d.valuation_source,
@@ -85,6 +112,11 @@ export default function CollateralItemsTable({ dealId, initial }: Props) {
   async function addItem() {
     if (draft.description.trim().length === 0 || draft.collateral_type.length === 0) {
       setError("Description and collateral type are required");
+      return;
+    }
+    const rateError = advanceRateError(draft.advance_rate);
+    if (rateError) {
+      setError(rateError);
       return;
     }
     setBusy(true);
@@ -109,6 +141,11 @@ export default function CollateralItemsTable({ dealId, initial }: Props) {
   async function saveItem(idx: number) {
     const target = items[idx];
     if (!target.id) return;
+    const rateError = advanceRateError(target.advance_rate);
+    if (rateError) {
+      setError(rateError);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -214,7 +251,7 @@ function ItemFields({
       <Field label="Owner" value={draft.owner_name} onChange={(v) => onChange({ owner_name: v })} />
       <Field label="Market value" value={draft.market_value} onChange={(v) => onChange({ market_value: v })} />
       <Field label="Appraised value" value={draft.appraised_value} onChange={(v) => onChange({ appraised_value: v })} />
-      <Field label="Advance rate" value={draft.advance_rate} onChange={(v) => onChange({ advance_rate: v })} />
+      <Field label="Advance rate (%)" value={draft.advance_rate} onChange={(v) => onChange({ advance_rate: v })} />
       <Field label="Lien position" value={draft.lien_position} onChange={(v) => onChange({ lien_position: v })} />
       <Field
         label="Valuation date"
