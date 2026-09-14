@@ -1,5 +1,10 @@
 [
   {
+    "name": "resolve_canonical_financial_review",
+    "type": "function",
+    "migration": "20260911205110_canonical_financial_review.sql"
+  },
+  {
     "name": "ai_gateway_calls",
     "type": "table",
     "migration": "20260729000000_ai_gateway_calls.sql"
