@@ -12,6 +12,7 @@ export type ResolutionAction =
   | "choose_source_value"
   | "override_value"
   | "provide_value"
+  | "reject_value"
   | "mark_follow_up";
 
 export type GapType = "missing_fact" | "low_confidence" | "conflict";
@@ -21,6 +22,7 @@ export type ResolvedStatus =
   | "resolved_selected_source"
   | "resolved_overridden"
   | "resolved_provided"
+  | "resolved_rejected"
   | "deferred_follow_up";
 
 export type ResolutionInput = {
@@ -42,7 +44,7 @@ export type ValidationError = { field: string; message: string };
 
 /** Actions allowed per gap type */
 const ALLOWED_ACTIONS: Record<GapType, ResolutionAction[]> = {
-  low_confidence: ["confirm_value", "override_value", "mark_follow_up"],
+  low_confidence: ["confirm_value", "override_value", "reject_value", "mark_follow_up"],
   conflict:       ["choose_source_value", "override_value", "mark_follow_up"],
   missing_fact:   ["provide_value", "mark_follow_up"],
 };
@@ -52,6 +54,7 @@ const RATIONALE_REQUIRED: Set<ResolutionAction> = new Set([
   "override_value",
   "provide_value",
   "mark_follow_up",
+  "reject_value",
 ]);
 
 /** Generic filler that does not count as real rationale */
@@ -67,6 +70,7 @@ export const ACTION_TO_STATUS: Record<ResolutionAction, ResolvedStatus> = {
   override_value:      "resolved_overridden",
   provide_value:       "resolved_provided",
   mark_follow_up:      "deferred_follow_up",
+  reject_value:        "resolved_rejected",
 };
 
 // ---------------------------------------------------------------------------
@@ -109,7 +113,7 @@ export function validateResolutionInput(
 
   // 2. Rationale
   if (isRationaleRequired(input.action)) {
-    const r = (input.rationale ?? "").trim();
+    const r = typeof input.rationale === "string" ? input.rationale.trim() : "";
     if (!r) {
       errors.push({ field: "rationale", message: "Rationale is required for this action." });
     } else if (!isRationaleQualityOk(r)) {
@@ -137,5 +141,23 @@ export function validateResolutionInput(
     errors.push({ field: "resolvedValue", message: "resolvedValue is required for provide_value." });
   }
 
+  if (input.action === "override_value" || input.action === "provide_value") {
+    if (typeof input.resolvedValue !== "number" || !Number.isFinite(input.resolvedValue)) {
+      errors.push({ field: "resolvedValue", message: "A finite numeric value is required." });
+    }
+  }
+  for (const field of ["resolvedPeriodStart", "resolvedPeriodEnd"] as const) {
+    const value = input[field];
+    if (value != null && (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+      !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value || value <= "1990-01-01")) {
+      errors.push({ field, message: "Enter a valid financial period date after 1990-01-01." });
+    }
+    if (input.action === "provide_value" && !value) {
+      errors.push({ field, message: "The financial period is required; the review date is not a financial period." });
+    }
+  }
+  if (input.resolvedPeriodStart && input.resolvedPeriodEnd && input.resolvedPeriodStart > input.resolvedPeriodEnd) {
+    errors.push({ field: "resolvedPeriodEnd", message: "Period end must be on or after period start." });
+  }
   return errors;
 }

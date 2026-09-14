@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { FinancialFactProvenanceViewer } from "./FinancialFactProvenanceViewer";
-import { FinancialFactDecisionForm } from "./FinancialFactDecisionForm";
+import FinancialReviewItem from "./financial-review/FinancialReviewItem";
 
 type Gap = {
   id: string;
@@ -301,15 +301,11 @@ function GapSection({ title, count, color, gaps, provenance, dealId, expandedGap
                       reviewerRationale={null}
                     />
                   )}
-                  <FinancialFactDecisionForm
+                  <FinancialReviewItem
                     dealId={dealId}
-                    factId={gap.fact_id ?? gap.id}
-                    snapshotId=""
-                    metricLabel={gap.fact_key}
-                    currentValue={prov?.value ?? null}
-                    validationState="unreviewed"
-                    hasConflict={gap.gap_type === "conflict"}
-                    onComplete={onResolved}
+                    gap={gap}
+                    provenance={prov ?? null}
+                    onResolved={onResolved}
                   />
                 </div>
               )}

@@ -50,6 +50,8 @@ export type FactDecisionAction =
   | "mark_follow_up_needed";
 
 export type FactDecisionInput = {
+  bankId: string;
+  gapId?: string;
   factId: string;
   snapshotId: string;
   dealId: string;

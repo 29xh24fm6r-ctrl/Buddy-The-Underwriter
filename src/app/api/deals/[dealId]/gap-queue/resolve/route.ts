@@ -26,7 +26,7 @@ export async function POST(
       bankId: auth.bankId,
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, { status: result.ok ? 200 : 422 });
   } catch (e: unknown) {
     rethrowNextErrors(e);
     console.error("[gap-queue/resolve POST]", e);

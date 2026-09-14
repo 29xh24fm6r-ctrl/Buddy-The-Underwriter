@@ -43,6 +43,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   }
 
   const result = await applyFinancialFactDecision({
+    bankId: auth.bankId,
+    gapId: body.gapId,
     factId,
     snapshotId: body.snapshotId,
     dealId,

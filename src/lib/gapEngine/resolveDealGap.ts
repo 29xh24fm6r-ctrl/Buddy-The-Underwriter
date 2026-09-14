@@ -1,189 +1,45 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { writeEvent } from "@/lib/ledger/writeEvent";
-import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
+import { resolveFinancialReviewItem } from "@/lib/financialReview/resolveFinancialReviewItem";
+import type { ResolutionAction } from "@/lib/financialReview/validateResolutionInput";
 
-export type GapResolution =
-  | { action: "confirm"; factId: string; userId: string }
-  | { action: "reject"; factId: string; userId: string }
-  | { action: "resolve_conflict"; conflictId: string; winningFactId: string; userId: string }
-  | { action: "provide_value"; gapId: string; factType: string; factKey: string; value: number | string; userId: string; dealId: string; bankId: string };
+export type GapResolution = {
+  action: "confirm" | "reject" | "resolve_conflict" | "provide_value";
+  dealId: string; bankId: string; userId: string;
+  gapId?: string; factId?: string; conflictId?: string; winningFactId?: string;
+  factType?: string; factKey?: string; value?: number | string;
+  rationale?: string; resolvedPeriodStart?: string; resolvedPeriodEnd?: string;
+};
 
-/**
- * Resolves a gap item. Writes back to deal_financial_facts and emits ledger event.
- * Called from both the UI gap panel and the voice/chat session handler.
- */
-export async function resolveDealGap(
-  resolution: GapResolution
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const sb = supabaseAdmin();
-
+/** Compatibility adapter; all writes belong to the financial-review transaction. */
+export async function resolveDealGap(input: GapResolution): Promise<{ ok: true } | { ok: false; error: string }> {
+  const actions: Record<GapResolution["action"], ResolutionAction> = {
+    confirm: "confirm_value", reject: "reject_value", resolve_conflict: "choose_source_value", provide_value: "provide_value",
+  };
+  const action = actions[input.action];
+  if (!action || !input.dealId || !input.bankId || !input.userId) return { ok: false, error: "invalid_review_input" };
   try {
-    if (resolution.action === "confirm") {
-      await sb
-        .from("deal_financial_facts")
-        .update({ resolution_status: "confirmed" })
-        .eq("id", resolution.factId);
-
-      await sb
-        .from("deal_gap_queue")
-        .update({
-          status: "resolved",
-          resolved_by: resolution.userId,
-          resolved_at: new Date().toISOString(),
-          resolution_meta: { action: "confirmed" },
-        })
-        .eq("fact_id", resolution.factId)
-        .eq("status", "open");
-
-      // Get deal_id for ledger event
-      const { data: fact } = await sb
-        .from("deal_financial_facts")
-        .select("deal_id, fact_key")
-        .eq("id", resolution.factId)
-        .maybeSingle();
-
-      if (fact) {
-        await writeEvent({
-          dealId: fact.deal_id,
-          kind: "fact.confirmed",
-          actorUserId: resolution.userId,
-          scope: "gap_resolution",
-          action: "confirmed",
-          meta: { fact_id: resolution.factId, fact_key: fact.fact_key },
-        });
-      }
+    let gapId = input.gapId;
+    if (!gapId) {
+      let query = supabaseAdmin().from("deal_gap_queue").select("id")
+        .eq("deal_id", input.dealId).eq("bank_id", input.bankId).eq("status", "open");
+      if (input.action === "resolve_conflict" && input.conflictId) query = query.eq("conflict_id", input.conflictId);
+      else if (input.factId) query = query.eq("fact_id", input.factId);
+      else return { ok: false, error: "gap_required" };
+      const { data, error } = await query.maybeSingle();
+      if (error || !data) return { ok: false, error: "gap_not_found" };
+      gapId = data.id;
     }
-
-    if (resolution.action === "reject") {
-      await sb
-        .from("deal_financial_facts")
-        .update({ resolution_status: "rejected", is_superseded: true })
-        .eq("id", resolution.factId);
-
-      await sb
-        .from("deal_gap_queue")
-        .update({
-          status: "resolved",
-          resolved_by: resolution.userId,
-          resolved_at: new Date().toISOString(),
-          resolution_meta: { action: "rejected" },
-        })
-        .eq("fact_id", resolution.factId)
-        .eq("status", "open");
-    }
-
-    if (resolution.action === "resolve_conflict") {
-      // Mark conflict resolved
-      await sb
-        .from("deal_fact_conflicts")
-        .update({
-          status: "resolved",
-          resolved_fact_id: resolution.winningFactId,
-          resolved_by: resolution.userId,
-          resolved_at: new Date().toISOString(),
-        })
-        .eq("id", resolution.conflictId);
-
-      // Mark the winning fact as confirmed, losers as rejected
-      const { data: conflict } = await sb
-        .from("deal_fact_conflicts")
-        .select("conflicting_fact_ids")
-        .eq("id", resolution.conflictId)
-        .maybeSingle();
-
-      const losingIds = (conflict?.conflicting_fact_ids ?? [])
-        .filter((id: string) => id !== resolution.winningFactId);
-
-      await sb
-        .from("deal_financial_facts")
-        .update({ resolution_status: "confirmed" })
-        .eq("id", resolution.winningFactId);
-
-      if (losingIds.length > 0) {
-        await sb
-          .from("deal_financial_facts")
-          .update({ resolution_status: "rejected", is_superseded: true })
-          .in("id", losingIds);
-      }
-
-      // Close the gap queue item
-      await sb
-        .from("deal_gap_queue")
-        .update({
-          status: "resolved",
-          resolved_by: resolution.userId,
-          resolved_at: new Date().toISOString(),
-        })
-        .eq("conflict_id", resolution.conflictId)
-        .eq("status", "open");
-    }
-
-    if (resolution.action === "provide_value") {
-      // Banker is providing a value that didn't exist
-      const valueNum = typeof resolution.value === "number" ? resolution.value : null;
-      const valueText = typeof resolution.value === "string" ? resolution.value : null;
-
-      // SPEC-CREDIT-MEMO-AUDIT-1 Bug 5: use today's date as period end for
-      // manually provided / transcript-confirmed facts. Without a valid period
-      // end, the sentinel date guard rejects the fact silently.
-      const today = new Date().toISOString().slice(0, 10);
-      await upsertDealFinancialFact({
-        dealId: resolution.dealId,
-        bankId: resolution.bankId,
-        sourceDocumentId: null,
-        factType: resolution.factType,
-        factKey: resolution.factKey,
-        factValueNum: valueNum,
-        factValueText: valueText,
-        confidence: 1.0,
-        factPeriodEnd: today,
-        factPeriodStart: today,
-        provenance: {
-          source_type: "MANUAL",
-          source_ref: `banker:${resolution.userId}`,
-          as_of_date: today,
-          extractor: "gap_resolution:banker_provided",
-          confidence: 1.0,
-          citations: [],
-          raw_snippets: [],
-        },
-      });
-
-      // Resolve the gap — non-fatal for synthetic IDs (e.g. "transcript-0"
-      // from TranscriptUploadPanel which don't exist in deal_gap_queue).
-      try {
-        await sb
-          .from("deal_gap_queue")
-          .update({
-            status: "resolved",
-            resolved_by: resolution.userId,
-            resolved_at: new Date().toISOString(),
-            resolution_meta: { action: "provided", value: resolution.value },
-          })
-          .eq("id", resolution.gapId)
-          .eq("status", "open");
-      } catch {
-        // Non-fatal — synthetic gap IDs from transcript confirm don't exist in the table
-      }
-
-      await writeEvent({
-        dealId: resolution.dealId,
-        kind: "fact.banker_provided",
-        actorUserId: resolution.userId,
-        scope: "gap_resolution",
-        action: "provided",
-        meta: {
-          fact_type: resolution.factType,
-          fact_key: resolution.factKey,
-          value: resolution.value,
-          gap_id: resolution.gapId,
-        },
-      });
-    }
-
-    return { ok: true };
-  } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    const result = await resolveFinancialReviewItem({
+      gapId: gapId!, action, dealId: input.dealId, bankId: input.bankId,
+      actorUserId: input.userId, actorRole: "banker",
+      factId: input.winningFactId ?? input.factId, conflictId: input.conflictId,
+      resolvedValue: typeof input.value === "number" ? input.value : null,
+      resolvedPeriodStart: input.resolvedPeriodStart, resolvedPeriodEnd: input.resolvedPeriodEnd,
+      rationale: input.rationale,
+    });
+    return result.ok ? { ok: true } : { ok: false, error: result.errors?.[0]?.message ?? result.error };
+  } catch {
+    return { ok: false, error: "review_commit_failed" };
   }
 }
