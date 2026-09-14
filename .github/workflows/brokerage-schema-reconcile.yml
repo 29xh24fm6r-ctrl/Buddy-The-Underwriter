@@ -46,7 +46,9 @@ jobs:
           done
       - name: Apply repeat-safe CRM deletion safeguards
         shell: bash
-        run: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260910152547_crm_admin_deletion_audit.sql
+        run: |
+          psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260910152547_crm_admin_deletion_audit.sql
+          psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260914174006_reconcile_crm_deal_deletion_audit.sql
       - name: Verify repaired contract
         shell: bash
         run: |
@@ -54,3 +56,5 @@ jobs:
           test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_indexes where schemaname='public' and indexname='ux_signing_requests_idempotency_key'")" = "1"
           test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from information_schema.tables where table_schema='public' and table_name='crm_admin_deletion_log'")" = "1"
           test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select relrowsecurity::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='crm_admin_deletion_log'")" = "1"
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_constraint where conrelid='public.crm_admin_deletion_log'::regclass and conname='crm_admin_deletion_log_entity_type_check' and pg_get_constraintdef(oid) like '%deal%'")" = "1"
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select has_table_privilege('service_role', 'public.crm_admin_deletion_log', 'INSERT,UPDATE,SELECT')::int")" = "1"

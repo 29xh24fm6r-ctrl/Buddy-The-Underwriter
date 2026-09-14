@@ -36,6 +36,7 @@ export default function DealLifecycleControls({ dealId, label, archivedAt }: { d
         if (payload.error === "record_in_use") throw new Error("This deal has protected operational records. Keep it archived so its history remains intact.");
         if (payload.error === "archive_required") throw new Error("Archive the deal before permanently deleting it.");
         if (payload.error === "confirmation_mismatch") throw new Error("The deal name did not match.");
+        if (payload.error === "delete_preflight_failed") throw new Error("The secure deletion ledger is temporarily unavailable. Nothing was removed. Ask an administrator to run Brokerage Schema Reconciliation, then try again.");
         throw new Error("Deletion was not confirmed. Nothing was removed.");
       }
       router.replace("/admin/brokerage/pipeline?view=archived"); router.refresh();
