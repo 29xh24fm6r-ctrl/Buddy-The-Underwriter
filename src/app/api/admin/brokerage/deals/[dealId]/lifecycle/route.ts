@@ -74,7 +74,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ d
       sb: supabaseAdmin(), bankId, actorUserId: actor.userId, entityType: "deal",
       entityId: dealId, entityLabel: label, snapshot: existing.data,
     });
-  } catch {
+  } catch (error) {
+    console.error("[brokerage-deal-delete] audit preflight failed", {
+      dealId,
+      bankId,
+      reason: error instanceof Error ? error.message : "unknown_error",
+    });
     return NextResponse.json({ ok: false, error: "delete_preflight_failed" }, { status: 503 });
   }
 

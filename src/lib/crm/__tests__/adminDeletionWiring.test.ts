@@ -45,6 +45,9 @@ test("deal lifecycle is admin-only, bank-scoped, recoverable, and audited", () =
   const controls = read("src/app/admin/brokerage/pipeline/[dealId]/DealLifecycleControls.tsx");
   const pipeline = read("src/app/admin/brokerage/pipeline/page.tsx");
   const migration = read("supabase/migrations/20260910190000_crm_admin_deal_lifecycle.sql");
+  const reconciliation = read("supabase/migrations/20260914174006_reconcile_crm_deal_deletion_audit.sql");
+  const workflow = read(".github/workflows/brokerage-schema-reconcile.yml");
+  const focusedRepair = read(".github/workflows/crm-deal-deletion-repair.yml");
 
   assert.match(route, /requireBrokerageAdmin/);
   assert.match(route, /\.eq\("bank_id", bankId\)/);
@@ -54,6 +57,16 @@ test("deal lifecycle is admin-only, bank-scoped, recoverable, and audited", () =
   assert.match(route, /record_in_use/);
   assert.match(detail, /canDeleteBrokerageCrmRecords/);
   assert.match(controls, /This cannot be undone/);
+  assert.match(controls, /secure deletion ledger is temporarily unavailable/);
   assert.match(pipeline, /showArchived/);
   assert.match(migration, /'deal'/);
+  assert.match(reconciliation, /'deal'/);
+  assert.match(reconciliation, /enable row level security/i);
+  assert.match(reconciliation, /grant all .* service_role/i);
+  assert.match(workflow, /20260914174006_reconcile_crm_deal_deletion_audit\.sql/);
+  assert.match(workflow, /pg_get_constraintdef\(oid\).*deal/);
+  assert.match(focusedRepair, /APPLY_CRM_DEAL_DELETION_REPAIR/);
+  assert.match(focusedRepair, /Require deletion-ledger ownership/);
+  assert.match(focusedRepair, /20260914174006_reconcile_crm_deal_deletion_audit\.sql/);
+  assert.doesNotMatch(focusedRepair, /signing_requests/);
 });

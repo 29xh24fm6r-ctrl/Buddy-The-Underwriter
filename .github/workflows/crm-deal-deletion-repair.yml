@@ -1,0 +1,46 @@
+name: CRM Deal Deletion Repair
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type APPLY_CRM_DEAL_DELETION_REPAIR to repair and verify the production audit ledger"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-deal-deletion-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: inputs.confirmation == 'APPLY_CRM_DEAL_DELETION_REPAIR'
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    env:
+      MIGRATION_DATABASE_URL: ${{ secrets.BROKERAGE_MIGRATION_DB_URL }}
+      VERIFICATION_DATABASE_URL: ${{ secrets.DRIFT_DETECT_DB_URL }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require production database connections
+        shell: bash
+        run: |
+          test -n "$MIGRATION_DATABASE_URL"
+          test -n "$VERIFICATION_DATABASE_URL"
+      - name: Require deletion-ledger ownership
+        shell: bash
+        run: |
+          test "$(psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select pg_has_role(current_user, c.relowner, 'USAGE') from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='crm_admin_deletion_log'")" = "t"
+      - name: Repair deal deletion audit contract
+        shell: bash
+        run: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260914174006_reconcile_crm_deal_deletion_audit.sql
+      - name: Verify deal deletion audit contract
+        shell: bash
+        run: |
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select relrowsecurity::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='crm_admin_deletion_log'")" = "1"
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_constraint where conrelid='public.crm_admin_deletion_log'::regclass and conname='crm_admin_deletion_log_entity_type_check' and pg_get_constraintdef(oid) like '%deal%'")" = "1"
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select has_table_privilege('service_role', 'public.crm_admin_deletion_log', 'INSERT,UPDATE,SELECT')::int")" = "1"
