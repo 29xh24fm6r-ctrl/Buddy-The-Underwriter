@@ -140,7 +140,11 @@ function Field({
     /growthRate|cogsPercent|escalationPct|interestRate|sellerFinancingRate|revenueImpactPct/.test(
       name,
     );
-  const numeric = typeof value === "number" || name === "inventoryTurns";
+  // Keep an emptied number field numeric so typing a replacement remains valid.
+  const numeric =
+    typeof value === "number" || percent ||
+    /(?:Amount|Revenue|Salary|Balance|Payment|Months|Month|DSO|DPO|Turns|InIndustry|Pct)$/.test(name) ||
+    ["amount", "year"].includes(name) || /^Month \d+$/.test(name);
   return (
     <label className="block text-sm text-slate-700">
       {label(name)}
