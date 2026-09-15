@@ -52,6 +52,8 @@ const FULLY_ANSWERED_1919_FACTS = {
     address_state: "IL",
     address_zip: "62701",
     phone: "555-0100",
+      contact_name: "Ana Example",
+      contact_email: "ana@example.com",
     entity_type: "llc",
     naics: "541511",
     employee_count: 5,
