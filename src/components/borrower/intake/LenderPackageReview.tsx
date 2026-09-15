@@ -1,0 +1,426 @@
+"use client";
+import { useCallback, useEffect, useState } from "react";
+import { LENDER_PACKAGE_FILES } from "@/lib/brokerage/lenderPackageFiles";
+
+type Value = string | number | null | Value[] | { [key: string]: Value };
+const groups = {
+  revenueStreams: "Revenue",
+  costAssumptions: "Costs and staffing",
+  workingCapital: "Working capital",
+  loanImpact: "Loan and funding",
+  managementTeam: "Management",
+};
+const additions: Record<string, Value> = {
+  revenueStreams: {
+    id: "",
+    name: "",
+    baseAnnualRevenue: 0,
+    growthRateYear1: 0,
+    growthRateYear2: 0,
+    growthRateYear3: 0,
+    pricingModel: "flat",
+    seasonalityProfile: null,
+  },
+  fixedCostCategories: { name: "", annualAmount: 0, escalationPctPerYear: 0 },
+  plannedHires: { role: "", startMonth: 1, annualSalary: 0 },
+  plannedCapex: { description: "", amount: 0, year: 1 },
+  existingDebt: {
+    description: "",
+    currentBalance: 0,
+    monthlyPayment: 0,
+    remainingTermMonths: 0,
+    treatment: "retain",
+  },
+  otherSources: { description: "", amount: 0 },
+  managementTeam: {
+    name: "",
+    title: "",
+    ownershipPct: 0,
+    yearsInIndustry: 0,
+    bio: "",
+  },
+};
+const choices: Record<string, string[]> = {
+  pricingModel: ["flat", "per_unit", "subscription", "pct_revenue"],
+  treatment: ["retain", "refinance", "payoff"],
+  equityInjectionSource: ["cash_savings", "401k_rollover", "gift", "other"],
+};
+const label = (key: string) =>
+  key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replaceAll("_", " ")
+    .replace(/^./, (x) => x.toUpperCase());
+const fieldClass =
+  "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900";
+function Field({
+  name,
+  value,
+  change,
+}: {
+  name: string;
+  value: Value;
+  change: (value: Value) => void;
+}) {
+  if (name === "id") return null;
+  if (name === "seasonalityProfile" && value === null)
+    return (
+      <button
+        type="button"
+        className="text-sm text-sky-700 underline"
+        onClick={() => change(Array(12).fill(1))}
+      >
+        Add monthly seasonality (currently even throughout the year)
+      </button>
+    );
+  if (Array.isArray(value))
+    return (
+      <fieldset className="space-y-3">
+        <legend className="font-medium">{label(name)}</legend>
+        {value.map((item, i) => (
+          <div key={i} className="rounded-lg border p-3">
+            <Field
+              name={`${name === "seasonalityProfile" ? "Month" : "Item"} ${i + 1}`}
+              value={item}
+              change={(next) =>
+                change(value.map((v, j) => (j === i ? next : v)))
+              }
+            />
+            {name !== "seasonalityProfile" && (
+              <button
+                type="button"
+                className="mt-2 text-xs underline"
+                onClick={() => change(value.filter((_, j) => i !== j))}
+              >
+                Remove item
+              </button>
+            )}
+          </div>
+        ))}
+        {additions[name] && (
+          <button
+            type="button"
+            className="rounded-lg border px-3 py-2 text-sm"
+            onClick={() => {
+              const item = structuredClone(additions[name]);
+              if (
+                item &&
+                typeof item === "object" &&
+                !Array.isArray(item) &&
+                "id" in item
+              )
+                item.id = crypto.randomUUID();
+              change([...value, item]);
+            }}
+          >
+            Add item
+          </button>
+        )}
+      </fieldset>
+    );
+  if (value && typeof value === "object")
+    return (
+      <div className="grid gap-3 sm:grid-cols-2">
+        {Object.entries(value).map(([key, val]) => (
+          <div
+            key={key}
+            className={
+              typeof val === "object" && val !== null ? "sm:col-span-2" : ""
+            }
+          >
+            <Field
+              name={key}
+              value={val}
+              change={(next) => change({ ...value, [key]: next })}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  const percent =
+    /growthRate|cogsPercent|escalationPct|interestRate|sellerFinancingRate|revenueImpactPct/.test(
+      name,
+    );
+  const numeric = typeof value === "number" || name === "inventoryTurns";
+  return (
+    <label className="block text-sm text-slate-700">
+      {label(name)}
+      {percent ? " (%)" : ""}
+      {choices[name] ? (
+        <select
+          className={fieldClass}
+          value={String(value ?? "")}
+          onChange={(e) => change(e.target.value)}
+        >
+          {choices[name].map((v) => (
+            <option key={v} value={v}>
+              {label(v)}
+            </option>
+          ))}
+        </select>
+      ) : numeric ? (
+        <input
+          className={fieldClass}
+          type="number"
+          step="any"
+          value={
+            value == null
+              ? ""
+              : percent
+                ? Number((Number(value) * 100).toFixed(8))
+                : String(value)
+          }
+          onChange={(e) =>
+            change(
+              e.target.value === ""
+                ? null
+                : Number(e.target.value) / (percent ? 100 : 1),
+            )
+          }
+        />
+      ) : (
+        <textarea
+          className={fieldClass}
+          rows={name === "bio" ? 3 : 2}
+          value={String(value ?? "")}
+          onChange={(e) => change(e.target.value)}
+        />
+      )}
+    </label>
+  );
+}
+
+export function LenderPackageReview({
+  dealId,
+  onDirtyChange,
+}: {
+  dealId: string;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  const [assumptions, setAssumptions] = useState<Record<string, Value> | null>(
+    null,
+  );
+  const [revision, setRevision] = useState<string | null>(null);
+  const [status, setStatus] = useState("draft");
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [bundle, setBundle] = useState<Record<string, any> | null>(null);
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  const base = `/api/brokerage/deals/${encodeURIComponent(dealId)}/borrower-actions/`;
+  const call = useCallback(
+    async (action: string, body?: object) => {
+      const response = await fetch(base + action, {
+        cache: "no-store",
+        ...(body
+          ? {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            }
+          : {}),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok)
+        throw new Error(
+          [result.error ?? "Please retry.", ...(result.blockers ?? [])].join(
+            "\n",
+          ),
+        );
+      return result;
+    },
+    [base],
+  );
+  const refresh = useCallback(async () => {
+    const r = await call("package-status");
+    setBundle(r.bundle);
+  }, [call]);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([call("assumptions"), call("package-status")])
+      .then(([a, b]) => {
+        if (cancelled) return;
+        setAssumptions(a.assumptions);
+        setRevision(a.revision);
+        setStatus(a.status);
+        setBundle(b.bundle);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [call]);
+  const running = bundle && ["pending", "running"].includes(bundle.status);
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible")
+        void refresh().catch((e) => setError(e.message));
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [running, refresh]);
+  async function perform(action: string) {
+    setBusy(action);
+    setError("");
+    try {
+      const data = await call(
+        action === "confirm" || action === "save" ? "assumptions" : action,
+        action === "confirm" || action === "save"
+          ? { assumptions, revision, confirmed: action === "confirm" }
+          : {},
+      );
+      if (data.assumptions) {
+        setAssumptions(data.assumptions);
+        setRevision(data.revision);
+        setStatus(data.status);
+        setDirty(action === "draft-assumptions");
+      }
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Please retry.");
+    } finally {
+      setBusy("");
+    }
+  }
+  const ready =
+    !dirty &&
+    status === "confirmed" &&
+    (!revision ||
+      Date.parse(bundle?.generation_completed_at ?? "") >=
+        Date.parse(revision)) &&
+    bundle?.status === "succeeded" &&
+    LENDER_PACKAGE_FILES.every((file) => bundle[file.column]);
+  return (
+    <section className="rounded-2xl border bg-white p-5 text-slate-900">
+      <h3 className="text-lg font-semibold">
+        Review and prepare your lender package
+      </h3>
+      <p className="mt-2 text-sm text-slate-600">
+        Buddy uses your saved answers and financial documents to draft the
+        assumptions. Review the numbers below, confirm them, then prepare your
+        package. Dollar amounts are USD.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-3">
+        <button
+          type="button"
+          disabled={!!busy || !!running || dirty}
+          className="rounded-lg border px-4 py-2 text-sm disabled:opacity-50"
+          onClick={() => void perform("draft-assumptions")}
+        >
+          {busy === "draft-assumptions"
+            ? "Buddy is preparing your assumptions…"
+            : "Draft assumptions from my answers"}
+        </button>
+        {status === "confirmed" && !dirty && (
+          <span className="self-center text-sm text-emerald-700">
+            Assumptions confirmed
+          </span>
+        )}
+      </div>
+      {assumptions && (
+        <fieldset disabled={!!busy || !!running} className="mt-4 space-y-3">
+          {Object.entries(groups).map(([key, title]) => (
+            <details key={key} className="rounded-xl border p-4">
+              <summary className="cursor-pointer font-medium">{title}</summary>
+              <div className="mt-4">
+                <Field
+                  name={key}
+                  value={assumptions[key] ?? []}
+                  change={(value) => {
+                    setAssumptions({ ...assumptions, [key]: value });
+                    setDirty(true);
+                  }}
+                />
+              </div>
+            </details>
+          ))}
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              className="rounded-lg border px-4 py-2 text-sm"
+              onClick={() => void perform("save")}
+            >
+              Save draft
+            </button>
+            <button
+              type="button"
+              className="rounded-lg bg-sky-700 px-4 py-2 text-sm text-white"
+              onClick={() => void perform("confirm")}
+            >
+              Confirm these assumptions
+            </button>
+          </div>
+        </fieldset>
+      )}
+      <div className="mt-6 border-t pt-4">
+        <button
+          type="button"
+          disabled={!!busy || !!running || dirty || status !== "confirmed"}
+          className="rounded-lg bg-sky-700 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
+          onClick={() => void perform("build-package")}
+        >
+          {running
+            ? "Buddy is preparing your package…"
+            : busy === "build-package"
+              ? "Checking your application…"
+              : "Prepare lender package"}
+        </button>
+        <button
+          type="button"
+          className="ml-3 text-sm underline"
+          onClick={() => void refresh().catch((e) => setError(e.message))}
+        >
+          Refresh status
+        </button>
+        {running && (
+          <p className="mt-2 text-sm text-slate-600">
+            This can take several minutes. You can return to this page to check
+            progress.
+          </p>
+        )}
+        {bundle?.status === "failed" && (
+          <p
+            role="alert"
+            className="mt-3 whitespace-pre-wrap rounded-lg bg-amber-50 p-3 text-sm"
+          >
+            {bundle.generation_error ||
+              "The package could not be completed. Review your inputs and retry."}
+          </p>
+        )}
+        {ready && (
+          <div className="mt-4">
+            <a
+              className="inline-block rounded-lg bg-emerald-700 px-4 py-3 text-sm text-white"
+              href={`/api/brokerage/deals/${dealId}/trident/download/complete_package`}
+            >
+              Download complete lender package
+            </a>
+            <p className="mt-2 text-sm text-slate-600">
+              Includes the business plan, projections with assumptions,
+              feasibility study, spreads, credit memo and applicable SBA forms.
+              Prepared for lender review; signatures and closing requirements
+              remain subject to lender confirmation.
+            </p>
+          </div>
+        )}
+      </div>
+      {error && (
+        <p
+          role="alert"
+          className="mt-3 whitespace-pre-wrap rounded-lg bg-amber-50 p-3 text-sm"
+        >
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}

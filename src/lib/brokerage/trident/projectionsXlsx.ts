@@ -20,6 +20,8 @@ import type { SourcesAndUsesResult } from "@/lib/sba/sbaSourcesAndUses";
 import type { BalanceSheetYear } from "@/lib/sba/sbaBalanceSheetProjector";
 
 export type ProjectionsXlsxInputs = {
+  assumptions?: Record<string, unknown>;
+  assumptionsNarrative?: string;
   dealName: string;
   baseYear: {
     revenue: number;
@@ -132,6 +134,22 @@ export async function renderProjectionsXlsx(
   // with SUM formulas for subtotals and formula-computed ratio checks.
   renderBalanceSheetSheet(wb.addWorksheet("Balance Sheet"), inputs.balanceSheetProjections ?? null);
 
+  if (inputs.assumptions) {
+    const ws = wb.addWorksheet("Assumptions");
+    ws.columns = [{ width: 58 }, { width: 70 }];
+    styleHeaderRow(ws.addRow(["Assumption", "Reviewed input"]));
+    const add = (value: unknown, label: string) => {
+      if (value && typeof value === "object") {
+        for (const [key, child] of Object.entries(value)) add(child, `${label}${label ? " / " : ""}${key.replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " ")}`);
+      } else {
+        const row = ws.addRow([label, value == null ? "Not supplied" : value]);
+        row.getCell(2).alignment = { wrapText: true, vertical: "top" };
+      }
+    };
+    ws.addRow(["Rates and percentages", "Decimals: 0.05 means 5%. Currency amounts are USD. Projection periods are relative to funding."]);
+    add(inputs.assumptions, "");
+    if (inputs.assumptionsNarrative) ws.addRow(["Basis and supporting assumptions", inputs.assumptionsNarrative]).getCell(2).alignment = { wrapText: true };
+  }
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf as ArrayBuffer);
 }

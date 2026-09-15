@@ -6,6 +6,9 @@ import { ownersNeedingIal2 } from "@/lib/brokerage/identityVerificationGate";
 export type SealabilityResult = { ok: true } | { ok: false; reasons: string[] };
 
 type FinalTridentEvidence = {
+  credit_memo_pdf_path?: string | null;
+  spreads_pdf_path?: string | null;
+  sba_forms_pdf_path?: string | null;
   release_gate_json?: { ok?: unknown } | null;
   input_hash?: string | null;
   memo_input_hash?: string | null;
@@ -27,12 +30,11 @@ function validateFinalTrident(bundle: FinalTridentEvidence | null): string[] {
   }
   if (!bundle.source_credit_memo_id) reasons.push("Final Golden Trident credit memo is missing.");
   if (!bundle.source_spread_id) reasons.push("Final Golden Trident spread is missing.");
-  // Final mode publishes exactly three artifacts. The redacted projections
+  // Final mode publishes all six lender-package artifacts. The redacted projections
   // summary PDF is preview-only, so `projections_pdf_path` is null on every
   // final bundle by design — requiring it here made sealing unreachable.
-  // This set matches evaluateTridentRelease, finalize_trident_bundle_run,
-  // and buddy_trident_final_success_certified_check.
-  if ([bundle.business_plan_pdf_path, bundle.projections_xlsx_path, bundle.feasibility_pdf_path].some((path) => !path)) {
+  // The factory verifies all six before invoking atomic publication.
+  if ([bundle.business_plan_pdf_path, bundle.projections_xlsx_path, bundle.feasibility_pdf_path, bundle.credit_memo_pdf_path, bundle.spreads_pdf_path, bundle.sba_forms_pdf_path].some((path) => !path)) {
     reasons.push("Final Golden Trident artifact set is incomplete.");
   }
   return reasons;
@@ -56,7 +58,7 @@ export async function canSeal(dealId: string, sb: SupabaseClient): Promise<Seala
     sb.from("buddy_sba_assumptions")
       .select("status, loan_impact").eq("deal_id", dealId).maybeSingle(),
     sb.from("buddy_trident_bundles")
-      .select("id, release_gate_json, input_hash, memo_input_hash, canonical_memo_input_hash, source_credit_memo_id, source_spread_id, business_plan_pdf_path, projections_xlsx_path, feasibility_pdf_path")
+      .select("id, release_gate_json, input_hash, memo_input_hash, canonical_memo_input_hash, source_credit_memo_id, source_spread_id, business_plan_pdf_path, projections_xlsx_path, feasibility_pdf_path, credit_memo_pdf_path, spreads_pdf_path, sba_forms_pdf_path")
       .eq("deal_id", dealId).eq("mode", "final").eq("status", "succeeded")
       .is("superseded_at", null).order("generated_at", { ascending: false }).limit(1).maybeSingle(),
     sb.from("buddy_validation_reports")

@@ -1,5 +1,8 @@
 import "server-only";
 
+import { randomUUID, createHash } from "node:crypto";
+import { buildCreditMemoPdf } from "@/lib/creditMemo/pdf/buildCreditMemoPdf";
+import { prepareBrokerageSbaForms, generateBrokerageForms, assembleBrokerageFormsPackage } from "@/lib/brokerage/borrowerFormsOrchestration";
 import { FatalError } from "workflow";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateCanonicalMemoArtifact } from "@/lib/creditMemo/canonical/generateCanonicalMemoArtifact";
@@ -86,6 +89,20 @@ export async function prepareTridentFactory(args: TridentFactoryArgs) {
       expectedHash: String(bundle.input_hash),
       expectedManifest: bundle.snapshot_manifest_json as Record<string, unknown> | null,
     });
+    if (args.mode === "final") {
+      // Resolve the actual forms before spending on financial narratives.
+      const prepared = await prepareBrokerageSbaForms(args.dealId, sb, { refresh: true });
+      if (!prepared.ok) throw new FatalError(prepared.reason);
+      const generated = await generateBrokerageForms(args.dealId, sb);
+      if (!generated.ok) throw new FatalError(generated.reason);
+      const failures = generated.results.filter(item => !item.ok);
+      if (failures.length) throw new FatalError(`Complete these forms first: ${failures.map(item => item.error).join("; ")}`);
+      const forms = await assembleBrokerageFormsPackage(args.dealId, sb);
+      if (!forms.ok) throw new FatalError(`SBA forms: ${"detail" in forms ? forms.detail : forms.reason}`);
+      const { data: file, error: fileError } = await sb.storage.from("bank-forms").download(forms.storagePath);
+      if (fileError || !file) throw new Error("Assembled SBA forms could not be read");
+      await storeBundlePdf(args, "sba_forms_pdf_path", Buffer.from(await file.arrayBuffer()));
+    }
     await writeStage(args, "input_snapshot", "succeeded", {
       inputHash: bundle.input_hash,
       bankId: bundle.bank_id,
@@ -155,13 +172,20 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
     }
     await assertFrozen(args);
     const sb = supabaseAdmin();
-    const { data: spreadRow, error: spreadReadError } = await sb.from("deal_spreads").select("id")
+    const { data: spreadRow, error: spreadReadError } = await sb.from("deal_spreads").select("id,rendered_json")
       .eq("deal_id", args.dealId).eq("bank_id", args.bankId)
       .eq("spread_type", "CLASSIC_PDF").eq("status", "ready")
       .order("updated_at", { ascending: false }).limit(1).maybeSingle();
     if (spreadReadError || !spreadRow?.id || !memo.memoId) {
       throw new Error(spreadReadError?.message ?? "Canonical credit artifacts were not durably persisted");
     }
+    const spreadPayload = spreadRow.rendered_json as { pdf_base64?: string; pdf_sha256?: string };
+    const spreadBytes = Buffer.from(spreadPayload.pdf_base64 ?? "", "base64");
+    if (createHash("sha256").update(spreadBytes).digest("hex") !== spreadPayload.pdf_sha256) throw new Error("Spread PDF integrity check failed");
+    await storeBundlePdf(args, "spreads_pdf_path", spreadBytes);
+    // This is a prepared lender memo, not a banker certification or credit decision.
+    const memoBytes = await buildCreditMemoPdf(memo.canonicalMemo, { draft: true });
+    await storeBundlePdf(args, "credit_memo_pdf_path", memoBytes);
     await persistRowWithStorageRollback(sb, {
       table: "buddy_trident_bundles",
       filters: {
@@ -250,7 +274,7 @@ export async function verifyTridentFactory(args: TridentFactoryExecutionArgs) {
     await assertFrozen(args);
     const sb = supabaseAdmin();
     const { data, error } = await sb.from("buddy_trident_bundles")
-      .select("status,bank_id,input_hash,release_gate_json,business_plan_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_credit_memo_id,source_spread_id")
+      .select("status,bank_id,input_hash,release_gate_json,business_plan_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_credit_memo_id,source_spread_id,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path")
       .eq("id", args.bundleId)
       .eq("bank_id", args.bankId)
       .eq("input_hash", args.inputHash)
@@ -260,6 +284,9 @@ export async function verifyTridentFactory(args: TridentFactoryExecutionArgs) {
     if (!["pending", "running"].includes(data.status) || (args.mode === "final" && gate?.ok !== true)) {
       const reason = gate?.reasons?.join(", ") || "bundle_not_succeeded";
       throw new FatalError(`Golden Trident manifest verification failed: ${reason}`);
+    }
+    if (args.mode === "final" && (!data.credit_memo_pdf_path || !data.spreads_pdf_path || !data.sba_forms_pdf_path)) {
+      throw new FatalError("The lender package is missing its memo, spreads, or SBA forms");
     }
     await writeStage(args, "release_manifest", "succeeded", {
       businessPlan: data.business_plan_pdf_path,
@@ -305,4 +332,17 @@ export async function failTridentFactory(args: TridentFactoryArgs & { inputHash?
     p_error: message,
   });
   if (failError && !/lease lost/i.test(failError.message)) throw new Error(failError.message);
+}
+
+async function storeBundlePdf(args: TridentFactoryArgs, column: "sba_forms_pdf_path" | "spreads_pdf_path" | "credit_memo_pdf_path", bytes: Buffer) {
+  if (bytes.subarray(0, 5).toString() !== "%PDF-") throw new Error(`Invalid PDF: ${column}`);
+  const sb = supabaseAdmin();
+  const path = `${args.dealId}/final/${args.bundleId}/${randomUUID()}_${column}.pdf`;
+  const { data, error } = await sb.storage.from("trident-bundles").upload(path, bytes, { contentType: "application/pdf" });
+  if (error || data?.path !== path) throw new Error(`Package PDF save failed: ${error?.message ?? column}`);
+  await persistRowWithStorageRollback(sb, {
+    table: "buddy_trident_bundles", filters: { id: args.bundleId, lease_token: args.leaseToken },
+    values: { [column]: path }, expected: { [column]: path },
+    uploaded: [{ bucket: "trident-bundles", path }], label: column,
+  });
 }

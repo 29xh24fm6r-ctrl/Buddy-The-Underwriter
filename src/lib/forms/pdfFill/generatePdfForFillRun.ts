@@ -3,6 +3,8 @@ import { generatePdfBytesFromFillRun } from "@/lib/forms/generatePdfBytesFromFil
 import { isDispatchedSbaTemplateCode, renderSbaPackageItem } from "@/lib/sba/package/sbaFormDispatch";
 import { resolveEffectiveLenderBankId } from "@/lib/sba/package/resolveEffectiveLenderBankId";
 
+export class SbaFormNotApplicable extends Error {}
+
 /**
  * SBA Package Builder adapter: Generate PDF and upload to Supabase Storage
  * Used by: POST /api/deals/[dealId]/sba/package/[packageRunId]/generate
@@ -40,6 +42,7 @@ export async function generatePdfForFillRun(opts: {
 
     const dispatched = await renderSbaPackageItem(templateCode, { dealId, bankId, supabase, ownershipEntityId });
     if (!dispatched.ok) {
+      if (dispatched.reason === "not_applicable") throw new SbaFormNotApplicable(templateCode);
       throw new Error(`sba_form_dispatch_failed(${templateCode}): ${dispatched.reason}`);
     }
     fileName = ownershipEntityId ? `${templateCode}_${ownershipEntityId}.pdf` : `${templateCode}.pdf`;
@@ -66,7 +69,8 @@ export async function generatePdfForFillRun(opts: {
 
   if (!storagePath) throw new Error(`generate_produced_no_output: ${fillRunId}`);
 
-  await supabase.from("fill_runs").update({ status: "generated" }).eq("id", fillRunId);
+  const { error: saveError } = await supabase.from("fill_runs").update({ status: "generated" }).eq("id", fillRunId);
+  if (saveError) throw new Error(`fill_run_save_failed: ${saveError.message}`);
 
   return { storagePath, fileName };
 }

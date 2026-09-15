@@ -1,3 +1,4 @@
+import { seedGoldenTridentQaForms } from "./goldenTridentQaForms";
 import "server-only";
 
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
@@ -69,6 +70,7 @@ export async function seedGoldenTridentQaFixture(args: {
   if (existingError) throw new Error(`fixture lookup: ${existingError.message}`);
   if (existing?.id) {
     await ensureGovernedMarketEvidence(sb, existing.id, bankId);
+    await seedGoldenTridentQaForms(sb, existing.id, bankId);
     return { dealId: existing.id, created: false, fixtureVersion: FIXTURE_VERSION };
   }
 
@@ -324,6 +326,7 @@ export async function seedGoldenTridentQaFixture(args: {
       }),
     );
     await ensureGovernedMarketEvidence(sb, dealId, bankId);
+    await seedGoldenTridentQaForms(sb, dealId, bankId);
   } catch (error) {
     await sb.from("deals").delete().eq("id", dealId).eq("is_test", true);
     throw error;

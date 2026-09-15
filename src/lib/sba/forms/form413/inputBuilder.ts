@@ -47,7 +47,7 @@ export async function buildForm413Input(
     .select(
       "id, entity_type, display_name, ownership_pct, date_of_birth, home_phone, " +
         "business_phone, has_spouse, spouse_full_name, " +
-        "home_address_street, home_address_city, home_address_state, home_address_zip, evidence_json",
+        "home_address_street, home_address_city, home_address_state, home_address_zip, has_spouse, spouse_full_name, evidence_json",
     )
     .eq("deal_id", dealId);
 

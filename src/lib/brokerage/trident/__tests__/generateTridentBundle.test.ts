@@ -1,4 +1,5 @@
 import test from "node:test";
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -53,7 +54,7 @@ function resetState() {
   state.sbaPackages = [];
   state.feasibilityStudies = [];
   state.memoNarratives = [{ id: "memo-1", deal_id: "deal-1", bank_id: "bank-1", input_hash: "memo-hash", research_trust_grade: "committee_grade" }];
-  state.spreads = [{ id: "spread-1", deal_id: "deal-1", bank_id: "bank-1", spread_type: "CLASSIC_PDF", status: "ready", rendered_json: { pdf_sha256: "abc", canonicalFactsTimestamp: "2026-08-18T00:00:00Z", certificationAudit: { spreadAccuracy: { status: "clean", summary: { blockers: 0 } } } } }];
+  state.spreads = [{ id: "spread-1", deal_id: "deal-1", bank_id: "bank-1", spread_type: "CLASSIC_PDF", status: "ready", rendered_json: { pdf_sha256: createHash("sha256").update("%PDF-spread").digest("hex"), pdf_base64: Buffer.from("%PDF-spread").toString("base64"), canonicalFactsTimestamp: "2026-08-18T00:00:00Z", certificationAudit: { spreadAccuracy: { status: "clean", summary: { blockers: 0 } } } } }];
   state.enrichBusinessPlanPackageCalls = [];
   state.enrichFeasibilityStudyCalls = [];
   let n = 0;
@@ -145,6 +146,7 @@ function makeQueryBuilder(table: string) {
         buddy_trident_bundles: state.bundles,
         deals: state.deals,
         buddy_sba_packages: state.sbaPackages,
+        buddy_sba_assumptions: [{ deal_id: "deal-1", status: "confirmed" }],
         buddy_feasibility_studies: state.feasibilityStudies,
         canonical_memo_narratives: state.memoNarratives,
         deal_spreads: state.spreads,
@@ -211,7 +213,7 @@ const supabaseStub = {
         async download(_p: string) {
           return {
             data: {
-              arrayBuffer: async () => Buffer.from("pdf-bytes").buffer,
+              arrayBuffer: async () => Uint8Array.from(Buffer.from("%PDF-bytes")).buffer,
             },
             error: null,
           };
@@ -365,6 +367,20 @@ require.cache[require.resolve("@/lib/classicSpread/classicPdfWorker")] = {
   },
 } as any;
 
+// These stage-unit tests isolate the downstream generators. Actual form
+// dispatch/assembly and ZIP contents have separate behavioral tests.
+require.cache[require.resolve("@/lib/brokerage/borrowerFormsOrchestration")] = {
+  id: "forms-stage-stub", filename: "forms-stage-stub", loaded: true,
+  exports: {
+    prepareBrokerageSbaForms: async () => ({ ok: true, packageRunId: "forms-run" }),
+    generateBrokerageForms: async () => ({ ok: true, results: [] }),
+    assembleBrokerageFormsPackage: async () => ({ ok: true, storagePath: "forms.pdf" }),
+  },
+} as any;
+require.cache[require.resolve("@/lib/creditMemo/pdf/buildCreditMemoPdf")] = {
+  id: "memo-pdf-stub", filename: "memo-pdf-stub", loaded: true,
+  exports: { buildCreditMemoPdf: async () => Buffer.from("%PDF-memo") },
+} as any;
 // Load the orchestrator now that shims are in place.
 const { generateTridentBundle } =
   require("../generateTridentBundle") as typeof import("../generateTridentBundle");

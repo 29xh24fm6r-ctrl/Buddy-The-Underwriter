@@ -19,7 +19,7 @@ test("Golden Trident policy and persistence boundaries fail closed", () => {
 test("package delivery never translates database failure into absent state", () => {
   for (const boundary of [
     "final_bundle", "preview_bundle", "sealed_package", "form_159",
-    "credit_memo", "borrower_seal", "marketplace_pick", "lender_bank",
+    "borrower_seal", "marketplace_pick", "lender_bank",
     "borrower_form_159",
   ]) assert.match(delivery, new RegExp("package_state_unavailable:" + boundary));
   assert.match(delivery, /if \(accessError\) return \{ ok: false, error: "package_state_unavailable" \}/);

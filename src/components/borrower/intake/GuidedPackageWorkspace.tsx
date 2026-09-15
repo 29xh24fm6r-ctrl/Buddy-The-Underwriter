@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { LenderPackageReview } from "./LenderPackageReview";
 import { PackageHandoff } from "./PackageHandoff";
 import { UseOfProceedsAnswer } from "./UseOfProceedsAnswer";
 import { GuidedPfsSchedules } from "./GuidedPfsSchedules";
@@ -38,6 +39,7 @@ export function GuidedPackageWorkspace({
   const [error, setError] = useState("");
   const [section, setSection] = useState("");
   const [selectedId, setSelectedId] = useState("");
+  const [reviewDirty, setReviewDirty] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [onlyOpen, setOnlyOpen] = useState(false);
   useEffect(() => {
@@ -93,6 +95,7 @@ export function GuidedPackageWorkspace({
             type="button"
             className="rounded-lg border px-4 py-2 text-sm"
             onClick={() => {
+              if (showTools && reviewDirty) { setError("Save your assumption draft before returning to the questions."); return; }
               if (showTools) void refresh();
               setShowTools((v) => !v);
             }}
@@ -146,6 +149,7 @@ export function GuidedPackageWorkspace({
         <div className="space-y-5">
           <div className="rounded-2xl border bg-white p-4">{tools}</div>
           <GuidedPfsSchedules dealId={dealId} />
+          <LenderPackageReview dealId={dealId} onDirtyChange={setReviewDirty} />
           <PackageHandoff
             dealId={dealId}
             poster={snapshot?.form722}

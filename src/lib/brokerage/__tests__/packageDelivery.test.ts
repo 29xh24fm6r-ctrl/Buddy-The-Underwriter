@@ -47,12 +47,14 @@ test("projections_pdf is never sourced from final_projections_path (that column 
   assert.equal(projXlsx?.available,true);
 });
 
-test("credit_memo resource reflects whether a certified snapshot exists",async()=>{
-  const withMemo=await m.buildPackageManifest("d1","full",sealedDb() as any);
-  assert.equal(withMemo.resources.find(r=>r.type==="credit_memo")?.available,true);
-  const withoutMemo=await m.buildPackageManifest("d1","full",sealedDb({credit_memo_snapshots:[]}) as any);
-  assert.equal(withoutMemo.resources.find(r=>r.type==="credit_memo")?.available,false);
+test("memo delivery requires the PDF bound to the completed bundle, not an unrelated certification",async()=>{
+  const noFile=await m.buildPackageManifest("d1","full",sealedDb() as any);
+  assert.equal(noFile.resources.find(r=>r.type==="credit_memo")?.available,false);
+  const withFile=await m.buildPackageManifest("d1","full",sealedDb({buddy_trident_bundles:[{deal_id:"d1",mode:"final",status:"succeeded",superseded_at:null,credit_memo_pdf_path:"d1/final/run/memo.pdf",spreads_pdf_path:"d1/final/run/spreads.pdf"}]}) as any);
+  assert.equal(withFile.resources.find(r=>r.type==="credit_memo")?.available,true);
+  assert.equal(withFile.resources.find(r=>r.type==="spreads")?.available,true);
 });
+
 test("sba_forms falls back to the latest assembled package run when final_forms_path is unset",async()=>{
   const noRun=await m.buildPackageManifest("d1","full",sealedDb() as any);
   assert.equal(noRun.resources.find(r=>r.type==="sba_forms")?.available,false);

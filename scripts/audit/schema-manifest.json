@@ -658,5 +658,20 @@
     "name": "save_guided_pfs_row",
     "type": "function",
     "migration": "20260915161948_guided_package_answers.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.credit_memo_pdf_path",
+    "type": "column",
+    "migration": "20260915200931_complete_lender_package.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.spreads_pdf_path",
+    "type": "column",
+    "migration": "20260915200931_complete_lender_package.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.sba_forms_pdf_path",
+    "type": "column",
+    "migration": "20260915200931_complete_lender_package.sql"
   }
 ]
