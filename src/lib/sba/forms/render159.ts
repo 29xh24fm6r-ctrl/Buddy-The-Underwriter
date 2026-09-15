@@ -102,23 +102,19 @@ export async function renderForm159Pdf(args: {
     normalizeInvertedWidgetRects(pdfDoc);
     const form = pdfDoc.getForm();
 
+    // Validate the complete mapping before filling or uploading. A changed
+    // template must not silently produce an incomplete fee disclosure.
+    for (const name of Object.values(FORM_159_TEXT_FIELDS)) form.getTextField(name);
+    for (const name of Object.values(FORM_159_CHECKBOX_FIELDS)) form.getCheckBox(name);
+
     for (const [fieldName, value] of Object.entries(text)) {
-      try {
-        form.getTextField(fieldName).setText(value);
-      } catch {
-        // Field not present on this template version — skip rather than
-        // fail the whole render (template revisions may add/remove fields).
-      }
+      form.getTextField(fieldName).setText(value);
     }
 
     for (const [fieldName, checked] of Object.entries(checkboxes)) {
-      try {
-        const cb = form.getCheckBox(fieldName);
-        if (checked) cb.check();
-        else cb.uncheck();
-      } catch {
-        // as above
-      }
+      const cb = form.getCheckBox(fieldName);
+      if (checked) cb.check();
+      else cb.uncheck();
     }
 
     form.flatten();
