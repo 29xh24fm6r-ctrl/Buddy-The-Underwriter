@@ -67,14 +67,14 @@ test("renderSbaPackageItem: SBA_1919 on empty deal -> form_incomplete, not a fab
   const result = await renderSbaPackageItem("SBA_1919", { dealId: "d1", bankId: "b1", supabase: emptySupabase });
   assert.equal(result.ok, false);
   if (result.ok) return;
-  assert.equal(result.reason, "form_incomplete");
+  assert.match(result.reason, /^form_incomplete:/);
 });
 
 test("renderSbaPackageItem: SBA_1244 on empty deal -> form_incomplete, not a fabricated PDF", async () => {
   const result = await renderSbaPackageItem("SBA_1244", { dealId: "d1", bankId: "b1", supabase: emptySupabase });
   assert.equal(result.ok, false);
   if (result.ok) return;
-  assert.equal(result.reason, "form_incomplete");
+  assert.match(result.reason, /^form_incomplete:/);
 });
 
 test("renderSbaPackageItem: SBA_912 with no triggering owners -> not_applicable", async () => {
@@ -91,11 +91,11 @@ test("renderSbaPackageItem: SBA_155 with no seller note equity -> not_applicable
   assert.equal(result.reason, "not_applicable");
 });
 
-test("renderSbaPackageItem: SBA_159 with no agent_used -> not_applicable", async () => {
+test("renderSbaPackageItem: SBA_159 with no agent answer must not silently exclude the form", async () => {
   const result = await renderSbaPackageItem("SBA_159", { dealId: "d1", bankId: "b1", supabase: emptySupabase });
   assert.equal(result.ok, false);
   if (result.ok) return;
-  assert.equal(result.reason, "not_applicable");
+  assert.equal(result.reason, "form_incomplete: agent_used");
 });
 
 test("renderSbaPackageItem: SBA_413 with no signers -> no_signers", async () => {

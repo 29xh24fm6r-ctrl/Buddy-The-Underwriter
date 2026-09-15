@@ -1,55 +1,12 @@
 import "server-only";
 
-/**
- * GET /api/brokerage/deals/[dealId]/trident/download/[kind]
- *
- * S3-4: borrower must own this deal via their session cookie. The raw token
- * lives only in the `buddy_borrower_session` cookie; we hash + look up; the
- * looked-up session's deal_id must equal the URL's [dealId]. A lender with a
- * valid `marketplace_package_access` grant (passed as `?accessId=`) may also
- * download — same check as /api/lender/marketplace/package/[accessId].
- *
- * Authorization denials return 404 — never 403 — so we don't leak the
- * existence of other deals to a probing caller. Authoritative-state and
- * required audit-persistence failures return 503 so outages are not
- * misreported as missing packages.
- *
- * For business_plan/projections_pdf/projections_xlsx/feasibility: returns a
- * signed Storage URL for the current succeeded trident bundle (prefers
- * mode=final; falls back to mode=preview).
- *
- * For credit_memo: there is no pre-generated static file to sign a URL for —
- * buddy_sealed_packages.final_credit_memo_path is never populated anywhere in
- * this codebase. Instead this renders the PDF on demand from the same
- * certified pipeline the internal committee PDF route uses
- * (loadLatestCertifiedFloridaArmorySnapshot + assertCommitteeMemoSafe +
- * buildCreditMemoPdf) and streams the bytes directly, keyed by the same
- * [kind] dynamic segment rather than a separate route file — this repo has a
- * hard Vercel serverless-function slot budget (routeConsolidationGuard.test.ts)
- * with a documented history of production outages from exceeding it, so new
- * download capabilities extend an existing dispatcher instead of adding a
- * new route.ts. This also replaces reliance on createSignedPackageDownload()
- * in packageDelivery.ts, which built an entirely unsigned URL pointing at a
- * route that never existed.
- *
- * For sba_forms: the merged 10-tab package (assembleTenTabPackage.ts) lives
- * in the `bank-forms` bucket, not `trident-bundles` — a separate signed-URL
- * branch (not KIND_TO_PATH_COLUMN) resolves the most recently assembled
- * sba_package_runs row for this deal via getLatestAssembledPackageRun. Note
- * the 10-tab assembly pipeline (prepare → generate → assemble) is NOT
- * triggered automatically anywhere yet (unlike the trident bundle, which is
- * generated at pick time) — it must have been run manually via the
- * sba/route.ts action dispatch for this to have anything to serve.
- */
-
+/** Download the immutable files from one completed package run. */
+import JSZip from "jszip";
+import { LENDER_PACKAGE_FILES } from "@/lib/brokerage/lenderPackageFiles";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { resolveLenderIdentity } from "@/lib/brokerage/lenderAuth";
-import { loadLatestCertifiedFloridaArmorySnapshot } from "@/lib/creditMemo/snapshot/loadLatestCertifiedSnapshot";
-import { assertCommitteeMemoSafe } from "@/lib/creditMemo/snapshot/assertCommitteeMemoSafe";
-import { FloridaArmoryBuildError } from "@/lib/creditMemo/snapshot/types";
-import { buildCreditMemoPdf } from "@/lib/creditMemo/pdf/buildCreditMemoPdf";
 import { auditPackageDownload } from "@/lib/brokerage/packageDelivery";
 import { getLatestAssembledPackageRun } from "@/lib/sba/package/getLatestAssembledPackageRun";
 import { OUTPUT_BUCKET as SBA_PACKAGE_BUCKET } from "@/lib/sba/package/assembleTenTabPackage";
@@ -61,13 +18,16 @@ type TridentKind =
   | "business_plan"
   | "projections_pdf"
   | "projections_xlsx"
-  | "feasibility";
+  | "feasibility"
+  | "credit_memo"
+  | "spreads"
+  | "sba_forms";
 
 const VALID_TRIDENT_KINDS: readonly TridentKind[] = [
   "business_plan",
   "projections_pdf",
   "projections_xlsx",
-  "feasibility",
+  "feasibility", "credit_memo", "spreads", "sba_forms",
 ] as const;
 
 const KIND_TO_PATH_COLUMN: Record<TridentKind, string> = {
@@ -75,6 +35,9 @@ const KIND_TO_PATH_COLUMN: Record<TridentKind, string> = {
   projections_pdf: "projections_pdf_path",
   projections_xlsx: "projections_xlsx_path",
   feasibility: "feasibility_pdf_path",
+  credit_memo: "credit_memo_pdf_path",
+  spreads: "spreads_pdf_path",
+  sba_forms: "sba_forms_pdf_path",
 };
 
 class PackageStateUnavailable extends Error {}
@@ -150,67 +113,6 @@ async function resolveActor(
   };
 }
 
-async function handleCreditMemoDownload(
-  dealId: string,
-  actorInfo: ResolvedActor,
-): Promise<NextResponse> {
-  const { bankId, actor, actorScope } = actorInfo;
-
-  const snapshotRes = await loadLatestCertifiedFloridaArmorySnapshot({ dealId, bankId });
-  if (!snapshotRes.ok) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          snapshotRes.reason === "not_found"
-            ? "certified_snapshot_required"
-            : "snapshot_load_failed",
-      },
-      { status: snapshotRes.reason === "not_found" ? 409 : 500 },
-    );
-  }
-
-  try {
-    assertCommitteeMemoSafe(snapshotRes.snapshot);
-  } catch (guardErr: unknown) {
-    if (guardErr instanceof FloridaArmoryBuildError) {
-      return NextResponse.json(
-        { ok: false, error: "committee_artifact_unsafe" },
-        { status: 409 },
-      );
-    }
-    throw guardErr;
-  }
-
-  const memo = snapshotRes.snapshot.canonical_memo;
-  const pdfBuffer = await buildCreditMemoPdf(memo);
-
-  const audit = await auditPackageDownload(
-    { actor, actorScope, dealId, action: "package_download", resourceType: "credit_memo" },
-    supabaseAdmin() as any,
-  );
-  if (!audit.ok) {
-    return NextResponse.json(
-      { ok: false, error: "download_audit_persistence_failed" },
-      { status: 503 },
-    );
-  }
-
-  const borrowerSlug = (memo.header.borrower_name ?? dealId)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .slice(0, 40);
-
-  return new NextResponse(new Uint8Array(pdfBuffer), {
-    status: 200,
-    headers: {
-      "content-type": "application/pdf",
-      "content-disposition": `inline; filename="credit-memo-${borrowerSlug}.pdf"`,
-      "cache-control": "private, no-store",
-    },
-  });
-}
-
 async function handleSbaFormsDownload(
   dealId: string,
   actorInfo: ResolvedActor,
@@ -249,8 +151,7 @@ export async function GET(
   const { dealId, kind } = await params;
 
   if (
-    kind !== "credit_memo" &&
-    kind !== "sba_forms" &&
+    kind !== "complete_package" &&
     !VALID_TRIDENT_KINDS.includes(kind as TridentKind)
   ) {
     return NextResponse.json({ ok: false }, { status: 404 });
@@ -273,24 +174,8 @@ export async function GET(
   }
 
   // A preview-tier grant never reaches the certified committee artifacts.
-  if (actorInfo.accessLevel !== "full" && (kind === "credit_memo" || kind === "sba_forms")) {
+  if (actorInfo.accessLevel !== "full" && ["credit_memo", "sba_forms", "spreads", "complete_package", "projections_xlsx"].includes(kind)) {
     return NextResponse.json({ ok: false }, { status: 404 });
-  }
-
-  if (kind === "credit_memo") {
-    return handleCreditMemoDownload(dealId, actorInfo);
-  }
-
-  if (kind === "sba_forms") {
-    try {
-      return await handleSbaFormsDownload(dealId, actorInfo);
-    } catch (error) {
-      console.error("[trident-download] SBA package state unavailable", { dealId, error });
-      return NextResponse.json(
-        { ok: false, error: "package_state_unavailable" },
-        { status: 503 },
-      );
-    }
   }
 
   const sb = supabaseAdmin();
@@ -317,7 +202,7 @@ export async function GET(
   }
 
   let bundle = finalResult.data;
-  if (!bundle) {
+  if (!bundle && !["credit_memo", "spreads", "complete_package", "sba_forms", "projections_xlsx"].includes(kind)) {
     const previewResult = await sb
       .from("buddy_trident_bundles")
       .select("*")
@@ -336,7 +221,28 @@ export async function GET(
   }
 
   if (!bundle) {
-    return NextResponse.json({ ok: false }, { status: 404 });
+    if (kind === "sba_forms") return handleSbaFormsDownload(dealId, actorInfo);
+    return NextResponse.json({ ok: false, error: "Generate the complete lender package first." }, { status: 404 });
+  }
+  if (kind === "complete_package") {
+    if (bundle.mode !== "final" || !LENDER_PACKAGE_FILES.every(file => bundle[file.column])) {
+      return NextResponse.json({ ok: false, error: "The package is missing required documents. Rebuild it before downloading." }, { status: 409 });
+    }
+    const zip = new JSZip();
+    for (const file of LENDER_PACKAGE_FILES) {
+      const { data, error } = await sb.storage.from("trident-bundles").download(bundle[file.column]);
+      if (error || !data) return NextResponse.json({ ok: false, error: `${file.label} could not be downloaded.` }, { status: 503 });
+      const bytes = Buffer.from(await data.arrayBuffer());
+      const valid = file.filename.endsWith(".pdf") ? bytes.subarray(0, 5).toString() === "%PDF-" : bytes.subarray(0, 2).toString() === "PK";
+      if (!valid) return NextResponse.json({ ok: false, error: `${file.label} is not a valid document.` }, { status: 503 });
+      zip.file(file.filename, bytes);
+    }
+    zip.file("Read-me.txt", `Prepared loan package\nRun: ${bundle.id}\nGenerated: ${bundle.generation_completed_at}\n\nPrepared for lender review, not credit approval. The lender confirms applicable requirements, signatures, business tax transcript requests and closing documents.\n`);
+    const audit = await auditPackageDownload({ actor: actorInfo.actor, actorScope: actorInfo.actorScope, dealId, action: "package_download", resourceType: kind, metadata: { bundleId: bundle.id } }, sb);
+    if (!audit.ok) return NextResponse.json({ ok: false, error: "download_audit_persistence_failed" }, { status: 503 });
+    return new NextResponse(new Uint8Array(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })), {
+      headers: { "content-type": "application/zip", "content-disposition": 'attachment; filename="lender-package.zip"', "cache-control": "private, no-store" },
+    });
   }
 
   const pathColumn = KIND_TO_PATH_COLUMN[kind as TridentKind];

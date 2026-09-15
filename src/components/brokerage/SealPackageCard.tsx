@@ -53,6 +53,8 @@ const DOWNLOADABLE_KINDS = new Set([
   "feasibility",
   "credit_memo",
   "sba_forms",
+  "spreads",
+  "complete_package",
 ]);
 
 export function SealPackageCard({ dealId }: { dealId: string }) {
@@ -161,7 +163,10 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
         // on demand, no pre-generated file to sign a URL for).
         const blob = await res.blob();
         const blobUrl = URL.createObjectURL(blob);
-        window.open(blobUrl, "_blank", "noopener,noreferrer");
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.download = kind === "complete_package" ? "lender-package.zip" : `${kind}.pdf`;
+        link.click();
         // Give the new tab time to load the blob before revoking it.
         setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
       }

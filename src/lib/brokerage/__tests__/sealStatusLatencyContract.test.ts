@@ -29,11 +29,11 @@ test("seal-status keeps database reads bounded and concurrent", () => {
   );
   assert.match(
     packageDelivery,
-    /const \[b, form159Result, memoResult, assembledRun\] = await Promise\.all/,
+    /const \[b, form159Result, assembledRun\] = await Promise\.all/,
     "picked-package resources must not serialize the polling response",
   );
   assert.match(packageDelivery, /form159Result\.error/);
-  assert.match(packageDelivery, /memoResult\.error/);
+  assert.doesNotMatch(packageDelivery, /from\("credit_memo_snapshots"\)/, "memo availability comes from the selected bundle, without another query");
   assert.match(
     sealStatus,
     /gate,[\s\S]*score,[\s\S]*= await Promise\.all\(\[[\s\S]*canSeal\(dealId, sb\)[\s\S]*loadScoreForResponse/,

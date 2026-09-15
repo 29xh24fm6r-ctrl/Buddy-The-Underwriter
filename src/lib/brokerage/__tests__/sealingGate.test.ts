@@ -105,6 +105,9 @@ function resetHappy() {
     canonical_memo_input_hash: "memo-hash",
     source_credit_memo_id: "memo-1",
     source_spread_id: "spread-1",
+    credit_memo_pdf_path: "final/memo.pdf",
+    spreads_pdf_path: "final/spreads.pdf",
+    sba_forms_pdf_path: "final/forms.pdf",
     business_plan_pdf_path: "final/business-plan.pdf",
     // Final mode publishes no projections PDF — the redacted summary PDF is
     // preview-only. This fixture previously carried a fabricated path, which

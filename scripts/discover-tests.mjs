@@ -56,6 +56,7 @@ const SCAN_DIRS = ["src", "scripts"];
 // dimension-detail strings the Trident preview redactor has to strip, and
 // projectionsXlsx, which renders a shipped Trident artifact.
 export const REACT_SERVER_ONLY = new Set([
+  "src/lib/sba/forms/__tests__/render159.test.ts",
   // Exercises the server-only package assembler against actual PDFs.
   "src/lib/sba/package/__tests__/guidedPackageIntegrity.test.ts",
   // financialViabilityAnalysis.ts has `import "server-only"` — the package

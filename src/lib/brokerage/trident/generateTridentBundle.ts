@@ -452,7 +452,7 @@ export async function generateTridentBundle(args: {
       const { data: pkgRow, error: pkgRowError } = await sb
         .from("buddy_sba_packages")
         .select(
-          "projections_annual, projections_monthly, sensitivity_scenarios, sources_and_uses, balance_sheet_projections, base_year_data",
+          "projections_annual, projections_monthly, sensitivity_scenarios, sources_and_uses, balance_sheet_projections, base_year_data, projections_assumptions_narrative",
         )
         .eq("id", sbaResult.packageId)
         .single();
@@ -461,7 +461,12 @@ export async function generateTridentBundle(args: {
       }
 
       {
+        const { data: assumptions, error: assumptionsError } = await sb.from("buddy_sba_assumptions")
+          .select("revenue_streams,cost_assumptions,working_capital,loan_impact,management_team,status,confirmed_at").eq("deal_id", dealId).single();
+        if (assumptionsError || assumptions?.status !== "confirmed") throw new Error("Confirmed projection assumptions are unavailable");
         const xlsxBuf = await renderProjectionsXlsx({
+          assumptions,
+          assumptionsNarrative: pkgRow.projections_assumptions_narrative ?? "",
           dealName: "Deal",
           baseYear: (pkgRow.base_year_data as any) ?? {},
           annualProjections: (pkgRow.projections_annual as any) ?? [],

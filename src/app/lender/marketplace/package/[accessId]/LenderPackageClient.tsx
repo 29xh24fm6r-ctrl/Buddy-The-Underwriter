@@ -29,6 +29,8 @@ const DOWNLOADABLE_KINDS = new Set([
   "feasibility",
   "credit_memo",
   "sba_forms",
+  "spreads",
+  "complete_package",
 ]);
 
 export function LenderPackageClient({ accessId }: { accessId: string }) {
@@ -88,7 +90,10 @@ export function LenderPackageClient({ accessId }: { accessId: string }) {
         // on demand, no pre-generated file to sign a URL for).
         const blob = await res.blob();
         const blobUrl = URL.createObjectURL(blob);
-        window.open(blobUrl, "_blank", "noopener,noreferrer");
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.download = kind === "complete_package" ? "lender-package.zip" : `${kind}.pdf`;
+        link.click();
         setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
       }
     } catch {

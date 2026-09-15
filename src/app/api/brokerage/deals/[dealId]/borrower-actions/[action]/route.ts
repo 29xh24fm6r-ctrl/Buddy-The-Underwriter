@@ -1,3 +1,5 @@
+import { checkConciergeRateLimit } from "@/lib/brokerage/rateLimits";
+import { borrowerPackageAction } from "@/lib/brokerage/borrowerPackageActions";
 import "server-only";
 
 /**
@@ -100,7 +102,7 @@ import {
 const PROVIDER_POLL_MIN_MS = 15_000;
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ dealId: string; action: string }> };
@@ -114,6 +116,10 @@ export async function GET(req: NextRequest, { params }: Ctx): Promise<NextRespon
     return NextResponse.json({ ok: false }, { status: 404 });
   }
 
+  if (["assumptions", "package-status"].includes(action)) {
+    try { return await borrowerPackageAction(action, dealId, session.bank_id); }
+    catch (error) { return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Unable to load package" }, { status: 503 }); }
+  }
   if (action === "kyc") return getKycStatus(req, dealId, session.claimed_email);
   if (action === "esign") return getEsignStatus(req, dealId);
   if (action === "forms-status") return getFormsStatus(dealId);
@@ -129,6 +135,12 @@ export async function POST(req: NextRequest, { params }: Ctx): Promise<NextRespo
     return NextResponse.json({ ok: false }, { status: 404 });
   }
 
+  if (["assumptions", "draft-assumptions", "build-package"].includes(action)) {
+    const rate = await checkConciergeRateLimit({ tokenHash: session.tokenHash });
+    if (!rate.allowed) return NextResponse.json({ ok: false, error: "Please wait a moment before retrying." }, { status: 429 });
+    try { return await borrowerPackageAction(action, dealId, session.bank_id, await req.json()); }
+    catch (error) { return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Unable to prepare package" }, { status: 503 }); }
+  }
   if (action === "kyc") return postKyc(req, dealId, session.bank_id);
   if (action === "esign") return postEsign(req, dealId, session.bank_id);
   if (action === "prepare-forms") return postPrepareForms(dealId);
@@ -659,7 +671,8 @@ async function postGenerateForms(req: NextRequest, dealId: string): Promise<Next
       { status: result.reason === "NO_PACKAGE_RUN" ? 400 : 404 },
     );
   }
-  return NextResponse.json({ ok: true, results: result.results });
+  const complete = result.results.every(item => item.ok);
+  return NextResponse.json({ ok: complete, results: result.results }, { status: complete ? 200 : 422 });
 }
 
 async function postAssembleForms(dealId: string): Promise<NextResponse> {

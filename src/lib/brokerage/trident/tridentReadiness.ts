@@ -39,10 +39,11 @@ export async function getTridentReadiness(args: {
     validationResult,
     dealResult,
     missionResult,
+    interviewResult,
   ] = await Promise.all([
     sb
       .from("buddy_sba_assumptions")
-      .select("status,revenue_streams,cost_assumptions,working_capital,loan_impact,management_team")
+      .select("status,revenue_streams,cost_assumptions,working_capital,loan_impact,management_team,confirmed_at")
       .eq("deal_id", dealId)
       .maybeSingle(),
     sb
@@ -81,6 +82,7 @@ export async function getTridentReadiness(args: {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    sb.from("borrower_concierge_sessions").select("confirmed_facts").eq("deal_id", dealId).maybeSingle(),
   ]);
 
   const gateResult = missionResult.data?.id
@@ -112,6 +114,12 @@ export async function getTridentReadiness(args: {
     reasons.push(`Deal tenancy could not be verified: ${dealResult.error?.message ?? "deal not found"}`);
   }
 
+  if (interviewResult.error) reasons.push("Saved projection answers could not be checked.");
+  const projectionAnswers = interviewResult.data?.confirmed_facts?.package_answers ?? {};
+  const confirmedAt = assumptionsResult.data?.confirmed_at;
+  if (confirmedAt && Object.entries(projectionAnswers).some(([id, answer]) => id.startsWith("L") && typeof (answer as any)?.saved_at === "string" && (answer as any).saved_at > confirmedAt)) {
+    reasons.push("Your projection answers changed. Review and confirm the updated assumptions before preparing the package.");
+  }
   if (assumptionsResult.error) reasons.push(`Assumptions could not be checked: ${assumptionsResult.error.message}`);
   else if (assumptionsStatus !== "confirmed") reasons.push("Projection assumptions must be confirmed.");
 

@@ -35,6 +35,8 @@ type Row = Record<string, any>;
 
 function makeSb(state: {
   deal?: Row | null;
+  loan?: Row | null;
+  fillRuns?: Row[];
   packageRuns?: Row[];
   packageRunItems?: Row[];
 }) {
@@ -69,6 +71,8 @@ function makeSb(state: {
           return this;
         },
         maybeSingle() {
+          if (table === "deal_loan_requests") return Promise.resolve({ data: state.loan ?? null, error: null });
+          if (table === "fill_runs") return Promise.resolve({ data: state.fillRuns?.find(r => r.id === this._filters.id) ?? null, error: null });
           if (table === "deals") return Promise.resolve({ data: deal, error: null });
           if (table === "sba_package_runs") {
             if (this._insertedRows) {
@@ -208,4 +212,15 @@ test("assembleBrokerageFormsPackage: NO_PACKAGE_RUN when nothing has been prepar
   const sb = makeSb({ packageRuns: [] });
   const result = await assembleBrokerageFormsPackage("deal-1", sb);
   assert.deepEqual(result, { ok: false, reason: "NO_PACKAGE_RUN" });
+});
+
+test("real Form 159 dispatch records explicit exclusion and does not call it a failed form", async () => {
+  const rows = [{ id: "item", package_run_id: "run", template_code: "SBA_159", fill_run_id: "fill", status: "prepared" }];
+  const runs = [{ id: "run", deal_id: "deal", status: "prepared" }];
+  const sb = makeSb({ deal: { id: "deal", bank_id: "bank" }, loan: { agent_used: false }, fillRuns: [{ id: "fill", template_code: "SBA_159" }], packageRuns: runs, packageRunItems: rows });
+  const result = await generateBrokerageForms("deal", sb as any);
+  assert.equal(result.ok, true);
+  if (result.ok) assert.deepEqual(result.results, [{ itemId: "item", ok: true, notApplicable: true }]);
+  assert.equal(rows[0].status, "not_applicable");
+  assert.equal(runs[0].status, "generated");
 });

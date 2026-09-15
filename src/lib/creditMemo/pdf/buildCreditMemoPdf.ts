@@ -65,7 +65,7 @@ const COLORS = {
   amber:      "#D97706",
 };
 
-export function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
+export function buildCreditMemoPdf(memo: CanonicalCreditMemoV1, options: { draft?: boolean } = {}): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "letter",
@@ -77,6 +77,16 @@ export function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer>
       },
     });
 
+    if (options.draft) {
+      const markDraft = () => {
+        doc.save().font("Helvetica").fontSize(8).fillColor("#475569")
+          .text("PREPARED FOR LENDER REVIEW — NOT A CREDIT APPROVAL", 54, 25, { lineBreak: false });
+        doc.restore();
+        doc.y = 48;
+      };
+      markDraft();
+      doc.on("pageAdded", markDraft);
+    }
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
