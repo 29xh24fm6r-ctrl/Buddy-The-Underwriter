@@ -673,5 +673,10 @@
     "name": "buddy_trident_bundles.sba_forms_pdf_path",
     "type": "column",
     "migration": "20260915200931_complete_lender_package.sql"
+  },
+  {
+    "name": "deals.brokerage_comms_last_run_at",
+    "type": "column",
+    "migration": "20260908183000_deals_brokerage_comms_last_run_at.sql"
   }
 ]

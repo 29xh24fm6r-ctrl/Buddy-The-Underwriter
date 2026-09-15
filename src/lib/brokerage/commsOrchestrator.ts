@@ -21,7 +21,14 @@ export type OrchestrationOptions = {
   };
   alertPurpose?: BankerAlertPurpose;
   now?: Date | string;
+  /** How many deals one batch walks. Also the per-deal outbox drain when run for a single deal. */
   limit?: number;
+  /**
+   * How many outbox rows a batch drains. Defaults to twice the deal limit
+   * because a deal can enqueue both a borrower nudge and a banker alert, so a
+   * drain sized to the deal count falls permanently behind the enqueue rate.
+   */
+  outboxLimit?: number;
 };
 
 export type OrchestrationCounts = {
@@ -137,7 +144,32 @@ export async function runBrokerageCommsForDeal(
     }).then(() => {}, () => {});
   }
 
+  // Advance the rotation cursor. This runs on the failure path too, on purpose:
+  // if a deal that throws kept a null cursor it would sort to the head of the
+  // queue forever and starve every deal behind it — the exact failure mode this
+  // cursor exists to end. A stamp that cannot be written is a warning, never a
+  // failure of the run, because the messages have already been enqueued.
+  const stampError = await markDealCommsRun(dealId, sb);
+  if (stampError) warnings.push(`comms_cursor: ${stampError}`);
+
   return { dealId, borrowerNudges, bankerAlerts, outbox, warnings };
+}
+
+/**
+ * Stamps deals.brokerage_comms_last_run_at. Returns a message on failure rather
+ * than throwing, so a cursor write can never lose messages the batch just
+ * enqueued.
+ */
+async function markDealCommsRun(dealId: string, sb: SB): Promise<string | null> {
+  try {
+    const { error } = await sb
+      .from("deals")
+      .update({ brokerage_comms_last_run_at: new Date().toISOString() })
+      .eq("id", dealId);
+    return error ? String(error.message ?? "update_failed") : null;
+  } catch (err: any) {
+    return String(err?.message ?? "update_threw");
+  }
 }
 
 // ── Batch orchestration ─────────────────────────────────────────────────────
@@ -149,12 +181,24 @@ export async function runBrokerageCommsBatch(
   const limit = opts?.limit ?? 20;
   const warnings: string[] = [];
 
-  // Find active deals
+  // Find active deals, least-recently-contacted first.
+  //
+  // This used to order by created_at desc, which meant every run picked the same
+  // newest `limit` deals and every deal ranked past that was never contacted at
+  // all — not delayed, never. Ordering by the rotation cursor ascending with
+  // nulls first puts never-processed deals at the head and then walks the whole
+  // active set, so a batch that is smaller than the pipeline still reaches every
+  // deal instead of re-serving the same window forever.
+  //
+  // The overfetch is still needed because the inactive-status filter runs here
+  // rather than in the query: `status` is nullable and a PostgREST `not.in`
+  // would drop null-status rows, which this filter deliberately keeps.
   const { data: deals } = await sb
     .from("deals")
-    .select("id, status")
+    .select("id, status, brokerage_comms_last_run_at")
+    .order("brokerage_comms_last_run_at", { ascending: true, nullsFirst: true })
     .order("created_at", { ascending: false })
-    .limit(limit * 2); // overfetch to filter
+    .limit(Math.min(limit * 4, 500));
 
   const activeDeals = ((deals ?? []) as Row[])
     .filter(d => !INACTIVE_STATUSES.has(str(d.status) ?? ""))
@@ -176,8 +220,11 @@ export async function runBrokerageCommsBatch(
   }
 
   // Optionally process outbox after all deals enqueued — real env-mode adapters.
+  // The drain is sized independently of the deal limit: each deal can enqueue a
+  // borrower nudge *and* a banker alert, so draining only `limit` rows per run
+  // would let the outbox grow faster than it empties.
   if (opts?.processOutbox) {
-    await processDueCommsOutbox(sb, buildOutboxAdapterFactory(), opts?.limit ?? 20);
+    await processDueCommsOutbox(sb, buildOutboxAdapterFactory(), opts?.outboxLimit ?? limit * 2);
   }
 
   return { dealsProcessed: activeDeals.length, results, totalEnqueued, totalSkipped, warnings };

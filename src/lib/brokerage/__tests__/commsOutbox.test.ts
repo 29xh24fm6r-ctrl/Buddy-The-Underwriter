@@ -81,6 +81,24 @@ class OQ {
     if (this.db.insertFailures.has(this.table)) {
       return { data: null, error: { message: `${this.table}_insert_failed` } };
     }
+    // brokerage_comms_outbox carries a unique index on idempotency_key. The
+    // stub has to enforce it, or the exact production failure — a 23505 on a
+    // key whose row had already reached a terminal status — cannot be written
+    // as a test at all.
+    if (this.table === "brokerage_comms_outbox") {
+      const seen = new Set((this.db.tables[this.table] ?? []).map(r => r.idempotency_key).filter(Boolean));
+      for (const row of this._i ?? []) {
+        if (row.idempotency_key && seen.has(row.idempotency_key)) {
+          return {
+            data: null,
+            error: {
+              code: "23505",
+              message: 'duplicate key value violates unique constraint "brokerage_comms_outbox_idempotency_key_idx"',
+            },
+          };
+        }
+      }
+    }
     if (!this._insertCommitted) {
       this.db.tables[this.table] ??= [];
       this.db.tables[this.table].push(...(this._i ?? []));
@@ -408,4 +426,68 @@ test("email success without provider acceptance evidence schedules retry", async
     db.tables.brokerage_comms_outbox[0].last_failure_code,
     "provider_acceptance_unproven",
   );
+});
+
+// ── Idempotency across runs ─────────────────────────────────────────────────
+// The scheduled runner calls enqueue with the same key every ten minutes. Once
+// the first batch had actually sent, the pre-check (which filtered to
+// non-terminal statuses) stopped finding those rows and the insert collided
+// with the unique index — surfacing 23505 as an orchestration_error on every
+// run thereafter. These lock that shut: a key is spent in ANY state.
+
+for (const terminal of ["sent", "failed", "exhausted"]) {
+  test(`a key already ${terminal} is not re-enqueued`, async () => {
+    const db = new OS();
+    const first = await m.enqueueCommsMessage(BASE_ARGS, db as any);
+    db.tables.brokerage_comms_outbox[0].status = terminal;
+
+    const second = await m.enqueueCommsMessage(BASE_ARGS, db as any);
+    assert.equal(second.created, false);
+    assert.equal(second.id, first.id);
+    assert.equal(db.tables.brokerage_comms_outbox.length, 1);
+  });
+}
+
+test("a spent key survives repeated scheduled runs without erroring", async () => {
+  const db = new OS();
+  await m.enqueueCommsMessage(BASE_ARGS, db as any);
+  for (let run = 0; run < 5; run += 1) {
+    db.tables.brokerage_comms_outbox[0].status = "sent";
+    const r = await m.enqueueCommsMessage(BASE_ARGS, db as any);
+    assert.equal(r.created, false);
+  }
+  assert.equal(db.tables.brokerage_comms_outbox.length, 1);
+});
+
+test("losing a race on the same key adopts the winner's row instead of throwing", async () => {
+  const db = new OS();
+  const winner = await m.enqueueCommsMessage(BASE_ARGS, db as any);
+
+  // Both callers passed the pre-check before either inserted: force the lookup
+  // to miss so the insert is the only thing standing between them.
+  const realFrom = db.from.bind(db);
+  let lookups = 0;
+  (db as any).from = (t: string) => {
+    const q = realFrom(t);
+    if (t === "brokerage_comms_outbox") {
+      const realMaybeSingle = q.maybeSingle.bind(q);
+      q.maybeSingle = () => (++lookups === 1 ? Promise.resolve({ data: null, error: null }) : realMaybeSingle());
+    }
+    return q;
+  };
+
+  const loser = await m.enqueueCommsMessage(BASE_ARGS, db as any);
+  assert.equal(loser.created, false);
+  assert.equal(loser.id, winner.id);
+  assert.equal(db.tables.brokerage_comms_outbox.length, 1);
+});
+
+test("a different key still enqueues alongside a spent one", async () => {
+  const db = new OS();
+  await m.enqueueCommsMessage(BASE_ARGS, db as any);
+  db.tables.brokerage_comms_outbox[0].status = "sent";
+
+  const tomorrow = await m.enqueueCommsMessage({ ...BASE_ARGS, idempotencyKey: "test-key-2" }, db as any);
+  assert.equal(tomorrow.created, true);
+  assert.equal(db.tables.brokerage_comms_outbox.length, 2);
 });
