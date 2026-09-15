@@ -1,4 +1,5 @@
 import "server-only";
+import { appendFormContinuation } from "@/lib/sba/forms/formContinuation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -174,9 +175,8 @@ export async function renderForm413Pdf(args: {
 
   // Section 4 — up to 3 real estate properties (A/B/C).
   const realEstate = Array.isArray(f.real_estate_properties) ? (f.real_estate_properties as Array<Record<string, unknown>>) : [];
-  for (const row of realEstate) {
-    const label = row.property_label as "A" | "B" | "C" | undefined;
-    if (!label || !FORM_413_REAL_ESTATE_FIELDS[label]) continue;
+  for (const [index, row] of realEstate.slice(0, 3).entries()) {
+    const label = (["A", "B", "C"] as const)[index];
     const slot = FORM_413_REAL_ESTATE_FIELDS[label];
     if (row.property_type != null) textValues[slot.type] = String(row.property_type);
     if (row.address != null) textValues[slot.address] = String(row.address);
@@ -227,6 +227,11 @@ export async function renderForm413Pdf(args: {
       }
     }
 
+    await appendFormContinuation(pdfDoc, "SBA Form 413 — " + String(f.full_name ?? "Applicant"), [
+      { title: "Notes payable — continuation", rows: notesPayable.slice(5) },
+      { title: "Stocks and bonds — continuation", rows: securities.slice(4) },
+      { title: "Real estate — continuation", rows: realEstate.slice(3) },
+    ]);
     const pdfBytes = await pdfDoc.save();
     return { ok: true, pdfBytes: Buffer.from(pdfBytes) };
   } catch (err: any) {

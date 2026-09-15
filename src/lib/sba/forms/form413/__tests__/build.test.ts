@@ -6,10 +6,10 @@ function isoDate(daysAgo: number): string {
   return new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
 }
 
-test("empty input -> no signers, is_complete = true (nothing to check)", () => {
+test("empty input cannot certify a completed personal financial statement", () => {
   const result = buildForm413({ signers: [] });
   assert.equal(result.missing.length, 0);
-  assert.equal(result.is_complete, true);
+  assert.equal(result.is_complete, false);
 });
 
 test("signer with no fields -> all required fields missing", () => {

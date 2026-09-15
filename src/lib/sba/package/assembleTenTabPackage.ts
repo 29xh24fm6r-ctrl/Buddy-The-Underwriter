@@ -1,4 +1,6 @@
 import "server-only";
+import { appendFormContinuation } from "@/lib/sba/forms/formContinuation";
+import { PACKAGE_QUESTIONS } from "@/lib/borrower/guidedPackage/packageQuestions";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PDFDocument } from "pdf-lib";
 import { orderItemsByTab, type PackageRunItemForAssembly } from "@/lib/sba/package/tenTabAssembly";
@@ -42,7 +44,7 @@ export async function assembleTenTabPackage(args: {
   const sb = supabase as unknown as { from: (t: string) => any };
 
   const { data: run } = await sb.from("sba_package_runs").select("id, deal_id").eq("id", packageRunId).maybeSingle();
-  if (!run) {
+  if (!run || run.deal_id !== dealId) {
     return { ok: false, reason: "PACKAGE_RUN_NOT_FOUND" };
   }
 
@@ -61,17 +63,26 @@ export async function assembleTenTabPackage(args: {
 
   const missingItems = allItems.filter((it) => it.status !== "generated" || !it.output_storage_path).map((it) => it.template_code);
 
+  if (missingItems.length) return { ok: false, reason: "MERGE_FAILED", detail: `Package has unfinished items: ${missingItems.join(", ")}` };
+
   try {
     const merged = await PDFDocument.create();
 
     for (const { item } of tabbed) {
       const bytes = await downloadFromAnyBucket(supabase, item.output_storage_path!);
-      if (!bytes) continue; // download failure for one item shouldn't fail the whole assembly
+      if (!bytes) return { ok: false, reason: "MERGE_FAILED", detail: `Required PDF could not be downloaded: ${item.template_code}` };
       const sourceDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
       const copiedPages = await merged.copyPages(sourceDoc, sourceDoc.getPageIndices());
       for (const page of copiedPages) merged.addPage(page);
     }
 
+    const answersResult = await sb.from("borrower_concierge_sessions").select("confirmed_facts").eq("deal_id", dealId).maybeSingle();
+    if (answersResult.error) return { ok: false, reason: "MERGE_FAILED", detail: "Package interview answers could not be loaded" };
+    const answers = answersResult.data?.confirmed_facts?.package_answers ?? {};
+    await appendFormContinuation(merged, "Borrower package interview — subject to lender review", [{
+      title: "Borrower-supplied answers (supporting information)",
+      rows: PACKAGE_QUESTIONS.filter(q => answers[q.id]?.value != null).map(q => ({ question: q.question, answer: answers[q.id].value })),
+    }]);
     const mergedBytes = await merged.save();
     const storagePath = `deals/${dealId}/sba-packages/${packageRunId}/complete-package.pdf`;
 
@@ -80,11 +91,12 @@ export async function assembleTenTabPackage(args: {
       return { ok: false, reason: "MERGE_FAILED", detail: uploadError.message };
     }
 
-    await sb
+    const { error: persistError } = await sb
       .from("sba_package_runs")
       .update({ assembled_package_storage_path: storagePath, assembled_at: new Date().toISOString() })
       .eq("id", packageRunId);
 
+    if (persistError) return { ok: false, reason: "MERGE_FAILED", detail: "Package status could not be saved" };
     return { ok: true, storagePath, itemCount: tabbed.length, missingItems };
   } catch (err: any) {
     return { ok: false, reason: "MERGE_FAILED", detail: err?.message ?? String(err) };

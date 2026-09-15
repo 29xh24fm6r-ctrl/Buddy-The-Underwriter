@@ -63,7 +63,7 @@ export async function buildForm912Input(
         "home_address_street, home_address_city, home_address_state, home_address_zip, " +
         "prior_address_street, prior_address_city, prior_address_state, prior_address_zip, " +
         "incarcerated_or_indicted_financial_crime, riot_related_conviction_past_year, delinquent_child_support_60days, " +
-        "evidence_json",
+        "all_other_names_used, residence_history_5yr, evidence_json",
     )
     .eq("deal_id", dealId);
 
@@ -87,7 +87,8 @@ export async function buildForm912Input(
       fields: {
         business_name_address_email: businessNameAddressEmail,
         full_name: e.display_name ?? null,
-        all_other_names_used: evidence.all_other_names_used ?? null,
+        all_other_names_used: e.all_other_names_used ?? evidence.all_other_names_used ?? null,
+        residence_history_5yr: e.residence_history_5yr ?? evidence.residence_history_5yr ?? null,
         ownership_percentage: e.ownership_pct ?? null,
         // Presence marker only — never the plaintext value. The real SSN
         // is decrypted exclusively inside render.ts at fill time.

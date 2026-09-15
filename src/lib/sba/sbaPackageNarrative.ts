@@ -1,4 +1,5 @@
 import "server-only";
+import { formatPackageInterview } from "@/lib/borrower/guidedPackage/interviewContext";
 
 import type {
   SensitivityScenario,
@@ -51,7 +52,7 @@ function hasStorySubstance(story: BorrowerStory | null | undefined): boolean {
   const nonEmpty = (s: string | null) =>
     typeof s === "string" && s.trim().length > 0;
   return (
-    nonEmpty(story.originStory) ||
+    !!story.packageInterview?.length || nonEmpty(story.originStory) ||
     nonEmpty(story.competitiveInsight) ||
     nonEmpty(story.idealCustomer) ||
     nonEmpty(story.growthStrategy) ||
@@ -66,6 +67,7 @@ function formatStoryForPrompt(story: BorrowerStory | null | undefined): string {
   const lines: string[] = [
     "THE BORROWER'S STORY (their own words, captured in discovery interview):",
   ];
+  lines.push(formatPackageInterview(s.packageInterview));
   if (s.originStory?.trim()) {
     lines.push(`Why they started this business:\n${s.originStory.trim()}`);
   }

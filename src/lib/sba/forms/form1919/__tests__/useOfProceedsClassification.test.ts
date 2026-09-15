@@ -132,3 +132,16 @@ test("a CONFIRMED multi-category classification splits amounts across the right 
   assert.equal(input.sectionI.other_purpose_1_amount, 50000);
   assert.equal(input.sectionI.other_purpose_1_description, "misc");
 });
+
+test("repeated financing categories retain every amount and other-purpose description", async () => {
+ const db=fakeDb({...BASE_TABLES,deal_structured_field_confirmations:[confirmationRow({value:{categorized:[
+  {category:'equipment',amount:15000,description:'Machine A'},
+  {category:'equipment',amount:20000,description:'Machine B'},
+  {category:'other',amount:100,description:'First'},
+  {category:'other',amount:200,description:'Second'}
+ ]}})]});
+ const {sectionI}=await buildForm1919Input('deal-1',db as any);
+ assert.equal(sectionI.equipment_amount,35000);
+ assert.equal(sectionI.other_purpose_1_amount,300);
+ assert.equal(sectionI.other_purpose_1_description,'First; Second');
+});

@@ -74,8 +74,9 @@ export async function buildForm4506cInput(dealId: string, bankId: string, sb: Fo
       .select("pii_type")
       .eq("deal_id", dealId)
       .eq("ownership_entity_id", e.id)
-      .eq("pii_type", "full_ssn");
-    const ssnOnFile = ((piiRows ?? []) as Array<{ pii_type: string }>).length > 0;
+      .in("pii_type", ["full_ssn", "spouse_full_ssn"]);
+    const ssnOnFile = (piiRows ?? []).some((r: any) => r.pii_type === "full_ssn");
+    const spouseSsnOnFile = (piiRows ?? []).some((r: any) => r.pii_type === "spouse_full_ssn");
 
     const { first, last } = splitName(e.display_name);
     const spouse = splitName(e.has_spouse ? e.spouse_full_name : null);
@@ -86,6 +87,7 @@ export async function buildForm4506cInput(dealId: string, bankId: string, sb: Fo
         taxpayer_first_name: first,
         taxpayer_last_name: last,
         taxpayer_id: ssnOnFile ? "on_file" : null,
+        spouse_id: e.has_spouse && spouseSsnOnFile ? "on_file" : null,
         spouse_first_name: spouse.first,
         spouse_last_name: spouse.last,
         current_address_street: e.home_address_street ?? null,

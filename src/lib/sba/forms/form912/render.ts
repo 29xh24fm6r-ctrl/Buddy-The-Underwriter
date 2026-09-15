@@ -1,4 +1,5 @@
 import "server-only";
+import { appendFormContinuation } from "@/lib/sba/forms/formContinuation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -153,6 +154,7 @@ export async function renderForm912Pdf(args: {
       }
     }
 
+    await appendFormContinuation(pdfDoc, `SBA Form 912 — ${String(f.full_name ?? "Applicant")}`, [{ title: "Section 7 — residence history attachment", rows: f.residence_history_5yr ? [{ residence_history: f.residence_history_5yr }] : [] }]);
     const pdfBytes = await pdfDoc.save();
     return { ok: true, pdfBytes: Buffer.from(pdfBytes) };
   } catch (err: any) {

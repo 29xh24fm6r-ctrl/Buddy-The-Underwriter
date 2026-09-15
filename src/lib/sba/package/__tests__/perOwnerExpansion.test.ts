@@ -26,8 +26,8 @@ describe("perOwnerExpansion", () => {
     assert.ok(isPerOwnerTemplateCode("SBA_148"));
     assert.ok(isPerOwnerTemplateCode("SBA_148L"));
 
-    assert.ok(!isPerOwnerTemplateCode("SBA_1919"));
-    assert.ok(!isPerOwnerTemplateCode("SBA_1244"));
+    assert.ok(isPerOwnerTemplateCode("SBA_1919"));
+    assert.ok(isPerOwnerTemplateCode("SBA_1244"));
     assert.ok(!isPerOwnerTemplateCode("SBA_155"));
     assert.ok(!isPerOwnerTemplateCode("SBA_601"));
     assert.ok(!isPerOwnerTemplateCode("SBA_NOTE"));
@@ -107,4 +107,12 @@ describe("perOwnerExpansion", () => {
     assert.strictEqual(f4506.length, 2, "2 individuals × 4506-C");
     assert.strictEqual(f148.length, 2, "both owners are 20%+ → unconditional");
   });
+});
+
+test("1919 and 1244 include every individual personal section", async () => {
+  const result = await expandPerOwnerItems("deal-1", ["SBA_1919", "SBA_1244"], mockSb([
+    { id: "one", entity_type: "individual", display_name: "One", ownership_pct: 50 },
+    { id: "two", entity_type: "individual", display_name: "Two", ownership_pct: 50 },
+  ]));
+  assert.deepEqual(result.map(r => r.templateCode + ":" + r.ownershipEntityId), ["SBA_1919:one", "SBA_1919:two", "SBA_1244:one", "SBA_1244:two"]);
 });

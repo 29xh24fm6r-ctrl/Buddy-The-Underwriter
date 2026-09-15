@@ -1,4 +1,6 @@
 import "server-only";
+import { requiresPersonalPackage } from "@/lib/ownership/rules";
+import { TERMINAL_SUCCESS_STATUSES } from "@/lib/identity/kyc/service";
 
 /**
  * GET /api/brokerage/deals/[dealId]/seal-status
@@ -44,6 +46,7 @@ export async function GET(
   }
 
   const sb = supabaseAdmin();
+  const verifiedState = await loadVerificationState(dealId, sb);
 
   // Concierge progress (stage 1 — "tell us about your loan").
   const { data: conciergeSession } = await sb
@@ -223,6 +226,7 @@ export async function GET(
       identityVerificationCount: identityVerificationCount ?? 0,
       ownershipEntityCount: ownershipEntityCount ?? 0,
       franchiseMatched,
+      ...verifiedState,
       facts,
       fieldProgress,
       sealed: true,
@@ -254,6 +258,7 @@ export async function GET(
     identityVerificationCount: identityVerificationCount ?? 0,
     ownershipEntityCount: ownershipEntityCount ?? 0,
     franchiseMatched,
+    ...verifiedState,
     facts,
     fieldProgress,
     sealed: false,
@@ -295,5 +300,19 @@ async function loadScoreForResponse(
     topWeaknesses: row.top_weaknesses ?? [],
     narrative: row.narrative ?? "",
     computedAt: row.computed_at ?? null,
+  };
+}
+
+async function loadVerificationState(dealId: string, sb: ReturnType<typeof supabaseAdmin>) {
+  const [owners, identities, financials] = await Promise.all([
+    sb.from("ownership_entities").select("id,ownership_pct").eq("deal_id", dealId),
+    sb.from("borrower_identity_verifications").select("ownership_entity_id").eq("deal_id", dealId).in("status", TERMINAL_SUCCESS_STATUSES).not("completed_at", "is", null),
+    sb.from("financial_snapshots").select("snapshot_hash,snapshot_json").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  const required = (owners.data ?? []).filter(o => requiresPersonalPackage(o.ownership_pct));
+  const verified = new Set((identities.data ?? []).map(i => i.ownership_entity_id));
+  return {
+    identityVerified: !owners.error && !identities.error && required.length > 0 && required.every(o => verified.has(o.id)),
+    financialsExtracted: !financials.error && !!financials.data?.snapshot_hash && !!financials.data?.snapshot_json && Object.keys(financials.data.snapshot_json).length > 0,
   };
 }

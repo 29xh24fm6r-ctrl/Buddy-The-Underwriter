@@ -11,6 +11,8 @@ export type PerOwnerItem = {
 };
 
 const PER_OWNER_TEMPLATE_CODES = new Set([
+  "SBA_1919",
+  "SBA_1244",
   "SBA_413",
   "SBA_912",
   "IRS_4506C",
@@ -76,6 +78,8 @@ export async function expandPerOwnerItems(
         break;
       }
 
+      case "SBA_1919":
+      case "SBA_1244":
       case "IRS_4506C": {
         for (const owner of individuals) {
           result.push({ templateCode: code, ownershipEntityId: owner.id, ownerName: owner.display_name ?? "Owner" });

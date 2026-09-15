@@ -59,10 +59,10 @@ export async function renderSbaPackageItem(
       const buildResult = await buildForm1919WithSignature(dealId, sb);
       if (!buildResult.is_complete) return { ok: false, reason: "form_incomplete" };
       // Section II is per-individual on the real form (see form1919/
-      // render.ts) — same "first applicable signer only" simplification
-      // already used above for 413/912/148 until the package-run schema
-      // gains a signer dimension.
-      const person = buildResult.input.sectionII[0];
+      // render.ts). Ambiguous calls must identify their intended signer.
+      const person = ownershipEntityId
+        ? buildResult.input.sectionII.find(p => p.ownership_entity_id === ownershipEntityId)
+        : buildResult.input.sectionII.length === 1 ? buildResult.input.sectionII[0] : undefined;
       if (!person) return { ok: false, reason: "no_signers" };
       const rendered = await renderForm1919Pdf({ supabase, buildResult, ownershipEntityId: person.ownership_entity_id, dealId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
@@ -72,10 +72,10 @@ export async function renderSbaPackageItem(
       const buildResult = await buildForm1244WithSignature(dealId, sb);
       if (!buildResult.is_complete) return { ok: false, reason: "form_incomplete" };
       // Section Two is per-individual on the real form (see form1244/
-      // render.ts) — same "first applicable signer only" simplification
-      // already used above for 413/912/148/1919 until the package-run
-      // schema gains a signer dimension.
-      const person = buildResult.input.sectionII[0];
+      // render.ts). Ambiguous calls must identify their intended signer.
+      const person = ownershipEntityId
+        ? buildResult.input.sectionII.find(p => p.ownership_entity_id === ownershipEntityId)
+        : buildResult.input.sectionII.length === 1 ? buildResult.input.sectionII[0] : undefined;
       if (!person) return { ok: false, reason: "no_signers" };
       const rendered = await renderForm1244Pdf({ supabase, buildResult, ownershipEntityId: person.ownership_entity_id, dealId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
