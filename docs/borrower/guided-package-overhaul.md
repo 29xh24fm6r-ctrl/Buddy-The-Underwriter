@@ -22,11 +22,11 @@ The existing ownership editor, document uploads, review, and signature flow rema
 
 ## Deployment dependency
 
-Apply `supabase/migrations/20260915161948_guided_package_answers.sql` to **Buddy's** database before deploying the new workspace. The migration adds two service-role-only RPCs, permits more than three labeled properties, and registers the missing Form 159 and Form 722 assets without replacing an existing template. No production database migration was applied during this implementation: the dedicated Buddy connection was unavailable. The unrelated Pulse database must not be used.
+Migration `supabase/migrations/20260915161948_guided_package_answers.sql` was applied to **Buddy's** production database on September 15, 2026. The migration adds two service-role-only RPCs, permits more than three labeled properties, and registers missing Form 159 and Form 722 assets without replacing an existing template. Production already had an inactive Form 159 row, so this migration correctly preserved that row's inactive state. See [live verification](guided-package-live-verification.md) for the deployed checks and remaining Form 159 activation dependency.
 
 The application needs its existing Supabase, voice, PII encryption, and AI gateway configuration. Form 159 needs the brokerage's `banks.settings.form159_agent_name` and `form159_agent_address`, plus its existing fee/lender configuration. These are lender-managed values.
 
-Before release, use a designated test application to save/reload typed and spoken answers, add multiple owners and overflow schedules, complete the existing document/signature flow, and download and inspect the resulting package. Automated transaction tests use PGlite fixtures; they do not prove that production has the same schema or configuration. Local browser verification could not run because the browser download failed.
+Live HTTP and database checks now cover typed answers, submitted voice transcripts, Buddy review, multiple owners, and editable financial schedules. Actual microphone capture, the full document/signature flow, and an assembled production package still require verification. Automated PDF tests and PGlite transactions supplement these checks; they do not certify a completed loan application.
 
 ## Remaining form boundary
 
