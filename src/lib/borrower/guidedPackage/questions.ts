@@ -99,7 +99,10 @@ export function parseAnswer(value: unknown, type: string): AnswerValue {
       typeof value === "number"
         ? value
         : Number(value.replace(/[$,]/g, "").trim());
-    if (!Number.isFinite(n) || (typeof value === "string" && !value.trim()))
+    if (
+      !Number.isFinite(n) ||
+      (typeof value === "string" && !value.replace(/[$,]/g, "").trim())
+    )
       throw new Error("Enter a valid number.");
     return n;
   }

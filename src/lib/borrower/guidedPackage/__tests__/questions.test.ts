@@ -7,6 +7,7 @@ test("zero, explicit no, dates and invalid values stay distinct", () => {
   assert.equal(parseAnswer("", "number"), null);
   assert.throws(() => parseAnswer("maybe", "boolean"));
   assert.throws(() => parseAnswer("NaN", "number"));
+  assert.throws(() => parseAnswer("$", "number"));
   assert.throws(() => parseAnswer("2026-02-30", "date"));
 });
 test("separate owners produce separate questions; unconfirmed character answers do not count as saved", () => {
@@ -32,6 +33,12 @@ test("separate owners produce separate questions; unconfirmed character answers 
   const s = buildGuidedSnapshot({ rows, facts: {}, revision: null });
   assert.ok(s.questions.some((q) => q.id === "owner.full_name:one"));
   assert.ok(s.questions.some((q) => q.id === "owner.full_name:two"));
+  assert.ok(
+    s.questions.some((q) => q.id === "business.contact_name" && q.required),
+  );
+  assert.ok(
+    s.questions.some((q) => q.id === "business.contact_email" && q.required),
+  );
   assert.equal(
     s.questions.find((q) => q.id === "owner.legal_action_pending:one")?.state,
     "needs_confirmation",

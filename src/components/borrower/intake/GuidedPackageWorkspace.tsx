@@ -40,6 +40,13 @@ export function GuidedPackageWorkspace({
   const [selectedId, setSelectedId] = useState("");
   const [showTools, setShowTools] = useState(false);
   const [onlyOpen, setOnlyOpen] = useState(false);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (Object.keys(drafts.current).length) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
   const refresh = useCallback(async () => {
     try {
       const response = await fetch(
@@ -68,8 +75,7 @@ export function GuidedPackageWorkspace({
         q.section === activeSection &&
         (!onlyOpen || !["saved", "not_applicable"].includes(q.state)),
     ) ?? [];
-  const selected =
-    visible.find((q) => q.id === selectedId) ?? visible[0];
+  const selected = visible.find((q) => q.id === selectedId) ?? visible[0];
   const percent = snapshot?.total
     ? Math.round((snapshot.saved / snapshot.total) * 100)
     : 0;
@@ -245,10 +251,20 @@ export function GuidedPackageWorkspace({
                   }}
                   onRefresh={refresh}
                   onNext={() => {
-                    const index = snapshot.questions.findIndex(q => q.id === selected.id);
-                    const next = snapshot.questions.slice(index + 1).find(q => !onlyOpen || !['saved', 'not_applicable'].includes(q.state));
-                    if (next) { setSection(next.section); setSelectedId(next.id); }
-                    else setShowTools(true);
+                    const index = snapshot.questions.findIndex(
+                      (q) => q.id === selected.id,
+                    );
+                    const next = snapshot.questions
+                      .slice(index + 1)
+                      .find(
+                        (q) =>
+                          !onlyOpen ||
+                          !["saved", "not_applicable"].includes(q.state),
+                      );
+                    if (next) {
+                      setSection(next.section);
+                      setSelectedId(next.id);
+                    } else setShowTools(true);
                   }}
                 />
               )}
@@ -358,6 +374,7 @@ function AnswerCard({
       const data = await response.json();
       if (!response.ok || !data.ok)
         throw new Error(data.error || "Unable to save your answer.");
+      delete drafts[q.id];
       setDirty(false);
       setMessage("Saved to your application.");
       onSaved(data.snapshot);
@@ -520,7 +537,9 @@ function AnswerCard({
           )}
           <p className="mt-2 text-xs text-slate-500">
             {dirty
-              ? "Unsaved draft. It stays here while you work through other questions."
+              ? q.field?.requiresPiiVault
+                ? "Unsaved protected value. Save it before changing questions."
+                : "Unsaved draft. It stays here while you work through other questions."
               : q.state === "saved"
                 ? "Saved answer loaded from your application."
                 : "You can return to this question later."}
