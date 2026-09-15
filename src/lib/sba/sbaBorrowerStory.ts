@@ -1,4 +1,5 @@
 import "server-only";
+import { packageInterviewAnswers, type PackageInterviewAnswer } from "@/lib/borrower/guidedPackage/interviewContext";
 
 // src/lib/sba/sbaBorrowerStory.ts
 // God Tier Business Plan — Step 2
@@ -14,6 +15,7 @@ export type CapturedVia = "voice" | "chat" | "form";
 
 export interface BorrowerStory {
   dealId: string;
+  packageInterview?: PackageInterviewAnswer[];
   originStory: string | null;
   competitiveInsight: string | null;
   idealCustomer: string | null;
@@ -81,8 +83,12 @@ export async function loadBorrowerStoryWithEvidence(
     .maybeSingle();
 
   if (error) return { ok: false, error: "borrower_story_read_failed" };
-  if (!data) return { ok: true, story: null };
-  return { ok: true, story: rowToStory(data as StoryRow) };
+  const interview = await sb.from("borrower_concierge_sessions").select("confirmed_facts").eq("deal_id", dealId).maybeSingle();
+  if (interview.error) return { ok: false, error: "borrower_story_read_failed" };
+  const answers = packageInterviewAnswers(interview.data?.confirmed_facts ?? {});
+  if (!data && !answers.length) return { ok: true, story: null };
+  const base = data ? rowToStory(data as StoryRow) : { dealId, originStory: null, competitiveInsight: null, idealCustomer: null, growthStrategy: null, biggestRisk: null, personalVision: null, voiceFormality: null, voiceMetaphors: [], voiceValues: [], capturedVia: "form" as const, capturedAt: answers.find(a => a.savedAt)?.savedAt ?? "" };
+  return { ok: true, story: { ...base, packageInterview: answers } };
 }
 
 export async function loadBorrowerStory(

@@ -69,7 +69,7 @@ export function buildForm413(input: Form413Input): Form413BuildResult {
   );
 
   const isComplete =
-    missing.every((m) => m.missing.length === 0) && signatures.every((s) => !s.needs_resignature);
+    input.signers.length > 0 && missing.every((m) => m.missing.length === 0) && signatures.every((s) => !s.needs_resignature);
 
   return { form: "413", input, missing, signatures, is_complete: isComplete };
 }

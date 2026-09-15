@@ -19,6 +19,7 @@
  * typical wait after a voice turn from ~20s to a few seconds.
  */
 
+import { useEffect, useRef } from "react";
 import { useBuddyVoice } from "@/lib/voice/useBuddyVoice";
 
 const STATUS_DISPLAY: Record<
@@ -37,13 +38,18 @@ const STATUS_DISPLAY: Record<
 export default function BorrowerVoicePanel({
   dealId,
   onAssistantTurn,
+  question,
+  onUserAnswer,
 }: {
   dealId: string;
   /** Fires once per completed assistant turn — the borrower said something,
    * Buddy responded, and the gateway has almost certainly kicked off (or
    * finished) its server-side fact extraction for that turn by now. */
   onAssistantTurn?: () => void;
+  question?: string;
+  onUserAnswer?: (text: string) => void;
 }) {
+  const contextMessage = useRef<string | null>(null);
   const {
     status,
     error,
@@ -52,13 +58,25 @@ export default function BorrowerVoicePanel({
     isUserSpeaking,
     connect,
     disconnect,
+    sendTextMessage,
   } = useBuddyVoice({
     dealId,
     tokenEndpoint: "/api/brokerage/voice/realtime-token",
     onMessage: (msg) => {
       if (msg.role === "assistant") onAssistantTurn?.();
+      if (msg.role === "user" && msg.content !== contextMessage.current) onUserAnswer?.(msg.content);
     },
   });
+
+  const asked = useRef<string | null>(null);
+  useEffect(() => {
+    if (status === "idle") asked.current = null;
+    if (question && status === "listening" && asked.current !== question) {
+      asked.current = question;
+      contextMessage.current = `Help me answer this application question: ${question}. Ask it plainly, clarify my answer, and remind me to review and save the captured answer in the question box.`;
+      sendTextMessage(contextMessage.current);
+    }
+  }, [question, status, sendTextMessage]);
 
   const display = STATUS_DISPLAY[status] ?? STATUS_DISPLAY.idle;
   const isConnected = status !== "idle" && status !== "error";

@@ -71,7 +71,7 @@ export async function buildForm413Input(
           "contingent_provision_for_federal_income_tax, contingent_other_special_debt, income_salary, " +
           "income_net_investment, income_real_estate, income_other, income_other_description, " +
           "other_personal_property_description, unpaid_taxes_description, other_liabilities_description, " +
-          "life_insurance_description",
+          "life_insurance_description, real_estate_property_address, real_estate_type_title, real_estate_original_cost, real_estate_present_market_value, real_estate_amount_of_mortgage",
       )
       .eq("applicant_id", owner.id)
       .maybeSingle();
@@ -115,15 +115,13 @@ export async function buildForm413Input(
       .from("borrower_pfs_notes_payable")
       .select("noteholder_name_address, original_balance, current_balance, payment_amount, payment_frequency, collateral_description")
       .eq("applicant_id", owner.id)
-      .order("sort_order", { ascending: true })
-      .limit(5);
+      .order("sort_order", { ascending: true });
 
     const { data: securities } = await sb
       .from("borrower_pfs_securities")
       .select("number_of_shares, name_of_securities, cost, market_value_quotation_exchange, date_of_quotation, total_value")
       .eq("applicant_id", owner.id)
-      .order("sort_order", { ascending: true })
-      .limit(4);
+      .order("sort_order", { ascending: true });
 
     const { data: realEstate } = await sb
       .from("borrower_pfs_real_estate")
@@ -133,6 +131,16 @@ export async function buildForm413Input(
       )
       .eq("applicant_id", owner.id);
 
+    const propertyRows = [...(realEstate ?? [])];
+    // Retain a property captured through the older intake unless the new
+    // schedule already contains that address. Adding a new property must
+    // never remove the previously collected one from the output.
+    const legacyAddress = String(f.real_estate_property_address ?? '').trim();
+    if (legacyAddress && !propertyRows.some((row: Record<string, any>) => String(row.address ?? '').trim().toLowerCase() === legacyAddress.toLowerCase())) propertyRows.push({
+      property_label: "A", address: f.real_estate_property_address, property_type: f.real_estate_type_title,
+      original_cost: f.real_estate_original_cost, present_market_value: f.real_estate_present_market_value,
+      mortgage_balance: f.real_estate_amount_of_mortgage,
+    });
     signers.push({
       ownership_entity_id: String(owner.id),
       fields: {
@@ -185,7 +193,7 @@ export async function buildForm413Input(
 
         notes_payable: notesPayable ?? [],
         securities: securities ?? [],
-        real_estate_properties: realEstate ?? [],
+        real_estate_properties: propertyRows,
         other_personal_property_description: f.other_personal_property_description ?? null,
         unpaid_taxes_description: f.unpaid_taxes_description ?? null,
         other_liabilities_description: f.other_liabilities_description ?? null,

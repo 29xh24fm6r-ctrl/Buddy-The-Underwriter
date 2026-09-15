@@ -650,6 +650,16 @@
     "migration": "20260910152547_crm_admin_deletion_audit.sql"
   },
   {
+    "name": "save_guided_package_answer",
+    "type": "function",
+    "migration": "20260915161948_guided_package_answers.sql"
+  },
+  {
+    "name": "save_guided_pfs_row",
+    "type": "function",
+    "migration": "20260915161948_guided_package_answers.sql"
+  },
+  {
     "name": "deals.brokerage_comms_last_run_at",
     "type": "column",
     "migration": "20260908183000_deals_brokerage_comms_last_run_at.sql"

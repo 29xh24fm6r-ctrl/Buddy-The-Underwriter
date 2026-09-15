@@ -21,7 +21,7 @@ export type Form722Status = {
 const ACK_EVENT_KIND = "form_722.acknowledged";
 
 export async function getForm722Status(dealId: string, sb: Form722SupabaseClient): Promise<Form722Status> {
-  const { data: template } = await sb
+  const { data: template, error: templateError } = await sb
     .from("bank_document_templates")
     .select("file_path")
     .is("bank_id", null)
@@ -29,7 +29,7 @@ export async function getForm722Status(dealId: string, sb: Form722SupabaseClient
     .eq("is_active", true)
     .maybeSingle();
 
-  const { data: ackEvent } = await sb
+  const { data: ackEvent, error: acknowledgmentError } = await sb
     .from("deal_events")
     .select("created_at")
     .eq("deal_id", dealId)
@@ -38,6 +38,7 @@ export async function getForm722Status(dealId: string, sb: Form722SupabaseClient
     .limit(1)
     .maybeSingle();
 
+  if (templateError || acknowledgmentError) throw new Error("Form 722 status could not be loaded");
   return {
     posterAvailable: Boolean(template?.file_path),
     posterStoragePath: template?.file_path ?? null,
@@ -46,7 +47,7 @@ export async function getForm722Status(dealId: string, sb: Form722SupabaseClient
   };
 }
 
-export type AcknowledgeForm722Result = { ok: true } | { ok: false; reason: "ALREADY_ACKNOWLEDGED" };
+export type AcknowledgeForm722Result = { ok: true } | { ok: false; reason: "ALREADY_ACKNOWLEDGED" | "TEMPLATE_UNAVAILABLE" | "SAVE_FAILED" };
 
 export async function acknowledgeForm722(
   dealId: string,
@@ -59,11 +60,12 @@ export async function acknowledgeForm722(
     return { ok: false, reason: "ALREADY_ACKNOWLEDGED" };
   }
 
-  await sb.from("deal_events").insert({
+  if (!status.posterAvailable) return { ok: false, reason: "TEMPLATE_UNAVAILABLE" };
+  const { error } = await sb.from("deal_events").insert({
     deal_id: dealId,
     kind: ACK_EVENT_KIND,
     payload: { bank_id: bankId, acknowledged_by_user_id: args.acknowledgedByUserId },
   });
 
-  return { ok: true };
+  return error ? { ok: false, reason: "SAVE_FAILED" } : { ok: true };
 }

@@ -71,10 +71,10 @@ function buildReviewItems(
       key: "financials",
       label: "Financials",
       detail: verifications.financialsExtracted
-        ? "Documents received"
-        : "No documents uploaded yet",
+        ? "Financial snapshot available for review"
+        : "Financial processing and review are still required",
       status: verifications.financialsExtracted ? "complete" : "flagged",
-      source: "deal_documents",
+      source: "financial_snapshots",
       resolveChapter: 4,
     },
   ];

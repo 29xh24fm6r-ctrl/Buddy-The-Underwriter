@@ -72,6 +72,8 @@ export function buildSbaForm159(args: {
   lenderBankId: string | null;
   lenderBankName: string | null;
   feeLedger: Sba159FeeLedgerRow[];
+  agentName?: string | null;
+  agentAddress?: string | null;
 }): { form: "159"; fields: Sba159Fields; missing: string[] } {
   const missing: string[] = [];
   if (!args.applicantName) missing.push("applicant_name");
@@ -108,9 +110,9 @@ export function buildSbaForm159(args: {
     agent: {
       // Buddy Brokerage is always the agent/packager of record on every
       // Buddy-originated deal — this is a fixed identity, not deal data.
-      name: AGENT_NAME,
+      name: args.agentName?.trim() || AGENT_NAME,
       type: "loan packager",
-      address: null, // No registered brokerage address on file yet — surfaced, not invented.
+      address: args.agentAddress?.trim() || null,
     },
     fees,
     total_compensation_cents: totalCompensationCents,

@@ -7,6 +7,7 @@ import {
   type JourneyStatusInput,
   type MarketplaceListingStatus,
 } from "@/components/brokerage/BrokerageStageStrip";
+import { GuidedPackageWorkspace } from "@/components/borrower/intake/GuidedPackageWorkspace";
 import { GuidedIntakeShell } from "@/components/borrower/intake/GuidedIntakeShell";
 import { IntakePurposeStep } from "@/components/borrower/intake/IntakePurposeStep";
 import { IntakeBusinessStep } from "@/components/borrower/intake/IntakeBusinessStep";
@@ -51,14 +52,16 @@ export function describeNextSteps(fields: string[]): string | null {
 
 function deriveVerifications(counts: {
   identityVerificationCount: number;
+  identityVerified?: boolean;
+  financialsExtracted?: boolean;
   ownershipEntityCount: number;
   documentsUploadedCount: number;
   franchiseMatched: boolean;
 }): DealVerificationState {
   return {
     entityResolved: counts.ownershipEntityCount >= 1,
-    identityVerified: counts.identityVerificationCount >= 1,
-    financialsExtracted: counts.documentsUploadedCount > 0,
+    identityVerified: counts.identityVerified === true,
+    financialsExtracted: counts.financialsExtracted === true,
     franchiseMatched: counts.franchiseMatched,
   };
 }
@@ -94,6 +97,8 @@ type ExtendedJourneyStatus = JourneyStatusInput & {
   fieldProgress: FieldProgress | null;
   gateReasons: string[];
   identityVerificationCount: number;
+  identityVerified?: boolean;
+  financialsExtracted?: boolean;
   ownershipEntityCount: number;
   franchiseMatched: boolean;
   scoreData: BorrowerScoreData;
@@ -102,7 +107,7 @@ type ExtendedJourneyStatus = JourneyStatusInput & {
 };
 
 function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
-  const [status, setStatus] = useState<JourneyStatusInput & { fieldProgress: FieldProgress | null; gateReasons: string[]; identityVerificationCount: number; ownershipEntityCount: number; franchiseMatched: boolean; scoreData: BorrowerScoreData; eligibilityUnresolved: EligibilityUnresolvedItem[] }>({
+  const [status, setStatus] = useState<JourneyStatusInput & { fieldProgress: FieldProgress | null; gateReasons: string[]; identityVerificationCount: number; identityVerified?: boolean; financialsExtracted?: boolean; ownershipEntityCount: number; franchiseMatched: boolean; scoreData: BorrowerScoreData; eligibilityUnresolved: EligibilityUnresolvedItem[] }>({
     hasDealId: false,
     progressPct: 0,
     documentsUploadedCount: 0,
@@ -137,6 +142,8 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
           claimsCount: Array.isArray(json.claims) ? json.claims.length : 0,
           fieldProgress: json.fieldProgress ?? null,
           gateReasons: Array.isArray(json.gateReasons) ? json.gateReasons : [],
+          identityVerified: json.identityVerified === true,
+          financialsExtracted: json.financialsExtracted === true,
           identityVerificationCount: typeof json.identityVerificationCount === "number" ? json.identityVerificationCount : 0,
           ownershipEntityCount: typeof json.ownershipEntityCount === "number" ? json.ownershipEntityCount : 0,
           franchiseMatched: Boolean(json.franchiseMatched),
@@ -739,6 +746,7 @@ export function StartConciergeClient({
         </div>
       )}
 
+      <GuidedPackageWorkspace key={nonNullDealId} dealId={nonNullDealId} onSaved={journeyStatus.refreshSoon} tools={
       <GuidedIntakeShell
         currentChapter={chapter}
         dealId={nonNullDealId}
@@ -807,6 +815,8 @@ export function StartConciergeClient({
                 purposes={purposes}
                 verifications={deriveVerifications({
                   identityVerificationCount: journeyStatus.identityVerificationCount,
+                  identityVerified: journeyStatus.identityVerified,
+                  financialsExtracted: journeyStatus.financialsExtracted,
                   ownershipEntityCount: journeyStatus.ownershipEntityCount,
                   documentsUploadedCount: journeyStatus.documentsUploadedCount,
                   franchiseMatched: journeyStatus.franchiseMatched,
@@ -820,6 +830,7 @@ export function StartConciergeClient({
           </>
         )}
       </GuidedIntakeShell>
+      } />
 
       <FloatingConcierge dealId={nonNullDealId} borrowerName={session.name} />
     </div>

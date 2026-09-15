@@ -29,7 +29,6 @@ bank_policy_rules.scope
 bank_policy_rules.severity
 bank_policy_rules.title
 borrower_applicant_financials.created_at
-borrower_applicant_financials.ownership_entity_id
 borrower_applications.submitted_at
 borrower_applications.token
 borrower_bank_match_priors.template_id

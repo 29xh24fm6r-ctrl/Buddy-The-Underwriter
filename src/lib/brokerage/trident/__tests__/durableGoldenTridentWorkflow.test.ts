@@ -299,7 +299,7 @@ test("the admitted snapshot captures every evidence layer without hashing resear
   // spelling — a guard pinned to `version: 6` fails on a correct refactor and
   // says nothing about whether the two sites agree.
   assert.match(snapshot, /version:\s*TRIDENT_SNAPSHOT_VERSION/);
-  assert.match(snapshot, /export const TRIDENT_SNAPSHOT_VERSION = 6;/);
+  assert.match(snapshot, /export const TRIDENT_SNAPSHOT_VERSION = 7;/);
   const sourcesStart = snapshot.indexOf("sources: {");
   const governedStart = snapshot.indexOf("governedEvidenceAtAdmission: {");
   const derivedStart = snapshot.indexOf("derivedAtAdmission: {");
@@ -414,7 +414,7 @@ test("input admission excludes factory-produced derivatives and canonicalizes be
   // spelling — a guard pinned to `version: 6` fails on a correct refactor and
   // says nothing about whether the two sites agree.
   assert.match(snapshot, /version:\s*TRIDENT_SNAPSHOT_VERSION/);
-  assert.match(snapshot, /export const TRIDENT_SNAPSHOT_VERSION = 6;/);
+  assert.match(snapshot, /export const TRIDENT_SNAPSHOT_VERSION = 7;/);
   assert.match(snapshot, /sources:\s*\{/);
   assert.match(snapshot, /derivedAtAdmission:\s*\{/);
   const sourcesStart = snapshot.indexOf("sources: {");
