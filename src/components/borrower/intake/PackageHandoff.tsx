@@ -54,7 +54,7 @@ export function PackageHandoff({
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <a
             className="text-sm text-sky-700 underline"
-            href="/sba-templates/SBA_722.pdf"
+            href="https://legacy.sba.gov/sites/default/files/2022-07/forms_mis772_3-508.pdf"
             target="_blank"
             rel="noreferrer"
           >
