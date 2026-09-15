@@ -103,7 +103,7 @@ function canonicalize(value: unknown): unknown {
  * Five production runs failed exactly this way, and none of them carried a
  * `changed_sources` list, because there was no source drift to report.
  */
-export const TRIDENT_SNAPSHOT_VERSION = 7;
+export const TRIDENT_SNAPSHOT_VERSION = 8;
 
 /** A schema-generation change, not borrower drift. Callers must not retry. */
 export class TridentSnapshotSchemaChanged extends Error {
@@ -127,7 +127,7 @@ export function hashTridentManifest(manifest: Record<string, unknown>): string {
   // manifest and is enforced by readiness/release, but its lifecycle workers
   // may not invalidate the factory's own frozen borrower snapshot.
   const hashDomain =
-    (manifest.version === 5 || manifest.version === 6 || manifest.version === 7) &&
+    (manifest.version === 5 || manifest.version === 6 || manifest.version === 7 || manifest.version === 8) &&
       manifest.sources && typeof manifest.sources === "object"
       ? manifest.sources
       : manifest;
@@ -201,6 +201,18 @@ export async function computeTridentInputSnapshot(
     throw new Error(`trident_snapshot_read_failed:deals:${dealResult.error?.message ?? "missing"}`);
   }
 
+  const formOwners = await requiredRows(sb, "ownership_entities", dealId) as Array<{ id: string }>;
+  const formOwnerIds = formOwners.map(owner => owner.id);
+  const [borrower, loanRequests, pfs, protectedIdentifiers] = await Promise.all([
+    dealResult.data.borrower_id ? sb.from("borrowers").select("*").eq("id", dealResult.data.borrower_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    requiredRows(sb, "deal_loan_requests", dealId),
+    formOwnerIds.length ? sb.from("borrower_applicant_financials").select("*").in("applicant_id", formOwnerIds) : Promise.resolve({ data: [], error: null }),
+    sb.from("deal_pii_records").select("id,ownership_entity_id,pii_type,updated_at").eq("deal_id", dealId),
+  ]);
+  if (borrower.error || pfs.error || protectedIdentifiers.error) throw new Error("trident_snapshot_read_failed:form_inputs");
+  // Track protected-input revisions without copying SSNs or encrypted payloads.
+  const identifierRevisions = (protectedIdentifiers.data ?? []).map((record: any) => ({ id: record.id, ownerId: record.ownership_entity_id, type: record.pii_type, revision: record.updated_at }));
+  const formInputs = { borrower: borrower.data, owners: formOwners, loanRequests, pfs: pfs.data, identifierRevisions };
   const missionIds = (researchMissions as Array<{ id?: unknown }>)
     .map((mission) => mission.id)
     .filter((id): id is string => typeof id === "string");
@@ -225,6 +237,8 @@ export async function computeTridentInputSnapshot(
     // readiness/release, while asynchronous lifecycle convergence cannot make
     // an admitted factory invalidate itself.
     sources: {
+      packageFormat: "complete-lender-package-v1",
+      formInputs,
       deal: dealResult.data,
       pricingDecisions,
       financialFacts,

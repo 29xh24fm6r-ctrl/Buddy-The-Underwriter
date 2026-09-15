@@ -57,7 +57,7 @@ export async function renderSbaPackageItem(
   switch (templateCode) {
     case "SBA_1919": {
       const buildResult = await buildForm1919WithSignature(dealId, sb);
-      if (!buildResult.is_complete) return { ok: false, reason: "form_incomplete" };
+      if (!buildResult.is_complete) return { ok: false, reason: `form_incomplete: ${JSON.stringify(buildResult.missing)}` };
       // Section II is per-individual on the real form (see form1919/
       // render.ts). Ambiguous calls must identify their intended signer.
       const person = ownershipEntityId
@@ -70,7 +70,7 @@ export async function renderSbaPackageItem(
 
     case "SBA_1244": {
       const buildResult = await buildForm1244WithSignature(dealId, sb);
-      if (!buildResult.is_complete) return { ok: false, reason: "form_incomplete" };
+      if (!buildResult.is_complete) return { ok: false, reason: `form_incomplete: ${JSON.stringify(buildResult.missing)}` };
       // Section Two is per-individual on the real form (see form1244/
       // render.ts). Ambiguous calls must identify their intended signer.
       const person = ownershipEntityId
@@ -87,6 +87,8 @@ export async function renderSbaPackageItem(
         ? buildResult.input.signers.find((s) => s.ownership_entity_id === ownershipEntityId)
         : buildResult.input.signers[0];
       if (!signer) return { ok: false, reason: "no_signers" };
+      const missing = (buildResult.missing.find(item => item.ownership_entity_id === signer.ownership_entity_id)?.missing ?? []).filter(field => field !== "signed_at");
+      if (missing.length) return { ok: false, reason: `form_incomplete: ${missing.join(", ")}` };
       const rendered = await renderForm413Pdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id, dealId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
@@ -98,6 +100,8 @@ export async function renderSbaPackageItem(
         ? buildResult.input.persons.find((p) => p.ownership_entity_id === ownershipEntityId)
         : buildResult.input.persons[0];
       if (!person) return { ok: false, reason: "no_triggering_persons" };
+      const missing = buildResult.missing.find(item => item.ownership_entity_id === person.ownership_entity_id)?.missing ?? [];
+      if (missing.length) return { ok: false, reason: `form_incomplete: ${missing.join(", ")}` };
       const rendered = await renderForm912Pdf({ supabase, buildResult, ownershipEntityId: person.ownership_entity_id, dealId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
@@ -108,6 +112,8 @@ export async function renderSbaPackageItem(
         ? buildResult.input.signers.find((s) => s.ownership_entity_id === ownershipEntityId)
         : buildResult.input.signers[0];
       if (!signer) return { ok: false, reason: "no_signers" };
+      const missing = [...buildResult.missing.third_party, ...(buildResult.missing.signers.find(item => item.ownership_entity_id === signer.ownership_entity_id)?.missing ?? [])];
+      if (missing.length) return { ok: false, reason: `form_incomplete: ${missing.join(", ")}` };
       const rendered = await renderForm4506cPdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id, dealId, bankId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
@@ -115,19 +121,25 @@ export async function renderSbaPackageItem(
     case "SBA_155": {
       const buildResult = await buildForm155WithSignature(dealId, bankId, sb);
       if (!buildResult.applicable) return { ok: false, reason: "not_applicable" };
+      // The SBA assigns the loan number after authorization. This package
+      // prepares the agreement for lender review without inventing that number.
+      const missing = buildResult.missing.filter(field => field !== "sba_loan_number");
+      if (missing.length) return { ok: false, reason: `form_incomplete: ${missing.join(", ")}` };
       const rendered = await renderForm155Pdf({ supabase, buildResult });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
 
     case "SBA_159": {
-      const { data: loanRequest } = await sb
+      const { data: loanRequest, error: loanError } = await sb
         .from("deal_loan_requests")
         .select("agent_used")
         .eq("deal_id", dealId)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (!loanRequest?.agent_used) return { ok: false, reason: "not_applicable" };
+      if (loanError) return { ok: false, reason: "agent_answer_unavailable" };
+      if (loanRequest?.agent_used === false) return { ok: false, reason: "not_applicable" };
+      if (loanRequest?.agent_used !== true) return { ok: false, reason: "form_incomplete: agent_used" };
 
       const { fields, missing } = await buildForm159PayloadForDeal(dealId, sb, bankId);
       if (missing.length > 0) return { ok: false, reason: `form_incomplete: ${missing.join(",")}` };
@@ -141,6 +153,8 @@ export async function renderSbaPackageItem(
         ? buildResult.input.signers.find((s) => s.ownership_entity_id === ownershipEntityId && s.guaranteeType === "unconditional")
         : buildResult.input.signers.find((s) => s.guaranteeType === "unconditional");
       if (!signer) return { ok: false, reason: "not_applicable" };
+      const missing = buildResult.missing.find(item => item.ownership_entity_id === signer.ownership_entity_id)?.missing ?? [];
+      if (missing.length) return { ok: false, reason: `form_incomplete: ${missing.join(", ")}` };
       const rendered = await renderForm148Pdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
@@ -151,6 +165,8 @@ export async function renderSbaPackageItem(
         ? buildResult.input.signers.find((s) => s.ownership_entity_id === ownershipEntityId && s.guaranteeType === "limited")
         : buildResult.input.signers.find((s) => s.guaranteeType === "limited");
       if (!signer) return { ok: false, reason: "not_applicable" };
+      const missing = buildResult.missing.find(item => item.ownership_entity_id === signer.ownership_entity_id)?.missing ?? [];
+      if (missing.length) return { ok: false, reason: `form_incomplete: ${missing.join(", ")}` };
       const rendered = await renderForm148Pdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
@@ -158,6 +174,7 @@ export async function renderSbaPackageItem(
     case "SBA_601": {
       const buildResult = await buildForm601WithSignature(dealId, bankId, sb);
       if (!buildResult.applicable) return { ok: false, reason: "not_applicable" };
+      if (!buildResult.is_complete) return { ok: false, reason: `form_incomplete: ${buildResult.missing.join(", ")}` };
       const rendered = await renderForm601Pdf({ supabase, buildResult });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }

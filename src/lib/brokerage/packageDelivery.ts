@@ -1,6 +1,7 @@
 /**
  * BRK-10G Package Delivery — controlled delivery for borrowers and lenders.
  */
+import { LENDER_PACKAGE_FILES } from "./lenderPackageFiles";
 import { getLatestAssembledPackageRun } from "@/lib/sba/package/getLatestAssembledPackageRun";
 
 export type PackageResource = { type: string; label: string; available: boolean; downloadKey: string | null };
@@ -24,7 +25,7 @@ async function latestSucceededBundle(dealId: string, sb: SB): Promise<Record<str
   // src/app/api/brokerage/deals/[dealId]/trident/download/[kind]/route.ts.
   const { data: finalBundle, error: finalBundleError } = await sb
     .from("buddy_trident_bundles")
-    .select("business_plan_pdf_path, projections_pdf_path, projections_xlsx_path, feasibility_pdf_path")
+    .select("business_plan_pdf_path, projections_pdf_path, projections_xlsx_path, feasibility_pdf_path,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path")
     .eq("deal_id", dealId)
     .eq("mode", "final")
     .eq("status", "succeeded")
@@ -34,7 +35,7 @@ async function latestSucceededBundle(dealId: string, sb: SB): Promise<Record<str
   if (finalBundle) return finalBundle;
   const { data: previewBundle, error: previewBundleError } = await sb
     .from("buddy_trident_bundles")
-    .select("business_plan_pdf_path, projections_pdf_path, projections_xlsx_path, feasibility_pdf_path")
+    .select("business_plan_pdf_path, projections_pdf_path, projections_xlsx_path, feasibility_pdf_path,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path")
     .eq("deal_id", dealId)
     .eq("mode", "preview")
     .eq("status", "succeeded")
@@ -52,21 +53,15 @@ export async function buildPackageManifest(dealId: string, accessLevel: "full"|"
   // These resources are independent after the sealed package is known.
   // Resolve them concurrently because this manifest is part of the frequently
   // polled seal-status response for picked listings.
-  const [b, form159Result, memoResult, assembledRun] = await Promise.all([
+  const [b, form159Result, assembledRun] = await Promise.all([
     latestSucceededBundle(dealId, sb),
     sb.from("sba_form_159_records").select("generated_pdf_path, status").eq("deal_id", dealId).in("status", ["generated","borrower_acknowledged","fully_acknowledged","locked"]).limit(1).maybeSingle(),
-    // credit_memo has no stored path (rendered on demand — see the trident
-    // download dispatcher's credit_memo branch) — report available whenever
-    // a certified snapshot exists for this deal.
-    sb.from("credit_memo_snapshots").select("id").eq("deal_id", dealId).in("status", ["banker_submitted", "underwriter_review", "returned", "finalized"]).limit(1).maybeSingle(),
     // final_forms_path is not populated for every historical package. Fall
     // back to the latest assembled 10-tab package when necessary.
     sp.final_forms_path ? Promise.resolve(null) : getLatestAssembledPackageRun(dealId, sb),
   ]);
   if (form159Result.error) throw new Error(`package_state_unavailable:form_159:${form159Result.error.message}`);
-  if (memoResult.error) throw new Error(`package_state_unavailable:credit_memo:${memoResult.error.message}`);
   const f = form159Result.data;
-  const memoSnapshot = memoResult.data;
   const r: PackageResource[] = [
     res("business_plan", "Business Plan", str(sp.final_business_plan_path) ?? str(b?.business_plan_pdf_path as string | null | undefined)),
     // Final mode produces only the XLSX workbook (no redacted summary PDF —
@@ -76,12 +71,14 @@ export async function buildPackageManifest(dealId: string, accessLevel: "full"|"
     res("projections_pdf", "Projections (PDF)", str(b?.projections_pdf_path as string | null | undefined)),
     res("projections_xlsx", "Projections (XLSX)", str(sp.final_projections_path) ?? str(b?.projections_xlsx_path as string | null | undefined)),
     res("feasibility", "Feasibility Study", str(sp.final_feasibility_path) ?? str(b?.feasibility_pdf_path as string | null | undefined)),
-    { type: "credit_memo", label: "Credit Memo", available: Boolean(memoSnapshot), downloadKey: memoSnapshot ? "credit_memo" : null },
-    res("sba_forms", "SBA Forms", str(sp.final_forms_path) ?? assembledRun?.storagePath ?? null),
+    res("credit_memo", "Credit Memo for Lender Review", str(b?.credit_memo_pdf_path)),
+    res("spreads", "Financial Spreads", str(b?.spreads_pdf_path)),
+    res("sba_forms", "SBA Forms", str(b?.sba_forms_pdf_path) ?? str(sp.final_forms_path) ?? assembledRun?.storagePath ?? null),
     res("form_159", "Form 159", str(f?.generated_pdf_path)),
   ];
+  if (accessLevel === "full" && LENDER_PACKAGE_FILES.every(file => str(b?.[file.column]))) r.push(res("complete_package", "Download complete lender package", "complete_package"));
   if (accessLevel === "full") r.push(res("source_docs","Source Documents (ZIP)",str(sp.final_source_docs_zip_path)));
-  return { dealId, sealedAt: str(sp.sealed_at), accessLevel, resources: r };
+  return { dealId, sealedAt: str(sp.sealed_at), accessLevel, resources: accessLevel === "preview" ? r.filter(item => ["business_plan", "projections_pdf", "feasibility"].includes(item.type)) : r };
 }
 
 export async function getBorrowerPackageStatus(session: { deal_id: string }, sb: SB): Promise<BorrowerPackageStatus> {

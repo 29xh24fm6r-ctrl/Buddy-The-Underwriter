@@ -43,16 +43,18 @@ export async function assembleTenTabPackage(args: {
   const { supabase, dealId, packageRunId } = args;
   const sb = supabase as unknown as { from: (t: string) => any };
 
-  const { data: run } = await sb.from("sba_package_runs").select("id, deal_id").eq("id", packageRunId).maybeSingle();
+  const { data: run, error: runError } = await sb.from("sba_package_runs").select("id, deal_id").eq("id", packageRunId).maybeSingle();
+  if (runError) throw new Error(`Package run unavailable: ${runError.message}`);
   if (!run || run.deal_id !== dealId) {
     return { ok: false, reason: "PACKAGE_RUN_NOT_FOUND" };
   }
 
-  const { data: items } = await sb
+  const { data: items, error: itemsError } = await sb
     .from("sba_package_run_items")
     .select("id, template_code, title, status, output_storage_path, sort_order")
     .eq("package_run_id", packageRunId)
     .order("sort_order", { ascending: true });
+  if (itemsError) throw new Error(`Package items unavailable: ${itemsError.message}`);
 
   const allItems = (items ?? []) as Array<PackageRunItemForAssembly & { sort_order: number }>;
   const tabbed = orderItemsByTab(allItems);
@@ -61,7 +63,7 @@ export async function assembleTenTabPackage(args: {
     return { ok: false, reason: "NO_GENERATED_ITEMS" };
   }
 
-  const missingItems = allItems.filter((it) => it.status !== "generated" || !it.output_storage_path).map((it) => it.template_code);
+  const missingItems = allItems.filter((it) => it.status !== "not_applicable" && (it.status !== "generated" || !it.output_storage_path)).map((it) => it.template_code);
 
   if (missingItems.length) return { ok: false, reason: "MERGE_FAILED", detail: `Package has unfinished items: ${missingItems.join(", ")}` };
 

@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ArtifactQuality = {
-  key: "businessPlan" | "projections" | "feasibility" | "spreads" | "creditMemo";
+  key: "businessPlan" | "projections" | "feasibility" | "spreads" | "creditMemo" | "sbaForms";
   label: string;
   score: number;
   status: "pass" | "review" | "fail" | "missing";
@@ -55,7 +55,7 @@ export async function gradeGoldenTrident(args: {
   const { sb, dealId, bankId } = args;
   const { data: bundle } = await sb
     .from("buddy_trident_bundles")
-    .select("id,status,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_sba_package_id,source_feasibility_id,source_credit_memo_id,source_spread_id,canonical_memo_input_hash,release_gate_json,generation_error")
+    .select("id,status,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_sba_package_id,source_feasibility_id,source_credit_memo_id,source_spread_id,canonical_memo_input_hash,release_gate_json,generation_error,sba_forms_pdf_path,credit_memo_pdf_path,spreads_pdf_path")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .eq("mode", "final")
@@ -238,6 +238,13 @@ export async function gradeGoldenTrident(args: {
     artifacts.push(artifact("creditMemo", "Credit memo", score, exists, passed, findings, memoFresh));
   }
 
+  const formsReady = Boolean(bundle?.sba_forms_pdf_path);
+  artifacts.push(artifact("sbaForms", "Applicable SBA forms", formsReady ? 100 : 0, formsReady,
+    formsReady ? ["Applicable forms assembled and bound to this run."] : [],
+    formsReady ? [] : ["Generate and assemble every applicable form; non-applicable forms must be excluded explicitly."]));
+  for (const [key, path] of [["creditMemo", bundle?.credit_memo_pdf_path], ["spreads", bundle?.spreads_pdf_path]] as const) {
+    if (!path) { const item = artifacts.find(a => a.key === key); if (item) { item.status = "missing"; item.findings.push("Downloadable PDF is missing from this run."); } }
+  }
   const releaseGate = bundle?.release_gate_json as { ok?: unknown } | null;
   const releaseReady = releaseGate?.ok === true && artifacts.every((item) => item.status === "pass");
   const structuralScore = Math.round(artifacts.reduce((sum, item) => sum + item.score, 0) / artifacts.length);

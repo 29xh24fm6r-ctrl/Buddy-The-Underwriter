@@ -22,7 +22,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { prepareSbaPackage } from "@/lib/sba/package/buildPackage";
-import { generatePdfForFillRun } from "@/lib/forms/pdfFill/generatePdfForFillRun";
+import { generatePdfForFillRun, SbaFormNotApplicable } from "@/lib/forms/pdfFill/generatePdfForFillRun";
 import { assembleTenTabPackage } from "@/lib/sba/package/assembleTenTabPackage";
 
 export type SbaProduct = "7a" | "504" | "express";
@@ -50,11 +50,12 @@ export type PrepareFormsResult =
 export async function prepareBrokerageSbaForms(
   dealId: string,
   sb: SupabaseClient,
+  options: { refresh?: boolean } = {},
 ): Promise<PrepareFormsResult> {
   // Idempotent — a repeated borrower click (or a retry after a network
   // blip) must not spawn a second, divergent package run for the same deal.
   const existing = await resolveCurrentPackageRun(dealId, sb);
-  if (existing) {
+  if (existing && !options.refresh) {
     const { count } = await sb
       .from("sba_package_run_items")
       .select("id", { count: "exact", head: true })
@@ -62,11 +63,14 @@ export async function prepareBrokerageSbaForms(
     return { ok: true, packageRunId: existing.id, itemCount: count ?? 0, reused: true };
   }
 
-  const { data: deal } = await sb.from("deals").select("product_type").eq("id", dealId).maybeSingle();
+  const { data: deal, error: dealError } = await sb.from("deals").select("product_type").eq("id", dealId).maybeSingle();
+  if (dealError) throw new Error(dealError.message);
+  const { data: loan, error: loanError } = await sb.from("deal_loan_requests").select("product_type,sba_program").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (loanError) throw new Error(loanError.message);
   if (!deal) return { ok: false, reason: "DEAL_NOT_FOUND" };
 
   const { packageTemplateCode, product } = resolveSbaPackageTemplate(
-    (deal as { product_type?: string | null }).product_type,
+    loan?.sba_program === "504" ? "SBA_504" : loan?.sba_program === "7A" ? "SBA_7A" : loan?.product_type ?? (deal as { product_type?: string | null }).product_type,
   );
 
   const result = await prepareSbaPackage({
@@ -85,13 +89,14 @@ async function resolveCurrentPackageRun(
   dealId: string,
   sb: SupabaseClient,
 ): Promise<{ id: string; status: string } | null> {
-  const { data } = await sb
+  const { data, error } = await sb
     .from("sba_package_runs")
     .select("id, status")
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (error) throw new Error(error.message);
   return (data as { id: string; status: string } | null) ?? null;
 }
 
@@ -114,12 +119,13 @@ export async function getBrokerageFormsStatus(dealId: string, sb: SupabaseClient
   const run = await resolveCurrentPackageRun(dealId, sb);
   if (!run) return { ok: false, reason: "NO_PACKAGE_RUN" };
 
-  const { data: items } = await sb
+  const { data: items, error: itemsError } = await sb
     .from("sba_package_run_items")
     .select("id, template_code, title, required, status, fill_run_id, output_storage_path, error")
     .eq("package_run_id", run.id)
     .order("sort_order", { ascending: true });
 
+  if (itemsError) throw new Error(itemsError.message);
   return {
     ok: true,
     packageRun: run,
@@ -141,6 +147,7 @@ export type GenerateFormItemResult = {
   ok: boolean;
   storagePath?: string;
   fileName?: string;
+  notApplicable?: boolean;
   error?: string;
 };
 
@@ -163,11 +170,12 @@ export async function generateBrokerageForms(
   const run = await resolveCurrentPackageRun(dealId, sb);
   if (!run) return { ok: false, reason: "NO_PACKAGE_RUN" };
 
-  const { data: items } = await sb
+  const { data: items, error: itemsError } = await sb
     .from("sba_package_run_items")
     .select("id, template_code, fill_run_id")
     .eq("package_run_id", run.id);
 
+  if (itemsError) throw new Error(itemsError.message);
   const list = ((items ?? []) as Array<Record<string, any>>).filter(
     (it) => !opts?.onlyItemId || it.id === opts.onlyItemId,
   );
@@ -187,7 +195,7 @@ export async function generateBrokerageForms(
 
     try {
       const out = await generatePdfForFillRun({ supabase: sb, dealId, fillRunId });
-      await sb
+      const { error: saveError } = await sb
         .from("sba_package_run_items")
         .update({
           status: "generated",
@@ -196,8 +204,15 @@ export async function generateBrokerageForms(
           error: null,
         })
         .eq("id", it.id);
+      if (saveError) throw new Error(saveError.message);
       results.push({ itemId: it.id, ok: true, storagePath: out.storagePath, fileName: out.fileName });
     } catch (e: unknown) {
+      if (e instanceof SbaFormNotApplicable) {
+        const { error } = await sb.from("sba_package_run_items").update({ status: "not_applicable", output_storage_path: null, error: null }).eq("id", it.id);
+        if (error) throw new Error(error.message);
+        results.push({ itemId: it.id, ok: true, notApplicable: true });
+        continue;
+      }
       const msg = e instanceof Error ? e.message : "generate_failed";
       await sb.from("sba_package_run_items").update({ status: "failed", error: msg }).eq("id", it.id);
       results.push({ itemId: it.id, ok: false, error: msg });
@@ -205,7 +220,12 @@ export async function generateBrokerageForms(
   }
 
   const anyFailed = results.some((r) => !r.ok);
-  await sb.from("sba_package_runs").update({ status: anyFailed ? "failed" : "generated" }).eq("id", run.id);
+  // A single-item retry does not mean the other items are generated.
+  const { data: remaining, error: readError } = await sb.from("sba_package_run_items").select("status").eq("package_run_id", run.id);
+  if (readError) throw new Error(readError.message);
+  const complete = remaining?.length && remaining.every((item) => ["generated", "not_applicable"].includes(item.status));
+  const { error: saveError } = await sb.from("sba_package_runs").update({ status: anyFailed ? "failed" : complete ? "generated" : "prepared" }).eq("id", run.id);
+  if (saveError) throw new Error(saveError.message);
 
   return { ok: true, results };
 }

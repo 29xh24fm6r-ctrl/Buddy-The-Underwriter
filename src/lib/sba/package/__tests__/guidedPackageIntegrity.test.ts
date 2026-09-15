@@ -83,7 +83,7 @@ function fixture(missing = false, wrongDeal = false) {
       },
     },
   };
-  return { sb, getUploaded: () => uploaded };
+  return { sb, rows, getUploaded: () => uploaded };
 }
 test("package assembly fails rather than claiming a missing form was included", async () => {
   const f = fixture(true);
@@ -145,4 +145,15 @@ test("restored 722 poster contains both official language pages", async () => {
     readFileSync("public/sba-templates/SBA_722.pdf"),
   );
   assert.equal(pdf.getPageCount(), 2);
+});
+
+test("explicit non-applicability excludes an optional form without hiding failed applicable forms", async () => {
+  const f = fixture();
+  f.rows.sba_package_run_items.push({ id: "optional", template_code: "SBA_159", status: "not_applicable", output_storage_path: null });
+  assert.equal((await assembleTenTabPackage({ supabase: f.sb, dealId: "deal", packageRunId: "run" })).ok, true);
+  const pdf = await PDFDocument.load(f.getUploaded()!);
+  assert.equal(pdf.getPageCount(), 11);
+  f.rows.sba_package_run_items[2].status = "failed";
+  const failed = await assembleTenTabPackage({ supabase: f.sb, dealId: "deal", packageRunId: "run" });
+  assert.equal(failed.ok, false);
 });
