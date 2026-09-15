@@ -82,6 +82,8 @@ export async function renderForm4506cPdf(args: {
     .maybeSingle();
   const fullSsn = piiRow?.encrypted_payload ? decryptStoredPii(piiRow.encrypted_payload) : null;
 
+  const { data: spousePii } = await args.supabase.from("deal_pii_records").select("encrypted_payload").eq("deal_id", args.dealId).eq("ownership_entity_id", args.ownershipEntityId).eq("pii_type", "spouse_full_ssn").maybeSingle();
+  const spouseSsn = signer.fields.spouse_id && spousePii?.encrypted_payload ? decryptStoredPii(spousePii.encrypted_payload) : null;
   const f = { ...signer.fields, ...thirdParty };
   const textValues: Record<string, string> = {};
   const setText = (key: keyof typeof FORM_4506C_TEXT_FIELDS, value: unknown) => {
@@ -95,6 +97,7 @@ export async function renderForm4506cPdf(args: {
   setText("taxpayer_id", fullSsn);
   setText("previous_first_name", f.previous_first_name);
   setText("previous_last_name", f.previous_last_name);
+  setText("spouse_id", spouseSsn);
   setText("spouse_first_name", f.spouse_first_name);
   setText("spouse_last_name", f.spouse_last_name);
   // Spouse full SSN isn't collected anywhere in this schema yet — see

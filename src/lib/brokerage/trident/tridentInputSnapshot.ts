@@ -89,7 +89,7 @@ function canonicalize(value: unknown): unknown {
  * The snapshot schema this build produces and can verify.
  *
  * hashTridentManifest hashes a DIFFERENT DOMAIN depending on this number:
- * v5/v6 digest only `sources`, earlier shapes digest the whole manifest. So a
+ * v5/v6/v7 digest only `sources`, earlier shapes digest the whole manifest. So a
  * hash produced by one schema generation is not comparable to one produced by
  * another — not "different", incomparable.
  *
@@ -103,7 +103,7 @@ function canonicalize(value: unknown): unknown {
  * Five production runs failed exactly this way, and none of them carried a
  * `changed_sources` list, because there was no source drift to report.
  */
-export const TRIDENT_SNAPSHOT_VERSION = 6;
+export const TRIDENT_SNAPSHOT_VERSION = 7;
 
 /** A schema-generation change, not borrower drift. Callers must not retry. */
 export class TridentSnapshotSchemaChanged extends Error {
@@ -127,7 +127,7 @@ export function hashTridentManifest(manifest: Record<string, unknown>): string {
   // manifest and is enforced by readiness/release, but its lifecycle workers
   // may not invalidate the factory's own frozen borrower snapshot.
   const hashDomain =
-    (manifest.version === 5 || manifest.version === 6) &&
+    (manifest.version === 5 || manifest.version === 6 || manifest.version === 7) &&
       manifest.sources && typeof manifest.sources === "object"
       ? manifest.sources
       : manifest;
@@ -172,6 +172,8 @@ export async function computeTridentInputSnapshot(
     structuralPricing,
     assumptions,
     borrowerStories,
+    packageInterview,
+    personalFinancialSchedules,
     documents,
     proceeds,
     applications,
@@ -185,6 +187,10 @@ export async function computeTridentInputSnapshot(
     requiredRows(sb, "deal_structural_pricing", dealId),
     requiredRows(sb, "buddy_sba_assumptions", dealId),
     requiredRows(sb, "buddy_borrower_stories", dealId),
+    requiredRows(sb, "borrower_concierge_sessions", dealId).then(rows => rows.map((row: any) => Object.fromEntries(
+      ["package_answers", "guided_answers"].map(key => [key, Object.fromEntries(Object.entries(row.confirmed_facts?.[key] ?? {}).map(([id, answer]) => [id, (answer as any)?.value ?? null]))]),
+    ))),
+    Promise.all(["borrower_pfs_notes_payable", "borrower_pfs_securities", "borrower_pfs_real_estate"].map(async table => [table, await requiredRows(sb, table, dealId)])).then(Object.fromEntries),
     requiredRows(sb, "deal_documents", dealId),
     requiredRows(sb, "deal_proceeds_items", dealId),
     requiredRows(sb, "borrower_applications", dealId),
@@ -225,6 +231,8 @@ export async function computeTridentInputSnapshot(
       structuralPricing,
       assumptions,
       borrowerStories,
+      packageInterview,
+      personalFinancialSchedules,
       documents,
       proceeds,
       applications,

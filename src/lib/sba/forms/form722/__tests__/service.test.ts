@@ -78,7 +78,7 @@ test("getForm722Status: template ingested -> posterAvailable=true with storage p
 });
 
 test("acknowledgeForm722: first acknowledgment -> ok, writes deal_events row", async () => {
-  const db = new FakeDb();
+  const db = new FakeDb({bank_document_templates:[{bank_id:null,template_key:"SBA_722",is_active:true,file_path:"sba-templates/SBA_722.pdf"}]});
   const result = await acknowledgeForm722("d1", "b1", db as any, { acknowledgedByUserId: "u1" });
   assert.equal(result.ok, true);
   assert.equal(db.tables.deal_events.length, 1);
@@ -95,4 +95,10 @@ test("acknowledgeForm722: already acknowledged -> ALREADY_ACKNOWLEDGED, no dupli
   if (result.ok) return;
   assert.equal(result.reason, "ALREADY_ACKNOWLEDGED");
   assert.equal(db.tables.deal_events.length, 1);
+});
+
+test("acknowledgeForm722 rejects an unavailable poster", async () => {
+ const db=new FakeDb();
+ const result=await acknowledgeForm722('d1','b1',db as any,{acknowledgedByUserId:'u1'});
+ assert.deepEqual(result,{ok:false,reason:'TEMPLATE_UNAVAILABLE'});
 });

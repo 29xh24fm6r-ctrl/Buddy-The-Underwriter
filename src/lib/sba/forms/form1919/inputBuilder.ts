@@ -52,7 +52,7 @@ export async function buildForm1919Input(
           "legal_name, ein, naics_code, address_line1, city, state, zip, entity_type, dba, phone, " +
             "employee_count, year_founded, unique_entity_id, special_ownership_type, special_ownership_type_other, " +
             "project_address_street, project_address_city, project_address_state, project_address_zip, " +
-            "primary_contact_name, primary_contact_email",
+            "primary_contact_name, primary_contact_email, contact_name, contact_email",
         )
         .eq("id", borrowerId)
         .maybeSingle()
@@ -106,9 +106,11 @@ export async function buildForm1919Input(
     (confirmedUseOfProceeds as { value?: { categorized?: unknown[] } } | null)?.value?.categorized ?? []
   ) as Array<{ category: string; amount: number; description: string | null }>;
 
-  const categoryAmount = (category: string): number | null =>
-    categorizedUseOfProceeds.find((c) => c.category === category)?.amount ?? null;
-  const otherEntry = categorizedUseOfProceeds.find((c) => c.category === "other");
+  const categoryAmount = (category: string): number | null => {
+    const entries = categorizedUseOfProceeds.filter(c => c.category === category);
+    return entries.length ? entries.reduce((total, c) => total + Number(c.amount ?? 0), 0) : null;
+  };
+  const otherEntries = categorizedUseOfProceeds.filter(c => c.category === "other");
 
   const b = borrower as Record<string, any> | null;
 
@@ -132,8 +134,8 @@ export async function buildForm1919Input(
     applicant_naics: b?.naics_code ?? null,
     applicant_employee_count: b?.employee_count ?? null,
     applicant_year_founded: b?.year_founded ?? null,
-    poc_name: b?.primary_contact_name ?? null,
-    poc_email: b?.primary_contact_email ?? null,
+    poc_name: b?.contact_name ?? b?.primary_contact_name ?? null,
+    poc_email: b?.contact_email ?? b?.primary_contact_email ?? null,
     loan_amount:
       (loanRequest as { requested_amount?: number } | null)?.requested_amount ??
       (deal as { loan_amount?: number } | null)?.loan_amount ??
@@ -151,8 +153,8 @@ export async function buildForm1919Input(
     working_capital_amount: categoryAmount("working_capital"),
     business_acquisition_amount: categoryAmount("business_acquisition"),
     inventory_amount: categoryAmount("inventory"),
-    other_purpose_1_amount: otherEntry?.amount ?? null,
-    other_purpose_1_description: otherEntry?.description ?? null,
+    other_purpose_1_amount: categoryAmount("other"),
+    other_purpose_1_description: otherEntries.map(c => c.description).filter(Boolean).join("; ") || null,
     has_confirmed_use_of_proceeds_categories: categorizedUseOfProceeds.length > 0,
     is_franchise_deal: Boolean(franchiseBrandId),
     franchise_identifier_code: (franchiseBrand as { sba_directory_id?: string } | null)?.sba_directory_id ?? null,

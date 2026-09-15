@@ -286,10 +286,11 @@ test("borrower shell supports mobile sticky CTA rendering", () => {
   assert.match(source, /sm:hidden/);
 });
 
-test("start page uses the new premium borrower foundation copy", () => {
+test("start page opens the guided loan package workspace", () => {
   const source = read("src/app/(borrower)/start/page.tsx");
 
-  assert.match(source, /Build your SBA package with guidance, not guesswork/);
+  assert.match(source, /Build your SBA loan package/);
+  assert.match(source, /StartConciergeClient/);
   assert.match(source, /BorrowerTrustFooter/);
   assert.ok(!source.includes("Get a real SBA loan, on your terms."));
 });

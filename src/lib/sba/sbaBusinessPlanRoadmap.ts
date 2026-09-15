@@ -1,4 +1,5 @@
 import "server-only";
+import { formatPackageInterview } from "@/lib/borrower/guidedPackage/interviewContext";
 
 // src/lib/sba/sbaBusinessPlanRoadmap.ts
 // God Tier Business Plan — Step 6
@@ -20,7 +21,7 @@ function hasStorySubstance(story: BorrowerStory | null | undefined): boolean {
   const nonEmpty = (s: string | null) =>
     typeof s === "string" && s.trim().length > 0;
   return (
-    nonEmpty(story.originStory) ||
+    !!story.packageInterview?.length || nonEmpty(story.originStory) ||
     nonEmpty(story.competitiveInsight) ||
     nonEmpty(story.idealCustomer) ||
     nonEmpty(story.growthStrategy) ||
@@ -33,6 +34,7 @@ function formatStoryForPrompt(story: BorrowerStory | null | undefined): string {
   if (!hasStorySubstance(story)) return "";
   const s = story as BorrowerStory;
   const lines: string[] = ["BORROWER'S STORY (their own words):"];
+  lines.push(formatPackageInterview(s.packageInterview));
   if (s.originStory?.trim()) lines.push(`Origin: ${s.originStory.trim()}`);
   if (s.competitiveInsight?.trim())
     lines.push(`Competitive edge: ${s.competitiveInsight.trim()}`);

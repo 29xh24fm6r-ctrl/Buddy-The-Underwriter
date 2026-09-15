@@ -85,14 +85,20 @@ export async function createOrUpdateFeeLedgerForDeal(dealId: string, sb: SB): Pr
  */
 export async function buildForm159PayloadForDeal(dealId: string, sb: SB, lenderBankId: string | null) {
   const [{ data: deal }, { data: feeRows }, lenderRow] = await Promise.all([
-    sb.from("deals").select("borrower_name, name, loan_amount").eq("id", dealId).maybeSingle(),
+    sb.from("deals").select("borrower_id, bank_id, borrower_name, name, loan_amount").eq("id", dealId).maybeSingle(),
     sb.from("brokerage_fee_ledger").select("fee_type, payer_type, payee_type, amount_cents, bps, basis_amount_cents, status").eq("deal_id", dealId),
     lenderBankId ? sb.from("banks").select("name").eq("id", lenderBankId).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   const d = (deal ?? {}) as Row;
+  const [{ data: brokerage }, { data: applicant }] = await Promise.all([
+    d.bank_id ? sb.from("banks").select("name, settings").eq("id", d.bank_id).maybeSingle() : Promise.resolve({ data: null }),
+    d.borrower_id ? sb.from("borrowers").select("legal_name").eq("id", d.borrower_id).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
   const { fields, missing } = buildSbaForm159({
     dealId,
-    applicantName: str(d.borrower_name) ?? str(d.name),
+    applicantName: str(applicant?.legal_name) ?? str(d.borrower_name) ?? str(d.name),
+    agentName: str(brokerage?.settings?.form159_agent_name) ?? str(brokerage?.name),
+    agentAddress: str(brokerage?.settings?.form159_agent_address),
     loanAmount: num(d.loan_amount),
     lenderBankId,
     lenderBankName: str((lenderRow as { data: Row | null }).data?.name ?? null),
@@ -113,12 +119,13 @@ export async function generateForm159Preview(dealId: string, sb: SB, lenderBankI
   const c = await getActiveFeeConfig(sb); let lbid = lenderBankId ?? null; let lbps: number | null = null; let lest: number | null = null;
   if (!lbid) { const { data: pick } = await sb.from("marketplace_picks").select("picked_lender_bank_id").eq("deal_id", dealId).eq("status", "picked").limit(1).maybeSingle(); lbid = pick?.picked_lender_bank_id ? String(pick.picked_lender_bank_id) : null; }
   if (lbid) { const e = await estimateLenderReferralFee(dealId, lbid, sb); lbps = e.bps; lest = e.estimatedCents; }
-  const { fields: generatedPayload } = await buildForm159PayloadForDeal(dealId, sb, lbid);
-  const generatedPdfPath = await tryRenderForm159Pdf(dealId, sb, generatedPayload);
+  const { fields: generatedPayload, missing } = await buildForm159PayloadForDeal(dealId, sb, lbid);
+  const generatedPdfPath = missing.length ? null : await tryRenderForm159Pdf(dealId, sb, generatedPayload);
+  const status = generatedPdfPath ? "generated" : "draft";
   const { data: ex } = await sb.from("sba_form_159_records").select("*").eq("deal_id", dealId).in("status", ["draft", "generated"]).limit(1).maybeSingle();
-  if (ex && str(ex.status) !== "locked") { await sb.from("sba_form_159_records").update({ borrower_fee_cents: c.borrowerPackagingFeeCents, lender_referral_fee_bps: lbps, lender_referral_fee_estimated_cents: lest, lender_bank_id: lbid, status: "generated", generated_at: new Date().toISOString(), generated_payload: generatedPayload, ...(generatedPdfPath ? { generated_pdf_path: generatedPdfPath } : {}) }).eq("id", ex.id); return { id: String(ex.id), status: "generated", borrowerFeeCents: c.borrowerPackagingFeeCents, lenderReferralFeeBps: lbps, lenderReferralFeeEstimatedCents: lest }; }
-  const { data: ins } = await sb.from("sba_form_159_records").insert({ deal_id: dealId, borrower_fee_cents: c.borrowerPackagingFeeCents, lender_referral_fee_bps: lbps, lender_referral_fee_estimated_cents: lest, lender_bank_id: lbid, generated_at: new Date().toISOString(), status: "generated", generated_payload: generatedPayload, generated_pdf_path: generatedPdfPath }).select("*").single();
-  return { id: String(ins?.id ?? ""), status: "generated", borrowerFeeCents: c.borrowerPackagingFeeCents, lenderReferralFeeBps: lbps, lenderReferralFeeEstimatedCents: lest };
+  if (ex && str(ex.status) !== "locked") { await sb.from("sba_form_159_records").update({ borrower_fee_cents: c.borrowerPackagingFeeCents, lender_referral_fee_bps: lbps, lender_referral_fee_estimated_cents: lest, lender_bank_id: lbid, status, generated_at: new Date().toISOString(), generated_payload: generatedPayload, generated_pdf_path: generatedPdfPath }).eq("id", ex.id); return { id: String(ex.id), status, borrowerFeeCents: c.borrowerPackagingFeeCents, lenderReferralFeeBps: lbps, lenderReferralFeeEstimatedCents: lest }; }
+  const { data: ins } = await sb.from("sba_form_159_records").insert({ deal_id: dealId, borrower_fee_cents: c.borrowerPackagingFeeCents, lender_referral_fee_bps: lbps, lender_referral_fee_estimated_cents: lest, lender_bank_id: lbid, generated_at: new Date().toISOString(), status, generated_payload: generatedPayload, generated_pdf_path: generatedPdfPath }).select("*").single();
+  return { id: String(ins?.id ?? ""), status, borrowerFeeCents: c.borrowerPackagingFeeCents, lenderReferralFeeBps: lbps, lenderReferralFeeEstimatedCents: lest };
 }
 
 export async function lockForm159Record(recordId: string, sb: SB): Promise<{ ok: boolean; error?: string }> {

@@ -52,6 +52,6 @@ export async function buildForm413WithSignature(
   return {
     ...result,
     signatures,
-    is_complete: result.missing.every((m) => m.missing.length === 0) && signatures.every((s) => !s.needs_resignature),
+    is_complete: result.input.signers.length > 0 && result.missing.every((m) => m.missing.length === 0) && signatures.every((s) => !s.needs_resignature),
   };
 }

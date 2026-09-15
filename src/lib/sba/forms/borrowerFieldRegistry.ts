@@ -34,6 +34,9 @@ export type BorrowerFieldEntry = {
 };
 
 export const BORROWER_FIELD_REGISTRY: BorrowerFieldEntry[] = [
+  { key: "sba_program", label: "Which SBA program are you applying for: 7a or 504?", type: "string", entityScope: "loan", factPath: "loan.sba_program", sourceTable: "deal_loan_requests", sourceColumn: "sba_program", appliesToForms: ["1919", "1244"], requiredForForms: [], sensitive: false },
+  { key: "agent_used", label: "Are you paying an agent or packager for help with this application?", type: "boolean", entityScope: "loan", factPath: "loan.agent_used", sourceTable: "deal_loan_requests", sourceColumn: "agent_used", appliesToForms: ["1919", "1244", "159"], requiredForForms: [], sensitive: false },
+  { key: "seller_note_equity_portion", label: "How much seller financing is proposed as equity on standby?", type: "number", entityScope: "loan", factPath: "loan.seller_note_equity_portion", sourceTable: "deal_loan_requests", sourceColumn: "seller_note_equity_portion", appliesToForms: ["1919", "1244", "155"], requiredForForms: [], sensitive: false },
   // ── business (borrowers, deal-level) ──────────────────────────────────
   { key: "legal_name", label: "Business legal name", type: "string", entityScope: "business", factPath: "business.legal_name", sourceTable: "borrowers", sourceColumn: "legal_name", appliesToForms: ["1919", "1244", "148", "155", "601"], requiredForForms: ["1919", "1244", "148", "155", "601"], sensitive: false },
   { key: "dba", label: "Doing business as (DBA)", type: "string", entityScope: "business", factPath: "business.dba", sourceTable: "borrowers", sourceColumn: "dba", appliesToForms: ["1919", "1244"], requiredForForms: [], sensitive: false },
