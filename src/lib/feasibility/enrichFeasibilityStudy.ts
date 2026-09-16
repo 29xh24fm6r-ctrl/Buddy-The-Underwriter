@@ -12,7 +12,7 @@ import "server-only";
 
 import { loadDealGroundingSegments, attributeFeasibilityCitations, flagUncitedFeasibilityFields } from "./feasibilityCitations";
 import { auditNarrativeFigures } from "./narrativeFigureAudit";
-import { finishInstitutionalArtifact, reviewContentHash } from "@/lib/ai/frontierArtifactFactory";
+import { finishInstitutionalArtifact, reviewContentHash, type ArtifactSection } from "@/lib/ai/frontierArtifactFactory";
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
 import type { CompositeFeasibilityScore, FeasibilityNarratives } from "./types";
 
@@ -258,25 +258,32 @@ export async function enrichFeasibilityStudy(args: {
       untracedFigures.map((f) => `${f.section}:${f.text}`).join(", "),
     );
   }
-  const auditedFacts = {
-    ...facts,
-    untracedFigures: untracedFigures.map((f) => ({
+  // Findings describe prose, not immutable evidence. Recompute them from the
+  // current sections on every review so removed figures do not remain findings
+  // and newly introduced unsupported figures are still detected.
+  const auditSections = (currentSections: ArtifactSection[]) => ({
+    untracedFigures: auditNarrativeFigures({
+      narratives: Object.fromEntries(currentSections.map(({ key, text }) => [key, text])),
+      evidence: facts,
+    }).untraced.slice(0, 20).map((f) => ({
       section: f.section,
       figure: f.text,
       finding:
         "This figure does not appear in the supplied deterministic evidence. Either remove it or attribute it explicitly as an author estimate.",
     })),
-  };
+  });
 
   // Keep the evidence boundary comfortably below the synchronous review
   // budget. This is a fail-fast invariant, not a license to silently discard
   // calculations: the curated contract above contains every decision-material
   // figure and explicitly excludes high-volume monthly detail.
-  const serializedFacts = JSON.stringify(auditedFacts);
+  const serializedFacts = JSON.stringify(facts);
+  const initialSectionAudit = auditSections(sections);
+  const evidenceCharacters = serializedFacts.length + JSON.stringify(initialSectionAudit).length;
   const maxEvidenceCharacters = 24_000;
-  if (serializedFacts.length > maxEvidenceCharacters) {
+  if (evidenceCharacters > maxEvidenceCharacters) {
     throw new Error(
-      `Feasibility review evidence exceeds ${maxEvidenceCharacters} characters (${serializedFacts.length})`,
+      `Feasibility review evidence exceeds ${maxEvidenceCharacters} characters (${evidenceCharacters})`,
     );
   }
 
@@ -287,6 +294,7 @@ export async function enrichFeasibilityStudy(args: {
     artifactType: "feasibility" as const,
     facts: serializedFacts,
     sections,
+    sectionAudit: initialSectionAudit,
   };
   const contentHash = reviewContentHash(reviewIdentity);
   if (
@@ -301,6 +309,7 @@ export async function enrichFeasibilityStudy(args: {
     ...reviewIdentity,
     dealId,
     npiTagged: true,
+    auditSections,
   });
   await persistArtifactFlags({
     dealId, bankId, artifactType: "feasibility", sectionKey: "narratives",

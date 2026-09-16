@@ -184,6 +184,7 @@ async function review(input: {
   sections: ArtifactSection[];
   dealId: string;
   npiTagged: boolean;
+  sectionAudit?: Record<string, unknown>;
 }): Promise<ReviewIssue[]> {
   const result = await runRole("verifier", {
     systemInstruction: REVIEW_SYSTEM,
@@ -193,6 +194,7 @@ async function review(input: {
       typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts, null, 2),
       "ARTIFACT SECTIONS:",
       JSON.stringify(input.sections, null, 2),
+      ...(input.sectionAudit ? ["AUDIT OF THE CURRENT SECTIONS (not source evidence):", JSON.stringify(input.sectionAudit)] : []),
       "Return all material issues. Return an empty issues array only if this is release-ready.",
     ].join("\n\n"),
     responseSchema: REVIEW_SCHEMA,
@@ -253,6 +255,7 @@ export function reviewContentHash(input: {
   artifactType: ArtifactType;
   facts: Record<string, unknown> | string;
   sections: ArtifactSection[];
+  sectionAudit?: Record<string, unknown>;
 }): string {
   const factsText = typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts);
   const sectionsText = JSON.stringify(
@@ -261,7 +264,7 @@ export function reviewContentHash(input: {
       .map((s) => [s.key, s.text]),
   );
   return createHash("sha256")
-    .update(`${input.artifactType}\u0000${factsText}\u0000${sectionsText}`)
+    .update(`${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}`)
     .digest("hex");
 }
 
@@ -271,9 +274,11 @@ export async function finishInstitutionalArtifact(input: {
   sections: ArtifactSection[];
   dealId: string;
   npiTagged?: boolean;
+  /** Recompute narrative-derived findings after every repair; never change source facts. */
+  auditSections?: (sections: ArtifactSection[]) => Record<string, unknown>;
 }): Promise<FrontierArtifactResult> {
   const npiTagged = input.npiTagged ?? true;
-  const contentHash = reviewContentHash(input);
+  const contentHash = reviewContentHash({ ...input, sectionAudit: input.auditSections?.(input.sections) });
   let sections = input.sections;
   let repaired = false;
   let reviewPasses = 0;
@@ -283,7 +288,8 @@ export async function finishInstitutionalArtifact(input: {
   // Three repair cycles prevent a single imperfect rewrite from discarding an
   // otherwise recoverable institutional package.
   for (let cycle = 0; cycle <= 3; cycle += 1) {
-    const issues = await review({ ...input, sections, npiTagged });
+    const sectionAudit = input.auditSections?.(sections);
+    const issues = await review({ ...input, sections, npiTagged, sectionAudit });
     reviewPasses += 1;
     // Repair still attempts everything above info — a warning worth fixing is
     // worth fixing. What changed is what happens to one that survives.
@@ -312,6 +318,7 @@ export async function finishInstitutionalArtifact(input: {
           typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts, null, 2),
           "ALL SECTIONS (read-only context except requested repair keys):",
           JSON.stringify(sections, null, 2),
+          ...(sectionAudit ? ["AUDIT OF THE CURRENT SECTIONS (not source evidence):", JSON.stringify(sectionAudit)] : []),
           "REQUESTED REPAIR SECTION KEYS:",
           JSON.stringify(targets.map((section) => section.key)),
           "INDEPENDENT REVIEW FINDINGS:",
