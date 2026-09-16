@@ -11,7 +11,8 @@ test("Golden Trident policy and persistence boundaries fail closed", () => {
   assert.match(engine, /normalizeCovenantRiskGrade/);
   assert.match(engine, /unsupported_covenant_risk_grade/);
   assert.doesNotMatch(engine, /cfg\.dscrFloors\[grade\] \?\? 1\.20/);
-  assert.match(memo, /governedDscrFloor: resolvePolicy\("dscr_floor"/);
+  assert.match(memo, /const memoThresholds = resolveMemoThresholds\(/);
+  assert.match(memo, /governedDscrFloor: memoThresholds\.dscr\.value/);
   assert.match(factory, /release_gate_persist_failed/);
   assert.match(factory, /\.select\("id"\)\s*\n\s*\.maybeSingle\(\)/);
 });

@@ -73,7 +73,7 @@ export async function buildCovenantPackage(
 
   // Persist
   const sb = supabaseAdmin();
-  await sb.from("buddy_covenant_packages").insert({
+  const { error } = await sb.from("buddy_covenant_packages").insert({
     deal_id: input.dealId,
     generated_at: pkg.generatedAt,
     risk_grade: input.riskGrade,
@@ -89,6 +89,8 @@ export async function buildCovenantPackage(
     rule_engine_version: COVENANT_RULE_CONFIG.version,
     status: "draft",
   });
+
+  if (error) throw new Error(`Covenant package save failed: ${error.message}`);
 
   return pkg;
 }

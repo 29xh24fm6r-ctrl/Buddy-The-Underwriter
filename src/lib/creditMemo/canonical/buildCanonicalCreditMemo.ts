@@ -1,5 +1,6 @@
 import "server-only";
 import { formatLoanPurpose } from "./formatLoanPurpose";
+import { shouldRefreshCovenantDraft, supportedMemoRatios } from "./memoConsistency";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -1177,19 +1178,20 @@ export async function buildCanonicalCreditMemo(args: {
     // ===== Phase 90 Part B: Covenant package =====
     // The covenant rule engine already exists (src/lib/covenants/). We call
     // it with the deal's metrics post-recommendation. To avoid table bloat
-    // on every memo render, we first check for an existing package and only
-    // build a new one if none exists. Wrapped in try/catch — a failure here
-    // must NOT fail the whole memo.
+    // on every memo render, reuse current packages and refresh only stale
+    // untouched machine drafts. Read/build failures must not silently remove
+    // covenants from the memo.
     let covenantPackage: CovenantPackage | null = null;
     try {
-      const { data: existingPkg } = await (sb as any)
+      const { data: existingPkg, error: covenantReadError } = await (sb as any)
         .from("buddy_covenant_packages")
-        .select("deal_id, generated_at, risk_grade, deal_type, financial_covenants, reporting_covenants, behavioral_covenants, springing_covenants, rationale, customizations, banker_notes, snapshot_hash, rule_engine_version")
+        .select("status, deal_id, generated_at, risk_grade, deal_type, financial_covenants, reporting_covenants, behavioral_covenants, springing_covenants, rationale, customizations, banker_notes, snapshot_hash, rule_engine_version")
         .eq("deal_id", args.dealId)
         .order("generated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
+      if (covenantReadError) throw new Error(`Covenant package read failed: ${covenantReadError.message}`);
       if (existingPkg) {
         covenantPackage = {
           dealId: String(existingPkg.deal_id),
@@ -1206,14 +1208,14 @@ export async function buildCanonicalCreditMemo(args: {
           snapshotHash: existingPkg.snapshot_hash ?? null,
           ruleEngineVersion: String(existingPkg.rule_engine_version ?? ""),
         };
-      } else if (hasMinimalData) {
-        // Only create on first render for deals with usable financial data.
+      }
+      if (hasMinimalData && (!covenantPackage || shouldRefreshCovenantDraft(covenantPackage, String(existingPkg?.status), memoThresholds.dscr.value))) {
+        // Rebuild stale machine drafts through the existing rule engine.
+        // Customized or approved packages stay intact for explicit review.
         covenantPackage = await buildCovenantPackage({
           dealId: args.dealId,
           riskGrade: recommendation.risk_grade,
-          governedDscrFloor: resolvePolicy("dscr_floor", {
-            productId: policyProductId(loanReq?.product_type, loanAmount.value),
-          }).effective,
+          governedDscrFloor: memoThresholds.dscr.value,
           dealType: toCovenantDealType(loanReq?.product_type),
           actualDscr: financial.dscrGlobal.value,
           actualLeverage: metricValueFromSnapshot({ snapshot, metric: "debt_to_equity", label: "Debt-to-Equity" }).value,
@@ -1225,7 +1227,7 @@ export async function buildCanonicalCreditMemo(args: {
       }
     } catch (err) {
       console.warn("[buildCanonicalCreditMemo] buildCovenantPackage failed:", err);
-      covenantPackage = null;
+      throw err;
     }
 
     // ===== Phase 33: Build income_statement_table =====
@@ -1358,10 +1360,18 @@ export async function buildCanonicalCreditMemo(args: {
     // 26 ratios across Liquidity/Leverage/Coverage/Profitability/Activity,
     // each with a Strong/Adequate/Weak assessment, deal-specific interpretation,
     // and benchmark note. Suppresses inventory/CCC for service companies.
-    const [balanceSheetTable, ratioAnalysisSuite] = await Promise.all([
+    const [balanceSheetTable, rawRatioAnalysisSuite] = await Promise.all([
       buildBalanceSheetTable({ dealId: args.dealId, bankId }),
       buildRatioAnalysisSuite({ dealId: args.dealId, bankId, dealContext: ratioDealContext, naicsCode: borrower?.naics_code ?? null, annualRevenue: revenueForStress }),
     ]);
+
+    const ratioAnalysisSuite = supportedMemoRatios(
+      rawRatioAnalysisSuite,
+      snapshotMetricIsGoverned(snapshot, "net_income")
+        ? metricValueFromSnapshot({ snapshot, metric: "net_income", label: "Net Income" }).value
+        : null,
+      balanceSheetTable[0]?.total_assets ?? null,
+    );
 
     // ===== Phase 90 Part C: Qualitative assessment =====
     // Deterministic five-dimension scoring (Character / Capital / Conditions /
