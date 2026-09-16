@@ -409,6 +409,7 @@ export async function generateMarketingAndOperations(params: {
   useOfProceedsDescription: string;
   existingDebtService: number;
   newDebtService: number;
+  sellerFinancingAmount: number;
   totalDebtService: number;
   dscrYear1: number;
   // Phase 2 additions
@@ -441,7 +442,9 @@ Revenue streams: ${params.revenueStreamNames.join(", ") || "Not specified"}
 Planned hires: ${params.plannedHires.map((h) => `${h.role} ($${h.annualSalary.toLocaleString()}/yr)`).join("; ") || "None specified"}
 Use of proceeds: ${params.useOfProceedsDescription}
 Existing annual debt service retained after closing: ${Math.round(params.existingDebtService).toLocaleString()}
-New SBA and seller-financing annual debt service: ${Math.round(params.newDebtService).toLocaleString()}
+New financing annual debt service: ${Math.round(params.newDebtService).toLocaleString()}
+Seller financing principal: $${Math.round(params.sellerFinancingAmount).toLocaleString()}
+${params.sellerFinancingAmount > 0 ? "Seller financing is included in the supplied financing structure; do not invent its separate debt-service amount." : "There is NO seller financing. New financing debt service is solely from the SBA loan; do not describe any seller-note payment."}
 Total annual debt service used by the deterministic model: ${Math.round(params.totalDebtService).toLocaleString()}
 Year 1 DSCR after all retained and new debt: ${params.dscrYear1.toFixed(2)}x
 The Operations Plan MUST explicitly reconcile these three debt-service figures and state that the DSCR uses total annual debt service. Never substitute only the new-loan payment.
@@ -604,6 +607,7 @@ export async function generateSensitivityNarrative(params: {
   scenarios: SensitivityScenario[];
   breakEvenMarginOfSafetyPct: number;
   year1MinCumulativeCash: number;
+  dscrThreshold: number;
   loanType: string;
   // God Tier additions
   story?: BorrowerStory | null;
@@ -616,7 +620,8 @@ export async function generateSensitivityNarrative(params: {
 
   const prompt = `You are a commercial banker summarizing a sensitivity analysis for an SBA ${params.loanType.replace("_", " ").toUpperCase()} credit package.
 RULES: Do NOT mention loan approval, denial, creditworthy, or risk grade. State facts. Use plain language.
-The SBA minimum DSCR is 1.25x. Flag any scenario year below this threshold.
+The supplied model's applicable DSCR threshold is ${params.dscrThreshold.toFixed(2)}x. Flag every scenario year below it; do not assert a different policy floor.
+DSCR below 1.00x means modeled cash flow does not cover debt service. Proposed mitigations are unmodeled actions, NOT proof that coverage is restored. Do not claim the borrower can service debt under a deficient scenario unless supplied recalculated results demonstrate it.
 ${hasRisk ? "\nThe borrower has named their own biggest perceived risk. Paragraph (3) — recommended actions if downside materializes — must acknowledge that specific risk by paraphrase and describe a concrete contingency the borrower themselves could execute.\n" : ""}
 
 ${params.planThesis ? `PLAN THESIS:\n${params.planThesis}\n` : ""}${storyBlock}
@@ -624,7 +629,8 @@ ${params.planThesis ? `PLAN THESIS:\n${params.planThesis}\n` : ""}${storyBlock}
 Base DSCR Y1/Y2/Y3: ${base?.dscrYear1.toFixed(2) ?? "N/A"}/${base?.dscrYear2.toFixed(2) ?? "N/A"}/${base?.dscrYear3.toFixed(2) ?? "N/A"}
 Downside DSCR Y1/Y2/Y3: ${downside?.dscrYear1.toFixed(2) ?? "N/A"}/${downside?.dscrYear2.toFixed(2) ?? "N/A"}/${downside?.dscrYear3.toFixed(2) ?? "N/A"}
 Break-even margin of safety: ${(params.breakEvenMarginOfSafetyPct * 100).toFixed(1)}%
-Year 1 minimum cumulative cash: $${Math.round(params.year1MinCumulativeCash).toLocaleString()}
+BASE CASE ONLY — Year 1 minimum cumulative cash: $${Math.round(params.year1MinCumulativeCash).toLocaleString()}
+This cash minimum comes from the base-case monthly model, NOT the downside scenario. No downside monthly cash schedule is supplied. Do not attribute this amount to downside performance or infer a downside cash trough.
 
 Return ONLY valid JSON:
 {

@@ -125,13 +125,17 @@ const REPAIR_SYSTEM = [
   "Follow every repair instruction that is supported by the evidence.",
   "Never invent a number, person, credential, market fact, or policy conclusion.",
   "If evidence is absent, state the limitation concisely instead of filling space.",
-  "Return every original section key exactly once, including unchanged sections.",
+  "Return only the requested repair section keys, exactly once each. Unaffected sections are read-only context and must not be returned or changed.",
 ].join(" ");
 
 function parseIssues(text: string): ReviewIssue[] {
   try {
     const value = JSON.parse(text) as { issues?: ReviewIssue[]; flaggedClaims?: FlaggedClaim[] };
-    if (Array.isArray(value.issues)) return value.issues;
+    if (Array.isArray(value.issues) && value.issues.every((issue) =>
+      issue && typeof issue.sectionKey === "string" && typeof issue.reason === "string" &&
+      typeof issue.claim === "string" && typeof issue.repairInstruction === "string" &&
+      ["info", "warning", "critical"].includes(issue.severity)
+    )) return value.issues;
     // Backward-compatible with the original fact-checker contract while
     // deployments and tests move to the richer institutional review shape.
     if (Array.isArray(value.flaggedClaims)) {
@@ -144,7 +148,7 @@ function parseIssues(text: string): ReviewIssue[] {
         repairInstruction: `Remove or correct the unsupported claim: ${flag.claim}`,
       }));
     }
-    return [];
+    throw new Error("Invalid review contract");
   } catch {
     return [{
       sectionKey: "artifact",
@@ -162,9 +166,9 @@ function parseSections(text: string, original: ArtifactSection[]): ArtifactSecti
     const value = JSON.parse(text) as { sections?: ArtifactSection[] };
     if (!Array.isArray(value.sections)) return null;
     const expected = new Set(original.map((section) => section.key));
-    const repaired = value.sections.filter(
-      (section) => expected.has(section.key) && typeof section.text === "string" && section.text.trim(),
-    );
+    if (!value.sections.every((section) => section && expected.has(section.key) &&
+      typeof section.text === "string" && section.text.trim())) return null;
+    const repaired = value.sections;
     if (repaired.length !== expected.size || new Set(repaired.map((s) => s.key)).size !== expected.size) {
       return null;
     }
@@ -292,20 +296,28 @@ export async function finishInstitutionalArtifact(input: {
     }
     if (cycle === 3) break;
 
+    const sectionKeys = new Set(sections.map((section) => section.key));
+    // Legacy/artifact-wide findings require the whole set. Otherwise preserve
+    // unaffected sections byte-for-byte and request only the diagnosed edits.
+    const artifactWide = remaining.some((issue) => !sectionKeys.has(issue.sectionKey));
+    const targets = artifactWide ? sections : sections.filter((section) =>
+      remaining.some((issue) => issue.sectionKey === section.key));
     let repair;
     try {
-      repair = await runRole("underwriter", {
+      const request = {
         systemInstruction: REPAIR_SYSTEM,
         prompt: [
           `ARTIFACT TYPE: ${input.artifactType}`,
           "IMMUTABLE EVIDENCE AND CALCULATIONS:",
           typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts, null, 2),
-          "CURRENT SECTIONS:",
+          "ALL SECTIONS (read-only context except requested repair keys):",
           JSON.stringify(sections, null, 2),
+          "REQUESTED REPAIR SECTION KEYS:",
+          JSON.stringify(targets.map((section) => section.key)),
           "INDEPENDENT REVIEW FINDINGS:",
           JSON.stringify(remaining, null, 2),
           `REPAIR CYCLE: ${cycle + 1} OF 3`,
-          "Return the complete repaired section set.",
+          "Return only the requested repaired sections. Do not repeat unchanged sections.",
         ].join("\n\n"),
         responseSchema: REPAIR_SCHEMA,
         purpose: `${input.artifactType}_targeted_repair_${cycle + 1}`,
@@ -313,12 +325,20 @@ export async function finishInstitutionalArtifact(input: {
         npiTagged,
         maxOutputTokens: 8_192,
         timeoutMs: 75_000,
-      });
+      };
+      try {
+        repair = await runRole("underwriter", request);
+      } catch (error) {
+        // One bounded retry for a transient abort/timeout; never retry billing,
+        // authentication or budget errors. Keep the release review mandatory.
+        if (!(error instanceof Error) || !/aborted|aborterror|timed?\s*out|timeout/i.test(error.message)) throw error;
+        repair = await runRole("underwriter", { ...request, purpose: `${request.purpose}_retry` });
+      }
     } catch {
       break;
     }
 
-    const repairedSections = parseSections(repair.text, sections);
+    const repairedSections = parseSections(repair.text, targets);
     if (!repairedSections) {
       remaining = [{
         sectionKey: "artifact",
@@ -330,7 +350,8 @@ export async function finishInstitutionalArtifact(input: {
       }];
       break;
     }
-    sections = repairedSections;
+    const replacements = new Map(repairedSections.map((section) => [section.key, section]));
+    sections = sections.map((section) => replacements.get(section.key) ?? section);
     repaired = true;
   }
 
