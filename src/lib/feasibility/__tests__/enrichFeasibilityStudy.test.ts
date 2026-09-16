@@ -121,6 +121,41 @@ test("no-ops when the study row has no narratives yet", async () => {
   assert.equal(tables.buddy_feasibility_studies[0].narrative_citations, undefined);
 });
 
+test("re-audits corrected feasibility prose instead of retaining stale unsupported figures", async () => {
+  __setVendorApprovalForTests("openai", "APPROVED");
+  let reviews = 0;
+  let repairs = 0;
+  const audits: string[][] = [];
+  __setProviderImplForTests("anthropic", async (request) => {
+    reviews++;
+    const audit = JSON.parse(request.prompt.split("AUDIT OF THE CURRENT SECTIONS (not source evidence):\n\n")[1].split("\n\n")[0]);
+    const figures = audit.untracedFigures.map((f: { figure: string }) => f.figure);
+    audits.push(figures);
+    // Model the production failure: stale audit entries block even when the
+    // repaired prose no longer contains them. A newly invented number must
+    // also be audited, not merely removed from the original finding list.
+    return { text: JSON.stringify({ issues: figures.map((figure: string) => ({
+      sectionKey: "executiveSummary", claim: figure, reason: "Absent from source evidence",
+      severity: "critical", category: "unsupported_fact", repairInstruction: "Remove unsupported number",
+    })) }), tokensIn: 1, tokensOut: 1 };
+  });
+  __setProviderImplForTests("openai", async () => {
+    repairs++;
+    return { text: JSON.stringify({ sections: [{ key: "executiveSummary", text: repairs === 1
+      ? "Replacement unsupported income is $88,888."
+      : "Income evidence is unavailable." }] }), tokensIn: 1, tokensOut: 1 };
+  });
+  const tables: Record<string, Row[]> = { buddy_feasibility_studies: [{ id: "study-1", narratives: {
+    executiveSummary: "Income is $78,400 and the threshold is 1.25x.",
+    riskAssessment: "Keep this risk disclosure unchanged.",
+  } }] };
+  const result = await enrichFeasibilityStudy({ dealId: "deal-1", bankId: "bank-1", studyId: "study-1", composite: baseComposite(), sb: makeDb(tables) });
+  assert.deepEqual(audits, [["$78,400", "1.25x"], ["$88,888"], []]);
+  assert.equal(reviews, 3);
+  assert.equal(result.verdict, "pass");
+  assert.equal(tables.buddy_feasibility_studies[0].narratives.riskAssessment, "Keep this risk disclosure unchanged.");
+});
+
 test("writes citations and verification verdict back onto the study row", async () => {
   __setProviderImplForTests("anthropic", async () => ({
     text: JSON.stringify({ flaggedClaims: [] }),

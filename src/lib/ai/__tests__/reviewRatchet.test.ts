@@ -67,6 +67,15 @@ test("the hash the lane returns is the hash of what it was given", async () => {
   assert.equal(reviewCalls, 1);
 });
 
+test("review reuse includes the narrative audit contract", async () => {
+  const sectionAudit = { untracedFigures: [] };
+  const expected = reviewContentHash({ ...IDENTITY, sectionAudit });
+  const result = await finishInstitutionalArtifact({ ...IDENTITY, dealId: "deal-1", auditSections: () => sectionAudit });
+  assert.equal(result.contentHash, expected);
+  assert.notEqual(expected, reviewContentHash(IDENTITY));
+  assert.notEqual(expected, reviewContentHash({ ...IDENTITY, sectionAudit: { untracedFigures: ["4.00x"] } }));
+});
+
 test("a stored pass on identical content is reusable; anything else is not", () => {
   // The condition both gates apply before spending a review.
   const stored = { verdict: "pass", hash: reviewContentHash(IDENTITY) };
