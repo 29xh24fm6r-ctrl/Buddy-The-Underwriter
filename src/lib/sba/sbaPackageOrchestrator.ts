@@ -447,6 +447,7 @@ export async function generateSBAPackage(
     scenarios: sensitivityScenarios,
     breakEvenMarginOfSafetyPct: breakEven.marginOfSafetyPct,
     year1MinCumulativeCash,
+    dscrThreshold: projectedDscrThreshold,
     loanType: deal?.deal_type ?? "SBA",
     story: borrowerStory,
     planThesis,
@@ -518,6 +519,7 @@ export async function generateSBAPackage(
           ),
       ),
       totalDebtService: annualProjections[0]?.totalDebtService ?? 0,
+      sellerFinancingAmount: assumptions.loanImpact.sellerFinancingAmount ?? 0,
       dscrYear1: dscrYear1Base,
       // Phase 2
       city: dealCity,
