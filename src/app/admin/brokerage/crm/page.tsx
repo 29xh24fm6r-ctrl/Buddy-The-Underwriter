@@ -25,6 +25,7 @@ import { CrmCompanyCards } from "@/components/brokerage/CrmCompanyCards";
 type Organization = {
   id: string;
   name: string;
+  website_url: string | null;
   organization_type: string;
   city: string | null;
   state: string | null;

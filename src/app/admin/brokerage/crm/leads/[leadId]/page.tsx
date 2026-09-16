@@ -10,6 +10,8 @@ import { CrmActivityComposer } from "@/components/brokerage/CrmActivityComposer"
 import { CrmTaskControl } from "@/components/brokerage/CrmTaskControl";
 import { CrmActivityDeleteButton, CrmRecordDeleteControl } from "@/components/brokerage/CrmDeleteControls";
 import { formatUsPhoneInput } from "@/lib/crm/leadFieldFormatting";
+import { BusinessIdentityMark } from "@/components/brokerage/BusinessIdentityMark";
+import { businessWebsiteDomain } from "@/lib/crm/businessWebsite";
 
 type Lead = {
   id: string;
@@ -18,6 +20,7 @@ type Lead = {
   business_name: string | null;
   email: string | null;
   phone: string | null;
+  website_url: string | null;
   loan_amount_requested: number | null;
   loan_purpose: string | null;
   loan_program: string | null;
@@ -331,7 +334,17 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
 
       <div style={{ marginBottom: 18, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <div style={{ fontFamily: "var(--font-brokerage-display)", fontWeight: 700, fontSize: 24, color: c.paper }}>{name}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <BusinessIdentityMark name={name} websiteUrl={lead.website_url} size={46} />
+            <div>
+              <div style={{ fontFamily: "var(--font-brokerage-display)", fontWeight: 700, fontSize: 24, color: c.paper }}>{name}</div>
+              {lead.website_url && (
+                <a href={lead.website_url} target="_blank" rel="noreferrer" style={{ color: c.brassBright, fontSize: 11.5 }}>
+                  {businessWebsiteDomain(lead.website_url)} ↗
+                </a>
+              )}
+            </div>
+          </div>
           <div style={{ fontSize: 12.5, color: c.textSecondary, marginTop: 4 }}>
             {lead.email ?? "—"} · {lead.phone ? formatUsPhoneInput(lead.phone) : "—"} · {lead.loan_amount_requested ? `$${lead.loan_amount_requested.toLocaleString()} requested` : "amount unknown"}
           </div>

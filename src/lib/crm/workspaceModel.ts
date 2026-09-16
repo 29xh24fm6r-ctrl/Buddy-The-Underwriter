@@ -6,6 +6,7 @@ export type LeadSnapshot = {
   first_name?: string | null;
   last_name?: string | null;
   email?: string | null;
+  website_url?: string | null;
   status: string;
   loan_amount_requested?: number | null;
   next_action?: string | null;
