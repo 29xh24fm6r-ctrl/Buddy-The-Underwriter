@@ -65,6 +65,7 @@ test("company directory preserves full record links and derived metrics", () => 
         {
           id: "company",
           name: "Example",
+          website_url: null,
           organization_type: "referral_source",
           city: null,
           state: null,

@@ -675,6 +675,11 @@
     "migration": "20260915200931_complete_lender_package.sql"
   },
   {
+    "name": "brokerage_leads.website_url",
+    "type": "column",
+    "migration": "20260916172105_crm_lead_website_branding.sql"
+  },
+  {
     "name": "deals.brokerage_comms_last_run_at",
     "type": "column",
     "migration": "20260908183000_deals_brokerage_comms_last_run_at.sql"

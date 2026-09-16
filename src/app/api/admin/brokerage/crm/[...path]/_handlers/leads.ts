@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { upsertBrokerageLead } from "@/lib/brokerage/leads";
 import { listLeadQueue, LEAD_QUEUES, type LeadQueue } from "@/lib/leads/queries";
+import { normalizeBusinessWebsite } from "@/lib/crm/businessWebsite";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,9 +31,17 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}) as any);
   const email = typeof body?.email === "string" ? body.email.trim() : "";
   const phone = typeof body?.phone === "string" ? body.phone.trim() : "";
+  const submittedWebsite = typeof body?.websiteUrl === "string" ? body.websiteUrl.trim() : "";
+  const websiteUrl = normalizeBusinessWebsite(submittedWebsite);
   if (!email && !phone) {
     return NextResponse.json(
       { ok: false, error: "email or phone is required" },
+      { status: 400 },
+    );
+  }
+  if (submittedWebsite && !websiteUrl) {
+    return NextResponse.json(
+      { ok: false, error: "Enter a valid business website, such as example.com" },
       { status: 400 },
     );
   }
@@ -64,6 +73,7 @@ export async function POST(req: NextRequest) {
       firstName: typeof body?.firstName === "string" ? body.firstName : null,
       lastName: typeof body?.lastName === "string" ? body.lastName : null,
       businessName: typeof body?.businessName === "string" ? body.businessName : null,
+      websiteUrl,
       loanAmountRequested:
         typeof body?.loanAmountRequested === "number" ? body.loanAmountRequested : null,
       loanPurpose: typeof body?.loanPurpose === "string" ? body.loanPurpose : null,

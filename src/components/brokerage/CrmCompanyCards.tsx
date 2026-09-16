@@ -3,10 +3,12 @@ import Link from "next/link";
 import React, { useState } from "react";
 import { useCrmWorkspace } from "./CrmWorkspaceFrame";
 import { humanLabel } from "@/lib/crm/workspaceModel";
+import { BusinessIdentityMark } from "./BusinessIdentityMark";
 
 type Company = {
   id: string;
   name: string;
+  website_url: string | null;
   organization_type: string;
   city: string | null;
   state: string | null;
@@ -74,9 +76,7 @@ export function CrmCompanyCards({
         {companies.map((o) => (
           <article key={o.id} className="crm-company-card">
             <header>
-              <span className="crm-avatar">
-                {o.name.slice(0, 2).toUpperCase()}
-              </span>
+              <BusinessIdentityMark name={o.name} websiteUrl={o.website_url} />
               <span className={`crm-health crm-health-${o.health}`}>
                 {humanLabel(o.health)}
               </span>

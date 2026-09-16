@@ -15,6 +15,15 @@ function getGitSha() {
 // Force clean build — cache-bust 2026-03-20
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "www.google.com",
+        pathname: "/s2/favicons",
+      },
+    ],
+  },
   env: {
     NEXT_PUBLIC_GIT_SHA: getGitSha(),
     NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),

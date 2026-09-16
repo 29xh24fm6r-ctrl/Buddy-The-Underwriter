@@ -15,6 +15,14 @@ import {
   type LeadStage,
 } from "@/lib/leads/stages";
 import { confirmCrmDiscard, useCrmDraftGuard } from "./useCrmDraftGuard";
+import { BusinessIdentityMark } from "./BusinessIdentityMark";
+import { normalizeBusinessWebsite } from "@/lib/crm/businessWebsite";
+import {
+  formatUsPhoneInput,
+  formatUsdInput,
+  parseUsdInput,
+  phoneDigits,
+} from "@/lib/crm/leadFieldFormatting";
 
 type Lead = LeadSnapshot & {
   priority: string;
@@ -387,10 +395,17 @@ export function CrmLeadWorkbench() {
                       className="crm-record-title"
                       onClick={() => open(l)}
                     >
-                      {leadTitle(l)}
+                      <BusinessIdentityMark
+                        name={leadTitle(l)}
+                        websiteUrl={l.website_url}
+                        size={34}
+                      />
+                      <span>{leadTitle(l)}</span>
                     </button>
                     <p>
-                      {l.email || l.phone || "Contact details not recorded"}
+                      {l.email ||
+                        (l.phone ? formatUsPhoneInput(l.phone) : null) ||
+                        "Contact details not recorded"}
                     </p>
                     <strong className="crm-lead-amount">
                       {l.loan_amount_requested != null
@@ -472,6 +487,7 @@ function LeadIntake({
     lastName: "",
     email: "",
     phone: "",
+    websiteUrl: "",
     amount: "",
     loanPurpose: "",
     notes: "",
@@ -494,14 +510,20 @@ function LeadIntake({
     setBusy(true);
     setError("");
     try {
+      const websiteUrl = normalizeBusinessWebsite(form.websiteUrl);
+      if (form.websiteUrl.trim() && !websiteUrl) {
+        setError("Enter a valid business website, such as example.com.");
+        return;
+      }
       const r = await fetch("/api/admin/brokerage/crm/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
           email: form.email.trim(),
-          phone: form.phone.trim(),
-          loanAmountRequested: form.amount ? Number(form.amount) : undefined,
+          phone: phoneDigits(form.phone),
+          websiteUrl,
+          loanAmountRequested: parseUsdInput(form.amount),
         }),
       });
       const j = await r.json();
@@ -542,7 +564,8 @@ function LeadIntake({
               ["lastName", "Last name", "text"],
               ["email", "Email", "email"],
               ["phone", "Phone", "tel"],
-              ["amount", "Requested amount (optional)", "number"],
+              ["amount", "Requested amount (optional)", "text"],
+              ["websiteUrl", "Business website (optional)", "text"],
             ] as const
           ).map(([key, label, type]) => (
             <label key={key}>
@@ -550,11 +573,27 @@ function LeadIntake({
               <input
                 value={form[key]}
                 type={type}
-                min={type === "number" ? 0 : undefined}
-                step={type === "number" ? "0.01" : undefined}
+                inputMode={
+                  key === "phone" || key === "amount"
+                    ? "numeric"
+                    : key === "websiteUrl"
+                      ? "url"
+                      : undefined
+                }
+                autoComplete={
+                  key === "phone" ? "tel" : key === "websiteUrl" ? "url" : undefined
+                }
                 maxLength={200}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, [key]: e.target.value }))
+                  setForm((f) => ({
+                    ...f,
+                    [key]:
+                      key === "phone"
+                        ? formatUsPhoneInput(e.target.value)
+                        : key === "amount"
+                          ? formatUsdInput(e.target.value)
+                          : e.target.value,
+                  }))
                 }
               />
             </label>

@@ -440,6 +440,23 @@ test("convertLeadToDeal creates a borrower and deal, marks the lead converted, a
   assert.equal(db.tables.deals.length, 1, "must not create a second deal for an already-converted lead");
 });
 
+test("convertLeadToDeal carries the captured business website into a new borrower", async () => {
+  const db = new FakeDb();
+  const lead = makeLead(db, {
+    status: "application_started",
+    business_name: "Acme Bakery",
+    website_url: "https://acmebakery.com",
+  });
+
+  const result = await convert.convertLeadToDeal(
+    { bankId: BANK_A, leadId: lead.id, actorClerkUserId: "staff_1" },
+    db as any,
+  );
+
+  const borrower = db.tables.borrowers.find((row) => row.id === result.borrowerId);
+  assert.equal(borrower?.website, "https://acmebakery.com");
+});
+
 test("convertLeadToDeal carries the lead owner into the new brokerage deal", async () => {
   const db = new FakeDb();
   const lead = makeLead(db, {
