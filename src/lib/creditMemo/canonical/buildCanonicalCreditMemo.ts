@@ -1,4 +1,5 @@
 import "server-only";
+import { formatLoanPurpose } from "./formatLoanPurpose";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -937,7 +938,7 @@ export async function buildCanonicalCreditMemo(args: {
       : "Pending";
 
     // ===== Phase 1C: Loan request derived fields =====
-    const loanReqPurpose = loanReq?.purpose ?? loanReq?.use_of_proceeds ?? "Pending";
+    const loanReqPurpose = formatLoanPurpose(loanReq?.purpose, loanReq?.use_of_proceeds);
     const loanReqProduct = loanReq?.product_type ?? "—";
     // SPEC-CREDIT-MEMO-AUDIT-1 Bug 6: LOC products have no term/amort — use sensible defaults
     const isLOC = loanReqProduct === "LOC_SECURED" || loanReqProduct === "LINE_OF_CREDIT" || loanReqProduct === "LOC";
