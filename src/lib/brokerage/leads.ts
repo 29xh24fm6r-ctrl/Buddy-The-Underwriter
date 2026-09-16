@@ -31,6 +31,7 @@ export type UpsertLeadArgs = {
   firstName?: string | null;
   lastName?: string | null;
   businessName?: string | null;
+  websiteUrl?: string | null;
   loanAmountRequested?: number | null;
   loanPurpose?: string | null;
   referralSourceOrgId?: string | null;
@@ -83,6 +84,7 @@ export async function upsertBrokerageLead(
   if (args.firstName) patch.first_name = args.firstName;
   if (args.lastName) patch.last_name = args.lastName;
   if (args.businessName) patch.business_name = args.businessName;
+  if (args.websiteUrl) patch.website_url = args.websiteUrl;
   if (args.loanAmountRequested != null) patch.loan_amount_requested = args.loanAmountRequested;
   if (args.loanPurpose) patch.loan_purpose = args.loanPurpose;
   if (args.referralSourceOrgId) patch.referral_source_org_id = args.referralSourceOrgId;

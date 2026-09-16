@@ -657,6 +657,34 @@
   color: #315ce7;
   text-decoration: underline;
 }
+
+.crm-business-mark {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(219, 234, 254, 0.72));
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  color: #3154b7;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.crm-business-mark img {
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+  border-radius: 7px;
+}
+
+.crm-lead-card .crm-record-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .crm-lead-amount {
   display: block;
   font-size: 21px;

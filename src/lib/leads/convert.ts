@@ -165,6 +165,7 @@ export async function convertLeadToDeal(input: ConvertLeadToDealInput, sb: SB = 
   const businessName = (lead.business_name as string | null) ?? null;
   const contactName = [lead.first_name, lead.last_name].filter(Boolean).join(" ") || null;
   const email = (lead.email as string | null) ?? null;
+  const website = (lead.website_url as string | null) ?? null;
 
   const duplicateBorrowerCandidates = input.borrowerId
     ? []
@@ -209,6 +210,7 @@ export async function convertLeadToDeal(input: ConvertLeadToDealInput, sb: SB = 
         legal_name: borrowerDisplayName,
         primary_contact_name: contactName,
         primary_contact_email: email,
+        website,
       })
       .select("id, legal_name")
       .single();
