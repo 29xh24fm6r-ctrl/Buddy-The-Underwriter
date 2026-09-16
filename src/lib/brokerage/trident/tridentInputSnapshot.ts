@@ -103,7 +103,29 @@ function canonicalize(value: unknown): unknown {
  * Five production runs failed exactly this way, and none of them carried a
  * `changed_sources` list, because there was no source drift to report.
  */
-export const TRIDENT_SNAPSHOT_VERSION = 8;
+export const TRIDENT_SNAPSHOT_VERSION = 9;
+
+/** Keep evidence dates, but ignore the aggregator's wall-clock persistence date.
+ * runCashFlowAggregator stamps this specific provenance on every recomputation,
+ * including reads through the spread renderer. It is not the reporting period.
+ * Keep the full original provenance in the stored manifest for audit purposes.
+ */
+function comparableSources(sources: JsonRecord): JsonRecord {
+  if (!Array.isArray(sources.financialFacts)) return sources;
+  return {
+    ...sources,
+    financialFacts: sources.financialFacts.map((fact: JsonRecord) => {
+      const provenance = fact?.provenance as JsonRecord | undefined;
+      if (provenance?.source_type !== "STRUCTURAL" ||
+          provenance.source_ref !== "computed:classic_spread:v2" ||
+          provenance.extractor !== "runCashFlowAggregator:v2") return fact;
+      return {
+        ...fact,
+        provenance: Object.fromEntries(Object.entries(provenance).filter(([key]) => key !== "as_of_date")),
+      };
+    }),
+  };
+}
 
 /** A schema-generation change, not borrower drift. Callers must not retry. */
 export class TridentSnapshotSchemaChanged extends Error {
@@ -127,12 +149,14 @@ export function hashTridentManifest(manifest: Record<string, unknown>): string {
   // manifest and is enforced by readiness/release, but its lifecycle workers
   // may not invalidate the factory's own frozen borrower snapshot.
   const hashDomain =
-    (manifest.version === 5 || manifest.version === 6 || manifest.version === 7 || manifest.version === 8) &&
+    (manifest.version === 5 || manifest.version === 6 || manifest.version === 7 || manifest.version === 8 || manifest.version === 9) &&
       manifest.sources && typeof manifest.sources === "object"
       ? manifest.sources
       : manifest;
   return createHash("sha256")
-    .update(JSON.stringify(canonicalize(semanticTridentSnapshot(hashDomain))))
+    .update(JSON.stringify(canonicalize(semanticTridentSnapshot(
+      manifest.version === 9 ? comparableSources(hashDomain as JsonRecord) : hashDomain,
+    ))))
     .digest("hex");
 }
 
@@ -280,14 +304,14 @@ export function summarizeTridentSourceDrift(
   admittedManifest: Record<string, unknown> | null | undefined,
   currentManifest: Record<string, unknown>,
 ): string[] {
-  const admittedSources =
+  const admittedSources = comparableSources(
     admittedManifest?.sources && typeof admittedManifest.sources === "object"
       ? admittedManifest.sources as JsonRecord
-      : {};
-  const currentSources =
+      : {});
+  const currentSources = comparableSources(
     currentManifest.sources && typeof currentManifest.sources === "object"
       ? currentManifest.sources as JsonRecord
-      : {};
+      : {});
   return [...new Set([...Object.keys(admittedSources), ...Object.keys(currentSources)])]
     .sort()
     .filter((key) =>
