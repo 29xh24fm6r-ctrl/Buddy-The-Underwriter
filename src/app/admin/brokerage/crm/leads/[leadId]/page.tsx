@@ -9,6 +9,7 @@ import { useCrmWorkspace } from "@/components/brokerage/CrmWorkspaceFrame";
 import { CrmActivityComposer } from "@/components/brokerage/CrmActivityComposer";
 import { CrmTaskControl } from "@/components/brokerage/CrmTaskControl";
 import { CrmActivityDeleteButton, CrmRecordDeleteControl } from "@/components/brokerage/CrmDeleteControls";
+import { formatUsPhoneInput } from "@/lib/crm/leadFieldFormatting";
 
 type Lead = {
   id: string;
@@ -332,7 +333,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
         <div>
           <div style={{ fontFamily: "var(--font-brokerage-display)", fontWeight: 700, fontSize: 24, color: c.paper }}>{name}</div>
           <div style={{ fontSize: 12.5, color: c.textSecondary, marginTop: 4 }}>
-            {lead.email ?? "—"} · {lead.phone ?? "—"} · {lead.loan_amount_requested ? `$${lead.loan_amount_requested.toLocaleString()} requested` : "amount unknown"}
+            {lead.email ?? "—"} · {lead.phone ? formatUsPhoneInput(lead.phone) : "—"} · {lead.loan_amount_requested ? `$${lead.loan_amount_requested.toLocaleString()} requested` : "amount unknown"}
           </div>
           <div style={{ fontSize: 11, color: c.textMuted, marginTop: 4 }}>
             Stage: <strong style={{ color: c.brassBright }}>{lead.status.replace(/_/g, " ")}</strong> · Priority: {lead.priority} · Source: {lead.source ?? "—"}

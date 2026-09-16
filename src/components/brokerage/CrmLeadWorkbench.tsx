@@ -15,6 +15,12 @@ import {
   type LeadStage,
 } from "@/lib/leads/stages";
 import { confirmCrmDiscard, useCrmDraftGuard } from "./useCrmDraftGuard";
+import {
+  formatUsPhoneInput,
+  formatUsdInput,
+  parseUsdInput,
+  phoneDigits,
+} from "@/lib/crm/leadFieldFormatting";
 
 type Lead = LeadSnapshot & {
   priority: string;
@@ -390,7 +396,9 @@ export function CrmLeadWorkbench() {
                       {leadTitle(l)}
                     </button>
                     <p>
-                      {l.email || l.phone || "Contact details not recorded"}
+                      {l.email ||
+                        (l.phone ? formatUsPhoneInput(l.phone) : null) ||
+                        "Contact details not recorded"}
                     </p>
                     <strong className="crm-lead-amount">
                       {l.loan_amount_requested != null
@@ -500,8 +508,8 @@ function LeadIntake({
         body: JSON.stringify({
           ...form,
           email: form.email.trim(),
-          phone: form.phone.trim(),
-          loanAmountRequested: form.amount ? Number(form.amount) : undefined,
+          phone: phoneDigits(form.phone),
+          loanAmountRequested: parseUsdInput(form.amount),
         }),
       });
       const j = await r.json();
@@ -542,7 +550,7 @@ function LeadIntake({
               ["lastName", "Last name", "text"],
               ["email", "Email", "email"],
               ["phone", "Phone", "tel"],
-              ["amount", "Requested amount (optional)", "number"],
+              ["amount", "Requested amount (optional)", "text"],
             ] as const
           ).map(([key, label, type]) => (
             <label key={key}>
@@ -550,11 +558,19 @@ function LeadIntake({
               <input
                 value={form[key]}
                 type={type}
-                min={type === "number" ? 0 : undefined}
-                step={type === "number" ? "0.01" : undefined}
+                inputMode={key === "phone" || key === "amount" ? "numeric" : undefined}
+                autoComplete={key === "phone" ? "tel" : undefined}
                 maxLength={200}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, [key]: e.target.value }))
+                  setForm((f) => ({
+                    ...f,
+                    [key]:
+                      key === "phone"
+                        ? formatUsPhoneInput(e.target.value)
+                        : key === "amount"
+                          ? formatUsdInput(e.target.value)
+                          : e.target.value,
+                  }))
                 }
               />
             </label>
