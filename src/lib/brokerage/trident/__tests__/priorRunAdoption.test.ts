@@ -20,11 +20,12 @@ const require = createRequire(import.meta.url);
 
 type Row = Record<string, unknown>;
 
-function stubClient(opts: { prior: Row | null; leaseHeld?: boolean }) {
+function stubClient(opts: { prior: Row | null; leaseHeld?: boolean; missingFile?: string }) {
   const writes: Row[] = [];
   return {
     writes,
     client: {
+      storage: { from: () => ({ download: async (path: string) => path === opts.missingFile ? { data: null, error: new Error("missing") } : { data: new Blob(["artifact"]), error: null } }) },
       from() {
         const state: { isUpdate: boolean; patch: Row } = { isUpdate: false, patch: {} };
         const q: Record<string, unknown> = {
@@ -106,8 +107,8 @@ test("a fresh SBA checkpoint cannot inherit another plan's reviewed PDF or workb
   assert.equal(adopted.source_sba_package_id, "pkg-fresh");
   assert.equal(adopted.business_plan_pdf_path, null, "the fresh plan must go through review and rendering");
   assert.equal(adopted.projections_xlsx_path, null);
-  assert.equal(adopted.source_feasibility_id, "feas-1", "an independent coherent group can still resume");
-  assert.deepEqual(writes, [{ source_feasibility_id: "feas-1", feasibility_pdf_path: "feas.pdf" }]);
+  assert.equal(adopted.source_feasibility_id, null, "feasibility depends on the replaced projection package");
+  assert.deepEqual(writes, []);
 });
 
 test("a retry bound to the same source can reuse that source's completed files", async () => {
@@ -191,4 +192,12 @@ test("adoption never fails a run", async () => {
   });
 
   assert.deepEqual(adopted, CURRENT_EMPTY, "an optimisation must not be why a run dies");
+});
+
+test("a missing file prevents adoption of its document group", async () => {
+  const { client, writes } = stubClient({ prior: PRIOR_COMPLETE, missingFile: "bp.pdf" });
+  const result = await adoptPriorRunArtifacts(client as never, { ...ARGS, current: { ...CURRENT_EMPTY } });
+  assert.equal(result.business_plan_pdf_path, null);
+  assert.equal(result.source_sba_package_id, null);
+  assert.equal(writes.length, 0);
 });

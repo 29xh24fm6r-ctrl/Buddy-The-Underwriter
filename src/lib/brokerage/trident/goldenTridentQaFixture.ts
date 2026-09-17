@@ -221,7 +221,7 @@ export async function seedGoldenTridentQaFixture(args: {
       deal_id: dealId,
       bank_id: bankId,
       source_document_id: sourceDocumentId,
-      fact_type: "qa_certified_financial",
+      fact_type: sourceDocumentId === balanceDocId ? "BALANCE_SHEET" : "INCOME_STATEMENT",
       fact_key: factKey,
       fact_period_start: periodStart,
       fact_period_end: periodEnd,

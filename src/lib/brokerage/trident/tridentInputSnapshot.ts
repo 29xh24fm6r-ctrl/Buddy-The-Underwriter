@@ -103,7 +103,7 @@ function canonicalize(value: unknown): unknown {
  * Five production runs failed exactly this way, and none of them carried a
  * `changed_sources` list, because there was no source drift to report.
  */
-export const TRIDENT_SNAPSHOT_VERSION = 9;
+export const TRIDENT_SNAPSHOT_VERSION = 10;
 
 /** Keep evidence dates, but ignore the aggregator's wall-clock persistence date.
  * runCashFlowAggregator stamps this specific provenance on every recomputation,
@@ -149,13 +149,13 @@ export function hashTridentManifest(manifest: Record<string, unknown>): string {
   // manifest and is enforced by readiness/release, but its lifecycle workers
   // may not invalidate the factory's own frozen borrower snapshot.
   const hashDomain =
-    (manifest.version === 5 || manifest.version === 6 || manifest.version === 7 || manifest.version === 8 || manifest.version === 9) &&
+    (manifest.version === 5 || manifest.version === 6 || manifest.version === 7 || manifest.version === 8 || manifest.version === 9 || manifest.version === 10) &&
       manifest.sources && typeof manifest.sources === "object"
       ? manifest.sources
       : manifest;
   return createHash("sha256")
     .update(JSON.stringify(canonicalize(semanticTridentSnapshot(
-      manifest.version === 9 ? comparableSources(hashDomain as JsonRecord) : hashDomain,
+      Number(manifest.version) >= 9 ? comparableSources(hashDomain as JsonRecord) : hashDomain,
     ))))
     .digest("hex");
 }
@@ -254,6 +254,10 @@ export async function computeTridentInputSnapshot(
     requiredMissionRows(sb, "buddy_research_quality_gates", missionIds),
   ]);
 
+  const financialDependencies = Object.fromEntries(await Promise.all([
+    "buddy_guarantor_cashflow", "deal_ownership_entities", "deal_ownership_interests",
+    "deal_management_profiles", "deal_methodology_choices", "deal_existing_debt_schedule",
+  ].map(async table => [table, await requiredRows(sb, table, dealId)])));
   const manifest = canonicalize({
     version: TRIDENT_SNAPSHOT_VERSION,
     // Freeze only borrower and underwriting source-of-truth rows. Governed
@@ -261,7 +265,8 @@ export async function computeTridentInputSnapshot(
     // readiness/release, while asynchronous lifecycle convergence cannot make
     // an admitted factory invalidate itself.
     sources: {
-      packageFormat: "complete-lender-package-v1",
+      packageFormat: "complete-lender-package-v2",
+      financialDependencies,
       formInputs,
       deal: dealResult.data,
       pricingDecisions,

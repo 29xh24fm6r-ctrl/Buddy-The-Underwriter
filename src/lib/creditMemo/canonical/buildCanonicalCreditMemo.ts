@@ -1,3 +1,4 @@
+import type { PackageFinancialOutput } from "@/lib/modelEngine/packageFinancialComputation";
 import "server-only";
 import { confirmedLoanTerms } from "./confirmedLoanTerms";
 import { confirmedMemoFunding, reconcileMemoFunding } from "./memoFunding";
@@ -245,6 +246,9 @@ export async function buildCanonicalCreditMemo(args: {
    * so it can neither be forged nor replayed.
    */
   accessGrant?: DealBankAccessGrant;
+  financialSnapshotId?: string;
+  /** Internal deterministic preparation; never supplied from a request body. */
+  financialOutput?: PackageFinancialOutput;
 }): Promise<
   | {
       ok: true;
@@ -302,6 +306,14 @@ export async function buildCanonicalCreditMemo(args: {
     if (!dealRes.data) return { ok: false, error: "deal_not_found" };
 
     const deal = dealRes.data as any;
+
+    if (args.financialSnapshotId) {
+      const saved = await (await import("@/lib/modelEngine/packageFinancialSnapshot")).loadPackageFinancialSnapshot({ dealId: args.dealId, bankId, snapshotId: args.financialSnapshotId });
+      const memo = structuredClone(saved.output.canonicalMemo);
+      if (!memo) throw new Error("financial_snapshot_invalid: canonical memo input missing");
+      if (memo.package_financials) memo.package_financials.snapshotId = saved.id;
+      return { ok: true, memo, contractBlockers: saved.output.memoContractBlockers };
+    }
 
     const spreadsRes = await (sb as any)
       .from("deal_spreads")
@@ -549,6 +561,8 @@ export async function buildCanonicalCreditMemo(args: {
       }
     }
 
+    const packageFinancial = args.financialOutput ?? null;
+
     // Pull metrics from snapshot first, then fall back to spread-derived facts
     // when the snapshot hasn't been seeded from the FINANCIAL_ANALYSIS fact pipeline yet.
     function mergeMetric(
@@ -569,10 +583,10 @@ export async function buildCanonicalCreditMemo(args: {
     };
 
     // If any key metric is missing from the snapshot, fall back to spread-derived metrics.
-    const needsSpreadFallback =
+    const needsSpreadFallback = !packageFinancial && (
       snapshotFinancial.dscrGlobal.value === null ||
       snapshotFinancial.annualDebtService.value === null ||
-      snapshotFinancial.cashFlowAvailable.value === null;
+      snapshotFinancial.cashFlowAvailable.value === null);
 
     const spreadFinancial = needsSpreadFallback
       ? await computeFinancialAnalysisMetrics({ dealId: args.dealId, bankId })
@@ -582,7 +596,7 @@ export async function buildCanonicalCreditMemo(args: {
     // status from canonical-fact provenance so the memo can flag a preliminary DSCR.
     const dscrDenominatorStatus = await readDscrDenominatorStatus({ dealId: args.dealId, bankId });
 
-    let financial = {
+    let financial = packageFinancial?.memoFinancial ?? {
       cashFlowAvailable: mergeMetric(snapshotFinancial.cashFlowAvailable, spreadFinancial?.cashFlowAvailable),
       annualDebtService: mergeMetric(snapshotFinancial.annualDebtService, spreadFinancial?.annualDebtService),
       excessCashFlow: mergeMetric(snapshotFinancial.excessCashFlow, spreadFinancial?.excessCashFlow),
@@ -605,9 +619,9 @@ export async function buildCanonicalCreditMemo(args: {
     // read the underlying raw inputs directly and compute derived metrics.
     // This covers deals where the GCF spread was built as a formula template
     // but its inputs (FINANCIAL_ANALYSIS facts) were never written.
-    const needsTier3 =
+    const needsTier3 = !packageFinancial && (
       financial.cashFlowAvailable.value === null ||
-      financial.annualDebtService.value === null;
+      financial.annualDebtService.value === null);
 
     if (needsTier3) {
       // SPEC-CREDIT-MEMO-NON-T12-FINANCIAL-PATH-INTEGRITY-1: the T12 (trailing-twelve)
@@ -706,12 +720,12 @@ export async function buildCanonicalCreditMemo(args: {
     };
 
     // Resolve each missing funding metric; a loan amount alone is not a complete funding plan.
-    const needsSourcesFallback = Object.values(snapshotSourcesUses).some(metric => metric.value === null);
+    const needsSourcesFallback = !packageFinancial && Object.values(snapshotSourcesUses).some(metric => metric.value === null);
     const spreadSourcesUses = needsSourcesFallback
       ? await computeSourcesUsesMetrics({ dealId: args.dealId, bankId })
       : null;
 
-    const sourcesUses = {
+    const sourcesUses = packageFinancial?.fundingMetrics ?? {
       totalProjectCost: mergeMetric(snapshotSourcesUses.totalProjectCost, spreadSourcesUses?.totalProjectCost),
       borrowerEquity: mergeMetric(snapshotSourcesUses.borrowerEquity, spreadSourcesUses?.borrowerEquity),
       borrowerEquityPct: mergeMetric(snapshotSourcesUses.borrowerEquityPct, spreadSourcesUses?.borrowerEquityPct),
@@ -746,7 +760,7 @@ export async function buildCanonicalCreditMemo(args: {
       mgmtProfiles.push(profile);
       mgmtProfileByName.set(member.name.toLowerCase().trim(), profile);
     }
-    const resolvedFunding = reconcileMemoFunding({
+    const resolvedFunding = packageFinancial?.memoFunding ?? reconcileMemoFunding({
         total_project_cost: sourcesUses.totalProjectCost,
         borrower_equity: sourcesUses.borrowerEquity,
         borrower_equity_pct: sourcesUses.borrowerEquityPct,
@@ -1017,7 +1031,7 @@ export async function buildCanonicalCreditMemo(args: {
 
     // SPEC-CREDIT-MEMO-AUDIT-1 Bug 10: recompute stressed ADS for LOC/IO products
     // now that isLOC, rateInitialPct, and amortMonths are available.
-    if (financial.annualDebtService.value !== null && (isLOC || amortMonths === 0)) {
+    if (!packageFinancial && financial.annualDebtService.value !== null && (isLOC || amortMonths === 0)) {
       const currentRate = rateInitialPct ?? null;
       if (currentRate != null && currentRate > 0) {
         const stressedAds = financial.annualDebtService.value * ((currentRate + 3) / currentRate);
@@ -1037,12 +1051,12 @@ export async function buildCanonicalCreditMemo(args: {
     }
 
     // ===== Phase 33 (pre-verdict): Build debt_coverage_table early so verdict can use by_year =====
-    const debtCoverageTable: DebtCoverageRow[] = [];
+    const debtCoverageTable: DebtCoverageRow[] = packageFinancial ? [...packageFinancial.debtCoverageRows] : [];
     const structuralAds = pricingRow?.annual_debt_service_est
       ? Number(pricingRow.annual_debt_service_est)
       : (financial.annualDebtService.value ?? null);
 
-    for (const [period, facts] of Object.entries(factsByPeriod).slice(0, 3)) {
+    for (const [period, facts] of Object.entries(packageFinancial ? {} : factsByPeriod).slice(0, 3)) {
       const rev = facts["TOTAL_REVENUE"] ?? null;
       const ni = facts["NET_INCOME"] ?? null;
       const dep = facts["DEPRECIATION"] ?? null;
@@ -1812,6 +1826,12 @@ export async function buildCanonicalCreditMemo(args: {
     }
 
     const memo: CanonicalCreditMemoV1 = {
+      ...(packageFinancial ? { package_financials: {
+        snapshotId: args.financialSnapshotId ?? "pending_persistence",
+        output: { baseYear: packageFinancial.baseYear, annualProjections: packageFinancial.projectionModel.annualProjections,
+          sourcesAndUses: packageFinancial.sourcesAndUses, balanceSheetProjections: packageFinancial.balanceSheetProjections,
+          assumptions: packageFinancial.assumptions, globalCashFlow: packageFinancial.globalCashFlow },
+      } } : {}),
       version: "canonical_v1",
       deal_id: String(deal.id),
       bank_id: String(bankId),

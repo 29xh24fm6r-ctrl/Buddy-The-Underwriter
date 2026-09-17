@@ -381,6 +381,21 @@ require.cache[require.resolve("@/lib/creditMemo/pdf/buildCreditMemoPdf")] = {
   id: "memo-pdf-stub", filename: "memo-pdf-stub", loaded: true,
   exports: { buildCreditMemoPdf: async () => Buffer.from("%PDF-memo") },
 } as any;
+require.cache[require.resolve("@/lib/modelEngine/packageFinancialSnapshot")] = {
+  loaded: true, exports: {
+    preparePackageFinancialSnapshot: async () => ({ id: "financial-1" }),
+    loadPackageFinancialSnapshot: async () => ({ id: "financial-1", output: {
+      projectionModel: { annualProjections: [], monthlyProjections: [] }, baseYear: {},
+      sourcesAndUses: {}, balanceSheetProjections: {},
+    } }),
+  },
+} as any;
+// Numeric lineage behavior is exercised separately with real payload mutations.
+// Here the downstream renderer fixtures carry the same source version.
+require.cache[require.resolve("../packageFinancialLineage")] = {
+  loaded: true, exports: { assertPackageFinancialLineage: (args: any) => assert.equal(args.snapshot.id, "financial-1") },
+} as any;
+
 // Load the orchestrator now that shims are in place.
 const { generateTridentBundle } =
   require("../generateTridentBundle") as typeof import("../generateTridentBundle");

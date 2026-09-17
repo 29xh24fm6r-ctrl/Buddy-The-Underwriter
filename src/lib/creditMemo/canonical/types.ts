@@ -236,6 +236,7 @@ export type CommitteeCertification = {
 };
 
 export type CanonicalCreditMemoV1 = {
+  package_financials?: { snapshotId: string; output: Record<string, unknown> };
   version: "canonical_v1";
   deal_id: string;
   bank_id: string;

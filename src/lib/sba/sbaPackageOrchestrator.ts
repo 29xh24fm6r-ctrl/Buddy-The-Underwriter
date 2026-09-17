@@ -1,17 +1,8 @@
 import "server-only";
+import { preparePackageFinancialSnapshot, loadPackageFinancialSnapshot } from "@/lib/modelEngine/packageFinancialSnapshot";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { validateSBAAssumptions } from "./sbaAssumptionsValidator";
-import {
-  buildBaseYear,
-  buildUseOfProceeds,
-} from "./sbaForwardModelBuilder";
-import { computeSBAProjectionModel } from "./sbaProjectionAuthority";
 import { calculateSBAGuarantee, detectSBAProgram } from "./sbaGuarantee";
-import {
-  detectNewBusinessFromFacts,
-  assessNewBusinessRisk,
-} from "./newBusinessProtocol";
 import {
   generateBusinessOverviewNarrative,
   generateSensitivityNarrative,
@@ -40,16 +31,9 @@ import {
   redactRevenueStreamProjectionsForPreview,
   type SBAPackageInputs,
 } from "@/lib/brokerage/trident/redactor";
-import { buildSourcesAndUses } from "./sbaSourcesAndUses";
-import { buildBalanceSheetProjections } from "./sbaBalanceSheetProjector";
-import {
-  computeGlobalCashFlow,
-  type GuarantorCashFlow,
-} from "./sbaGlobalCashFlow";
 import { validateAgainstBenchmarks } from "./sbaAssumptionBenchmarks";
 import { crossFillSBAForms } from "./sbaFormCrossFill";
 import { extractResearchForBusinessPlan } from "./sbaResearchExtractor";
-import type { SBAAssumptions } from "./sbaReadinessTypes";
 import { generateProjectionsAssumptionsNarrative } from "@/lib/methodology/projectionsAssumptionsNarrative";
 
 /**
@@ -62,7 +46,7 @@ import { generateProjectionsAssumptionsNarrative } from "@/lib/methodology/proje
  */
 export async function generateSBAPackage(
   dealId: string,
-  options: { mode?: "preview" | "final" } = {},
+  options: { mode?: "preview" | "final"; financialSnapshotId?: string } = {},
 ): Promise<
   | {
       ok: true;
@@ -79,271 +63,16 @@ export async function generateSBAPackage(
   const mode = options.mode ?? "final";
   const sb = supabaseAdmin();
 
-  // Gate 1: Validation Pass must not be FAIL
-  const { data: latestValidation } = await sb
-    .from("buddy_validation_reports")
-    .select("overall_status")
-    .eq("deal_id", dealId)
-    .order("run_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (latestValidation?.overall_status === "FAIL") {
-    return {
-      ok: false,
-      error:
-        "Cannot generate SBA package: Validation Pass is FAIL. Resolve data integrity issues first.",
-    };
-  }
-
-  // Gate 2: Assumptions must be confirmed
-  const { data: assumptionsRow } = await sb
-    .from("buddy_sba_assumptions")
-    .select("*")
-    .eq("deal_id", dealId)
-    .maybeSingle();
-
-  if (!assumptionsRow || assumptionsRow.status !== "confirmed") {
-    return {
-      ok: false,
-      error: "Assumptions must be confirmed before generating the SBA package.",
-    };
-  }
-
-  const assumptions: SBAAssumptions = {
-    dealId,
-    status: assumptionsRow.status,
-    confirmedAt: assumptionsRow.confirmed_at ?? undefined,
-    revenueStreams: assumptionsRow.revenue_streams,
-    costAssumptions: assumptionsRow.cost_assumptions,
-    workingCapital: assumptionsRow.working_capital,
-    loanImpact: assumptionsRow.loan_impact,
-    managementTeam: assumptionsRow.management_team,
-  };
-
-  // Gate 3: Validate assumption completeness
-  const validation = validateSBAAssumptions(assumptions);
-  if (!validation.ok) {
-    return {
-      ok: false,
-      error: "Assumption validation failed",
-      blockers: validation.blockers,
-    };
-  }
-
-  // Pull base year facts
-  // T-85-PROBE-1: column is fact_value_num (not value_numeric); fact keys in DB
-  // are bare (TOTAL_REVENUE, COST_OF_GOODS_SOLD, etc.) while legacy code queried
-  // _IS-suffixed keys that were never populated. Query both and fall back.
-  // Also derive EBITDA from NET_INCOME + INTEREST + DEPRECIATION + TAX when the
-  // EBITDA fact itself is absent (currently 0 rows repo-wide).
-  const { data: facts } = await sb
-    .from("deal_financial_facts")
-    .select("fact_key, fact_value_num")
-    .eq("deal_id", dealId)
-    .in("fact_key", [
-      // Revenue
-      "TOTAL_REVENUE_IS", "TOTAL_REVENUE",
-      // COGS
-      "TOTAL_COGS_IS", "COST_OF_GOODS_SOLD", "COGS",
-      // Operating expenses
-      "TOTAL_OPERATING_EXPENSES_IS", "TOTAL_OPERATING_EXPENSES",
-      // Net income
-      "NET_INCOME",
-      // EBITDA (may not exist — derive below)
-      "EBITDA",
-      // Depreciation
-      "DEPRECIATION_IS", "DEPRECIATION",
-      // Interest (for EBITDA derivation)
-      "INTEREST_EXPENSE",
-      // Tax (for EBITDA derivation)
-      "TOTAL_TAX",
-      // ADS
-      "ADS",
-    ])
-    .order("created_at", { ascending: false });
-
-  // Fallback-chain fact lookup: try primary key, then each fallback in order.
-  const getFact = (primaryKey: string, ...fallbackKeys: string[]): number => {
-    const allKeys = [primaryKey, ...fallbackKeys];
-    for (const key of allKeys) {
-      const found = (facts ?? []).find(
-        (f: { fact_key: string }) => f.fact_key === key,
-      );
-      if (found?.fact_value_num != null) {
-        return Number(found.fact_value_num);
-      }
-    }
-    return 0;
-  };
-
-  const revenue = getFact("TOTAL_REVENUE_IS", "TOTAL_REVENUE");
-  const cogs = getFact("TOTAL_COGS_IS", "COST_OF_GOODS_SOLD", "COGS");
-  const opex = getFact("TOTAL_OPERATING_EXPENSES_IS", "TOTAL_OPERATING_EXPENSES");
-  const depreciation = getFact("DEPRECIATION_IS", "DEPRECIATION");
-  const netIncome = getFact("NET_INCOME");
-  const interestExpense = getFact("INTEREST_EXPENSE");
-  const totalTax = getFact("TOTAL_TAX");
-
-  // EBITDA: try direct fact first, then derive from components
-  let ebitda = getFact("EBITDA");
-  if (ebitda === 0 && netIncome !== 0) {
-    ebitda = netIncome + interestExpense + depreciation + totalTax;
-  }
-
-  const ads = getFact("ADS");
-
-  // Phase BPG — additional balance-sheet base-year facts
-  const { data: bsFacts } = await sb
-    .from("deal_financial_facts")
-    .select("fact_key, fact_value_num, fact_value_text")
-    .eq("deal_id", dealId)
-    .in("fact_key", [
-      "CASH",
-      "ACCOUNTS_RECEIVABLE",
-      "INVENTORY",
-      "TOTAL_FIXED_ASSETS",
-      "ACCOUNTS_PAYABLE",
-      "TOTAL_LONG_TERM_DEBT",
-      "TOTAL_EQUITY",
-      "YEARS_IN_BUSINESS",
-      "MONTHS_IN_BUSINESS",
-      "BUSINESS_DATE_FORMED",
-      "DATE_FORMED",
-    ]);
-  const getBSFact = (key: string): number => {
-    const f = (bsFacts ?? []).find((r: { fact_key: string }) => r.fact_key === key);
-    return f?.fact_value_num != null ? Number(f.fact_value_num) : 0;
-  };
-  const bsBase = {
-    cash: getBSFact("CASH"),
-    accountsReceivable: getBSFact("ACCOUNTS_RECEIVABLE"),
-    inventory: getBSFact("INVENTORY"),
-    fixedAssets: getBSFact("TOTAL_FIXED_ASSETS"),
-    accountsPayable: getBSFact("ACCOUNTS_PAYABLE"),
-    shortTermDebt: 0,
-    longTermDebt: getBSFact("TOTAL_LONG_TERM_DEBT"),
-    paidInCapital: 0,
-    retainedEarnings: Math.max(
-      0,
-      getBSFact("TOTAL_EQUITY"),
-    ),
-  };
-  const yearsInBusiness = getBSFact("YEARS_IN_BUSINESS");
-
-  // Deal scalar context — hoisted above its original later fetch so the
-  // new-business assessment below (which needs deal_type + loan_amount to
-  // resolve the correct finengine productId) can use it too.
-  const { data: deal } = await sb
-    .from("deals")
-    .select("name, deal_type, loan_amount, city, state, bank_id")
-    .eq("id", dealId)
-    .single();
-
-  // New-business detection + risk assessment — single source of truth
-  // (src/lib/sba/newBusinessProtocol.ts), same function sbaRiskProfile.ts
-  // and feasibilityEngine.ts already call. This used to be a local
-  // `yearsInBusiness < 2` one-off, independent of the canonical detector.
-  const { yearsInBusiness: nbYears, monthsInBusiness: nbMonths } =
-    detectNewBusinessFromFacts(
-      (bsFacts ?? []).map((f: { fact_key: string; fact_value_num: unknown; fact_value_text: unknown }) => ({
-        fact_key: f.fact_key,
-        value_numeric:
-          typeof f.fact_value_num === "number"
-            ? f.fact_value_num
-            : f.fact_value_num != null
-              ? Number(f.fact_value_num)
-              : null,
-        value_text: (f.fact_value_text as string | null) ?? null,
-      })),
-    );
-  const managementYearsInIndustry =
-    assumptions.managementTeam.length > 0
-      ? Math.max(...assumptions.managementTeam.map((m) => m.yearsInIndustry))
-      : null;
-  const newBusinessAssessment = assessNewBusinessRisk({
-    yearsInBusiness: nbYears,
-    monthsInBusiness: nbMonths,
-    hasBusinessPlan: true,
-    managementYearsInIndustry,
-    loanType: deal?.deal_type ?? "SBA",
-    loanAmount: deal?.loan_amount ?? null,
-  });
-  const isNewBusiness = newBusinessAssessment.flags.isNewBusiness;
-  const projectedDscrThreshold = newBusinessAssessment.flags.projectedDscrThreshold;
-
-  const baseYear = buildBaseYear({
-    revenue,
-    cogs,
-    operatingExpenses: opex,
-    ebitda,
-    depreciation,
-    netIncome,
-    existingDebtServiceAnnual: ads,
-  });
-
-  // One versioned authority computes every borrower-facing SBA projection.
-  // Artifacts consume this immutable model; they do not invoke individual
-  // calculators or recompute financial values.
-  // Freeze the canonical transaction uses before computing liquidity so
-  // the monthly cash schedule and the Sources & Uses exhibit share one input.
-  const { data: proceedsItems, error: proceedsError } = await sb
-    .from("deal_proceeds_items")
-    .select("category, description, amount")
-    .eq("deal_id", dealId);
-  if (proceedsError) {
-    return { ok: false, error: `Use-of-proceeds load failed: ${proceedsError.message}` };
-  }
-  const useOfProceeds = buildUseOfProceeds(
-    proceedsItems ?? [],
-    assumptions.loanImpact.loanAmount,
-  );
-
-  const projectionModel = computeSBAProjectionModel({
-    assumptions,
-    baseYear,
-    projectedDscrThreshold,
-    useOfProceeds,
-    // Cash on hand at the start of the projection period. Without it the
-    // monthly series is a net change that the renderer prints as a balance.
-    openingCash: bsBase.cash,
-  });
-  const {
-    annualProjections,
-    monthlyProjections,
-    revenueStreamProjections,
-    breakEven,
-    sensitivityScenarios,
-  } = projectionModel;
-
-  // Phase BPG — Sources & Uses (after useOfProceeds is known)
-  const sourcesAndUses = buildSourcesAndUses({
-    loanAmount: assumptions.loanImpact.loanAmount,
-    equityInjectionAmount: assumptions.loanImpact.equityInjectionAmount ?? 0,
-    equityInjectionSource:
-      assumptions.loanImpact.equityInjectionSource ?? "cash_savings",
-    sellerFinancingAmount: assumptions.loanImpact.sellerFinancingAmount ?? 0,
-    otherSources: assumptions.loanImpact.otherSources ?? [],
-    useOfProceeds,
-    // Seller-note-as-equity inputs are not yet sourced from this assumption
-    // bundle; default to zero / false so the seller-note check is a no-op
-    // here. S2 will populate these from the deal-data builder.
-    sellerNoteEquityPortion: 0,
-    sellerNoteFullStandby: false,
-    isNewBusiness,
-  });
-
-  // DSCR thresholds
-  const dscrYear1Base = annualProjections[0]?.dscr ?? 0;
-  const dscrYear2Base = annualProjections[1]?.dscr ?? 0;
-  const dscrYear3Base = annualProjections[2]?.dscr ?? 0;
-  const dscrYear1Downside =
-    sensitivityScenarios.find((s) => s.name === "downside")?.dscrYear1 ?? 0;
-  const dscrBelowThreshold =
-    dscrYear1Base < projectedDscrThreshold ||
-    dscrYear2Base < projectedDscrThreshold ||
-    dscrYear3Base < projectedDscrThreshold ||
-    dscrYear1Downside < projectedDscrThreshold;
+  const financialSnapshot = options.financialSnapshotId
+    ? await loadPackageFinancialSnapshot({ dealId, snapshotId: options.financialSnapshotId })
+    : await preparePackageFinancialSnapshot({ dealId });
+  const { output: financialOutput } = financialSnapshot;
+  const { assumptions, deal, yearsInBusiness,
+    projectedDscrThreshold, baseYear, projectionModel, sourcesAndUses, useOfProceeds,
+    balanceSheetProjections, globalCashFlow, guarantors, dscrYear1Base, dscrYear2Base, dscrYear3Base,
+    dscrYear1Downside, dscrBelowThreshold } = financialOutput;
+  const assumptionsRow = { id: financialOutput.assumptionsId };
+  const { annualProjections, monthlyProjections, revenueStreamProjections, breakEven, sensitivityScenarios } = projectionModel;
 
   // Phase BPG — borrower_applications supplies naics/industry/ein (deals
   // does not carry these columns in this schema).
@@ -649,80 +378,6 @@ export async function generateSBAPackage(
   const riskContingencyMatrix =
     roadmapBatch[2].status === "fulfilled" ? roadmapBatch[2].value : null;
 
-  // ── Phase BPG — Balance sheet projections
-  // cumulativeCash is now seeded with bsBase.cash inside the projection
-  // engine, so it IS the ending balance. Adding bsBase.cash again here would
-  // double-count opening cash — which is the mirror image of the bug this
-  // fixes, and the reason both readings had to move together.
-  const year1EndingCash = monthlyProjections.at(-1)?.cumulativeCash;
-  const balanceSheetProjections = buildBalanceSheetProjections(
-    assumptions,
-    annualProjections,
-    bsBase,
-    {
-      year1EndingCash: typeof year1EndingCash === "number" ? year1EndingCash : undefined,
-    },
-  );
-
-  // ── Phase BPG — Global cash flow (query per-deal guarantor cashflow rows)
-  const { data: guarantorRows } = await sb
-    .from("buddy_guarantor_cashflow")
-    .select(
-      "entity_id, w2_salary, other_personal_income, mortgage_payment, auto_payments, student_loans, credit_card_minimums, other_personal_debt",
-    )
-    .eq("deal_id", dealId);
-
-  // Join owner entity display names / ownership percentages
-  const { data: entityRows } = await sb
-    .from("deal_ownership_entities")
-    .select("id, display_name")
-    .eq("deal_id", dealId);
-  const { data: interestRows } = await sb
-    .from("deal_ownership_interests")
-    .select("owner_entity_id, ownership_pct")
-    .eq("deal_id", dealId);
-
-  const guarantors: GuarantorCashFlow[] = (guarantorRows ?? []).map(
-    (g: {
-      entity_id: string;
-      w2_salary: number | null;
-      other_personal_income: number | null;
-      mortgage_payment: number | null;
-      auto_payments: number | null;
-      student_loans: number | null;
-      credit_card_minimums: number | null;
-      other_personal_debt: number | null;
-    }) => {
-      const entity = (entityRows ?? []).find(
-        (e: { id: string }) => e.id === g.entity_id,
-      );
-      const interest = (interestRows ?? []).find(
-        (i: { owner_entity_id: string }) => i.owner_entity_id === g.entity_id,
-      );
-      return {
-        entityId: g.entity_id,
-        name: entity?.display_name ?? "Guarantor",
-        ownershipPct: Number(interest?.ownership_pct ?? 0),
-        w2Salary: Number(g.w2_salary ?? 0),
-        otherPersonalIncome: Number(g.other_personal_income ?? 0),
-        mortgagePayment: Number(g.mortgage_payment ?? 0),
-        autoPayments: Number(g.auto_payments ?? 0),
-        studentLoans: Number(g.student_loans ?? 0),
-        creditCardMinimums: Number(g.credit_card_minimums ?? 0),
-        otherPersonalDebt: Number(g.other_personal_debt ?? 0),
-      };
-    },
-  );
-
-  const globalCashFlow = computeGlobalCashFlow({
-    businessEbitda: baseYear.ebitda,
-    businessDebtService:
-      baseYear.totalDebtService > 0
-        ? baseYear.totalDebtService
-        : annualProjections[0]?.totalDebtService ?? 0,
-    guarantors,
-  });
-
   // ── Phase BPG — Benchmark validation
   const benchmarkWarnings = validateAgainstBenchmarks(assumptions, naicsCode);
 
@@ -785,21 +440,7 @@ export async function generateSBAPackage(
     );
   }
 
-  // Audit fix (Borrower Intake Program review) — SPEC-M8 ARTIFACT-PIPELINE-1's
-  // net-new projections-assumptions narrative (generateProjectionsAssumptionsNarrative)
-  // was built with its own gateway generator+verifier pass but was never
-  // actually called from anywhere in the real package assembly. It's
-  // self-contained (loads its own methodology-slate inputs given
-  // dealId/bankId/sb) and its generator/verifier calls already degrade to
-  // a non-throwing {status:"degraded"} result on any failure — including
-  // the real NPI gate while all vendors remain PENDING. Its own upstream
-  // input loader (loadProjectionInputsForDeal) isn't inside that same
-  // try/catch, though, so this call is wrapped here too — same "a bonus
-  // section must never fail the whole package" convention as the
-  // franchise-section lookup directly above.
-  //
-  // The narrative receives the exact versioned projection facts used by this
-  // package. It must never load or calculate a second DSCR model.
+  // Final packages require a reviewed narrative based on the saved financial output.
   let projectionsAssumptionsNarrative: string | null = null;
   try {
     if (deal?.bank_id) {
@@ -810,6 +451,9 @@ export async function generateSBAPackage(
         sb,
         {
           engineVersion: projectionModel.engineVersion,
+          financialSnapshotId: financialSnapshot.id,
+          annualProjections, monthlyProjections, sourcesAndUses, balanceSheetProjections,
+          baseYear, sensitivityScenarios, breakEven,
           methodologySlate: "borrower_confirmed_sba_assumptions",
           formType: "SBA_FORWARD_MODEL",
           projectedEbitda: year1Projection?.ebitda ?? 0,
@@ -834,9 +478,12 @@ export async function generateSBAPackage(
       );
       if (projectionsResult.status === "ready") {
         projectionsAssumptionsNarrative = projectionsResult.narrative;
+      } else if (mode === "final") {
+        throw new Error(`projections_review_blocked: ${projectionsResult.message}`);
       }
     }
   } catch (e) {
+    if (mode === "final") throw e;
     console.warn(
       "[sbaPackageOrchestrator] projections-assumptions narrative failed (non-fatal):",
       e instanceof Error ? e.message : String(e),
@@ -1010,6 +657,8 @@ export async function generateSBAPackage(
     .insert({
       deal_id: dealId,
       assumptions_id: assumptionsRow.id,
+      financial_snapshot_id: financialSnapshot.id,
+      render_input: finalRenderInput,
       base_year_data: baseYear,
       projections_annual: annualProjections,
       projections_monthly: monthlyProjections,

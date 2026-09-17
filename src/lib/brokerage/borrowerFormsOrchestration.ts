@@ -50,12 +50,12 @@ export type PrepareFormsResult =
 export async function prepareBrokerageSbaForms(
   dealId: string,
   sb: SupabaseClient,
-  options: { refresh?: boolean } = {},
+  options: { refresh?: boolean; financialSnapshotId?: string } = {},
 ): Promise<PrepareFormsResult> {
   // Idempotent — a repeated borrower click (or a retry after a network
   // blip) must not spawn a second, divergent package run for the same deal.
   const existing = await resolveCurrentPackageRun(dealId, sb);
-  if (existing && !options.refresh) {
+  if (existing && !options.refresh && !options.financialSnapshotId) {
     const { count } = await sb
       .from("sba_package_run_items")
       .select("id", { count: "exact", head: true })
@@ -80,6 +80,7 @@ export async function prepareBrokerageSbaForms(
     product,
     answers: {},
     borrowerData: null,
+    financialSnapshotId: options.financialSnapshotId,
   });
 
   return { ok: true, packageRunId: result.packageRunId!, itemCount: result.itemCount, reused: false };

@@ -116,6 +116,7 @@ const REVIEW_SYSTEM = [
   "Review the artifact against the immutable evidence and deterministic calculations supplied.",
   "Find unsupported claims, numeric inconsistencies, missing repayment analysis, generic filler, policy gaps, and contradictions between sections.",
   "Do not rewrite the artifact and do not invent facts. Return no issue for a mere stylistic preference.",
+  "A disclosed missing lender confirmation or supporting document is an advisory warning, unless the artifact falsely claims it exists. Never require a prose rewrite to create missing source evidence. Supplied model calculations are authoritative; request correction only for a demonstrable contradiction, not an alternative financial method.",
   "A pass requires decision-useful, borrower-specific analysis that clearly separates evidence, assumptions, and conclusions.",
 ].join(" ");
 
@@ -264,7 +265,7 @@ export function reviewContentHash(input: {
       .map((s) => [s.key, s.text]),
   );
   return createHash("sha256")
-    .update(`${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}`)
+    .update(`review_rules_v2\u0000${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}`)
     .digest("hex");
 }
 
@@ -278,7 +279,7 @@ export async function finishInstitutionalArtifact(input: {
   auditSections?: (sections: ArtifactSection[]) => Record<string, unknown>;
 }): Promise<FrontierArtifactResult> {
   const npiTagged = input.npiTagged ?? true;
-  const contentHash = reviewContentHash({ ...input, sectionAudit: input.auditSections?.(input.sections) });
+  const finalContentHash = () => reviewContentHash({ ...input, sections, sectionAudit: input.auditSections?.(sections) });
   let sections = input.sections;
   let repaired = false;
   let reviewPasses = 0;
@@ -291,16 +292,15 @@ export async function finishInstitutionalArtifact(input: {
     const sectionAudit = input.auditSections?.(sections);
     const issues = await review({ ...input, sections, npiTagged, sectionAudit });
     reviewPasses += 1;
-    // Repair still attempts everything above info — a warning worth fixing is
-    // worth fixing. What changed is what happens to one that survives.
+    // Preserve advisories, but spend repair calls only when critical findings remain.
     remaining = issues.filter((issue) => issue.severity !== "info");
     if (remaining.length === 0) {
       return {
         sections, verdict: "pass", flaggedClaims: [], repaired, reviewPasses,
-        reviewIssues: [], advisoryIssues: [], contentHash,
+        reviewIssues: [], advisoryIssues: [], contentHash: finalContentHash(),
       };
     }
-    if (cycle === 3) break;
+    if (cycle === 3 || remaining.every(issue => issue.severity !== "critical")) break;
 
     const sectionKeys = new Set(sections.map((section) => section.key));
     // Legacy/artifact-wide findings require the whole set. Otherwise preserve
@@ -386,10 +386,7 @@ export async function finishInstitutionalArtifact(input: {
     reviewPasses,
     reviewIssues: blocking,
     advisoryIssues: advisory,
-    // The hash of what was SUBMITTED. A repair rewrites the sections, so the
-    // published artifact may differ from what this hash covers; callers reuse
-    // a verdict only when the content they are about to submit matches, which
-    // is exactly this value.
-    contentHash,
+    // Cache only the exact final content accepted by this review.
+    contentHash: finalContentHash(),
   };
 }

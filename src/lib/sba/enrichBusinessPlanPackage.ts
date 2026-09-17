@@ -34,7 +34,7 @@ const PACKAGE_COLUMNS =
   // silently excluded from verifyBusinessPlanPackage.ts's fact-check.
   "franchise_section, " +
   // Needed to reuse a verdict already recorded against identical content.
-  "verification_verdict, verification_input_hash";
+  "verification_verdict, verification_input_hash, financial_snapshot_id";
 
 export async function enrichBusinessPlanPackage(args: {
   dealId: string;
@@ -91,7 +91,12 @@ export async function enrichBusinessPlanPackage(args: {
     return { verdict: null, repaired: false, flaggedClaims: [], advisoryCount: 0, reusedVerdict: false };
   }
 
+  const financialSnapshotId = (pkg as Record<string, unknown>).financial_snapshot_id;
+  const savedFinancial = typeof financialSnapshotId === "string"
+    ? await (await import("@/lib/modelEngine/packageFinancialSnapshot")).loadPackageFinancialSnapshot({ dealId, bankId, snapshotId: financialSnapshotId }) : null;
   const facts = {
+    financialSnapshotId: savedFinancial?.id ?? null,
+    authoritativeFinancials: savedFinancial ? { projectionModel: savedFinancial.output.projectionModel, sourcesAndUses: savedFinancial.output.sourcesAndUses, assumptions: savedFinancial.output.assumptions } : null,
     dscr_year1_base: typed.dscr_year1_base,
     dscr_year2_base: typed.dscr_year2_base,
     dscr_year3_base: typed.dscr_year3_base,

@@ -100,6 +100,7 @@ export async function generateFeasibilityStudy(params: {
   dealId: string;
   bankId: string;
   onProgress?: FeasibilityProgressCallback;
+  packageId?: string;
 }): Promise<FeasibilityResult> {
   const sb = supabaseAdmin();
   const { dealId, bankId } = params;
@@ -150,13 +151,16 @@ export async function generateFeasibilityStudy(params: {
   const bieMarket = await extractBIEMarketData(dealId).catch(() => null);
 
   // ── 4. SBA package (latest version) ────────────────────────────
-  const { data: sbaPackageRaw } = await sb
+  let packageQuery = sb
     .from("buddy_sba_packages")
     .select("*")
-    .eq("deal_id", dealId)
+    .eq("deal_id", dealId);
+  if (params.packageId) packageQuery = packageQuery.eq("id", params.packageId);
+  const { data: sbaPackageRaw, error: packageError } = await packageQuery
     .order("version_number", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (packageError || (params.packageId && !sbaPackageRaw)) throw new Error("financial_snapshot_missing: feasibility projection dependency unavailable");
   const sbaPackage = (sbaPackageRaw ?? null) as SbaPackageRow | null;
 
   // ── 5. SBA assumptions (latest confirmed) ──────────────────────
