@@ -68,6 +68,7 @@ export async function POST(
       { status: 500 },
     );
   }
+  if ("completed" in started && started.completed) return NextResponse.json({ ok: true, completed: true, bundleId: started.bundleId });
   return NextResponse.json(
     started.alreadyRunning
       ? { ok: true, accepted: true, bundleId: started.bundleId, alreadyRunning: true }

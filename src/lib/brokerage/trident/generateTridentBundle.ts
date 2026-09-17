@@ -1,4 +1,6 @@
 import "server-only";
+import { loadPackageFinancialSnapshot } from "@/lib/modelEngine/packageFinancialSnapshot";
+import { assertPackageFinancialLineage } from "./packageFinancialLineage";
 
 /**
  * Trident bundle orchestrator.
@@ -58,6 +60,7 @@ export async function createTridentBundleRun(args: {
       ok: true;
       bundleId: string;
       reused: boolean;
+      completed?: boolean;
       leaseToken: string;
       inputHash: string;
     }
@@ -66,6 +69,21 @@ export async function createTridentBundleRun(args: {
   const sb = supabaseAdmin();
   try {
     const snapshot = await computeTridentInputSnapshot(sb, args.dealId);
+    const { data: accepted, error: acceptedError } = await sb.from("buddy_trident_bundles")
+      .select("id,financial_snapshot_id,business_plan_pdf_path,projections_xlsx_path,feasibility_pdf_path,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path")
+      .eq("deal_id", args.dealId).eq("mode", args.mode).eq("input_hash", snapshot.inputHash)
+      .eq("status", "succeeded").is("superseded_at", null).limit(1).maybeSingle();
+    if (acceptedError) throw acceptedError;
+    if (args.mode === "final" && accepted?.financial_snapshot_id) {
+      const paths = [accepted.business_plan_pdf_path, accepted.projections_xlsx_path, accepted.feasibility_pdf_path,
+        accepted.credit_memo_pdf_path, accepted.spreads_pdf_path, accepted.sba_forms_pdf_path];
+      const intact = paths.every(path => typeof path === "string" && path.startsWith(`${args.dealId}/`)) &&
+        (await Promise.all(paths.map(async path => {
+          const { data, error } = await sb.storage.from("trident-bundles").download(path!);
+          return !error && !!data && data.size > 0;
+        }))).every(Boolean);
+      if (intact) return { ok: true, bundleId: accepted.id, reused: true, completed: true, leaseToken: "", inputHash: snapshot.inputHash };
+    }
     const { data, error } = await sb.rpc("acquire_trident_bundle_run", {
       p_deal_id: args.dealId,
       p_mode: args.mode,
@@ -121,6 +139,7 @@ export async function generateTridentSbaCheckpoint(args: {
   bankId: string;
   inputHash: string;
   memoInputHash: string;
+  financialSnapshotId?: string;
   leaseToken: string;
 }): Promise<TridentSbaCheckpoint> {
   const sb = supabaseAdmin();
@@ -139,6 +158,24 @@ export async function generateTridentSbaCheckpoint(args: {
   }
   await assertTridentInputSnapshot({ sb, dealId: args.dealId, expectedHash: args.inputHash });
 
+  // A retry with the same saved financial version reuses generation, then resumes review.
+  if (args.financialSnapshotId) {
+    const { data: prior, error } = await sb.from("buddy_sba_packages")
+      .select("id,pdf_url,version_number,render_input,dscr_below_threshold,dscr_year1_base")
+      .eq("deal_id", args.dealId).eq("financial_snapshot_id", args.financialSnapshotId)
+      .order("version_number", { ascending: false }).limit(1).maybeSingle();
+    if (error) throw error;
+    if (prior?.pdf_url && prior.render_input && Boolean(prior.render_input.previewWatermark) === (args.mode === "preview")) {
+      const result = { ok: true as const, packageId: prior.id, pdfUrl: prior.pdf_url,
+        versionNumber: prior.version_number, dscrBelowThreshold: prior.dscr_below_threshold,
+        dscrYear1Base: Number(prior.dscr_year1_base), renderInput: prior.render_input as unknown as TridentSbaCheckpoint["renderInput"] };
+      await persistRowWithStorageRollback(sb, { table: "buddy_trident_bundles",
+        filters: { id: args.bundleId, lease_token: args.leaseToken, input_hash: args.inputHash },
+        values: { source_sba_package_id: result.packageId }, expected: { source_sba_package_id: result.packageId }, uploaded: [], label: "Reused SBA checkpoint" });
+      return result;
+    }
+  }
+
   const result = await runWithAIExecutionContext(
     {
       dealId: args.dealId,
@@ -147,7 +184,7 @@ export async function generateTridentSbaCheckpoint(args: {
       artifactId: args.bundleId,
       npiTagged: true,
     },
-    () => generateSBAPackage(args.dealId, { mode: args.mode }),
+    () => generateSBAPackage(args.dealId, { mode: args.mode, financialSnapshotId: args.financialSnapshotId }),
   );
   if (!result.ok) throw new Error(`SBA package generation failed: ${result.error}`);
 
@@ -182,6 +219,7 @@ export async function generateTridentBundle(args: {
   memoInputHash?: string;
   leaseToken?: string;
   sbaCheckpoint?: TridentSbaCheckpoint;
+  financialSnapshotId?: string;
 }): Promise<GenerateResult> {
   const { dealId, mode } = args;
   const sb = supabaseAdmin();
@@ -189,6 +227,14 @@ export async function generateTridentBundle(args: {
   if (!args.bundleId || !args.bankId || !args.inputHash || !args.memoInputHash || !args.leaseToken) {
     const admitted = await createTridentBundleRun({ dealId, mode });
     if (!admitted.ok) return { ok: false, bundleId: null, error: admitted.error };
+    if (admitted.completed) {
+      const { data: saved, error } = await sb.from("buddy_trident_bundles")
+        .select("business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path")
+        .eq("id", admitted.bundleId).eq("deal_id", dealId).single();
+      if (error || !saved) return { ok: false, bundleId: admitted.bundleId, error: "Completed package unavailable" };
+      return { ok: true, bundleId: admitted.bundleId, mode, businessPlanAttested: false,
+        paths: { businessPlanPdf: saved.business_plan_pdf_path, projectionsPdf: saved.projections_pdf_path, projectionsXlsx: saved.projections_xlsx_path, feasibilityPdf: saved.feasibility_pdf_path } };
+    }
     if (admitted.reused) {
       return { ok: false, bundleId: admitted.bundleId, error: "Golden Trident generation is already running" };
     }
@@ -282,7 +328,7 @@ export async function generateTridentBundle(args: {
     const completedBusinessPlanPath = (adopted.business_plan_pdf_path as string | null | undefined) ?? null;
     const sbaResult = args.sbaCheckpoint ?? (resumedSbaPackageId && completedBusinessPlanPath
       ? ({ ok: true, packageId: resumedSbaPackageId, pdfUrl: null, renderInput: null } as const)
-      : await generateSBAPackage(dealId, { mode }));
+      : await generateSBAPackage(dealId, { mode, financialSnapshotId: args.financialSnapshotId }));
     if (!sbaResult.ok) {
       // The orchestrator returns WHICH preconditions failed in `blockers`;
       // only the headline was propagated, so every failure landed in
@@ -618,6 +664,7 @@ export async function generateTridentBundle(args: {
         : await generateFeasibilityStudy({
             dealId,
             bankId: deal.bank_id,
+            packageId: sbaResult.packageId,
           });
       if (feasResult.ok) {
         sourceFeasibilityId = feasResult.studyId ?? null;
@@ -759,7 +806,7 @@ export async function generateTridentBundle(args: {
 
       const { data: boundSources, error: boundSourcesError } = await sb
         .from("buddy_trident_bundles")
-        .select("source_credit_memo_id,source_spread_id,canonical_memo_input_hash")
+        .select("source_credit_memo_id,source_spread_id,canonical_memo_input_hash,financial_snapshot_id")
         .eq("id", bundleId)
       .eq("lease_token", args.leaseToken)
         .eq("bank_id", admittedBankId)
@@ -774,13 +821,13 @@ export async function generateTridentBundle(args: {
       }
       const [{ data: releasePkg }, { data: releaseFeasibility }, { data: releaseMemo }, { data: releaseSpread }] = await Promise.all([
         sb.from("buddy_sba_packages")
-          .select("verification_verdict,projections_assumptions_narrative,sources_and_uses")
+          .select("verification_verdict,projections_assumptions_narrative,sources_and_uses,financial_snapshot_id,projections_annual,projections_monthly,base_year_data,balance_sheet_projections")
           .eq("id", sbaResult.packageId).single(),
         sb.from("buddy_feasibility_studies")
-          .select("verification_verdict,data_completeness,narrative_citations,market_demand_detail,financial_viability_detail,operational_readiness_detail,location_suitability_detail")
+          .select("verification_verdict,data_completeness,narrative_citations,market_demand_detail,financial_viability_detail,operational_readiness_detail,location_suitability_detail,projections_package_id")
           .eq("id", sourceFeasibilityId).single(),
         sb.from("canonical_memo_narratives")
-          .select("id,input_hash,research_trust_grade")
+          .select("id,input_hash,research_trust_grade,metadata_json")
           .eq("id", boundSources.source_credit_memo_id)
           .eq("deal_id", dealId).eq("bank_id", admittedBankId)
           .eq("input_hash", args.memoInputHash).single(),
@@ -790,6 +837,10 @@ export async function generateTridentBundle(args: {
           .eq("deal_id", dealId).eq("bank_id", admittedBankId)
           .eq("spread_type", "CLASSIC_PDF").single(),
       ]);
+      if (!boundSources.financial_snapshot_id) throw new Error("release blocked: missing financial snapshot binding");
+      const financialSnapshot = await loadPackageFinancialSnapshot({ dealId, bankId: admittedBankId, snapshotId: boundSources.financial_snapshot_id });
+      assertPackageFinancialLineage({ snapshot: financialSnapshot, packageId: sbaResult.packageId,
+        pkg: releasePkg, feasibility: releaseFeasibility, memo: releaseMemo, spread: releaseSpread });
       const citationEntries = releaseFeasibility?.narrative_citations && typeof releaseFeasibility.narrative_citations === "object"
         ? Object.values(releaseFeasibility.narrative_citations as Record<string, unknown>) : [];
       const citationCount = citationEntries.filter((entry) => {
@@ -951,12 +1002,22 @@ export async function adoptPriorRunArtifacts(
       ["source_feasibility_id", "feasibility_pdf_path"],
     ] as const;
     for (const [source, ...paths] of groups) {
+      if (source === "source_feasibility_id") {
+        const chosenPackage = args.current.source_sba_package_id ?? patch.source_sba_package_id;
+        if (!chosenPackage || chosenPackage !== priorRow.source_sba_package_id) continue;
+      }
       const priorSource = priorRow[source];
       const currentSource = args.current[source];
       if (typeof priorSource !== "string" || !priorSource) continue;
       if (currentSource != null && currentSource !== priorSource) continue;
       // An existing orphan path cannot be assigned a guessed source either.
       if (currentSource == null && paths.some((path) => args.current[path] != null)) continue;
+      const inheritedPaths = paths.map(field => priorRow[field]).filter((path): path is string => typeof path === "string");
+      const filesPresent = await Promise.all(inheritedPaths.map(async path => {
+        const { data, error } = await sb.storage.from("trident-bundles").download(path);
+        return !error && !!data && data.size > 0;
+      }));
+      if (filesPresent.some(present => !present)) continue;
       for (const field of [source, ...paths]) {
         const inherited = priorRow[field];
         if (args.current[field] == null && inherited != null) patch[field] = inherited;

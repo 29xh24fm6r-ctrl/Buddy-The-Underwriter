@@ -1,3 +1,4 @@
+import type { PackageFinancialOutput } from "@/lib/modelEngine/packageFinancialComputation";
 /**
  * SPEC S3 D-2 — DB-aware wrapper around the pure buildForm1919(). Kept in
  * a separate file (not build.ts itself) to avoid a build.ts <-> inputBuilder.ts
@@ -13,8 +14,10 @@ const MS_PER_DAY = 86_400_000;
 export async function buildForm1919WithSignature(
   dealId: string,
   sb: Form1919InputBuilderClient,
+  financial?: PackageFinancialOutput,
 ): Promise<Form1919BuildResult> {
   const input = await buildForm1919Input(dealId, sb);
+  if (financial) input.sectionI.loan_amount = financial.assumptions.loanImpact.loanAmount;
   const result = buildForm1919(input);
 
   const { data: signedDoc } = await sb

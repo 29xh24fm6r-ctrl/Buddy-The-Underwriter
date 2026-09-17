@@ -34,6 +34,7 @@ import { goldenTridentWorkflow } from "@/workflows/goldenTrident";
 export type StartTridentGenerationResult =
   | { ok: true; accepted: true; bundleId: string; runId: string; alreadyRunning?: false }
   | { ok: true; accepted: true; bundleId: string; alreadyRunning: true; runId?: undefined }
+  | { ok: true; accepted: true; completed: true; bundleId: string; alreadyRunning?: false; runId?: undefined }
   | { ok: false; bundleId: string | null; error: string };
 
 export async function startTridentGeneration(args: {
@@ -47,6 +48,7 @@ export async function startTridentGeneration(args: {
 
   // An active lease already covers this (deal, mode). Admission is atomic, so
   // this is the correct answer rather than a race to be retried.
+  if (created.completed) return { ok: true, accepted: true, completed: true, bundleId: created.bundleId };
   if (created.reused) {
     return { ok: true, accepted: true, bundleId: created.bundleId, alreadyRunning: true };
   }

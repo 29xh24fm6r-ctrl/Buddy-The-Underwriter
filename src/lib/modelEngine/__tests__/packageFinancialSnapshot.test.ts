@@ -1,0 +1,45 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
+mockServerOnly();
+const require = createRequire(import.meta.url);
+let saved: any = null;
+let computations = 0;
+let memoBuilds = 0;
+let inputHash = "input-1";
+const sb = { from(table: string) {
+  const filters: Record<string, unknown> = {};
+  let inserted: any;
+  const finish = async () => {
+    if (table === "deals") return { data: { bank_id: "bank-1" }, error: null };
+    if (inserted) saved = { id: "financial-1", ...structuredClone(inserted) };
+    const data = saved && Object.entries(filters).every(([key,value]) => saved[key] === value) ? structuredClone(saved) : null;
+    return { data, error: null };
+  };
+  const q: any = { select: () => q, eq: (key: string,value: unknown) => { filters[key]=value; return q; },
+    insert: (value: any) => { inserted=value; return q; }, single: finish, maybeSingle: finish };
+  return q;
+} };
+require.cache[require.resolve("../../supabase/admin")] = {exports:{supabaseAdmin:()=>sb},loaded:true} as any;
+require.cache[require.resolve("../packageFinancialComputation")] = {exports:{computePackageFinancialOutput:async()=>{
+  computations++;return {ok:true,output:{computedMetrics:{revenue:100},historicalModel:{periods:[]},riskFlags:[],projectionModel:{annualProjections:[{revenue:110}]}}};
+}},loaded:true} as any;
+require.cache[require.resolve("../../brokerage/trident/tridentInputSnapshot")] = {exports:{computeTridentInputSnapshot:async()=>({inputHash})},loaded:true} as any;
+require.cache[require.resolve("../../creditMemo/canonical/buildCanonicalCreditMemo")] = {exports:{buildCanonicalCreditMemo:async(args:any)=>{
+  memoBuilds++;assert.equal(args.financialOutput.projectionModel.annualProjections[0].revenue,110);
+  return {ok:true,memo:{version:"canonical_v1",financial_analysis:{revenue:110}},contractBlockers:[]};
+}},loaded:true} as any;
+const {preparePackageFinancialSnapshot,loadPackageFinancialSnapshot}=require("../packageFinancialSnapshot") as typeof import("../packageFinancialSnapshot");
+
+test("one persisted output contains memo tables, is reused, and rejects tampering or another deal",async()=>{
+  const first=await preparePackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",inputHash});
+  const second=await preparePackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",inputHash});
+  assert.equal(first.id,second.id);assert.equal(computations,1);assert.equal(memoBuilds,1);
+  assert.deepEqual(first.output.canonicalMemo,saved.package_output.canonicalMemo);
+  await assert.rejects(loadPackageFinancialSnapshot({dealId:"other-deal",bankId:"bank-1",snapshotId:first.id}),/financial_snapshot_missing/);
+  saved.package_output.projectionModel.annualProjections[0].revenue=999;
+  await assert.rejects(loadPackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",snapshotId:first.id}),/financial_snapshot_invalid/);
+  inputHash="input-2";
+  await assert.rejects(preparePackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",inputHash:"input-1"}),/input_snapshot_changed/);
+});

@@ -678,5 +678,50 @@
     "name": "brokerage_leads.website_url",
     "type": "column",
     "migration": "20260916172105_crm_lead_website_branding.sql"
+  },
+  {
+    "name": "deal_model_snapshots.package_input_hash",
+    "type": "column",
+    "migration": "20260917162449_package_financial_authority.sql"
+  },
+  {
+    "name": "deal_model_snapshots.package_output",
+    "type": "column",
+    "migration": "20260917162449_package_financial_authority.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.financial_snapshot_id",
+    "type": "column",
+    "migration": "20260917162449_package_financial_authority.sql"
+  },
+  {
+    "name": "buddy_sba_packages.financial_snapshot_id",
+    "type": "column",
+    "migration": "20260917162449_package_financial_authority.sql"
+  },
+  {
+    "name": "buddy_sba_packages.render_input",
+    "type": "column",
+    "migration": "20260917162449_package_financial_authority.sql"
+  },
+  {
+    "name": "ai_gateway_budget_reservations.trident_run_id",
+    "type": "column",
+    "migration": "20260917162449_package_financial_authority.sql"
+  },
+  {
+    "name": "ai_gateway_budget_reservations.is_qa",
+    "type": "column",
+    "migration": "20260917162449_package_financial_authority.sql"
+  },
+  {
+    "name": "protect_package_financial_output",
+    "type": "function",
+    "migration": "20260917162449_package_financial_authority.sql"
+  },
+  {
+    "name": "reserve_trident_gateway_tokens",
+    "type": "function",
+    "migration": "20260917162449_package_financial_authority.sql"
   }
 ]

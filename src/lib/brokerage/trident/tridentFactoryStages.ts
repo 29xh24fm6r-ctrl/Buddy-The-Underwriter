@@ -1,4 +1,8 @@
 import "server-only";
+import { preparePackageFinancialSnapshot } from "@/lib/modelEngine/packageFinancialSnapshot";
+import { classifyFactoryFailure } from "./factoryFailure";
+import { assertPackageBudgetAvailable } from "./packageBudget";
+import { runWithAIExecutionContext } from "@/lib/ai/executionContext";
 
 import { randomUUID, createHash } from "node:crypto";
 import { buildCreditMemoPdf } from "@/lib/creditMemo/pdf/buildCreditMemoPdf";
@@ -21,6 +25,7 @@ export type TridentFactoryExecutionArgs = TridentFactoryArgs & {
   bankId: string;
   inputHash: string;
   memoInputHash: string;
+  financialSnapshotId?: string;
 };
 
 async function writeStage(
@@ -89,9 +94,15 @@ export async function prepareTridentFactory(args: TridentFactoryArgs) {
       expectedHash: String(bundle.input_hash),
       expectedManifest: bundle.snapshot_manifest_json as Record<string, unknown> | null,
     });
+    await assertPackageBudgetAvailable();
+    const financial = await preparePackageFinancialSnapshot({ dealId: args.dealId, bankId: String(bundle.bank_id), inputHash: String(bundle.input_hash) });
+    await persistRowWithStorageRollback(sb, {
+      table: "buddy_trident_bundles", filters: { id: args.bundleId, lease_token: args.leaseToken },
+      values: { financial_snapshot_id: financial.id }, expected: { financial_snapshot_id: financial.id }, uploaded: [], label: "Financial authority",
+    });
     if (args.mode === "final") {
       // Resolve the actual forms before spending on financial narratives.
-      const prepared = await prepareBrokerageSbaForms(args.dealId, sb, { refresh: true });
+      const prepared = await prepareBrokerageSbaForms(args.dealId, sb, { refresh: true, financialSnapshotId: financial.id });
       if (!prepared.ok) throw new FatalError(prepared.reason);
       const generated = await generateBrokerageForms(args.dealId, sb);
       if (!generated.ok) throw new FatalError(generated.reason);
@@ -107,7 +118,7 @@ export async function prepareTridentFactory(args: TridentFactoryArgs) {
       inputHash: bundle.input_hash,
       bankId: bundle.bank_id,
     });
-    return { bankId: String(bundle.bank_id), inputHash: String(bundle.input_hash), memoInputHash: String(bundle.memo_input_hash) };
+    return { bankId: String(bundle.bank_id), inputHash: String(bundle.input_hash), memoInputHash: String(bundle.memo_input_hash), financialSnapshotId: financial.id };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await writeStage(args, "input_snapshot", "failed", { message });
@@ -116,11 +127,16 @@ export async function prepareTridentFactory(args: TridentFactoryArgs) {
     // identically, so surface it as terminal on the first attempt instead of
     // spending three and reporting it as input drift.
     if (error instanceof TridentSnapshotSchemaChanged) throw new FatalError(message);
+    if (!classifyFactoryFailure(error).retryable) throw new FatalError(message);
     throw error;
   }
 }
 
 export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExecutionArgs) {
+  return runWithAIExecutionContext({ dealId: args.dealId, traceId: args.bundleId,
+    artifactType: "trident_bundle", artifactId: args.bundleId, npiTagged: true }, () => generateCanonicalFactoryArtifactsBound(args));
+}
+async function generateCanonicalFactoryArtifactsBound(args: TridentFactoryExecutionArgs) {
   if (args.mode !== "final") {
     await writeStage(args, "canonical_credit", "skipped", { reason: "preview_mode" });
     return { memoInputHash: args.memoInputHash };
@@ -129,10 +145,8 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
   let failureDetail: Record<string, unknown> = {};
   try {
     await assertFrozen(args);
-    // Classic Spread is the canonical financial materializer. Run it first so
-    // the memo and all downstream artifacts bind to the resulting stable
-    // financial snapshot rather than to the pre-materialization snapshot.
-    const spread = await renderClassicPdfSpread({ dealId: args.dealId, bankId: args.bankId });
+    // Both renderers consume the immutable financial output prepared in the first stage.
+    const spread = await renderClassicPdfSpread({ dealId: args.dealId, bankId: args.bankId, financialSnapshotId: args.financialSnapshotId });
     if (!spread.ok) {
       if (spread.errorCode === "PREFLIGHT_BLOCKED") throw new FatalError(spread.error);
       throw new Error(spread.error);
@@ -143,6 +157,7 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
       dealId: args.dealId,
       bankId: args.bankId,
       forceRegenerate: false,
+      financialSnapshotId: args.financialSnapshotId,
       executionContext: "system",
     });
     if (!memo.ok) {
@@ -222,6 +237,7 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
       ...failureDetail,
       message,
     });
+    if (!classifyFactoryFailure(error).retryable) throw new FatalError(message);
     throw error;
   }
 }
@@ -243,6 +259,7 @@ export async function generateSbaFactoryCheckpoint(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await writeStage(args, "sba_package", "failed", { message });
+    if (!classifyFactoryFailure(error).retryable) throw new FatalError(message);
     throw error;
   }
 }
@@ -254,7 +271,7 @@ export async function runArtifactFactory(args: TridentFactoryExecutionArgs, sbaC
     const { generateTridentBundle } = await import("./generateTridentBundle");
     const result = await generateTridentBundle({ ...args, sbaCheckpoint });
     if (!result.ok) {
-      const permanent = /institutional review|release blocked|acceptance failed|not ready|input_snapshot_changed|snapshot_schema_superseded/i.test(result.error);
+      const permanent = !classifyFactoryFailure(result.error).retryable;
       if (permanent) throw new FatalError(result.error);
       throw new Error(result.error);
     }
@@ -264,6 +281,7 @@ export async function runArtifactFactory(args: TridentFactoryExecutionArgs, sbaC
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await writeStage(args, "artifact_factory", "failed", { message });
+    if (!classifyFactoryFailure(error).retryable) throw new FatalError(message);
     throw error;
   }
 }
@@ -311,6 +329,7 @@ export async function verifyTridentFactory(args: TridentFactoryExecutionArgs) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await writeStage(args, "release_manifest", "failed", { message });
+    if (!classifyFactoryFailure(error).retryable) throw new FatalError(message);
     throw error;
   }
 }

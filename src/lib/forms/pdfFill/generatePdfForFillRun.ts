@@ -22,9 +22,11 @@ export async function generatePdfForFillRun(opts: {
 }): Promise<{ storagePath: string; fileName: string }> {
   const { supabase, dealId, fillRunId } = opts;
 
-  const { data: fillRun } = await supabase.from("fill_runs").select("template_code, ownership_entity_id").eq("id", fillRunId).maybeSingle();
+  const { data: fillRun } = await supabase.from("fill_runs").select("template_code, ownership_entity_id, context").eq("id", fillRunId).maybeSingle();
   const templateCode = (fillRun as { template_code?: string } | null)?.template_code ?? null;
   const ownershipEntityId = (fillRun as { ownership_entity_id?: string } | null)?.ownership_entity_id ?? undefined;
+
+  const financialSnapshotId = (fillRun as { context?: { financialSnapshotId?: string } } | null)?.context?.financialSnapshotId;
 
   let fileName: string;
   let pdfBytes: Buffer | null = null;
@@ -40,7 +42,7 @@ export async function generatePdfForFillRun(opts: {
     // resolveEffectiveLenderBankId.ts for why.
     const bankId = await resolveEffectiveLenderBankId(dealId, dealBankId, supabase);
 
-    const dispatched = await renderSbaPackageItem(templateCode, { dealId, bankId, supabase, ownershipEntityId });
+    const dispatched = await renderSbaPackageItem(templateCode, { dealId, bankId, supabase, ownershipEntityId, financialSnapshotId });
     if (!dispatched.ok) {
       if (dispatched.reason === "not_applicable") throw new SbaFormNotApplicable(templateCode);
       throw new Error(`sba_form_dispatch_failed(${templateCode}): ${dispatched.reason}`);

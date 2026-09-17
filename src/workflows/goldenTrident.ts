@@ -11,6 +11,7 @@ type ExecutionArgs = WorkflowArgs & {
   bankId: string;
   inputHash: string;
   memoInputHash: string;
+  financialSnapshotId?: string;
 };
 
 export async function goldenTridentWorkflow(args: WorkflowArgs) {

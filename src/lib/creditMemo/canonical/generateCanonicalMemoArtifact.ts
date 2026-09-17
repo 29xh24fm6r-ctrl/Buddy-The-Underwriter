@@ -1,3 +1,5 @@
+import { deterministicHash } from "@/lib/modelEngine/hashing";
+import { buildNarrativeInput } from "./narrativeAssembly";
 import { memoEvidenceReview } from "./memoEvidenceReview";
 import type { DealBankAccessGrant } from "@/lib/tenant/ensureDealBankAccess";
 import "server-only";
@@ -42,6 +44,7 @@ export async function generateCanonicalMemoArtifact(args: {
   dealId: string;
   bankId: string;
   forceRegenerate?: boolean;
+  financialSnapshotId?: string;
   executionContext?: "interactive" | "system";
   /** Verified proof of an authenticated access check; see buildCanonicalCreditMemo. */
   accessGrant?: DealBankAccessGrant;
@@ -52,6 +55,7 @@ export async function generateCanonicalMemoArtifact(args: {
     bankId: args.bankId,
     executionContext: args.executionContext,
     accessGrant: args.accessGrant,
+    financialSnapshotId: args.financialSnapshotId,
   });
   if (!built.ok) return { ok: false as const, error: built.error, status: 400 };
 
@@ -74,7 +78,24 @@ export async function generateCanonicalMemoArtifact(args: {
   }
 
 
-  const inputHash = computeMemoInputHash(await fetchMemoHashInputs(sb, args.dealId));
+  const legacyInputHash = computeMemoInputHash(await fetchMemoHashInputs(sb, args.dealId));
+  const inputHash = args.financialSnapshotId ? deterministicHash({ legacyInputHash, financialSnapshotId: args.financialSnapshotId, reviewVersion: 2 }) : legacyInputHash;
+  const evidenceHash = deterministicHash(buildNarrativeInput(built.memo));
+  if (!args.forceRegenerate) {
+    const { data: cached, error } = await sb.from("canonical_memo_narratives")
+      .select("id,narratives,metadata_json,research_trust_grade").eq("deal_id", args.dealId)
+      .eq("bank_id", args.bankId).eq("input_hash", inputHash).maybeSingle();
+    if (error) throw error;
+    const meta = cached?.metadata_json as any;
+    if (cached && meta?.review_version === 2 && meta?.evidence_hash === evidenceHash &&
+        meta?.narratives_hash === deterministicHash(cached.narratives) && meta?.verification?.verdict === "pass") {
+      const narratives = cached.narratives as unknown as MemoNarratives;
+      return { ok: true as const, memo: { sections: compatibleSections(narratives) },
+        canonicalMemo: overlayNarratives(built.memo, narratives), narratives, memoId: cached.id,
+        inputHash, verification: meta.verification as NonNullable<Awaited<ReturnType<typeof verifyMemoNarratives>>>,
+        researchTrustGrade: cached.research_trust_grade };
+    }
+  }
   const generated = await assembleNarratives({
     memo: built.memo,
     forceRegenerate: args.forceRegenerate,
@@ -115,7 +136,9 @@ export async function generateCanonicalMemoArtifact(args: {
       bank_id: args.bankId,
       input_hash: inputHash,
       narratives: envelope as any,
-      metadata_json: { content_review: memoEvidenceReview(built.memo) },
+      metadata_json: { content_review: memoEvidenceReview(built.memo), financial_snapshot_id: args.financialSnapshotId ?? null,
+        financial_payload: built.memo.package_financials?.output ?? null,
+        review_version: 2, evidence_hash: evidenceHash, narratives_hash: deterministicHash(envelope), verification },
       model: MODEL_UNDERWRITER,
       generated_at: new Date().toISOString(),
       research_trace_json: researchTrace,
