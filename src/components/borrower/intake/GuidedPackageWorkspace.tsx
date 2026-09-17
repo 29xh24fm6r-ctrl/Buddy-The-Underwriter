@@ -40,6 +40,10 @@ import {
   choiceLabel,
 } from "@/lib/borrower/journey/discovery";
 import {
+  activityChoices,
+  activityCopy,
+} from "@/lib/borrower/journey/activities";
+import {
   CHAPTERS,
   chapterProgress,
   chapterFor,
@@ -813,8 +817,10 @@ function AnswerCard({
   const inputClass =
     "mt-3 w-full rounded-xl border border-slate-300 bg-white p-3 text-base focus:outline-none focus:ring-2 focus:ring-sky-500";
   const choices =
+    activityChoices(q) ??
     DISCOVERY_CHOICES[q.id] ??
     (q.field && GUIDED_CHOICES[q.field.registryEntry.factPath]);
+  const copy = activityCopy(q);
   const locked =
     disabled || q.responsibility === "lender" || q.state === "not_applicable";
   return (
@@ -831,8 +837,9 @@ function AnswerCard({
       <h3 id="guided-question-label" className="mt-2 text-xl font-semibold">
         {q.id === "loan.sba_program"
           ? "Has a program been selected for your application?"
-          : q.question}
+          : copy.title}
       </h3>
+      {copy.hint && <p className="mt-2 text-sm text-slate-600">{copy.hint}</p>}
       {q.field && (
         <p className="mt-2 text-xs text-slate-500">
           This answer carries into your applicable application forms.
@@ -865,7 +872,7 @@ function AnswerCard({
               <option value="7A">SBA 7(a)</option>
               <option value="504">SBA 504</option>
             </select>
-          ) : q.id === "A11" && choices ? (
+          ) : choices ? (
             <div
               role="group"
               aria-labelledby="guided-question-label"
@@ -884,33 +891,28 @@ function AnswerCard({
                 </button>
               ))}
             </div>
-          ) : choices ? (
-            <select
-              className={inputClass}
-              aria-labelledby="guided-question-label"
-              value={draft}
-              onChange={(e) => edit(e.target.value)}
-              disabled={locked}
-            >
-              <option value="">Choose an answer</option>
-              {choices.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
           ) : q.type === "boolean" ? (
-            <select
+            <div
+              role="group"
               aria-labelledby="guided-question-label"
-              className={inputClass}
-              value={draft}
-              onChange={(e) => edit(e.target.value)}
-              disabled={locked}
+              className="mt-5 grid grid-cols-2 gap-3"
             >
-              <option value="">Choose an answer</option>
-              <option value="true">Yes</option>
-              <option value="false">No</option>
-            </select>
+              {[
+                ["true", "Yes"],
+                ["false", "No"],
+              ].map(([value, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  disabled={locked}
+                  aria-pressed={draft === value}
+                  onClick={() => edit(value)}
+                  className={`min-h-14 rounded-xl border p-4 text-left font-medium ${draft === value ? "border-sky-700 bg-sky-50 text-sky-900" : "border-slate-200 hover:bg-slate-50"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           ) : ["number", "currency"].includes(q.type) ? (
             <input
               aria-labelledby="guided-question-label"
@@ -937,7 +939,7 @@ function AnswerCard({
             <textarea
               aria-labelledby="guided-question-label"
               className={inputClass}
-              rows={5}
+              rows={3}
               maxLength={12000}
               value={draft}
               placeholder="Your answer…"
