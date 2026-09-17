@@ -85,7 +85,6 @@ export async function enrichFeasibilityStudy(args: {
 
   const { segments, allUrls } = await loadDealGroundingSegments(dealId, sb);
   const citations = attributeFeasibilityCitations(narratives, segments, allUrls);
-  await flagUncitedFeasibilityFields({ dealId, bankId, studyId, citations, sb });
 
   const sections = Object.entries(narratives).flatMap(([key, text]) =>
     typeof text === "string" && text.trim() ? [{ key, text }] : [],
@@ -302,6 +301,7 @@ export async function enrichFeasibilityStudy(args: {
     typeof studyRow?.verification_input_hash === "string" &&
     studyRow.verification_input_hash === contentHash
   ) {
+    await flagUncitedFeasibilityFields({ dealId, bankId, studyId, citations, sb });
     return { verdict: "pass" as const, repaired: false, advisoryCount: 0, reusedVerdict: true };
   }
 
@@ -321,7 +321,7 @@ export async function enrichFeasibilityStudy(args: {
 
   const finalCitations = attributeFeasibilityCitations(repairedNarratives, segments, allUrls);
   await flagUncitedFeasibilityFields({ dealId, bankId, studyId, citations: finalCitations, sb });
-  await sb
+  const saved = await sb
     .from("buddy_feasibility_studies")
     .update({
       narrative_citations: finalCitations,
@@ -331,6 +331,7 @@ export async function enrichFeasibilityStudy(args: {
       verification_input_hash: finished.contentHash,
     })
     .eq("id", studyId);
+  if (saved.error) throw new Error(`Feasibility evidence save failed: ${saved.error.message}`);
   // Warnings that survived repair publish with the study and are disclosed as
   // conditions; the count travels so the release manifest can say the study
   // shipped with N advisories rather than leaving that only in the flag rows.
