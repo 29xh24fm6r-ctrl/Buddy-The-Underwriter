@@ -121,7 +121,16 @@ export async function enrichFeasibilityStudy(args: {
         .maybeSingle()
     : { data: null };
 
+  const [{ data: deal }, { data: application }] = await Promise.all([
+    sb.from("deals").select("name,city,state").eq("id", dealId).eq("bank_id", bankId).maybeSingle(),
+    sb.from("borrower_applications").select("business_legal_name,industry").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
   const facts = {
+    borrower: {
+      name: application?.business_legal_name || deal?.name || null,
+      city: deal?.city ?? null, state: deal?.state ?? null,
+      industry: application?.industry ?? null,
+    },
     evidencePolicy: {
       financialMetrics: "Use only supplied deterministic metrics; do not derive new thresholds, debt-inclusive break-even, residual cushions, or percentages.",
       missingMetrics: "State unavailable and recommend deterministic model support.",
@@ -268,7 +277,7 @@ export async function enrichFeasibilityStudy(args: {
       section: f.section,
       figure: f.text,
       finding:
-        "This figure does not appear in the supplied deterministic evidence. Either remove it or attribute it explicitly as an author estimate.",
+        "This figure does not appear in the supplied deterministic evidence. Remove it unless supplied evidence supports it; do not relabel invented metrics as author estimates.",
     })),
   });
 

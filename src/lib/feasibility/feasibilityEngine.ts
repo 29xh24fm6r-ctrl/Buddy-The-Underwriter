@@ -43,6 +43,8 @@ export type FeasibilityProgressCallback = (step: string, pct: number) => void;
 // our compile-time SBA types perfectly.
 type SbaPackageRow = {
   id?: string;
+  assumptions_id?: string;
+  global_cash_flow?: unknown;
   dscr_year1_base?: number | null;
   dscr_year2_base?: number | null;
   dscr_year3_base?: number | null;
@@ -59,6 +61,7 @@ type SbaAssumptionsRow = {
   management_team?: unknown;
   cost_assumptions?: unknown;
   loan_impact?: unknown;
+  working_capital?: unknown;
 };
 
 type GuarantorRow = {
@@ -157,13 +160,10 @@ export async function generateFeasibilityStudy(params: {
   const sbaPackage = (sbaPackageRaw ?? null) as SbaPackageRow | null;
 
   // ── 5. SBA assumptions (latest confirmed) ──────────────────────
-  const { data: assumptionsRaw } = await sb
-    .from("buddy_sba_assumptions")
-    .select("*")
-    .eq("deal_id", dealId)
-    .order("confirmed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  let assumptionsQuery = sb.from("buddy_sba_assumptions").select("*").eq("deal_id", dealId).eq("status", "confirmed");
+  if (sbaPackage?.assumptions_id) assumptionsQuery = assumptionsQuery.eq("id", sbaPackage.assumptions_id);
+  const { data: assumptionsRaw } = await assumptionsQuery
+    .order("confirmed_at", { ascending: false }).limit(1).maybeSingle();
   const assumptions = (assumptionsRaw ?? null) as SbaAssumptionsRow | null;
 
   // ── 6. NAICS benchmark ─────────────────────────────────────────
@@ -553,7 +553,7 @@ export async function generateFeasibilityStudy(params: {
 
   progress("Writing consultant narratives…", 65);
   const narratives = await generateFeasibilityNarratives({
-    dealName: deal.name ?? "Borrower",
+    dealName: app?.business_legal_name || deal.name || "Borrower",
     city: deal.city,
     state: deal.state,
     composite,
@@ -567,6 +567,15 @@ export async function generateFeasibilityStudy(params: {
     brandName: franchiseBrandName,
     managementTeam,
     industry: (app?.industry as string | null) ?? null,
+    financialEvidence: {
+      annualProjections: sbaPackage?.projections_annual ?? null,
+      sensitivityScenarios: sbaPackage?.sensitivity_scenarios ?? null,
+      sourcesAndUses: sbaPackage?.sources_and_uses ?? null,
+      globalCashFlow: sbaPackage?.global_cash_flow ?? null,
+      workingCapital: assumptions?.working_capital ?? null,
+      loanImpact: assumptions?.loan_impact ?? null,
+      costAssumptions: assumptions?.cost_assumptions ?? null,
+    },
   });
 
   // ── 15. Render PDF + upload to storage ─────────────────────────
@@ -574,7 +583,7 @@ export async function generateFeasibilityStudy(params: {
   progress("Rendering feasibility report…", 85);
   let pdfUrl: string | null = null;
   const renderInput = {
-    dealName: deal.name ?? "Borrower",
+    dealName: app?.business_legal_name || deal.name || "Borrower",
     city: deal.city,
     state: deal.state,
     composite,
