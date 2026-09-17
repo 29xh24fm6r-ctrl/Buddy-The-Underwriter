@@ -723,5 +723,10 @@
     "name": "reserve_trident_gateway_tokens",
     "type": "function",
     "migration": "20260917162449_package_financial_authority.sql"
+  },
+  {
+    "name": "deals.brokerage_comms_last_run_at",
+    "type": "column",
+    "migration": "20260908183000_deals_brokerage_comms_last_run_at.sql"
   }
 ]
