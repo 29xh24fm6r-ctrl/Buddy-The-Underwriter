@@ -150,11 +150,12 @@ function scoreCharacter(args: {
 function scoreCapital(args: {
   snapshot: DealFinancialSnapshotV1;
   loanAmount: number | null;
+  businessNetWorth?: number | null;
 }): QualitativeDimension {
   const { snapshot, loanAmount } = args;
   const flags: string[] = [];
 
-  const netWorth = snapshotNumber(snapshot, "net_worth");
+  const netWorth = snapshotNumber(snapshot, "net_worth") ?? args.businessNetWorth ?? null;
   const workingCapital = snapshotNumber(snapshot, "working_capital");
   const currentRatio = snapshotNumber(snapshot, "current_ratio");
 
@@ -177,7 +178,7 @@ function scoreCapital(args: {
     flags.push("Negative net worth");
   } else if (nwRatio >= 2.0 && (workingCapital === null || workingCapital > 0)) {
     score = 5;
-    basis = `Strong capital position: net worth of $${Math.round(netWorth).toLocaleString()} is ${nwRatio.toFixed(1)}x the loan amount with positive working capital.`;
+    basis = `Strong capital position: net worth of $${Math.round(netWorth).toLocaleString()} is ${nwRatio.toFixed(1)}x the loan amount ${workingCapital !== null ? "with positive working capital" : "with working capital not supplied"}.`;
   } else if (nwRatio >= 1.0) {
     score = 4;
     basis = `Adequate capital: net worth of $${Math.round(netWorth).toLocaleString()} (${nwRatio.toFixed(1)}x loan amount).`;
@@ -383,11 +384,12 @@ export function buildQualitativeAssessment(args: {
   research: CanonicalCreditMemoV1["business_industry_analysis"];
   overrides: Record<string, any>;
   loanAmount: number | null;
+  businessNetWorth?: number | null;
   naicsCode: string | null;
   bankerNotes?: string | null;
 }): QualitativeAssessment {
   const character = scoreCharacter({ research: args.research, overrides: args.overrides, bankerNotes: args.bankerNotes });
-  const capital = scoreCapital({ snapshot: args.snapshot, loanAmount: args.loanAmount });
+  const capital = scoreCapital({ snapshot: args.snapshot, loanAmount: args.loanAmount, businessNetWorth: args.businessNetWorth });
   const conditions = scoreConditions({ research: args.research });
   const management = scoreManagement({
     ownerEntities: args.ownerEntities,

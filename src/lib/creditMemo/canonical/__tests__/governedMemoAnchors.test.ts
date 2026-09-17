@@ -90,6 +90,23 @@ function memo(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
+test("funding and recommendation conditions reach both narrative consumers intact", () => {
+  const sources_uses = {
+    total_project_cost: { value: 1_000_000 },
+    borrower_equity: { value: 150_000 },
+    bank_loan_total: { value: 850_000 },
+    sources: [{ description: "Loan", amount: { value: 850_000 } }, { description: "Cash equity", amount: { value: 150_000 } }],
+  };
+  const input = buildNarrativeInput(memo({
+    sources_uses,
+    recommendation: { verdict: "approve", headline: "Coverage meets policy", rationale: ["Financial recommendation only"] },
+    conditions: { precedent: ["Verify equity contribution"] },
+  }));
+  assert.deepEqual(input.sources_uses, sources_uses);
+  assert.deepEqual(input.conditions_precedent, ["Verify equity contribution"]);
+  assert.deepEqual(input.recommendation_rationale, ["Financial recommendation only"]);
+});
+
 test("every balance-sheet dollar a reviewer can cite is a governed top-level field", () => {
   const input = buildNarrativeInput(memo());
 

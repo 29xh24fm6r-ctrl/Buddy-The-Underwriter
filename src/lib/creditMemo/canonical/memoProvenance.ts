@@ -117,6 +117,7 @@ export const QUALITATIVE_MEMO_FIELDS = [
  * If this hash matches a previously generated memo, the memo is NOT stale.
  */
 export function computeMemoInputHash(inputs: {
+  fundingInputs?: unknown;
   snapshotId: string | null;
   snapshotUpdatedAt: string | null;
   pricingDecisionId: string | null;
@@ -124,7 +125,14 @@ export function computeMemoInputHash(inputs: {
   factCount: number;
   latestFactUpdatedAt: string | null;
 }): string {
+  const stable = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(stable);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, stable(v)]));
+    return value;
+  };
   const payload = [
+    "memo-funding-v1",
+    JSON.stringify(stable(inputs.fundingInputs ?? null)),
     inputs.snapshotId ?? "none",
     inputs.snapshotUpdatedAt ?? "none",
     inputs.pricingDecisionId ?? "none",
