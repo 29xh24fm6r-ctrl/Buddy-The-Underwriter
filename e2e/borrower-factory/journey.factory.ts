@@ -113,36 +113,33 @@ test("goal-first journey saves, resumes, keeps drafts and does not call models",
   await page
     .getByRole("button", { name: "Buy a business", exact: true })
     .click();
-  await page.getByRole("button", { name: "Save answer", exact: true }).click();
+  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
   await expect(
-    page.getByText("Saved to your application.", { exact: true }),
+    page.getByText("Nice work—your plan just got clearer.", { exact: true }),
   ).toBeVisible();
   expect(fixture.calls).not.toContain("guided_review");
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page
     .getByRole("textbox", {
       name: "What do you want this financing to help you accomplish?",
     })
     .fill("Acquire a local repair business");
-  await page.getByRole("button", { name: /STEP 2 Your business/ }).click();
-  await page.getByRole("button", { name: /STEP 1 Your plan/ }).click();
+  await page.getByRole("button", { name: /MISSION 2 Tell your story/ }).click();
+  await page.getByRole("button", { name: /MISSION 1 Shape your idea/ }).click();
   await expect(
     page.getByRole("textbox", {
       name: "What do you want this financing to help you accomplish?",
     }),
   ).toHaveValue("Acquire a local repair business");
   fixture.fail();
-  await page.getByRole("button", { name: "Save answer", exact: true }).click();
+  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
   await expect(page.getByText("Simulated save interruption")).toBeVisible();
   await expect(
     page.getByRole("textbox", {
       name: "What do you want this financing to help you accomplish?",
     }),
   ).toHaveValue("Acquire a local repair business");
-  await page.getByRole("button", { name: "Save answer", exact: true }).click();
-  await expect(
-    page.getByText("Saved to your application.", { exact: true }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
+  await expect(page.getByText("Nice work—your plan just got clearer.")).toBeVisible();
   await page.reload();
   await expect(
     page.getByRole("heading", {
@@ -162,10 +159,8 @@ test("options are educational; documents and manual financial review are reachab
   await page
     .getByRole("button", { name: "Buy or improve property", exact: true })
     .click();
-  await page.getByRole("button", { name: "Save answer", exact: true }).click();
-  await expect(
-    page.getByText("Saved to your application.", { exact: true }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
+  await expect(page.getByText("Nice work—your plan just got clearer.")).toBeVisible();
   await page.getByRole("button", { name: "Explore financing options" }).click();
   await expect(
     page.getByRole("heading", { name: "SBA 504", exact: true }),
@@ -175,16 +170,16 @@ test("options are educational; documents and manual financial review are reachab
       exact: false,
     }),
   ).toBeVisible();
-  await page.getByRole("button", { name: /STEP 3 Your numbers/ }).click();
+  await page.getByRole("button", { name: /MISSION 3 Build your budget/ }).click();
   await expect(
     page.getByRole("heading", { name: "Bring what you have.", exact: false }),
   ).toBeVisible();
-  await page.getByRole("button", { name: /STEP 4 Your application/ }).click();
+  await page.getByRole("button", { name: /MISSION 4 Prepare your package/ }).click();
   await page
     .getByRole("button", { name: "Enter assumptions myself — no AI needed" })
     .click();
   await expect(page.getByText("Revenue", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: /STEP 1 Your plan/ }).click();
+  await page.getByRole("button", { name: /MISSION 1 Shape your idea/ }).click();
   await expect(page.getByRole("alert")).toContainText(
     "Save your current protected answer or financial draft",
   );
@@ -194,7 +189,7 @@ test("options are educational; documents and manual financial review are reachab
       name: "Enter assumptions myself — no AI needed",
     }),
   ).toBeVisible();
-  await page.getByRole("button", { name: /STEP 5 Review/ }).click();
+  await page.getByRole("button", { name: /MISSION 5 Make it ready/ }).click();
   await expect(page.getByText("Internal error", { exact: true })).toHaveCount(
     0,
   );
@@ -242,7 +237,7 @@ test("accountant help requires a selected scope and confirmation and can be revo
   page,
 }) => {
   const fixture = await setup(page);
-  await page.getByRole("button", { name: /STEP 3 Your numbers/ }).click();
+  await page.getByRole("button", { name: /MISSION 3 Build your budget/ }).click();
   await page
     .getByText("Have an accountant or bookkeeper help", { exact: true })
     .click();
