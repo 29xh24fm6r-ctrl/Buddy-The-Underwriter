@@ -120,14 +120,14 @@ test("goal-first journey saves, resumes, keeps drafts and does not call models",
   expect(fixture.calls).not.toContain("guided_review");
   await page
     .getByRole("textbox", {
-      name: "What do you want this financing to help you accomplish?",
+      name: "What are we helping you make happen?",
     })
     .fill("Acquire a local repair business");
   await page.getByRole("button", { name: /MISSION 2 Tell your story/ }).click();
   await page.getByRole("button", { name: /MISSION 1 Shape your idea/ }).click();
   await expect(
     page.getByRole("textbox", {
-      name: "What do you want this financing to help you accomplish?",
+      name: "What are we helping you make happen?",
     }),
   ).toHaveValue("Acquire a local repair business");
   fixture.fail();
@@ -135,7 +135,7 @@ test("goal-first journey saves, resumes, keeps drafts and does not call models",
   await expect(page.getByText("Simulated save interruption")).toBeVisible();
   await expect(
     page.getByRole("textbox", {
-      name: "What do you want this financing to help you accomplish?",
+      name: "What are we helping you make happen?",
     }),
   ).toHaveValue("Acquire a local repair business");
   await page.getByRole("button", { name: "Save and continue", exact: true }).click();
