@@ -131,7 +131,7 @@ export function computeMemoInputHash(inputs: {
     return value;
   };
   const payload = [
-    "memo-funding-v1",
+    "memo-evidence-v2",
     JSON.stringify(stable(inputs.fundingInputs ?? null)),
     inputs.snapshotId ?? "none",
     inputs.snapshotUpdatedAt ?? "none",

@@ -82,7 +82,7 @@ export async function gradeGoldenTrident(args: {
           .eq("id", bundle.source_spread_id).maybeSingle()
       : Promise.resolve({ data: null }),
     bundle?.source_credit_memo_id
-      ? sb.from("canonical_memo_narratives").select("id,input_hash,narratives,model,research_trust_grade,generated_at")
+      ? sb.from("canonical_memo_narratives").select("id,input_hash,narratives,model,research_trust_grade,generated_at,metadata_json")
           .eq("id", bundle.source_credit_memo_id).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
@@ -192,7 +192,7 @@ export async function gradeGoldenTrident(args: {
       exists,
       passed,
       findings,
-      feasibility?.verification_verdict === "pass",
+      feasibility?.verification_verdict === "pass" && citedSections >= 3,
     ));
   }
 
@@ -235,7 +235,12 @@ export async function gradeGoldenTrident(args: {
     );
     if (memoFresh) passed.push("Memo is bound to this bundle's canonical input hash.");
     else findings.push("Memo is missing or stale relative to this bundle's canonical input hash.");
-    artifacts.push(artifact("creditMemo", "Credit memo", score, exists, passed, findings, memoFresh));
+    const contentReview = (memo?.metadata_json as { content_review?: { version?: number; findings?: unknown } } | null)?.content_review;
+    const reviewed = contentReview?.version === 1 && Array.isArray(contentReview.findings);
+    const contentFindings = reviewed ? (contentReview!.findings as unknown[]).map(String) : ["Structured memo evidence review has not been recorded; regenerate before relying on this score."];
+    findings.push(...contentFindings);
+    if (contentFindings.length) score = Math.min(score, 84);
+    artifacts.push(artifact("creditMemo", "Credit memo", score, exists, passed, findings, memoFresh && reviewed && !contentFindings.length));
   }
 
   const formsReady = Boolean(bundle?.sba_forms_pdf_path);
@@ -245,8 +250,8 @@ export async function gradeGoldenTrident(args: {
   for (const [key, path] of [["creditMemo", bundle?.credit_memo_pdf_path], ["spreads", bundle?.spreads_pdf_path]] as const) {
     if (!path) { const item = artifacts.find(a => a.key === key); if (item) { item.status = "missing"; item.findings.push("Downloadable PDF is missing from this run."); } }
   }
-  const releaseGate = bundle?.release_gate_json as { ok?: unknown } | null;
-  const releaseReady = releaseGate?.ok === true && artifacts.every((item) => item.status === "pass");
+  const releaseGate = bundle?.release_gate_json as { ok?: unknown; warnings?: unknown[] } | null;
+  const releaseReady = bundle?.status === "succeeded" && releaseGate?.ok === true && !releaseGate.warnings?.length && artifacts.every((item) => item.status === "pass");
   const structuralScore = Math.round(artifacts.reduce((sum, item) => sum + item.score, 0) / artifacts.length);
   return {
     generatedAt: new Date().toISOString(),

@@ -196,3 +196,24 @@ test("the verifier is handed the same payload as the generator", async () => {
 
   assert.deepEqual(capturedFacts, buildNarrativeInput(subject));
 });
+
+test("management and basis evidence reach the same generator/reviewer contract", () => {
+  const principals = [{ name: "Jordan Ellis", years_experience: 17, bio: "Machining and plant operations." }];
+  const input = buildNarrativeInput(memo({ management_qualifications: { principals } }));
+  assert.deepEqual(input.management_principals, principals);
+  assert.equal(input.loan_structure.term_months, 120);
+  assert.equal(input.underwriting_reconciliation.cash_flow_provenance.value, 360000);
+  assert.match(input.underwriting_reconciliation.reconciliation_instruction, /bridge is unverified/);
+  assert.match(input.assessment_interpretation, /separate frameworks/);
+});
+
+test("structured review exposes missing terms and unbridged cash flow despite long prose", async () => {
+  const { memoEvidenceReview } = await import("../memoEvidenceReview");
+  const m = memo();
+  m.transaction_overview.loan_request.term_months = null;
+  m.financial_analysis.debt_coverage_table = [{ cash_flow_available: 280000 }];
+  const review = memoEvidenceReview(m);
+  assert.ok(review.findings.some(f => f.includes("Loan term")));
+  assert.ok(review.findings.some(f => f.includes("adjustment bridge")));
+  assert.ok(review.findings.some(f => f.includes("Management")));
+});

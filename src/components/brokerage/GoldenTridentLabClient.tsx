@@ -48,13 +48,16 @@ function waitForDocumentVisible(): Promise<void> {
 export function GoldenTridentLabClient({
   dealId,
   readiness,
+  previousFailure = null,
 }: {
   dealId: string;
   readiness: TridentReadiness | null;
+  previousFailure?: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"trident" | "analysis" | "memo" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [newRunAccepted, setNewRunAccepted] = useState(false);
 
   async function waitForTrident(bundleId: string) {
     const deadline = Date.now() + 30 * 60 * 1000;
@@ -162,6 +165,8 @@ export function GoldenTridentLabClient({
         throw new Error(blockingChecks || body.validation?.summary || "Deterministic validation blocked generation.");
       }
       if (kind === "trident" && response.status === 202 && body.bundleId) {
+        setNewRunAccepted(true);
+        router.refresh();
         setMessage("Golden Trident accepted. Durable generation is running in the background.");
         await waitForTrident(body.bundleId);
       }
@@ -183,6 +188,7 @@ export function GoldenTridentLabClient({
 
   return (
     <div className="space-y-3">
+      {previousFailure && !newRunAccepted ? <p role="alert" className="rounded bg-red-950/40 p-3 text-sm text-red-200">{previousFailure}</p> : null}
       <div className="flex flex-wrap gap-2 text-xs">
         <span className="rounded bg-black/30 px-2 py-1">Assumptions: {readiness?.evidence.assumptionsStatus ?? "missing"}</span>
         <span className="rounded bg-black/30 px-2 py-1">Documents: {readiness?.evidence.documentCount ?? 0}</span>

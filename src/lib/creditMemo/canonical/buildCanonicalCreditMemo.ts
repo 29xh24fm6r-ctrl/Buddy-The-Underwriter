@@ -1,4 +1,5 @@
 import "server-only";
+import { confirmedLoanTerms } from "./confirmedLoanTerms";
 import { confirmedMemoFunding, reconcileMemoFunding } from "./memoFunding";
 import { formatLoanPurpose } from "./formatLoanPurpose";
 import { shouldRefreshCovenantDraft, supportedMemoRatios } from "./memoConsistency";
@@ -729,11 +730,22 @@ export async function buildCanonicalCreditMemo(args: {
     };
 
     const [fundingAssumptions, fundingProceeds] = await Promise.all([
-      (sb as any).from("buddy_sba_assumptions").select("status,confirmed_at,loan_impact").eq("deal_id", args.dealId).maybeSingle(),
+      (sb as any).from("buddy_sba_assumptions").select("status,confirmed_at,loan_impact,management_team").eq("deal_id", args.dealId).maybeSingle(),
       (sb as any).from("deal_proceeds_items").select("category,description,amount").eq("deal_id", args.dealId),
     ]);
     requireCanonicalMemoQuery("buddy_sba_assumptions", fundingAssumptions);
     requireCanonicalMemoQuery("deal_proceeds_items", fundingProceeds);
+    const confirmedInputs = fundingAssumptions.data?.status === "confirmed" ? fundingAssumptions.data : null;
+    const confirmedLoan = confirmedInputs?.loan_impact;
+    // Dedicated management profiles retain authority; confirmed interview bios fill absent people.
+    for (const member of confirmedInputs?.management_team ?? []) {
+      if (!member.name || mgmtProfileByName.has(member.name.toLowerCase().trim())) continue;
+      const profile = { person_name: member.name, title: member.title,
+        ownership_pct: member.ownershipPct, years_experience: member.yearsInIndustry,
+        resume_summary: member.bio, credit_relevance: "Borrower-confirmed SBA interview; independently verify experience." };
+      mgmtProfiles.push(profile);
+      mgmtProfileByName.set(member.name.toLowerCase().trim(), profile);
+    }
     const resolvedFunding = reconcileMemoFunding({
         total_project_cost: sourcesUses.totalProjectCost,
         borrower_equity: sourcesUses.borrowerEquity,
@@ -972,14 +984,19 @@ export async function buildCanonicalCreditMemo(args: {
     const loanReqProduct = loanReq?.product_type ?? "—";
     // SPEC-CREDIT-MEMO-AUDIT-1 Bug 6: LOC products have no term/amort — use sensible defaults
     const isLOC = loanReqProduct === "LOC_SECURED" || loanReqProduct === "LINE_OF_CREDIT" || loanReqProduct === "LOC";
-    const loanReqTermMonths = loanReq?.requested_term_months ?? (isLOC ? 12 : null);
+    const confirmedTerms = confirmedLoanTerms({ status: confirmedInputs?.status,
+      loanImpact: confirmedLoan, requestedTerm: loanReq?.requested_term_months,
+      pricedRatePct: proposedRate.all_in_rate });
+    const loanReqTermMonths = loanReq?.requested_term_months ?? confirmedTerms.termMonths ?? (isLOC ? 12 : null);
     const rateSummary = scenarioStructure
       ? `${scenarioStructure.index_code ?? ""} + ${scenarioStructure.spread_bps ?? "—"}bps = ${Number(scenarioStructure.all_in_rate_pct ?? 0).toFixed(2)}% [${pricingDecision?.decision ?? ""}]`
       : pricingQuote
         ? `${pricingQuote.index_code ?? ""} + ${pricingQuote.spread_bps ?? "—"}bps = ${Number(pricingQuote.all_in_rate_pct ?? 0).toFixed(2)}%`
-        : loanReq?.requested_rate_type
-          ? `${loanReq.requested_rate_type}${loanReq.requested_rate_index ? ` (${loanReq.requested_rate_index})` : ""}${loanReq.requested_spread_bps ? ` + ${loanReq.requested_spread_bps}bps` : ""}`
-          : "—";
+        : confirmedTerms.ratePct !== null
+          ? `${confirmedTerms.ratePct.toFixed(2)}% (borrower-confirmed projection assumption; lender pricing pending)`
+          : loanReq?.requested_rate_type
+            ? `${loanReq.requested_rate_type}${loanReq.requested_rate_index ? ` (${loanReq.requested_rate_index})` : ""}${loanReq.requested_spread_bps ? ` + ${loanReq.requested_spread_bps}bps` : ""}`
+            : "—";
 
     // Key metrics rate fields
     const rateIndex = proposedRate.index;
