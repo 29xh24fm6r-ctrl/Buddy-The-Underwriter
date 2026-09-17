@@ -941,9 +941,26 @@ export async function adoptPriorRunArtifacts(
     if (!prior) return args.current;
 
     const patch: Record<string, unknown> = {};
-    for (const field of ADOPTABLE) {
-      const inherited = (prior as unknown as Record<string, unknown>)[field];
-      if (args.current[field] == null && inherited != null) patch[field] = inherited;
+    const priorRow = prior as unknown as Record<string, unknown>;
+    // A checkpoint can already bind this run to a fresh package. Never fill
+    // its paths with another package's PDFs: that skips review of the fresh
+    // source and makes the release gate inspect a different plan than the PDF.
+    // Apply the same ownership rule to a previously generated feasibility study.
+    const groups = [
+      ["source_sba_package_id", "business_plan_pdf_path", "projections_pdf_path", "projections_xlsx_path"],
+      ["source_feasibility_id", "feasibility_pdf_path"],
+    ] as const;
+    for (const [source, ...paths] of groups) {
+      const priorSource = priorRow[source];
+      const currentSource = args.current[source];
+      if (typeof priorSource !== "string" || !priorSource) continue;
+      if (currentSource != null && currentSource !== priorSource) continue;
+      // An existing orphan path cannot be assigned a guessed source either.
+      if (currentSource == null && paths.some((path) => args.current[path] != null)) continue;
+      for (const field of [source, ...paths]) {
+        const inherited = priorRow[field];
+        if (args.current[field] == null && inherited != null) patch[field] = inherited;
+      }
     }
     if (Object.keys(patch).length === 0) return args.current;
 

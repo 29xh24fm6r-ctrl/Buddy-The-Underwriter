@@ -95,8 +95,8 @@ test("a retry adopts the artifacts a prior run built on the same inputs", async 
   assert.equal(writes.length, 1, "adoption must be persisted, not just held in memory");
 });
 
-test("work the current run already did is never overwritten", async () => {
-  const { client } = stubClient({ prior: PRIOR_COMPLETE });
+test("a fresh SBA checkpoint cannot inherit another plan's reviewed PDF or workbook", async () => {
+  const { client, writes } = stubClient({ prior: PRIOR_COMPLETE });
 
   const adopted = await adoptPriorRunArtifacts(client as never, {
     ...ARGS,
@@ -104,7 +104,43 @@ test("work the current run already did is never overwritten", async () => {
   });
 
   assert.equal(adopted.source_sba_package_id, "pkg-fresh");
-  assert.equal(adopted.projections_xlsx_path, "proj.xlsx", "the gaps are still filled");
+  assert.equal(adopted.business_plan_pdf_path, null, "the fresh plan must go through review and rendering");
+  assert.equal(adopted.projections_xlsx_path, null);
+  assert.equal(adopted.source_feasibility_id, "feas-1", "an independent coherent group can still resume");
+  assert.deepEqual(writes, [{ source_feasibility_id: "feas-1", feasibility_pdf_path: "feas.pdf" }]);
+});
+
+test("a retry bound to the same source can reuse that source's completed files", async () => {
+  const { client } = stubClient({ prior: PRIOR_COMPLETE });
+  const adopted = await adoptPriorRunArtifacts(client as never, {
+    ...ARGS, current: { ...CURRENT_EMPTY, source_sba_package_id: "pkg-1" },
+  });
+  assert.equal(adopted.business_plan_pdf_path, "bp.pdf");
+  assert.equal(adopted.projections_xlsx_path, "proj.xlsx");
+});
+
+test("a fresh feasibility study cannot inherit another study's PDF", async () => {
+  const { client } = stubClient({ prior: PRIOR_COMPLETE });
+  const adopted = await adoptPriorRunArtifacts(client as never, {
+    ...ARGS, current: { ...CURRENT_EMPTY, source_feasibility_id: "feas-fresh" },
+  });
+  assert.equal(adopted.source_feasibility_id, "feas-fresh");
+  assert.equal(adopted.feasibility_pdf_path, null);
+  assert.equal(adopted.business_plan_pdf_path, "bp.pdf");
+});
+
+test("orphan artifacts are never rebound to an inferred source", async () => {
+  for (const prior of [
+    { ...PRIOR_COMPLETE, source_sba_package_id: null },
+    PRIOR_COMPLETE,
+  ]) {
+    const { client } = stubClient({ prior });
+    const current = { ...CURRENT_EMPTY, business_plan_pdf_path: "orphan.pdf" };
+    const adopted = await adoptPriorRunArtifacts(client as never, { ...ARGS, current });
+    assert.equal(adopted.source_sba_package_id, null);
+    assert.equal(adopted.business_plan_pdf_path, "orphan.pdf");
+    assert.equal(adopted.projections_xlsx_path, null);
+  }
 });
 
 test("a run that already has everything does not touch the database", async () => {
