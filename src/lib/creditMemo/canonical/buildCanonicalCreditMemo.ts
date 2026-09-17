@@ -1,4 +1,5 @@
 import "server-only";
+import { confirmedMemoFunding, reconcileMemoFunding } from "./memoFunding";
 import { formatLoanPurpose } from "./formatLoanPurpose";
 import { shouldRefreshCovenantDraft, supportedMemoRatios } from "./memoConsistency";
 
@@ -703,8 +704,8 @@ export async function buildCanonicalCreditMemo(args: {
       bankLoanTotal: metricValueFromSnapshot({ snapshot, metric: "bank_loan_total", label: "Bank Loan Total" }),
     };
 
-    // Fallback: if bank_loan_total is missing from snapshot, read from facts directly
-    const needsSourcesFallback = snapshotSourcesUses.bankLoanTotal.value === null;
+    // Resolve each missing funding metric; a loan amount alone is not a complete funding plan.
+    const needsSourcesFallback = Object.values(snapshotSourcesUses).some(metric => metric.value === null);
     const spreadSourcesUses = needsSourcesFallback
       ? await computeSourcesUsesMetrics({ dealId: args.dealId, bankId })
       : null;
@@ -727,7 +728,35 @@ export async function buildCanonicalCreditMemo(args: {
       discountedValue: snapshotDiscounted,
     };
 
-    const bankLoanTotal = sourcesUses.bankLoanTotal;
+    const [fundingAssumptions, fundingProceeds] = await Promise.all([
+      (sb as any).from("buddy_sba_assumptions").select("status,confirmed_at,loan_impact").eq("deal_id", args.dealId).maybeSingle(),
+      (sb as any).from("deal_proceeds_items").select("category,description,amount").eq("deal_id", args.dealId),
+    ]);
+    requireCanonicalMemoQuery("buddy_sba_assumptions", fundingAssumptions);
+    requireCanonicalMemoQuery("deal_proceeds_items", fundingProceeds);
+    const resolvedFunding = reconcileMemoFunding({
+        total_project_cost: sourcesUses.totalProjectCost,
+        borrower_equity: sourcesUses.borrowerEquity,
+        borrower_equity_pct: sourcesUses.borrowerEquityPct,
+        bank_loan_total: sourcesUses.bankLoanTotal,
+        sources: [
+          { description: "Bank Loan", amount: sourcesUses.bankLoanTotal },
+          { description: "Borrower Equity", amount: sourcesUses.borrowerEquity },
+        ],
+        uses: [
+          { description: "Total Project Cost", amount: sourcesUses.totalProjectCost },
+        ],
+        equity_source_description: "Source not supplied",
+      }, confirmedMemoFunding(fundingAssumptions.data, fundingProceeds.data ?? []));
+
+    if (fundingAssumptions.data?.status === "confirmed") {
+      const requestedAmount = loanReq?.requested_amount != null ? Number(loanReq.requested_amount) : dealAmount;
+      if (requestedAmount !== null && Number.isFinite(requestedAmount) && resolvedFunding.bank_loan_total.value !== null && Math.abs(requestedAmount - resolvedFunding.bank_loan_total.value) > 1) {
+        throw new Error("Funding conflict: confirmed loan amount differs from the current loan request. Review assumptions before generating the memo.");
+      }
+    }
+
+    const bankLoanTotal = resolvedFunding.bank_loan_total;
     const ltvGross = computeLtvPct({ loanAmount: bankLoanTotal.value, collateralValue: collateralFromSnapshot.grossValue, label: "LTV Gross" });
     const ltvNet = computeLtvPct({ loanAmount: bankLoanTotal.value, collateralValue: collateralFromSnapshot.netValue, label: "LTV Net" });
     const discountedCoverage = computeDiscountedCoverageRatio({
@@ -746,10 +775,10 @@ export async function buildCanonicalCreditMemo(args: {
       { key: "LTV_GROSS", label: "Gross LTV", metric: ltvGross },
       { key: "LTV_NET", label: "Net LTV", metric: ltvNet },
       { key: "DISCOUNTED_COVERAGE", label: "Discounted Coverage", metric: discountedCoverage },
-      { key: "TOTAL_PROJECT_COST", label: "Total Project Cost", metric: sourcesUses.totalProjectCost },
-      { key: "BORROWER_EQUITY", label: "Borrower Equity", metric: sourcesUses.borrowerEquity },
-      { key: "BORROWER_EQUITY_PCT", label: "Borrower Equity %", metric: sourcesUses.borrowerEquityPct },
-      { key: "BANK_LOAN_TOTAL", label: "Bank Loan Total", metric: sourcesUses.bankLoanTotal },
+      { key: "TOTAL_PROJECT_COST", label: "Total Project Cost", metric: resolvedFunding.total_project_cost },
+      { key: "BORROWER_EQUITY", label: "Borrower Equity", metric: resolvedFunding.borrower_equity },
+      { key: "BORROWER_EQUITY_PCT", label: "Borrower Equity %", metric: resolvedFunding.borrower_equity_pct },
+      { key: "BANK_LOAN_TOTAL", label: "Bank Loan Total", metric: resolvedFunding.bank_loan_total },
     ];
 
     const readiness = computeReadiness({
@@ -765,8 +794,8 @@ export async function buildCanonicalCreditMemo(args: {
 
     // SPEC-CREDIT-MEMO-PDF-LAYOUT-1 Fix 8: prefer loan request amount over deals.loan_amount
     const loanReqAmount = loanReq?.requested_amount != null ? Number(loanReq.requested_amount) : null;
-    const loanAmount = sourcesUses.bankLoanTotal.value !== null
-      ? sourcesUses.bankLoanTotal
+    const loanAmount = resolvedFunding.bank_loan_total.value !== null
+      ? resolvedFunding.bank_loan_total
       : loanReqAmount !== null && Number.isFinite(loanReqAmount)
         ? { value: loanReqAmount, source: "LoanRequest:requested_amount", updated_at: null }
         : dealAmount !== null
@@ -1388,6 +1417,7 @@ export async function buildCanonicalCreditMemo(args: {
         loanAmount: loanAmount.value,
         naicsCode: borrower?.naics_code ?? null,
         bankerNotes: borrowerStory?.banker_notes ?? null,
+        businessNetWorth: balanceSheetTable[0]?.total_equity ?? null,
       });
     } catch (err) {
       console.warn("[buildCanonicalCreditMemo] buildQualitativeAssessment failed:", err);
@@ -1854,20 +1884,7 @@ export async function buildCanonicalCreditMemo(args: {
         sba_sop: sbaSop,
       },
 
-      sources_uses: {
-        total_project_cost: sourcesUses.totalProjectCost,
-        borrower_equity: sourcesUses.borrowerEquity,
-        borrower_equity_pct: sourcesUses.borrowerEquityPct,
-        bank_loan_total: sourcesUses.bankLoanTotal,
-        sources: [
-          { description: "Bank Loan", amount: sourcesUses.bankLoanTotal },
-          { description: "Borrower Equity", amount: sourcesUses.borrowerEquity },
-        ],
-        uses: [
-          { description: "Total Project Cost", amount: sourcesUses.totalProjectCost },
-        ],
-        equity_source_description: "Borrower cash equity",
-      },
+      sources_uses: resolvedFunding,
 
       eligibility,
 
