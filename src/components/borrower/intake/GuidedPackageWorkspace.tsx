@@ -12,6 +12,7 @@ import { LenderPackageReview } from "./LenderPackageReview";
 import { PackageHandoff } from "./PackageHandoff";
 import { UseOfProceedsAnswer } from "./UseOfProceedsAnswer";
 import { GuidedPfsSchedules } from "./GuidedPfsSchedules";
+import { DocumentHelper } from "./DocumentHelper";
 import { OwnershipEditor } from "./OwnershipEditor";
 import { IntakeOwnershipStep } from "./IntakeOwnershipStep";
 import { PortalUploadDropzone } from "./PortalUploadDropzone";
@@ -523,6 +524,7 @@ function JourneyPanels({
               token={dealId}
               onUploadComplete={onUpload}
             />
+            <DocumentHelper dealId={dealId} />
             <UploadedDocumentsList token={dealId} refreshKey={uploadVersion} />
           </section>
           <details className="rounded-2xl border bg-white p-5">

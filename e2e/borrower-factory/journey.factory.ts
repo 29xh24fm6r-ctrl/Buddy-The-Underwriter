@@ -9,6 +9,8 @@ async function setup(page: Page) {
   });
   const calls: string[] = [];
   let failNext = false;
+  let helperCreated = false;
+  let helperRevoked = false;
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== "127.0.0.1") return route.abort("blockedbyclient");
@@ -40,6 +42,34 @@ async function setup(page: Page) {
       if (url.searchParams.get("view") === "schedules")
         return respond({ ok: true, owners: [], schedules: {} });
       return respond({ ok: true, dealId: "test-deal", snapshot: snapshot() });
+    }
+    if (url.pathname.endsWith("/share-links")) {
+      if (route.request().method() === "POST") {
+        helperCreated = true;
+        return respond({
+          ok: true,
+          shareUrl: "/portal/share/test-scoped-link",
+        });
+      }
+      if (route.request().method() === "DELETE") {
+        helperRevoked = true;
+        return respond({ ok: true });
+      }
+      return respond({
+        ok: true,
+        items: [{ id: "business-returns", title: "Business tax returns" }],
+        links: helperCreated
+          ? [
+              {
+                id: "helper-link",
+                recipient_name: "Alex’s accountant",
+                checklist_item_ids: ["business-returns"],
+                expires_at: "2099-01-01",
+                revoked: helperRevoked,
+              },
+            ]
+          : [],
+      });
     }
     if (url.pathname.endsWith("/documents"))
       return respond({ ok: true, documents: [] });
@@ -206,4 +236,42 @@ test("public welcome reflows and provides options without account or model calls
   ).toBeVisible();
   expect(errors).toEqual([]);
   expect(external).toBe(0);
+});
+
+test("accountant help requires a selected scope and confirmation and can be revoked", async ({
+  page,
+}) => {
+  const fixture = await setup(page);
+  await page.getByRole("button", { name: /STEP 3 Your numbers/ }).click();
+  await page
+    .getByText("Have an accountant or bookkeeper help", { exact: true })
+    .click();
+  await page.getByLabel("Who will help?").fill("Alex’s accountant");
+  await expect(
+    page.getByRole("button", { name: "Create upload link", exact: true }),
+  ).toBeDisabled();
+  await page.getByLabel("Business tax returns", { exact: true }).check();
+  await expect(
+    page.getByRole("button", { name: "Create upload link", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByLabel(
+      "I want to create a link for this person to see these requests and upload documents.",
+    )
+    .check();
+  await page
+    .getByRole("button", { name: "Create upload link", exact: true })
+    .click();
+  await expect(page.getByLabel("Private upload link")).toHaveValue(
+    /\/portal\/share\/test-scoped-link$/,
+  );
+  await expect(
+    page.getByText("Nothing has been sent.", { exact: false }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Revoke link for Alex’s accountant" })
+    .click();
+  await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Private upload link")).toHaveCount(0);
+  expect(fixture.calls).not.toContain("guided_review");
 });
