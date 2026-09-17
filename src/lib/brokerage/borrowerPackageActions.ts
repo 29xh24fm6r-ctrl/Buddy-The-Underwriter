@@ -16,7 +16,7 @@ export async function borrowerPackageAction(
 ) {
   const sb = supabaseAdmin();
   if (action === "package-status") {
-    const { data: bundle, error } = await sb
+    const bundleResult = await sb
       .from("buddy_trident_bundles")
       .select(
         "id,status,current_stage,generation_error,generation_completed_at,business_plan_pdf_path,projections_xlsx_path,feasibility_pdf_path,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path",
@@ -27,8 +27,54 @@ export async function borrowerPackageAction(
       .order("generated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+    const { data: bundle, error } = bundleResult;
     if (error) throw new Error("Your package status could not be loaded");
-    return NextResponse.json({ ok: true, bundle });
+    const generating = ["pending", "running"].includes(bundle?.status ?? "");
+    const [readiness, answers] = generating
+      ? [null, null]
+      : await Promise.all([
+          getTridentReadiness({ sb, dealId, bankId }),
+          loadGuidedPackage(sb, { deal_id: dealId, bank_id: bankId }),
+        ]);
+    const unanswered = (answers?.questions ?? []).filter(
+      (q) =>
+        q.responsibility === "borrower" &&
+        q.required &&
+        !["saved", "not_applicable"].includes(q.state),
+    );
+    const packageFiles = [
+      ["business_plan_pdf_path", "Business plan"],
+      ["projections_xlsx_path", "Projections and assumptions"],
+      ["feasibility_pdf_path", "Feasibility study"],
+      ["credit_memo_pdf_path", "Credit memo"],
+      ["spreads_pdf_path", "Financial spreads"],
+      ["sba_forms_pdf_path", "Applicable SBA forms"],
+    ] as const;
+    return NextResponse.json({
+      ok: true,
+      bundle,
+      readiness: {
+        readyToGenerate:
+          !generating &&
+          readiness?.ok === true &&
+          unanswered.length === 0 &&
+          !(answers?.readErrors.length ?? 0),
+        blockers: [
+          ...(answers?.readErrors.length
+            ? ["Your saved answers could not be verified. Reload before continuing."]
+            : []),
+          ...unanswered.slice(0, 8).map((q) => q.question),
+          ...(generating ? [] : (readiness?.reasons ?? [])),
+        ],
+        warnings: readiness?.warnings ?? [],
+        evidence: readiness?.evidence ?? {},
+        packageFiles: packageFiles.map(([key, label]) => ({
+          key,
+          label,
+          ready: Boolean(bundle?.[key]),
+        })),
+      },
+    });
   }
   if (action === "build-package") {
     const readiness = await getTridentReadiness({ sb, dealId, bankId });

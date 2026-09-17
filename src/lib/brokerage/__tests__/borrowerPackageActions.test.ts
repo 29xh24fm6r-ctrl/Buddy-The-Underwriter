@@ -10,6 +10,9 @@ let saved: any = null;
 let race = false;
 let started = 0;
 let questions: any[] = [];
+let bundle: any = null;
+let tridentReadiness: any = { ok: true, reasons: [], warnings: [], evidence: {} };
+let readinessCalls = 0;
 const input = () => ({
   revenueStreams: [
     {
@@ -55,7 +58,9 @@ const input = () => ({
 });
 const sb = {
   from(table: string) {
-    assert.equal(table, "buddy_sba_assumptions");
+    assert.ok(
+      ["buddy_sba_assumptions", "buddy_trident_bundles"].includes(table),
+    );
     let values: any;
     const filters: Record<string, unknown> = {};
     return {
@@ -64,6 +69,12 @@ const sb = {
       },
       eq(key: string, value: unknown) {
         filters[key] = value;
+        return this;
+      },
+      order() {
+        return this;
+      },
+      limit() {
         return this;
       },
       update(value: unknown) {
@@ -75,6 +86,8 @@ const sb = {
         return this;
       },
       async maybeSingle() {
+        if (table === "buddy_trident_bundles")
+          return { data: bundle, error: null };
         if (!values) return { data: row, error: null };
         if (row)
           assert.equal(
@@ -113,7 +126,10 @@ stub("@/lib/sba/sbaAssumptionDrafter", {
   }),
 });
 stub("../trident/tridentReadiness", {
-  getTridentReadiness: async () => ({ ok: true }),
+  getTridentReadiness: async () => {
+    readinessCalls++;
+    return tridentReadiness;
+  },
 });
 stub("../trident/startTridentGeneration", {
   startTridentGeneration: async () => {
@@ -132,6 +148,9 @@ test.beforeEach(() => {
   race = false;
   started = 0;
   questions = [];
+  bundle = null;
+  tridentReadiness = { ok: true, reasons: [], warnings: [], evidence: {} };
+  readinessCalls = 0;
 });
 
 test("drafting never silently confirms or persists model estimates", async () => {
@@ -216,4 +235,46 @@ test("required unanswered questions prevent starting the existing factory", asyn
     202,
   );
   assert.equal(started, 1);
+});
+
+test("package status exposes authoritative blockers and individual artifacts", async () => {
+  questions = [
+    {
+      responsibility: "borrower",
+      required: true,
+      state: "unanswered",
+      question: "Business address",
+    },
+  ];
+  tridentReadiness = {
+    ok: false,
+    reasons: ["Upload at least two financial documents."],
+    warnings: ["An estimate still needs review."],
+    evidence: { documentCount: 1 },
+  };
+  bundle = {
+    status: "failed",
+    business_plan_pdf_path: "business-plan.pdf",
+  };
+  const response = await borrowerPackageAction("package-status", "d", "b");
+  const payload = await response.json();
+  assert.equal(payload.readiness.readyToGenerate, false);
+  assert.deepEqual(payload.readiness.blockers, [
+    "Business address",
+    "Upload at least two financial documents.",
+  ]);
+  assert.equal(payload.readiness.packageFiles.length, 6);
+  assert.equal(payload.readiness.packageFiles[0].ready, true);
+  assert.equal(payload.readiness.packageFiles[1].ready, false);
+});
+
+test("active generation status does not rerun expensive readiness checks", async () => {
+  bundle = { status: "running", current_stage: "projections" };
+  tridentReadiness = null;
+  const response = await borrowerPackageAction("package-status", "d", "b");
+  const payload = await response.json();
+  assert.equal(payload.bundle.status, "running");
+  assert.equal(payload.readiness.readyToGenerate, false);
+  assert.deepEqual(payload.readiness.blockers, []);
+  assert.equal(readinessCalls, 0);
 });

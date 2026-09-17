@@ -170,6 +170,21 @@ test("optional unrelated topics are deferred without removing saved answers or t
   }
 });
 
+test("missions stay focused while the full interview remains accessible", () => {
+  const s = fresh();
+  const visible = CHAPTERS.flatMap((chapter) =>
+    recommendedQuestions(s, chapter.id),
+  );
+  const complete = CHAPTERS.flatMap((chapter) =>
+    orderedQuestions(s, chapter.id),
+  );
+  assert.ok(visible.length < complete.length / 2);
+  assert.ok(visible.some((q) => q.id === "A07"));
+  assert.ok(visible.some((q) => q.id === "D03"));
+  assert.ok(!visible.some((q) => q.id === "D11"));
+  assert.ok(complete.some((q) => q.id === "D11"));
+});
+
 test("analytics excludes private links and borrower content and limits journey metadata", () => {
   const event = {
     event: "borrower_journey_answer_saved",

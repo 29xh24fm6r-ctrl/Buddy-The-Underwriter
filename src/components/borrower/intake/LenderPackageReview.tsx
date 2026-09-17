@@ -230,6 +230,12 @@ export function LenderPackageReview({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [bundle, setBundle] = useState<Record<string, any> | null>(null);
+  const [readiness, setReadiness] = useState<{
+    readyToGenerate: boolean;
+    blockers: string[];
+    warnings: string[];
+    packageFiles: Array<{ key: string; label: string; ready: boolean }>;
+  } | null>(null);
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
@@ -266,6 +272,7 @@ export function LenderPackageReview({
   const refresh = useCallback(async () => {
     const r = await call("package-status");
     setBundle(r.bundle);
+    setReadiness(r.readiness ?? null);
   }, [call]);
   useEffect(() => {
     let cancelled = false;
@@ -276,6 +283,7 @@ export function LenderPackageReview({
         setRevision(a.revision);
         setStatus(a.status);
         setBundle(b.bundle);
+        setReadiness(b.readiness ?? null);
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);
@@ -461,9 +469,43 @@ export function LenderPackageReview({
         </fieldset>
       )}
       <div className="mt-6 border-t pt-4">
+        {readiness && !running && (
+          <section
+            className={`mb-5 rounded-xl border p-4 ${readiness.readyToGenerate ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}
+          >
+            <h4 className="font-semibold">
+              {readiness.readyToGenerate
+                ? "Your information is ready for package preparation"
+                : "Here’s what Buddy still needs"}
+            </h4>
+            {readiness.blockers.length > 0 && (
+              <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                {readiness.blockers.map((blocker) => (
+                  <li key={blocker} className="flex gap-2">
+                    <span aria-hidden="true">○</span>
+                    <span>{blocker}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {readiness.warnings.length > 0 && (
+              <ul className="mt-3 text-sm text-slate-600">
+                {readiness.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
         <button
           type="button"
-          disabled={!!busy || !!running || dirty || status !== "confirmed"}
+          disabled={
+            !!busy ||
+            !!running ||
+            dirty ||
+            status !== "confirmed" ||
+            readiness?.readyToGenerate !== true
+          }
           className="rounded-lg bg-sky-700 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
           onClick={() => void perform("build-package")}
         >
@@ -499,14 +541,25 @@ export function LenderPackageReview({
           aria-label="Package document status"
           className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200 px-4"
         >
-          {BORROWER_PACKAGE_FILES.map((file) => (
+          {(readiness?.packageFiles?.filter(
+            (file) => file.key !== "credit_memo_pdf_path",
+          ) ??
+            BORROWER_PACKAGE_FILES.map((file) => ({
+              key: file.kind,
+              label: file.label,
+              ready,
+            }))).map((file) => (
             <li
-              key={file.kind}
+              key={file.key}
               className="flex items-center justify-between gap-3 py-3 text-sm"
             >
               <span>{file.label}</span>
-              <span className={ready ? "text-emerald-800" : "text-slate-500"}>
-                {ready
+              <span
+                className={
+                  file.ready ? "text-emerald-800" : "text-slate-500"
+                }
+              >
+                {file.ready
                   ? "Ready for your review"
                   : running
                     ? "Preparing"
