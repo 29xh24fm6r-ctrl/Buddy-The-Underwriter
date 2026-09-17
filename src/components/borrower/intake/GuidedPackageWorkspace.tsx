@@ -4,9 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Check,
+  CircleDollarSign,
+  Clock3,
   ListChecks,
+  MapPin,
   MessageCircle,
   ShieldCheck,
+  Sparkles,
+  Store,
 } from "lucide-react";
 import { LenderPackageReview } from "./LenderPackageReview";
 import { PackageHandoff } from "./PackageHandoff";
@@ -36,11 +41,13 @@ import {
 } from "@/lib/borrower/journey/discovery";
 import {
   CHAPTERS,
+  chapterProgress,
   chapterFor,
   orderedQuestions,
   recommendedQuestions,
   nextQuestion,
   questionHelp,
+  projectCard,
   type Chapter,
 } from "@/lib/borrower/journey/presentation";
 type Drafts = Record<
@@ -76,6 +83,7 @@ export function GuidedPackageWorkspace({
   const [uploadVersion, setUploadVersion] = useState(0);
   const [goalPending, setGoalPending] = useState(initialGoal);
   const [goalSaving, setGoalSaving] = useState(false);
+  const [achievement, setAchievement] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const initialized = useRef(false);
   const refresh = useCallback(async () => {
@@ -173,6 +181,12 @@ export function GuidedPackageWorkspace({
   const current = CHAPTERS.find((c) => c.id === chapter)!;
   const all = snapshot?.questions ?? [];
   const goal = all.find((q) => q.id === "A11")?.value;
+  const project = snapshot ? projectCard(snapshot) : null;
+  const journeyTitle = project?.business
+    ? `Let’s build ${project.business}’s ${goal === "startup" ? "opening " : ""}plan.`
+    : goal
+      ? "Let’s build your project plan."
+      : "Let’s build your next chapter.";
   return (
     <div className="space-y-7 pb-12 text-slate-900">
       <header className="flex flex-wrap items-end justify-between gap-4 py-4">
@@ -183,7 +197,7 @@ export function GuidedPackageWorkspace({
               : "Your application"}
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-            {goal ? choiceLabel("A11", goal) : "Let’s build your next chapter."}
+            {journeyTitle}
           </h1>
           <p className="mt-3 max-w-2xl leading-7 text-slate-600">
             A little at a time. Your saved answers stay with your application.
@@ -203,8 +217,9 @@ export function GuidedPackageWorkspace({
         className="flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 sm:grid sm:grid-cols-5"
       >
         {CHAPTERS.map((c, i) => {
-          const qs = snapshot ? orderedQuestions(snapshot, c.id) : [];
-          const saved = qs.filter((q) => q.state === "saved").length;
+          const progress = snapshot
+            ? chapterProgress(snapshot, c.id)
+            : { saved: 0, total: 0, complete: false };
           return (
             <button
               key={c.id}
@@ -212,15 +227,17 @@ export function GuidedPackageWorkspace({
               onClick={() => navigate(c.id)}
               className={`min-h-20 min-w-32 shrink-0 rounded-xl p-3 text-left sm:min-w-0 ${chapter === c.id ? "bg-sky-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
             >
-              <span className="block text-xs opacity-80">STEP {i + 1}</span>
+              <span className="block text-xs opacity-80">MISSION {i + 1}</span>
               <span className="mt-1 block text-sm font-semibold">
                 {c.title}
               </span>
-              {saved > 0 && (
-                <span className="mt-1 block text-xs">
-                  {saved} answers saved
-                </span>
-              )}
+              <span className="mt-1 block text-xs">
+                {progress.complete
+                  ? `✓ ${c.reward} ready`
+                  : progress.saved > 0
+                    ? `${progress.saved} of ${progress.total} pieces added`
+                    : `Unlock ${c.reward.toLowerCase()}`}
+              </span>
             </button>
           );
         })}
@@ -238,6 +255,20 @@ export function GuidedPackageWorkspace({
           Some saved information is unavailable. Editing is paused until it can
           be reloaded.
         </p>
+      )}
+      {achievement && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 shadow-sm"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-white">
+            <Check className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="font-semibold">Nice work—your plan just got clearer.</p>
+            <p className="mt-1 text-sm">{achievement}</p>
+          </div>
+        </div>
       )}
       {goalPending && snapshot && (
         <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-sky-200 bg-sky-50 p-5">
@@ -367,6 +398,14 @@ export function GuidedPackageWorkspace({
               onSaved={(next) => {
                 setSelectedId(selected.id);
                 setSnapshot(next);
+                const remaining = recommendedQuestions(next, chapter).find(
+                  (q) => q.state !== "saved",
+                );
+                setAchievement(
+                  remaining
+                    ? `${current.reward} is taking shape. Next: ${remaining.question}`
+                    : `${current.reward} is ready. You can review it anytime.`,
+                );
                 onSaved();
               }}
               onRefresh={refresh}
@@ -417,6 +456,7 @@ export function GuidedPackageWorkspace({
           />
         </div>
         <aside className="space-y-4 lg:sticky lg:top-6">
+          {project && <ProjectCard project={project} />}
           <div className="rounded-2xl border border-sky-100 bg-white p-5">
             <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-800 font-semibold text-white">
               B
@@ -463,6 +503,46 @@ export function GuidedPackageWorkspace({
     </div>
   );
 }
+
+function ProjectCard({ project }: { project: ReturnType<typeof projectCard> }) {
+  const facts = [
+    { label: "Business", value: project.business, icon: Store },
+    { label: "Goal", value: project.goal, icon: Sparkles },
+    { label: "Location", value: project.location, icon: MapPin },
+    { label: "Timeline", value: project.timeline, icon: Clock3 },
+    {
+      label: "Funds needed",
+      value: project.fundsNeeded ?? project.projectCost,
+      icon: CircleDollarSign,
+    },
+  ];
+  return (
+    <section className="overflow-hidden rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-950 to-sky-800 text-white shadow-sm">
+      <div className="p-5">
+        <p className="text-xs font-semibold uppercase tracking-widest text-sky-200">
+          Your project is taking shape
+        </p>
+        <h2 className="mt-2 text-lg font-semibold">
+          {project.business ?? "Your business plan"}
+        </h2>
+        <dl className="mt-4 space-y-3">
+          {facts.map(({ label, value, icon: Icon }) => (
+            <div key={label} className="flex gap-3">
+              <Icon className="mt-0.5 h-4 w-4 shrink-0 text-sky-200" />
+              <div className="min-w-0">
+                <dt className="text-xs text-sky-200">{label}</dt>
+                <dd className={`truncate text-sm ${value ? "font-medium" : "text-sky-300"}`}>
+                  {value ?? "We’ll add this together"}
+                </dd>
+              </div>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </section>
+  );
+}
+
 function JourneyPanels({
   chapter,
   dealId,
@@ -677,6 +757,7 @@ function AnswerCard({
       setMessage("Saved to your application.");
       onSaved(readGuidedResponse(data, dealId));
       if (q.field?.requiresPiiVault) setDraft("");
+      onNext();
     } catch (e) {
       capture("borrower_journey_save_failed", { chapter: chapterFor(q) });
       setMessage(
@@ -896,7 +977,7 @@ function AnswerCard({
               onClick={() => void save()}
               className="rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
             >
-              {saving ? "Saving…" : "Save answer"}
+              {saving ? "Saving…" : "Save and continue"}
             </button>
             <button
               type="button"
