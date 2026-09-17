@@ -368,3 +368,24 @@ test("reviewer receives exact same-run financial and management evidence", async
     `review prompt must stay below 30,000 characters; received ${reviewPrompt.length}`,
   );
 });
+
+test("citations follow repaired prose and cannot retain a removed claim's precision", async () => {
+  __setVendorApprovalForTests("openai", "APPROVED");
+  let reviews = 0;
+  __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify({ issues: reviews++ === 0 ? [{
+    sectionKey: "marketDemandNarrative", claim: "Median household income supports demand",
+    reason: "Demographics not applicable to industrial borrower", severity: "critical", category: "unsupported_fact",
+    repairInstruction: "Remove demographic inference",
+  }] : [] }), tokensIn: 1, tokensOut: 1 }));
+  __setProviderImplForTests("openai", async () => ({ text: JSON.stringify({ sections: [{
+    key: "marketDemandNarrative", text: "Customer contracts need independent verification.",
+  }] }), tokensIn: 1, tokensOut: 1 }));
+  const tables: Record<string, Row[]> = {
+    buddy_feasibility_studies: [{ id: "study-1", narratives: { marketDemandNarrative: "Median household income supports demand" } }],
+    buddy_research_missions: [{ id: "mission-1", deal_id: "deal-1", status: "complete", completed_at: "2026-01-01" }],
+    buddy_research_evidence: [{ mission_id: "mission-1", claim: "Median household income supports demand", source_uris: ["https://example.com/research"] }],
+  };
+  await enrichFeasibilityStudy({ dealId: "deal-1", bankId: "bank-1", studyId: "study-1", composite: baseComposite(), sb: makeDb(tables) });
+  assert.equal(tables.buddy_feasibility_studies[0].narrative_citations.marketDemandNarrative.precise, false);
+  assert.ok(tables.deal_conditions.some(r => r.source_key.endsWith(":marketDemandNarrative")));
+});

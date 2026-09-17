@@ -142,9 +142,9 @@ export async function GoldenTridentLab({ searchParams }: { searchParams: SearchP
               <p className="text-sm text-[#b9ad99]">{deal.is_test ? "TEST DEAL" : "LIVE DEAL — generation creates new artifact versions"}</p>
             </div>
             <div className="mt-4">
-              <GoldenTridentLabClient dealId={dealId} readiness={readiness} />
+              <GoldenTridentLabClient dealId={dealId} readiness={readiness}
+                previousFailure={bundle?.status === "failed" ? `Generation stopped during ${String(bundle.current_stage ?? "factory")}: ${String(bundle.generation_error ?? "unknown error")}` : null} />
             </div>
-            {bundle?.status === "failed" ? <p className="mt-3 rounded bg-red-950/40 p-3 text-sm text-red-200">Generation stopped during {String(bundle.current_stage ?? "factory")}: {String(bundle.generation_error ?? "unknown error")}</p> : null}
           </section>
 
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -161,7 +161,7 @@ export async function GoldenTridentLab({ searchParams }: { searchParams: SearchP
               <div className="flex flex-wrap items-baseline justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#b68b3c]">Deterministic commissioning scorecard</p>
-                  <h2 className="mt-1 text-2xl font-semibold">Overall {quality.overallScore}/100</h2>
+                  <h2 className="mt-1 text-2xl font-semibold">Structural completeness {quality.overallScore}/100</h2>
                 </div>
                 <p className="max-w-2xl text-xs text-[#a99b84]">Structural grading catches missing, thin, incomplete, or unverified outputs. Lender judgment of writing quality remains a separate UAT step.</p>
               </div>

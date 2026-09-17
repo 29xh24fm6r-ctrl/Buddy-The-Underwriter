@@ -130,6 +130,8 @@ export function buildNarrativeInput(
     purpose: memo.transaction_overview.loan_request.purpose,
     term_months: memo.transaction_overview.loan_request.term_months,
     sources_uses: memo.sources_uses ?? null,
+    management_principals: memo.management_qualifications?.principals ?? [],
+    loan_structure: memo.transaction_overview.loan_request,
 
     // ── Key coverage + CRE metrics ──────────────────────────────────────
     dscr_uw: memo.key_metrics.dscr_uw.value,
@@ -164,6 +166,7 @@ export function buildNarrativeInput(
 
     // ── Phase 92: risk grade + covenant rationale ───────────────────────
     risk_grade: memo.recommendation.risk_grade,
+    assessment_interpretation: "The recommendation risk grade and Five Cs qualitative scores are separate frameworks, not interchangeable scales. Name each framework. Do not invent a conversion or treat unlike scores alone as a policy contradiction.",
     covenant_rationale: memo.covenant_package?.rationale ?? null,
 
     // ── Collateral ──────────────────────────────────────────────────────
@@ -270,6 +273,9 @@ export function buildNarrativeInput(
             memo.financial_analysis.debt_service.value
           : null,
       basis: "underwriting_cash_flow_available / underwriting_debt_service",
+      cash_flow_provenance: memo.financial_analysis.cash_flow_available,
+      debt_service_provenance: memo.financial_analysis.debt_service,
+      reconciliation_instruction: "Historical period cash flow and the underwriting snapshot have separate bases. An arithmetic difference is not evidence of an adjustment. If documented adjustments are absent, disclose that the bridge is unverified and do not present the higher cash flow as proven repayment capacity.",
     },
 
     // ── Phase 92 (d): business context from overrides ───────────────────

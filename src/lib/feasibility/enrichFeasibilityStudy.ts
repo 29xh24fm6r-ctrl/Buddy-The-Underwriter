@@ -319,10 +319,12 @@ export async function enrichFeasibilityStudy(args: {
     finished.sections.map((section) => [section.key, section.text]),
   ) as unknown as FeasibilityNarratives;
 
+  const finalCitations = attributeFeasibilityCitations(repairedNarratives, segments, allUrls);
+  await flagUncitedFeasibilityFields({ dealId, bankId, studyId, citations: finalCitations, sb });
   await sb
     .from("buddy_feasibility_studies")
     .update({
-      narrative_citations: citations,
+      narrative_citations: finalCitations,
       narratives: repairedNarratives,
       verification_verdict: finished.verdict,
       verification_flagged_claims: finished.flaggedClaims,

@@ -1,3 +1,4 @@
+import { memoEvidenceReview } from "./memoEvidenceReview";
 import type { DealBankAccessGrant } from "@/lib/tenant/ensureDealBankAccess";
 import "server-only";
 
@@ -114,6 +115,7 @@ export async function generateCanonicalMemoArtifact(args: {
       bank_id: args.bankId,
       input_hash: inputHash,
       narratives: envelope as any,
+      metadata_json: { content_review: memoEvidenceReview(built.memo) },
       model: MODEL_UNDERWRITER,
       generated_at: new Date().toISOString(),
       research_trace_json: researchTrace,

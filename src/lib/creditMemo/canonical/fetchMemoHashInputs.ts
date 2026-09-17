@@ -58,7 +58,7 @@ export async function fetchMemoHashInputs(
       .eq("deal_id", dealId)
       .not("fact_value_num", "is", null)
       .order("created_at", { ascending: false }),
-    sb.from("buddy_sba_assumptions").select("status,confirmed_at,loan_impact").eq("deal_id", dealId).maybeSingle(),
+    sb.from("buddy_sba_assumptions").select("status,confirmed_at,loan_impact,management_team").eq("deal_id", dealId).maybeSingle(),
     sb.from("deal_proceeds_items").select("id,category,description,amount").eq("deal_id", dealId).order("id"),
   ]);
   for (const result of [snapshotRes, pricingRes, factsRes, assumptionsRes, proceedsRes]) {

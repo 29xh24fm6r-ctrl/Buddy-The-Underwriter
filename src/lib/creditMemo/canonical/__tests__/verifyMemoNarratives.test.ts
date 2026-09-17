@@ -174,6 +174,9 @@ test("exposes governed leverage anchors and period DSCR bases to generation and 
     dscr: 1.35,
     calculated_dscr: 150000 / 110000,
     basis: "underwriting_cash_flow_available / underwriting_debt_service",
+    cash_flow_provenance: { value: 150000 },
+    debt_service_provenance: { value: 110000 },
+    reconciliation_instruction: "Historical period cash flow and the underwriting snapshot have separate bases. An arithmetic difference is not evidence of an adjustment. If documented adjustments are absent, disclose that the bridge is unverified and do not present the higher cash flow as proven repayment capacity.",
   });
   assert.equal(input.debt_service, 110000);
   assert.equal(input.dscr_uw, 1.35);
