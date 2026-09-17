@@ -1,3 +1,4 @@
+import { DISCOVERY_CHOICES } from "../journey/discovery";
 import { getForm722Status } from "@/lib/sba/forms/form722/service";
 import "server-only";
 import { buildGuidedSnapshot, parseAnswer, GUIDED_CHOICES } from "./questions";
@@ -144,7 +145,8 @@ export async function saveGuidedAnswer(
   if (question.id === "loan.sba_program" && value !== "7A" && value !== "504")
     throw new Error("Choose 7a or 504.");
   const entry = question.field?.registryEntry;
-  const choices = entry && GUIDED_CHOICES[entry.factPath];
+  const choices =
+    DISCOVERY_CHOICES[question.id] ?? (entry && GUIDED_CHOICES[entry.factPath]);
   if (choices && value !== null && !choices.some(([key]) => key === value))
     throw new Error("Choose one of the listed answers.");
   if (question.field?.requiresExplicitConfirmation && body.confirmed !== true)

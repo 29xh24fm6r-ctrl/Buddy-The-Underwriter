@@ -50,7 +50,10 @@ export function BorrowerWorkspaceGate({
 
   React.useEffect(() => {
     if (resendCooldown <= 0) return;
-    const t = window.setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    const t = window.setInterval(
+      () => setResendCooldown((s) => Math.max(0, s - 1)),
+      1000,
+    );
     return () => window.clearInterval(t);
   }, [resendCooldown]);
 
@@ -79,7 +82,9 @@ export function BorrowerWorkspaceGate({
       setResendCooldown(30);
       setStep("code");
     } catch {
-      setError("Buddy couldn't reach the server. Check your connection and try again.");
+      setError(
+        "Buddy couldn't reach the server. Check your connection and try again.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -94,15 +99,24 @@ export function BorrowerWorkspaceGate({
     setSubmitting(true);
     setError(null);
     try {
-      const { data } = await postSession({ action: "verify", email, code, name });
+      const { data } = await postSession({
+        action: "verify",
+        email,
+        code,
+        name,
+      });
       if (!data?.ok) {
         const messages: Record<string, string> = {
-          invalid_code: "That code isn't right — check your email and try again.",
+          invalid_code:
+            "That code isn't right — check your email and try again.",
           expired: "That code expired — send a new one.",
           too_many_attempts: "Too many tries — send a new code.",
           not_found: "Send a code first.",
         };
-        setError(messages[data?.error] ?? "Buddy couldn't verify that code. Please try again.");
+        setError(
+          messages[data?.error] ??
+            "Buddy couldn't verify that code. Please try again.",
+        );
         if (data?.error === "expired" || data?.error === "too_many_attempts") {
           setStep("identify");
         }
@@ -111,7 +125,11 @@ export function BorrowerWorkspaceGate({
       // P0 SECURITY: QA identity verified but no test deal — signal chooser state.
       if (data?.qaNeedsChooser) {
         window.setTimeout(() => {
-          onVerified({ dealId: null, name: name.trim() || null, qaNeedsChooser: true });
+          onVerified({
+            dealId: null,
+            name: name.trim() || null,
+            qaNeedsChooser: true,
+          });
         }, 900);
         return;
       }
@@ -119,16 +137,25 @@ export function BorrowerWorkspaceGate({
       // Welcome Back chooser instead of settling into a deal.
       if (data?.applicationChoiceNeeded) {
         window.setTimeout(() => {
-          onVerified({ dealId: null, name: name.trim() || null, applicationChoiceNeeded: true });
+          onVerified({
+            dealId: null,
+            name: name.trim() || null,
+            applicationChoiceNeeded: true,
+          });
         }, 900);
         return;
       }
       setStep("settling");
       window.setTimeout(() => {
-        onVerified({ dealId: data.dealId as string, name: name.trim() || null });
+        onVerified({
+          dealId: data.dealId as string,
+          name: name.trim() || null,
+        });
       }, 900);
     } catch {
-      setError("Buddy couldn't reach the server. Check your connection and try again.");
+      setError(
+        "Buddy couldn't reach the server. Check your connection and try again.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -138,9 +165,14 @@ export function BorrowerWorkspaceGate({
     return (
       <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-200 bg-white p-10 text-center">
         <div className="brand-gradient-cta flex h-14 w-14 items-center justify-center rounded-full">
-          <Icon name="auto_awesome" className="h-7 w-7 animate-pulse text-white" />
+          <Icon
+            name="auto_awesome"
+            className="h-7 w-7 animate-pulse text-white"
+          />
         </div>
-        <p className="text-sm font-semibold text-slate-900">Setting up your workspace…</p>
+        <p className="text-sm font-semibold text-slate-900">
+          Setting up your workspace…
+        </p>
       </div>
     );
   }
@@ -153,16 +185,21 @@ export function BorrowerWorkspaceGate({
             <Icon name="mail" className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h2 className="font-heading text-lg font-bold text-slate-900">Check your email</h2>
+            <h2 className="font-heading text-lg font-bold text-slate-900">
+              Check your email
+            </h2>
             <p className="text-sm text-slate-600">
-              We sent a 6-digit code to <span className="font-medium text-slate-900">{email}</span>.
+              We sent a 6-digit code to{" "}
+              <span className="font-medium text-slate-900">{email}</span>.
             </p>
           </div>
         </div>
         <form onSubmit={verifyCode} className="space-y-3">
           <input
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(e) =>
+              setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+            }
             inputMode="numeric"
             autoComplete="one-time-code"
             maxLength={6}
@@ -201,7 +238,9 @@ export function BorrowerWorkspaceGate({
             onClick={() => void sendCode()}
             className="font-medium text-brand-blue-500 underline hover:text-brand-blue-600 disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
           >
-            {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "Resend code"}
+            {resendCooldown > 0
+              ? `Resend code in ${resendCooldown}s`
+              : "Resend code"}
           </button>
         </div>
       </div>
@@ -215,9 +254,12 @@ export function BorrowerWorkspaceGate({
           <Icon name="auto_awesome" className="h-5 w-5 text-white" />
         </div>
         <div>
-          <h2 className="font-heading text-lg font-bold text-slate-900">Let's set up your workspace</h2>
+          <h2 className="font-heading text-lg font-bold text-slate-900">
+            Let's set up your workspace
+          </h2>
           <p className="text-sm text-slate-600">
-            A private space just for your SBA package — accessible from any device, always yours.
+            A private space just for your SBA package — accessible from any
+            device, always yours.
           </p>
         </div>
       </div>
@@ -249,11 +291,15 @@ export function BorrowerWorkspaceGate({
           disabled={submitting || resendCooldown > 0}
           className="brand-gradient-cta w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-60"
         >
-          {submitting ? "Sending…" : resendCooldown > 0 ? `Try again in ${resendCooldown}s` : "Send my code"}
+          {submitting
+            ? "Sending…"
+            : resendCooldown > 0
+              ? `Try again in ${resendCooldown}s`
+              : "Send my code"}
         </button>
       </form>
       <p className="mt-3 text-center text-xs text-slate-500">
-        We'll only ever use this to save your progress and let you back in.
+        Use the same email when you return to your application.
       </p>
     </div>
   );

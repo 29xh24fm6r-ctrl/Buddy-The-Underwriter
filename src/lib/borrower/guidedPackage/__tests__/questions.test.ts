@@ -44,5 +44,5 @@ test("separate owners produce separate questions; unconfirmed character answers 
     "needs_confirmation",
   );
   assert.equal(new Set(s.questions.map((q) => q.id)).size, s.questions.length);
-  assert.equal(s.questions.filter((q) => /^[A-Z]\d\d$/.test(q.id)).length, 160);
+  assert.equal(s.questions.filter((q) => /^[A-Z]\d\d$/.test(q.id)).length, 165);
 });

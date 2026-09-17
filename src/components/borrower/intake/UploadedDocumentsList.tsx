@@ -76,11 +76,15 @@ export function UploadedDocumentsList({
     }
   }, [token]);
 
-  useEffect(() => { void load(); }, [load, refreshKey]);
+  useEffect(() => {
+    void load();
+  }, [load, refreshKey]);
 
   if (loading) {
     return (
-      <p className="text-xs text-slate-500">Checking what you&apos;ve already sent...</p>
+      <p className="text-xs text-slate-500">
+        Checking what you&apos;ve already sent...
+      </p>
     );
   }
 
@@ -92,7 +96,10 @@ export function UploadedDocumentsList({
         </p>
         <button
           type="button"
-          onClick={() => { setLoading(true); void load(); }}
+          onClick={() => {
+            setLoading(true);
+            void load();
+          }}
           className="text-xs font-medium px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
         >
           Try again
@@ -116,6 +123,20 @@ export function UploadedDocumentsList({
       </p>
       <ul className="space-y-1.5">
         {documents.map((d) => {
+          const failed = [
+            "error",
+            "failed",
+            "processing_failed",
+            "rejected",
+          ].includes(d.status);
+          const processing = ["processing", "pending", "queued"].includes(
+            d.status,
+          );
+          const statusLabel = failed
+            ? "Needs attention — try another readable copy or ask for help"
+            : processing
+              ? "Processing — review is still pending"
+              : "Received — acceptance is checked separately";
           const meta = [formatSize(d.sizeBytes), formatDate(d.uploadedAt)]
             .filter(Boolean)
             .join(" · ");
@@ -125,9 +146,20 @@ export function UploadedDocumentsList({
               className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
             >
               <div className="flex min-w-0 items-center gap-2">
-                <span aria-hidden className="text-emerald-600">✓</span>
-                <span className="truncate text-sm text-slate-800" title={d.label}>
+                <span
+                  aria-hidden
+                  className={failed ? "text-amber-700" : "text-sky-700"}
+                >
+                  {failed ? "!" : "✓"}
+                </span>
+                <span
+                  className="truncate text-sm text-slate-800"
+                  title={d.label}
+                >
                   {d.label}
+                  <span className="block whitespace-normal text-xs font-normal text-slate-600">
+                    {statusLabel}
+                  </span>
                 </span>
               </div>
               {meta && (
@@ -138,7 +170,8 @@ export function UploadedDocumentsList({
         })}
       </ul>
       <p className="text-xs text-slate-500">
-        These are already on your application — you don&apos;t need to send them again.
+        These are already on your application — you don&apos;t need to send them
+        again.
       </p>
     </div>
   );

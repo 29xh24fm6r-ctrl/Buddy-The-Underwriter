@@ -40,6 +40,9 @@ export function OwnershipEditor({
   token: string;
   onChanged?: () => void;
 }) {
+  const [newOwner, setNewOwner] = useState({ id: "", name: "", pct: "" });
+  const [adding, setAdding] = useState(false);
+  const [addingBusy, setAddingBusy] = useState(false);
   const [owners, setOwners] = useState<Owner[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [threshold, setThreshold] = useState(20);
@@ -47,7 +50,9 @@ export function OwnershipEditor({
   const [loadFailed, setLoadFailed] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, { name: string; pct: string }>>({});
+  const [drafts, setDrafts] = useState<
+    Record<string, { name: string; pct: string }>
+  >({});
 
   const load = useCallback(async () => {
     try {
@@ -61,7 +66,10 @@ export function OwnershipEditor({
           Object.fromEntries(
             json.owners.map((o: Owner) => [
               o.id,
-              { name: o.displayName ?? "", pct: o.ownershipPct === null ? "" : String(o.ownershipPct) },
+              {
+                name: o.displayName ?? "",
+                pct: o.ownershipPct === null ? "" : String(o.ownershipPct),
+              },
             ]),
           ),
         );
@@ -76,7 +84,9 @@ export function OwnershipEditor({
     }
   }, [token]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const save = useCallback(
     async (ownerId: string) => {
@@ -96,7 +106,9 @@ export function OwnershipEditor({
         });
         const json = await res.json().catch(() => null);
         if (!res.ok || !json?.ok) {
-          setError(json?.message ?? "We could not save that change. Please try again.");
+          setError(
+            json?.message ?? "We could not save that change. Please try again.",
+          );
           return;
         }
         await load();
@@ -122,7 +134,10 @@ export function OwnershipEditor({
         });
         const json = await res.json().catch(() => null);
         if (!res.ok || !json?.ok) {
-          setError(json?.message ?? "We could not remove that owner. Please try again.");
+          setError(
+            json?.message ??
+              "We could not remove that owner. Please try again.",
+          );
           return;
         }
         await load();
@@ -136,6 +151,37 @@ export function OwnershipEditor({
     [token, load, onChanged],
   );
 
+  async function addOwner() {
+    setAddingBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/borrower/portal/${token}/owners`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ownerId: newOwner.id,
+          displayName: newOwner.name,
+          ownershipPct: Number(newOwner.pct),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok)
+        throw new Error(result.message ?? "Could not add this owner.");
+      setAdding(false);
+      setNewOwner({ id: "", name: "", pct: "" });
+      await load();
+      onChanged?.();
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Could not add this owner. Please try again.",
+      );
+    } finally {
+      setAddingBusy(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -148,10 +194,15 @@ export function OwnershipEditor({
   if (loadFailed) {
     return (
       <div className="space-y-2">
-        <p className="text-sm text-rose-700">We could not load your owner list.</p>
+        <p className="text-sm text-rose-700">
+          We could not load your owner list.
+        </p>
         <button
           type="button"
-          onClick={() => { setLoading(true); void load(); }}
+          onClick={() => {
+            setLoading(true);
+            void load();
+          }}
           className="min-h-[32px] rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
         >
           Try again
@@ -163,13 +214,19 @@ export function OwnershipEditor({
   const dirty = (o: Owner) => {
     const d = drafts[o.id];
     if (!d) return false;
-    return d.name !== (o.displayName ?? "") || d.pct !== (o.ownershipPct === null ? "" : String(o.ownershipPct));
+    return (
+      d.name !== (o.displayName ?? "") ||
+      d.pct !== (o.ownershipPct === null ? "" : String(o.ownershipPct))
+    );
   };
 
   return (
     <div className="space-y-3">
       {summary && !summary.valid && (
-        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div
+          role="alert"
+          className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
           <p className="font-medium">
             Ownership adds up to {summary.total}%, not 100%.
           </p>
@@ -178,7 +235,14 @@ export function OwnershipEditor({
               ? "That usually means someone is listed twice. Remove or correct the duplicate below — you cannot submit until this totals 100%."
               : "Add the missing owner, or raise a percentage below, until this totals 100%."}
             {summary.duplicateNames.length > 0 && (
-              <> Possible duplicate: <span className="font-medium">{summary.duplicateNames.join(", ")}</span>.</>
+              <>
+                {" "}
+                Possible duplicate:{" "}
+                <span className="font-medium">
+                  {summary.duplicateNames.join(", ")}
+                </span>
+                .
+              </>
             )}
           </p>
         </div>
@@ -187,13 +251,16 @@ export function OwnershipEditor({
       {summary?.valid && (
         <p className="text-xs text-emerald-700">
           Ownership totals 100%. {summary.ownersRequiringVerification} owner
-          {summary.ownersRequiringVerification === 1 ? "" : "s"} at {threshold}% or more
-          need identity verification.
+          {summary.ownersRequiringVerification === 1 ? "" : "s"} at {threshold}%
+          or more need identity verification.
         </p>
       )}
 
       {error && (
-        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div
+          role="alert"
+          className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+        >
           {error}
         </div>
       )}
@@ -202,7 +269,10 @@ export function OwnershipEditor({
         const d = drafts[o.id] ?? { name: "", pct: "" };
         const busy = busyId === o.id;
         return (
-          <div key={o.id} className="rounded-lg border border-slate-200 px-4 py-3">
+          <div
+            key={o.id}
+            className="rounded-lg border border-slate-200 px-4 py-3"
+          >
             <div className="grid grid-cols-3 gap-3">
               <input
                 type="text"
@@ -210,7 +280,10 @@ export function OwnershipEditor({
                 value={d.name}
                 disabled={busy}
                 onChange={(e) =>
-                  setDrafts((prev) => ({ ...prev, [o.id]: { ...d, name: e.target.value } }))
+                  setDrafts((prev) => ({
+                    ...prev,
+                    [o.id]: { ...d, name: e.target.value },
+                  }))
                 }
                 className="col-span-2 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
               />
@@ -223,16 +296,23 @@ export function OwnershipEditor({
                   value={d.pct}
                   disabled={busy}
                   onChange={(e) =>
-                    setDrafts((prev) => ({ ...prev, [o.id]: { ...d, pct: e.target.value } }))
+                    setDrafts((prev) => ({
+                      ...prev,
+                      [o.id]: { ...d, pct: e.target.value },
+                    }))
                   }
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 pr-7 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
                 />
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">%</span>
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                  %
+                </span>
               </div>
             </div>
             <div className="mt-2 flex items-center justify-between">
               <span className="text-xs text-slate-500">
-                {o.requiresVerification ? "Needs identity verification" : "Below verification threshold"}
+                {o.requiresVerification
+                  ? "Needs identity verification"
+                  : "Below verification threshold"}
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -257,9 +337,66 @@ export function OwnershipEditor({
         );
       })}
 
+      {adding ? (
+        <fieldset
+          disabled={addingBusy}
+          className="space-y-3 rounded-xl border p-4"
+        >
+          <legend className="px-2 font-medium">Add an owner</legend>
+          <label className="block text-sm">
+            Full name
+            <input
+              className="mt-1 block w-full rounded-lg border p-2"
+              value={newOwner.name}
+              onChange={(e) =>
+                setNewOwner({ ...newOwner, name: e.target.value })
+              }
+            />
+          </label>
+          <label className="block text-sm">
+            Ownership percentage
+            <input
+              type="number"
+              min="0.01"
+              max="100"
+              step="0.01"
+              className="mt-1 block w-full rounded-lg border p-2"
+              value={newOwner.pct}
+              onChange={(e) =>
+                setNewOwner({ ...newOwner, pct: e.target.value })
+              }
+            />
+          </label>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              className="rounded-lg bg-sky-700 px-4 py-2 text-white"
+              disabled={!newOwner.name.trim() || !newOwner.pct}
+              onClick={() => void addOwner()}
+            >
+              {addingBusy ? "Adding…" : "Save new owner"}
+            </button>
+            <button type="button" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+          </div>
+        </fieldset>
+      ) : (
+        <button
+          type="button"
+          className="rounded-lg border px-4 py-2 text-sm font-medium"
+          onClick={() => {
+            setNewOwner({ id: crypto.randomUUID(), name: "", pct: "" });
+            setAdding(true);
+          }}
+        >
+          Add another owner
+        </button>
+      )}
       {owners.length === 0 && (
         <p className="text-sm text-slate-500">
-          No owners on file yet. Add them in the ownership step of your application.
+          No owners on file yet. Add them in the ownership step of your
+          application.
         </p>
       )}
     </div>

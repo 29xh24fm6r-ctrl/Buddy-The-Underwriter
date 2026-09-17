@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   build:
@@ -101,6 +101,9 @@ jobs:
         # Ubuntu font packages from a slow external mirror on every PR.
         timeout-minutes: 8
         run: pnpm exec playwright install chromium
+      - name: Borrower journey (no model calls)
+        timeout-minutes: 5
+        run: pnpm exec playwright test --config=playwright.borrower-factory.config.ts
       - name: E2E Smoke (public)
         timeout-minutes: 12
         run: pnpm -s e2e:smoke:public

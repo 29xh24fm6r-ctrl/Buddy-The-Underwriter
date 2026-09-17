@@ -12,9 +12,11 @@ const DRAWER_KEY = "buddy.concierge.open";
 export function FloatingConcierge({
   dealId,
   borrowerName,
+  inline = false,
 }: {
   dealId: string;
   borrowerName: string | null;
+  inline?: boolean;
 }) {
   const [open, setOpen] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -28,6 +30,16 @@ export function FloatingConcierge({
     }
   }, [open]);
 
+  if (inline)
+    return (
+      <div className="mt-3 border-t border-slate-100 pt-3">
+        <p className="mb-3 text-xs leading-5 text-slate-500">
+          Optional AI help. Check suggestions before using them. Don’t enter
+          protected identifying numbers here.
+        </p>
+        <DrawerChatPane dealId={dealId} borrowerName={borrowerName} />
+      </div>
+    );
   return (
     <>
       {/* Floating trigger button */}
@@ -37,8 +49,18 @@ export function FloatingConcierge({
           onClick={() => setOpen(true)}
           className="fixed bottom-20 right-4 z-50 flex items-center gap-2 rounded-full bg-gradient-to-r from-brand-blue-500 to-brand-blue-400 px-5 py-3 text-sm font-medium text-white shadow-lg shadow-blue-500/25 transition-all hover:shadow-xl hover:brightness-110"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+            />
           </svg>
           Chat with Buddy
         </button>
@@ -80,8 +102,18 @@ export function FloatingConcierge({
                 className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
                 aria-label="Close chat"
               >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19 9l-7 7-7-7"
+                  />
                 </svg>
               </button>
             </div>
@@ -166,14 +198,19 @@ function DrawerChatPane({
         await consumeConciergeStream(res.body, {
           onToken: appendStreamingToken,
           onDone: (data) => {
-            finalizeStreamingMessage(data.assistantMessage ?? data.buddyResponse ?? "");
+            finalizeStreamingMessage(
+              data.assistantMessage ?? data.buddyResponse ?? "",
+            );
           },
           onError: () => finalizeStreamingMessage(FALLBACK),
         });
       } else {
         const data = await res.json();
         if (data.ok) {
-          setMessages((m) => [...m, { role: "assistant", content: data.buddyResponse }]);
+          setMessages((m) => [
+            ...m,
+            { role: "assistant", content: data.buddyResponse },
+          ]);
         } else {
           setMessages((m) => [...m, { role: "assistant", content: FALLBACK }]);
         }
@@ -198,7 +235,9 @@ function DrawerChatPane({
         {messages.map((m, i) => (
           <div
             key={i}
-            className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
+            className={
+              m.role === "user" ? "flex justify-end" : "flex justify-start"
+            }
           >
             <div
               className={

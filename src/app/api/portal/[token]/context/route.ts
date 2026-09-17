@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
+import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { clerkClient } from "@/lib/auth/clerkServer";
 
 export type PortalBankerContact = { name: string | null; email: string | null };
@@ -39,7 +40,9 @@ async function resolveBankerContact(
           : null;
         const email =
           user?.emailAddresses?.find((e) => e.id === user.primaryEmailAddressId)
-            ?.emailAddress ?? user?.emailAddresses?.[0]?.emailAddress ?? null;
+            ?.emailAddress ??
+          user?.emailAddresses?.[0]?.emailAddress ??
+          null;
         if (name || email) return { name, email };
       }
     }
@@ -49,7 +52,11 @@ async function resolveBankerContact(
 
   if (bankId) {
     try {
-      const { data: bank } = await sb.from("banks").select("name").eq("id", bankId).maybeSingle();
+      const { data: bank } = await sb
+        .from("banks")
+        .select("name")
+        .eq("id", bankId)
+        .maybeSingle();
       if (bank?.name) return { name: bank.name, email: null };
     } catch (err) {
       console.error("[portal/context] bank name fallback failed", err);
@@ -59,13 +66,29 @@ async function resolveBankerContact(
   return null;
 }
 
-export async function GET(_: Request, ctx: { params: Promise<{ token: string }> }) {
+export async function GET(
+  _: Request,
+  ctx: { params: Promise<{ token: string }> },
+) {
   const sb = supabaseAdmin();
   const { token } = await ctx.params;
 
-  let resolved: Awaited<ReturnType<typeof resolveBorrowerToken>>;
+  let resolved: Omit<
+    Awaited<ReturnType<typeof resolveBorrowerToken>>,
+    "source"
+  > & { source: "invite" | "portal_link" | "session" };
   try {
-    resolved = await resolveBorrowerToken(token);
+    const session = await getBorrowerSession().catch(() => null);
+    resolved =
+      session?.deal_id === token
+        ? {
+            deal_id: session.deal_id,
+            bank_id: session.bank_id,
+            name: null,
+            email: null,
+            source: "session",
+          }
+        : await resolveBorrowerToken(token);
   } catch {
     return NextResponse.json({ error: "Invalid token" }, { status: 404 });
   }
@@ -84,14 +107,21 @@ export async function GET(_: Request, ctx: { params: Promise<{ token: string }> 
   // Pull minimal deal info for header
   const { data: deal, error: dealErr } = await sb
     .from("deals")
-    .select("id, name, borrower_name, borrower_email, status, stage, city, state, bank_id")
+    .select(
+      "id, name, borrower_name, borrower_email, status, stage, city, state, bank_id",
+    )
     .eq("id", dealId)
     .maybeSingle();
 
-  if (dealErr) return NextResponse.json({ error: dealErr.message }, { status: 500 });
+  if (dealErr)
+    return NextResponse.json({ error: dealErr.message }, { status: 500 });
 
   const bankerContact = dealId
-    ? await resolveBankerContact(sb, dealId, (deal as { bank_id?: string } | null)?.bank_id ?? null)
+    ? await resolveBankerContact(
+        sb,
+        dealId,
+        (deal as { bank_id?: string } | null)?.bank_id ?? null,
+      )
     : null;
 
   let franchiseBrandName: string | null = null;

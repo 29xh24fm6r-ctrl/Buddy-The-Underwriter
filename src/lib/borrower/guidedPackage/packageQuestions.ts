@@ -1,5 +1,7 @@
+import { DISCOVERY_QUESTIONS } from "../journey/discovery";
 // Package interview prompts; form controls are supplied by the existing SBA registry.
 export const PACKAGE_QUESTIONS = [
+  ...DISCOVERY_QUESTIONS,
   {
     id: "A01",
     section: " Your request and project",

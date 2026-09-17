@@ -22,7 +22,9 @@ const DEAL = "b296dec2-66c6-4946-8ddc-850daa7f968f";
 
 type Row = Record<string, any>;
 const db: { owners: Row[]; verifications: Row[]; events: Row[] } = {
-  owners: [], verifications: [], events: [],
+  owners: [],
+  verifications: [],
+  events: [],
 };
 
 function q(table: string) {
@@ -31,8 +33,10 @@ function q(table: string) {
   let deleting = false;
 
   const store = () =>
-    table === "ownership_entities" ? db.owners
-      : table === "borrower_identity_verifications" ? db.verifications
+    table === "ownership_entities"
+      ? db.owners
+      : table === "borrower_identity_verifications"
+        ? db.verifications
         : db.events;
 
   const rows = () => {
@@ -49,45 +53,104 @@ function q(table: string) {
     if (deleting) {
       const doomed = new Set(rows());
       const s = store();
-      for (let i = s.length - 1; i >= 0; i--) if (doomed.has(s[i])) s.splice(i, 1);
+      for (let i = s.length - 1; i >= 0; i--)
+        if (doomed.has(s[i])) s.splice(i, 1);
     }
   };
 
   const builder: any = {
+    upsert: (p: Row) => {
+      if (!db.owners.some((r) => r.id === p.id)) db.owners.push(p);
+      return builder;
+    },
     select: () => builder,
     order: () => builder,
     limit: () => builder,
-    eq: (k: string, v: any) => { filters.push({ k, v, kind: "eq" }); return builder; },
-    in: (k: string, v: any[]) => { filters.push({ k, v, kind: "in" }); return builder; },
-    update: (u: Row) => { update = u; return builder; },
-    delete: () => { deleting = true; return builder; },
-    insert: (p: Row) => { if (table === "deal_events") db.events.push(p); return builder; },
-    maybeSingle: async () => { const r = rows()[0] ?? null; apply(); return { data: r, error: null }; },
-    single: async () => { const r = rows()[0] ?? null; apply(); return { data: r, error: null }; },
-    then: (res: any, rej?: any) => { const r = rows(); apply(); return Promise.resolve({ data: r, error: null }).then(res, rej); },
+    eq: (k: string, v: any) => {
+      filters.push({ k, v, kind: "eq" });
+      return builder;
+    },
+    in: (k: string, v: any[]) => {
+      filters.push({ k, v, kind: "in" });
+      return builder;
+    },
+    update: (u: Row) => {
+      update = u;
+      return builder;
+    },
+    delete: () => {
+      deleting = true;
+      return builder;
+    },
+    insert: (p: Row) => {
+      if (table === "deal_events") db.events.push(p);
+      return builder;
+    },
+    maybeSingle: async () => {
+      const r = rows()[0] ?? null;
+      apply();
+      return { data: r, error: null };
+    },
+    single: async () => {
+      const r = rows()[0] ?? null;
+      apply();
+      return { data: r, error: null };
+    },
+    then: (res: any, rej?: any) => {
+      const r = rows();
+      apply();
+      return Promise.resolve({ data: r, error: null }).then(res, rej);
+    },
   };
   return builder;
 }
 
 require.cache[require.resolve("@/lib/supabase/admin")] = {
-  id: "sb", filename: "sb", loaded: true, exports: { supabaseAdmin: () => ({ from: q }) },
+  id: "sb",
+  filename: "sb",
+  loaded: true,
+  exports: { supabaseAdmin: () => ({ from: q }) },
 } as any;
 
 require.cache[require.resolve("@/lib/borrower/resolvePortalContext")] = {
-  id: "ctx", filename: "ctx", loaded: true,
-  exports: { resolvePortalContext: async () => ({ dealId: DEAL, bankId: "bank1" }) },
+  id: "ctx",
+  filename: "ctx",
+  loaded: true,
+  exports: {
+    resolvePortalContext: async () => ({ dealId: DEAL, bankId: "bank1" }),
+  },
 } as any;
 
-const { GET, PATCH, DELETE } = require("../route") as typeof import("../route");
+const { GET, PATCH, DELETE, POST } =
+  require("../route") as typeof import("../route");
 
-function ctx() { return { params: Promise.resolve({ token: DEAL }) }; }
-function req(body: unknown): any { return { json: async () => body }; }
+function ctx() {
+  return { params: Promise.resolve({ token: DEAL }) };
+}
+function req(body: unknown): any {
+  return { json: async () => body };
+}
 
 function seed149() {
   db.owners = [
-    { id: "o-sebrina", deal_id: DEAL, display_name: "Sebrina Colon", ownership_pct: 51 },
-    { id: "o-matthew", deal_id: DEAL, display_name: "Matthew Paller", ownership_pct: 49 },
-    { id: "o-typo", deal_id: DEAL, display_name: "matt paller", ownership_pct: 49 },
+    {
+      id: "o-sebrina",
+      deal_id: DEAL,
+      display_name: "Sebrina Colon",
+      ownership_pct: 51,
+    },
+    {
+      id: "o-matthew",
+      deal_id: DEAL,
+      display_name: "Matthew Paller",
+      ownership_pct: 49,
+    },
+    {
+      id: "o-typo",
+      deal_id: DEAL,
+      display_name: "matt paller",
+      ownership_pct: 49,
+    },
   ];
   db.verifications = [];
   db.events = [];
@@ -122,7 +185,13 @@ test("deleting the typo duplicate brings the deal back to a sealable 100%", asyn
 test("an owner who already verified cannot be deleted — that would discard a completed IAL2 record", async () => {
   seed149();
   db.verifications = [
-    { id: "v1", deal_id: DEAL, ownership_entity_id: "o-sebrina", status: "approved", completed_at: "2026-08-25" },
+    {
+      id: "v1",
+      deal_id: DEAL,
+      ownership_entity_id: "o-sebrina",
+      status: "approved",
+      completed_at: "2026-08-25",
+    },
   ];
 
   const res = await DELETE(req({ ownerId: "o-sebrina" }) as any, ctx() as any);
@@ -137,7 +206,13 @@ test("an owner who already verified cannot be deleted — that would discard a c
 test("deleting an unverified owner clears their abandoned verification attempts", async () => {
   seed149();
   db.verifications = [
-    { id: "v-abandoned", deal_id: DEAL, ownership_entity_id: "o-typo", status: "created", completed_at: null },
+    {
+      id: "v-abandoned",
+      deal_id: DEAL,
+      ownership_entity_id: "o-typo",
+      status: "created",
+      completed_at: null,
+    },
   ];
 
   await DELETE(req({ ownerId: "o-typo" }) as any, ctx() as any);
@@ -151,7 +226,14 @@ test("deleting an unverified owner clears their abandoned verification attempts"
 
 test("PATCH can correct a percentage, and the new total is reported back", async () => {
   seed149();
-  const res = await PATCH(req({ ownerId: "o-typo", ownershipPct: 1, displayName: "matt paller" }) as any, ctx() as any);
+  const res = await PATCH(
+    req({
+      ownerId: "o-typo",
+      ownershipPct: 1,
+      displayName: "matt paller",
+    }) as any,
+    ctx() as any,
+  );
   const body = (await res.json()) as any;
 
   assert.equal(res.status, 200);
@@ -163,27 +245,48 @@ test("PATCH can correct a percentage, and the new total is reported back", async
 test("PATCH rejects a blank name and an out-of-range percentage", async () => {
   seed149();
 
-  const blank = await PATCH(req({ ownerId: "o-typo", displayName: "   " }) as any, ctx() as any);
+  const blank = await PATCH(
+    req({ ownerId: "o-typo", displayName: "   " }) as any,
+    ctx() as any,
+  );
   assert.equal(blank.status, 422);
-  assert.equal((await blank.json() as any).error, "INVALID_NAME");
+  assert.equal(((await blank.json()) as any).error, "INVALID_NAME");
 
   for (const pct of [0, -5, 101, "abc"]) {
-    const res = await PATCH(req({ ownerId: "o-typo", ownershipPct: pct }) as any, ctx() as any);
+    const res = await PATCH(
+      req({ ownerId: "o-typo", ownershipPct: pct }) as any,
+      ctx() as any,
+    );
     assert.equal(res.status, 422, `ownershipPct=${pct} must be rejected`);
-    assert.equal((await res.json() as any).error, "INVALID_PCT");
+    assert.equal(((await res.json()) as any).error, "INVALID_PCT");
   }
 
-  assert.equal(db.owners.find((o) => o.id === "o-typo")!.ownership_pct, 49, "nothing may be written on a rejected patch");
+  assert.equal(
+    db.owners.find((o) => o.id === "o-typo")!.ownership_pct,
+    49,
+    "nothing may be written on a rejected patch",
+  );
 });
 
 test("a portal token cannot touch an owner on another deal", async () => {
   seed149();
-  db.owners.push({ id: "o-other", deal_id: "some-other-deal", display_name: "Someone Else", ownership_pct: 100 });
+  db.owners.push({
+    id: "o-other",
+    deal_id: "some-other-deal",
+    display_name: "Someone Else",
+    ownership_pct: 100,
+  });
 
-  const patched = await PATCH(req({ ownerId: "o-other", ownershipPct: 5 }) as any, ctx() as any);
+  const patched = await PATCH(
+    req({ ownerId: "o-other", ownershipPct: 5 }) as any,
+    ctx() as any,
+  );
   assert.equal(patched.status, 404);
 
-  const deleted = await DELETE(req({ ownerId: "o-other" }) as any, ctx() as any);
+  const deleted = await DELETE(
+    req({ ownerId: "o-other" }) as any,
+    ctx() as any,
+  );
   assert.equal(deleted.status, 404);
 
   assert.equal(db.owners.find((o) => o.id === "o-other")!.ownership_pct, 100);
@@ -194,10 +297,48 @@ test("a valid 100% list reports itself as valid with no problem", async () => {
     { id: "o-a", deal_id: DEAL, display_name: "A", ownership_pct: 60 },
     { id: "o-b", deal_id: DEAL, display_name: "B", ownership_pct: 40 },
   ];
-  db.verifications = []; db.events = [];
+  db.verifications = [];
+  db.events = [];
 
   const body = (await (await GET({} as any, ctx() as any)).json()) as any;
   assert.equal(body.summary.valid, true);
   assert.equal(body.summary.problem, null);
   assert.deepEqual(body.summary.duplicateNames, []);
+});
+
+test("adding an owner is scoped and retries do not duplicate the owner", async () => {
+  db.owners = [];
+  const ownerId = "af812f8c-41ae-4a96-a356-8c1490988765";
+  const payload = { ownerId, displayName: "Second Owner", ownershipPct: 40 };
+  assert.equal((await POST(req(payload), ctx())).status, 200);
+  assert.equal((await POST(req(payload), ctx())).status, 200);
+  assert.equal(db.owners.length, 1);
+  assert.equal(db.owners[0].deal_id, DEAL);
+  assert.equal(
+    (await POST(req({ ...payload, ownershipPct: 50 }), ctx())).status,
+    409,
+  );
+  assert.equal(db.owners[0].ownership_pct, 40);
+  db.owners[0].deal_id = "foreign-deal";
+  assert.equal((await POST(req(payload), ctx())).status, 409);
+  assert.equal(db.owners[0].deal_id, "foreign-deal");
+});
+test("invalid owner additions fail before writes", async () => {
+  db.owners = [];
+  for (const ownershipPct of [0, -1, 101, "40", null]) {
+    assert.equal(
+      (
+        await POST(
+          req({
+            ownerId: "af812f8c-41ae-4a96-a356-8c1490988765",
+            displayName: "Owner",
+            ownershipPct,
+          }),
+          ctx(),
+        )
+      ).status,
+      422,
+    );
+  }
+  assert.equal(db.owners.length, 0);
 });

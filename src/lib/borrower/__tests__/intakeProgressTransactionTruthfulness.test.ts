@@ -17,10 +17,6 @@ const route = readFileSync(
   join(ROOT, "src/app/api/borrower/intake/progress/route.ts"),
   "utf8",
 );
-const client = readFileSync(
-  join(ROOT, "src/app/(borrower)/start/StartConciergeClient.tsx"),
-  "utf8",
-);
 
 function occurrences(source: string, pattern: RegExp): number {
   return source.match(pattern)?.length ?? 0;
@@ -39,14 +35,8 @@ describe("borrower intake canonical transaction", () => {
   });
 
   test("all chapter fact mutations use returned-row proof", () => {
-    assert.equal(
-      occurrences(route, /loadConciergeFacts\(dealId, sb\)/g),
-      4,
-    );
-    assert.equal(
-      occurrences(route, /persistConciergeFacts\(/g) - 1,
-      4,
-    );
+    assert.equal(occurrences(route, /loadConciergeFacts\(dealId, sb\)/g), 4);
+    assert.equal(occurrences(route, /persistConciergeFacts\(/g) - 1, 4);
     assert.match(
       route,
       /function persistConciergeFacts[\s\S]*?\.eq\("updated_at", expectedUpdatedAt\)[\s\S]*?\.is\("updated_at", null\)[\s\S]*?\.select\("id, updated_at"\)[\s\S]*?result\.error[\s\S]*?!result\.data\?\.id/,
@@ -83,21 +73,25 @@ describe("borrower intake canonical transaction", () => {
   });
 });
 
-describe("borrower intake hydration gate", () => {
-  test("unavailable authoritative state remains blocked and retryable", () => {
-    assert.match(client, /if \(!res\.ok \|\| !json\?\.ok \|\| !json\.progress \|\| !json\.progress\.facts\)/);
-    assert.match(client, /setProgressHydrated\(false\)/);
-    assert.match(client, /setHydrationError\(/);
-    assert.match(client, />\s*Retry loading\s*</);
-    const hydrateStart = client.indexOf("const hydrateProgress");
-    const hydrateEnd = client.indexOf("// Re-hydrate when deal changes", hydrateStart);
-    const hydrateBlock = client.slice(hydrateStart, hydrateEnd);
-    assert.doesNotMatch(hydrateBlock, /finally/);
-    assert.match(hydrateBlock, /setProgressHydrated\(true\)/);
-  });
-
-  test("hydration rejects a session-to-deal mismatch", () => {
-    assert.match(client, /json\.dealId && json\.dealId !== id/);
-    assert.match(client, /progress_deal_mismatch/);
+describe("borrower journey hydration gate", () => {
+  test("unavailable and foreign-deal responses are rejected before display", async () => {
+    const { readGuidedResponse } = await import("../journey/response");
+    assert.throws(() => readGuidedResponse({ ok: false }, "d1"));
+    assert.throws(() =>
+      readGuidedResponse(
+        {
+          ok: true,
+          dealId: "d2",
+          snapshot: { questions: [], owners: [], readErrors: [] },
+        },
+        "d1",
+      ),
+    );
+    assert.throws(() => readGuidedResponse({ ok: true, dealId: "d1" }, "d1"));
+    const snapshot = { questions: [], owners: [], readErrors: [] };
+    assert.equal(
+      readGuidedResponse({ ok: true, dealId: "d1", snapshot }, "d1"),
+      snapshot,
+    );
   });
 });
