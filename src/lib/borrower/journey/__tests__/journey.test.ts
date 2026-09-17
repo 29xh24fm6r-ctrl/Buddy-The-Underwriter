@@ -8,6 +8,8 @@ import {
   orderedQuestions,
   recommendedQuestions,
   nextQuestion,
+  chapterProgress,
+  projectCard,
 } from "../presentation";
 import { explainProgramOptions } from "@/lib/sba/programGuidance";
 import { DISCOVERY_CHOICES } from "../discovery";
@@ -49,6 +51,31 @@ test("resume uses saved facts, false and zero count as answers", () => {
     s.questions.find((q) => q.id === "loan.amount_requested")?.value,
     0,
   );
+});
+test("missions expose useful rewards and the project card only uses confirmed facts", () => {
+  const s = buildGuidedSnapshot({
+    rows: {
+      borrowers: [{ legal_name: "7 Brew Coffee", city: "Flowery Branch", state: "GA" }],
+      deal_loan_requests: [{ requested_amount: 850000 }],
+    },
+    facts: {
+      package_answers: {
+        A11: { value: "startup" },
+        A07: { value: "Open within 6 months" },
+      },
+    },
+    revision: "v2",
+  });
+  assert.ok(CHAPTERS.every((chapter) => chapter.reward.startsWith("Your ")));
+  assert.ok(chapterProgress(s, "plan").saved >= 2);
+  assert.deepEqual(projectCard(s), {
+    business: "7 Brew Coffee",
+    goal: "Start a business",
+    location: "Flowery Branch, GA",
+    timeline: "Open within 6 months",
+    projectCost: null,
+    fundsNeeded: "$850,000",
+  });
 });
 test("structured intent remains human readable in package narrative", () => {
   assert.equal(
