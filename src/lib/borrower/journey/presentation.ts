@@ -150,7 +150,54 @@ export function questionHelp(q: GuidedQuestion) {
   return CHAPTERS.find((c) => c.id === chapterFor(q))!.help;
 }
 
-/** Only defer optional topic prompts on explicit answers; never hide required form questions. */
+/**
+ * The complete package interview remains available in the application map.
+ * Missions surface only the smallest useful borrower path plus required form
+ * fields; the package factory and Buddy can request a deferred detail when the
+ * evidence actually makes it relevant.
+ */
+const MISSION_QUESTION_IDS: Record<Chapter, ReadonlySet<string>> = {
+  plan: new Set([
+    "A11",
+    "A12",
+    "A13",
+    "A14",
+    "A15",
+    "A01",
+    "A02",
+    "A04",
+    "A07",
+    "A08",
+    "loan.amount_requested",
+    "loan.use_of_proceeds",
+  ]),
+  business: new Set([
+    "B05",
+    "B07",
+    "C05",
+    "C06",
+    "D02",
+    "D03",
+    "D04",
+    "D06",
+    "D12",
+  ]),
+  numbers: new Set([
+    "E03",
+    "E05",
+    "F01",
+    "G01",
+    "G03",
+    "L02",
+    "L03",
+    "L05",
+    "L06",
+    "L07",
+  ]),
+  application: new Set(["loan.sba_program"]),
+  review: new Set(),
+};
+
 export function recommendedQuestions(
   snapshot: GuidedSnapshot,
   chapter: Chapter,
@@ -160,6 +207,7 @@ export function recommendedQuestions(
   const goal = value("A11");
   return orderedQuestions(snapshot, chapter).filter((q) => {
     if (q.required || q.state === "saved") return true;
+    if (!MISSION_QUESTION_IDS[chapter].has(q.id)) return false;
     if (
       /^I\d{2}$/.test(q.id) &&
       goal &&
