@@ -2,40 +2,87 @@ import type {
   GuidedQuestion,
   GuidedSnapshot,
 } from "../guidedPackage/questions";
-import { DISCOVERY_ORDER } from "./discovery";
+import { choiceLabel, DISCOVERY_ORDER } from "./discovery";
 export const CHAPTERS = [
   {
     id: "plan",
-    title: "Your plan",
+    title: "Shape your idea",
     subtitle: "Start with what you want to accomplish.",
+    reward: "Your project outline",
     help: "You don’t need to know a loan program. Tell us about your goal; we’ll explain paths worth exploring.",
   },
   {
     id: "business",
-    title: "Your business",
+    title: "Tell your story",
     subtitle: "The people and story behind your business.",
+    reward: "Your business profile",
     help: "These details help the lender understand who owns and operates the business. Owner questions appear when owners are added.",
   },
   {
     id: "numbers",
-    title: "Your numbers",
+    title: "Build your budget",
     subtitle: "Let’s organize your financial picture.",
+    reward: "Your financial picture",
     help: "Upload what you have. A saved upload is separate from a reviewed financial fact. You can come back with more documents.",
   },
   {
     id: "application",
-    title: "Your application",
+    title: "Prepare your package",
     subtitle: "Bring your answers and documents together.",
+    reward: "Your lender-ready draft",
     help: "Your reviewed assumptions feed the existing financial model. Preparing documents does not submit an application or approve a loan.",
   },
   {
     id: "review",
-    title: "Review & next steps",
+    title: "Make it ready",
     subtitle: "Check the details before you move forward.",
+    reward: "Your review checklist",
     help: "Review your information, signatures and sharing choices. Your lender decides credit approval and any closing requirements.",
   },
 ] as const;
 export type Chapter = (typeof CHAPTERS)[number]["id"];
+
+export function chapterProgress(snapshot: GuidedSnapshot, chapter: Chapter) {
+  const questions = recommendedQuestions(snapshot, chapter);
+  const saved = questions.filter((q) => q.state === "saved").length;
+  return {
+    saved,
+    total: questions.length,
+    complete: questions.length > 0 && saved === questions.length,
+  };
+}
+
+export function projectCard(snapshot: GuidedSnapshot) {
+  const value = (id: string) =>
+    snapshot.questions.find((q) => q.id === id)?.value;
+  const text = (id: string) => {
+    const found = value(id);
+    return found === null || found === undefined || found === ""
+      ? null
+      : String(found);
+  };
+  const business = text("business.dba") ?? text("business.legal_name");
+  const city = text("business.address_city");
+  const state = text("business.address_state");
+  const amount = value("loan.amount_requested");
+  const numericAmount =
+    typeof amount === "number" ? amount : Number(String(amount ?? ""));
+  return {
+    business,
+    goal: value("A11") ? choiceLabel("A11", value("A11")) : null,
+    location: [city, state].filter(Boolean).join(", ") || null,
+    timeline: text("A07"),
+    projectCost: text("A04"),
+    fundsNeeded:
+      Number.isFinite(numericAmount) && String(amount ?? "") !== ""
+        ? new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: "USD",
+            maximumFractionDigits: 0,
+          }).format(numericAmount)
+        : null,
+  };
+}
 export function chapterFor(q: GuidedQuestion): Chapter {
   if (q.id === "loan.sba_program") return "application";
   const s = q.section.trim();
