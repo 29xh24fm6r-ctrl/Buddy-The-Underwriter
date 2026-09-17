@@ -1,3 +1,4 @@
+import { choiceLabel } from "../journey/discovery";
 import { PACKAGE_QUESTIONS } from "./packageQuestions";
 export type PackageInterviewAnswer = {
   question: string;
@@ -13,7 +14,7 @@ export function packageInterviewAnswers(
       ? [
           {
             question: q.question,
-            answer: answers[q.id].value,
+            answer: choiceLabel(q.id, answers[q.id].value),
             savedAt: answers[q.id].saved_at ?? null,
           },
         ]

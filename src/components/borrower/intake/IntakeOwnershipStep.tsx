@@ -95,7 +95,7 @@ export function IntakeOwnershipStep({
         </div>
         <div className="rounded-2xl rounded-bl-md bg-slate-100 px-5 py-3.5">
           <p className="text-sm text-slate-800">
-            SBA requires identity verification for every owner with 20% or more. How many owners does the business have?
+            Buddy’s package process includes identity verification for owners with 20% or more. How many owners does the business have?
           </p>
         </div>
       </div>

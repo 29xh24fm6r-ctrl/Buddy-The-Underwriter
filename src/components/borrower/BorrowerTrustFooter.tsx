@@ -11,15 +11,18 @@ export function BorrowerTrustFooter() {
             <Icon name="fact_check" className="h-5 w-5 text-brand-blue-500" />
           </div>
           <div>
-            <div className="font-heading font-semibold text-slate-900">Secure SBA document portal</div>
+            <div className="font-heading font-semibold text-slate-900">
+              Your application, at your pace
+            </div>
             <p className="mt-1 max-w-2xl">
-              Buddy keeps your package private, shares only what your lender needs,
-              and never shows storage links or internal review notes in this portal.
+              Save your answers, return with the same email, and review your
+              information before submitting. A completed application is not a
+              loan approval.
             </p>
           </div>
         </div>
         <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-          Private link • touch-safe upload flow • borrower-only view
+          Save • Review • Continue
         </div>
       </div>
     </footer>

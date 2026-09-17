@@ -2,7 +2,11 @@ import "server-only";
 
 /** Download the immutable files from one completed package run. */
 import JSZip from "jszip";
-import { LENDER_PACKAGE_FILES } from "@/lib/brokerage/lenderPackageFiles";
+import {
+  LENDER_PACKAGE_FILES,
+  canBorrowerDownload,
+  packageFilesForActor,
+} from "@/lib/brokerage/lenderPackageFiles";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
@@ -27,7 +31,10 @@ const VALID_TRIDENT_KINDS: readonly TridentKind[] = [
   "business_plan",
   "projections_pdf",
   "projections_xlsx",
-  "feasibility", "credit_memo", "spreads", "sba_forms",
+  "feasibility",
+  "credit_memo",
+  "spreads",
+  "sba_forms",
 ] as const;
 
 const KIND_TO_PATH_COLUMN: Record<TridentKind, string> = {
@@ -86,7 +93,8 @@ async function resolveActor(
     .select("id, lender_bank_id, deal_id, revoked_at, access_level")
     .eq("id", accessId)
     .maybeSingle();
-  if (accessError) throw new PackageStateUnavailable("lender_access_read_failed");
+  if (accessError)
+    throw new PackageStateUnavailable("lender_access_read_failed");
 
   if (
     !access ||
@@ -102,7 +110,8 @@ async function resolveActor(
     .select("bank_id")
     .eq("id", dealId)
     .maybeSingle();
-  if (dealError) throw new PackageStateUnavailable("deal_ownership_read_failed");
+  if (dealError)
+    throw new PackageStateUnavailable("deal_ownership_read_failed");
   if (!deal?.bank_id) return null;
 
   return {
@@ -131,7 +140,13 @@ async function handleSbaFormsDownload(
   }
 
   const audit = await auditPackageDownload(
-    { actor: actorInfo.actor, actorScope: actorInfo.actorScope, dealId, action: "package_download", resourceType: "sba_forms" },
+    {
+      actor: actorInfo.actor,
+      actorScope: actorInfo.actorScope,
+      dealId,
+      action: "package_download",
+      resourceType: "sba_forms",
+    },
     sb as any,
   );
   if (!audit.ok) {
@@ -173,8 +188,20 @@ export async function GET(
     return NextResponse.json({ ok: false }, { status: 404 });
   }
 
+  if (actorInfo.actorScope === "borrower" && !canBorrowerDownload(kind))
+    return NextResponse.json({ ok: false }, { status: 404 });
+
   // A preview-tier grant never reaches the certified committee artifacts.
-  if (actorInfo.accessLevel !== "full" && ["credit_memo", "sba_forms", "spreads", "complete_package", "projections_xlsx"].includes(kind)) {
+  if (
+    actorInfo.accessLevel !== "full" &&
+    [
+      "credit_memo",
+      "sba_forms",
+      "spreads",
+      "complete_package",
+      "projections_xlsx",
+    ].includes(kind)
+  ) {
     return NextResponse.json({ ok: false }, { status: 404 });
   }
 
@@ -202,7 +229,16 @@ export async function GET(
   }
 
   let bundle = finalResult.data;
-  if (!bundle && !["credit_memo", "spreads", "complete_package", "sba_forms", "projections_xlsx"].includes(kind)) {
+  if (
+    !bundle &&
+    ![
+      "credit_memo",
+      "spreads",
+      "complete_package",
+      "sba_forms",
+      "projections_xlsx",
+    ].includes(kind)
+  ) {
     const previewResult = await sb
       .from("buddy_trident_bundles")
       .select("*")
@@ -222,27 +258,78 @@ export async function GET(
 
   if (!bundle) {
     if (kind === "sba_forms") return handleSbaFormsDownload(dealId, actorInfo);
-    return NextResponse.json({ ok: false, error: "Generate the complete lender package first." }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: "Generate the complete lender package first." },
+      { status: 404 },
+    );
   }
   if (kind === "complete_package") {
-    if (bundle.mode !== "final" || !LENDER_PACKAGE_FILES.every(file => bundle[file.column])) {
-      return NextResponse.json({ ok: false, error: "The package is missing required documents. Rebuild it before downloading." }, { status: 409 });
+    if (
+      bundle.mode !== "final" ||
+      !LENDER_PACKAGE_FILES.every((file) => bundle[file.column])
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "The package is missing required documents. Rebuild it before downloading.",
+        },
+        { status: 409 },
+      );
     }
     const zip = new JSZip();
-    for (const file of LENDER_PACKAGE_FILES) {
-      const { data, error } = await sb.storage.from("trident-bundles").download(bundle[file.column]);
-      if (error || !data) return NextResponse.json({ ok: false, error: `${file.label} could not be downloaded.` }, { status: 503 });
+    for (const file of packageFilesForActor(actorInfo.actorScope)) {
+      const { data, error } = await sb.storage
+        .from("trident-bundles")
+        .download(bundle[file.column]);
+      if (error || !data)
+        return NextResponse.json(
+          { ok: false, error: `${file.label} could not be downloaded.` },
+          { status: 503 },
+        );
       const bytes = Buffer.from(await data.arrayBuffer());
-      const valid = file.filename.endsWith(".pdf") ? bytes.subarray(0, 5).toString() === "%PDF-" : bytes.subarray(0, 2).toString() === "PK";
-      if (!valid) return NextResponse.json({ ok: false, error: `${file.label} is not a valid document.` }, { status: 503 });
+      const valid = file.filename.endsWith(".pdf")
+        ? bytes.subarray(0, 5).toString() === "%PDF-"
+        : bytes.subarray(0, 2).toString() === "PK";
+      if (!valid)
+        return NextResponse.json(
+          { ok: false, error: `${file.label} is not a valid document.` },
+          { status: 503 },
+        );
       zip.file(file.filename, bytes);
     }
-    zip.file("Read-me.txt", `Prepared loan package\nRun: ${bundle.id}\nGenerated: ${bundle.generation_completed_at}\n\nPrepared for lender review, not credit approval. The lender confirms applicable requirements, signatures, business tax transcript requests and closing documents.\n`);
-    const audit = await auditPackageDownload({ actor: actorInfo.actor, actorScope: actorInfo.actorScope, dealId, action: "package_download", resourceType: kind, metadata: { bundleId: bundle.id } }, sb);
-    if (!audit.ok) return NextResponse.json({ ok: false, error: "download_audit_persistence_failed" }, { status: 503 });
-    return new NextResponse(new Uint8Array(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })), {
-      headers: { "content-type": "application/zip", "content-disposition": 'attachment; filename="lender-package.zip"', "cache-control": "private, no-store" },
-    });
+    zip.file(
+      "Read-me.txt",
+      `Prepared loan package\nRun: ${bundle.id}\nGenerated: ${bundle.generation_completed_at}\n\nPrepared for lender review, not credit approval. The lender confirms applicable requirements, signatures, business tax transcript requests and closing documents.\n`,
+    );
+    const audit = await auditPackageDownload(
+      {
+        actor: actorInfo.actor,
+        actorScope: actorInfo.actorScope,
+        dealId,
+        action: "package_download",
+        resourceType: kind,
+        metadata: { bundleId: bundle.id },
+      },
+      sb,
+    );
+    if (!audit.ok)
+      return NextResponse.json(
+        { ok: false, error: "download_audit_persistence_failed" },
+        { status: 503 },
+      );
+    return new NextResponse(
+      new Uint8Array(
+        await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }),
+      ),
+      {
+        headers: {
+          "content-type": "application/zip",
+          "content-disposition": 'attachment; filename="lender-package.zip"',
+          "cache-control": "private, no-store",
+        },
+      },
+    );
   }
 
   const pathColumn = KIND_TO_PATH_COLUMN[kind as TridentKind];

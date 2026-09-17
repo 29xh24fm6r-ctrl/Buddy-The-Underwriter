@@ -1,6 +1,9 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { LENDER_PACKAGE_FILES } from "@/lib/brokerage/lenderPackageFiles";
+import {
+  LENDER_PACKAGE_FILES,
+  BORROWER_PACKAGE_FILES,
+} from "@/lib/brokerage/lenderPackageFiles";
 
 type Value = string | number | null | Value[] | { [key: string]: Value };
 const groups = {
@@ -14,10 +17,10 @@ const additions: Record<string, Value> = {
   revenueStreams: {
     id: "",
     name: "",
-    baseAnnualRevenue: 0,
-    growthRateYear1: 0,
-    growthRateYear2: 0,
-    growthRateYear3: 0,
+    baseAnnualRevenue: null,
+    growthRateYear1: null,
+    growthRateYear2: null,
+    growthRateYear3: null,
     pricingModel: "flat",
     seasonalityProfile: null,
   },
@@ -45,7 +48,21 @@ const choices: Record<string, string[]> = {
   treatment: ["retain", "refinance", "payoff"],
   equityInjectionSource: ["cash_savings", "401k_rollover", "gift", "other"],
 };
+const friendlyLabels: Record<string, string> = {
+  targetDSO: "Days until customers pay",
+  targetDPO: "Days until you pay suppliers",
+  inventoryTurns: "Inventory turns per year",
+  cogsPercentYear1: "Direct costs as a share of sales — year 1",
+  cogsPercentYear2: "Direct costs as a share of sales — year 2",
+  cogsPercentYear3: "Direct costs as a share of sales — year 3",
+  termMonths: "Proposed loan term in months",
+  interestRate: "Assumed annual interest rate",
+  equityInjectionAmount: "Your contribution",
+  baseAnnualRevenue: "Starting annual revenue",
+  bio: "Relevant experience",
+};
 const label = (key: string) =>
+  friendlyLabels[key] ??
   key
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replaceAll("_", " ")
@@ -142,9 +159,13 @@ function Field({
     );
   // Keep an emptied number field numeric so typing a replacement remains valid.
   const numeric =
-    typeof value === "number" || percent ||
-    /(?:Amount|Revenue|Salary|Balance|Payment|Months|Month|DSO|DPO|Turns|InIndustry|Pct)$/.test(name) ||
-    ["amount", "year"].includes(name) || /^Month \d+$/.test(name);
+    typeof value === "number" ||
+    percent ||
+    /(?:Amount|Revenue|Salary|Balance|Payment|Months|Month|DSO|DPO|Turns|InIndustry|Pct)$/.test(
+      name,
+    ) ||
+    ["amount", "year"].includes(name) ||
+    /^Month \d+$/.test(name);
   return (
     <label className="block text-sm text-slate-700">
       {label(name)}
@@ -272,6 +293,25 @@ export function LenderPackageReview({
     }, 15000);
     return () => clearInterval(timer);
   }, [running, refresh]);
+  async function discardDraft() {
+    setBusy("reload");
+    setError("");
+    try {
+      const saved = await call("assumptions");
+      setAssumptions(saved.assumptions);
+      setRevision(saved.revision);
+      setStatus(saved.status);
+      setDirty(false);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Could not reload your saved assumptions.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
   async function perform(action: string) {
     setBusy(action);
     setError("");
@@ -330,6 +370,52 @@ export function LenderPackageReview({
           </span>
         )}
       </div>
+      {!assumptions && (
+        <button
+          type="button"
+          disabled={!!busy || !!running}
+          className="mt-4 min-h-11 text-sm font-semibold text-sky-800 underline"
+          onClick={() => {
+            setAssumptions({
+              revenueStreams: [],
+              costAssumptions: {
+                cogsPercentYear1: null,
+                cogsPercentYear2: null,
+                cogsPercentYear3: null,
+                fixedCostCategories: [],
+                plannedHires: [],
+                plannedCapex: [],
+              },
+              workingCapital: {
+                targetDSO: null,
+                targetDPO: null,
+                inventoryTurns: null,
+              },
+              loanImpact: {
+                loanAmount: null,
+                termMonths: null,
+                interestRate: null,
+                existingDebt: [],
+                equityInjectionAmount: null,
+                equityInjectionSource: "other",
+                sellerFinancingAmount: null,
+                sellerFinancingTermMonths: null,
+                sellerFinancingRate: null,
+                otherSources: [],
+              },
+              managementTeam: [],
+            });
+            setDirty(true);
+          }}
+        >
+          Enter assumptions myself — no AI needed
+        </button>
+      )}
+      <p className="mt-3 text-xs leading-5 text-slate-600">
+        Drafting with Buddy and preparing a package use AI services. Entering
+        and saving your own assumptions does not. Review every figure; proposed
+        loan terms are assumptions until a lender provides an offer.
+      </p>
       {assumptions && (
         <fieldset disabled={!!busy || !!running} className="mt-4 space-y-3">
           {Object.entries(groups).map(([key, title]) => (
@@ -348,6 +434,15 @@ export function LenderPackageReview({
             </details>
           ))}
           <div className="flex flex-wrap gap-3">
+            {dirty && (
+              <button
+                type="button"
+                className="rounded-lg border px-4 py-2 text-sm"
+                onClick={() => void discardDraft()}
+              >
+                Discard unsaved changes
+              </button>
+            )}
             <button
               type="button"
               className="rounded-lg border px-4 py-2 text-sm"
@@ -400,19 +495,40 @@ export function LenderPackageReview({
               "The package could not be completed. Review your inputs and retry."}
           </p>
         )}
+        <ul
+          aria-label="Package document status"
+          className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200 px-4"
+        >
+          {BORROWER_PACKAGE_FILES.map((file) => (
+            <li
+              key={file.kind}
+              className="flex items-center justify-between gap-3 py-3 text-sm"
+            >
+              <span>{file.label}</span>
+              <span className={ready ? "text-emerald-800" : "text-slate-500"}>
+                {ready
+                  ? "Ready for your review"
+                  : running
+                    ? "Preparing"
+                    : "Not ready yet"}
+              </span>
+            </li>
+          ))}
+        </ul>
         {ready && (
           <div className="mt-4">
             <a
               className="inline-block rounded-lg bg-emerald-700 px-4 py-3 text-sm text-white"
               href={`/api/brokerage/deals/${dealId}/trident/download/complete_package`}
             >
-              Download complete lender package
+              Download your application documents
             </a>
             <p className="mt-2 text-sm text-slate-600">
               Includes the business plan, projections with assumptions,
-              feasibility study, spreads, credit memo and applicable SBA forms.
-              Prepared for lender review; signatures and closing requirements
-              remain subject to lender confirmation.
+              feasibility study, spreads and applicable SBA forms. The internal
+              credit memo is reserved for authorized lenders. Prepared for
+              lender review; signatures and closing requirements remain subject
+              to lender confirmation.
             </p>
           </div>
         )}

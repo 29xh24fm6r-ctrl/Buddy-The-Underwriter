@@ -21,7 +21,10 @@ import { BorrowerShell } from "@/components/borrower/BorrowerShell";
 import { BorrowerTrustFooter } from "@/components/borrower/BorrowerTrustFooter";
 import { BorrowerWaitingState } from "@/components/borrower/BorrowerWaitingState";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../..");
+const repoRoot = path.resolve(
+  path.dirname(new URL(import.meta.url).pathname),
+  "../../../..",
+);
 
 function read(relPath: string) {
   return fs.readFileSync(path.join(repoRoot, relPath), "utf8");
@@ -52,10 +55,21 @@ test("borrower shell primitives render the guided portal foundation", () => {
         rail: React.createElement(BorrowerProgressRail, {
           progressLabel: "Package in progress",
           progressValue: 67,
-          checklistSummary: "2 of 3 requested items are already in your package.",
+          checklistSummary:
+            "2 of 3 requested items are already in your package.",
           timeline: [
-            { id: "upload", title: "Add documents", subtitle: "Upload the files Buddy requested.", state: "current" },
-            { id: "review", title: "Buddy review", subtitle: "Buddy organizes your package.", state: "upcoming" },
+            {
+              id: "upload",
+              title: "Add documents",
+              subtitle: "Upload the files Buddy requested.",
+              state: "current",
+            },
+            {
+              id: "review",
+              title: "Buddy review",
+              subtitle: "Buddy organizes your package.",
+              state: "upcoming",
+            },
           ],
         }),
         footer: React.createElement(BorrowerTrustFooter),
@@ -68,7 +82,7 @@ test("borrower shell primitives render the guided portal foundation", () => {
   );
 
   assert.match(html, /What Buddy needs next/);
-  assert.match(html, /Secure SBA document portal/);
+  assert.match(html, /Your application, at your pace/);
   assert.match(html, /No documents uploaded yet/);
   assert.match(html, /xl:grid-cols-\[minmax\(0,1fr\)_320px\]/);
 });
@@ -81,15 +95,26 @@ test("progress transparency primitives render borrower-safe review language", ()
       summary: "Buddy is checking your latest files.",
       statusLabel: "Buddy reviewing your package",
       timing: "Buddy usually reviews new uploads within 1 business day.",
-      nextStep: "If anything else is needed, the next request will appear here.",
+      nextStep:
+        "If anything else is needed, the next request will appear here.",
     }),
     React.createElement(BorrowerProgressTimeline, {
       key: "timeline",
       title: "Documents received",
       summary: "Safe borrower progress only.",
       steps: [
-        { key: "getting_started", title: "Getting started", detail: "Buddy is setting up your package.", state: "done" as const },
-        { key: "documents_received", title: "Documents received", detail: "Buddy received your upload.", state: "current" as const },
+        {
+          key: "getting_started",
+          title: "Getting started",
+          detail: "Buddy is setting up your package.",
+          state: "done" as const,
+        },
+        {
+          key: "documents_received",
+          title: "Documents received",
+          detail: "Buddy received your upload.",
+          state: "current" as const,
+        },
       ],
     }),
     React.createElement(BorrowerReviewActivity, {
@@ -108,10 +133,13 @@ test("progress transparency primitives render borrower-safe review language", ()
       key: "waiting",
       title: "You're waiting on Buddy, not stuck",
       summary: "There is nothing you need to do right now.",
-      expectation: "Expected next step: Buddy reviews the latest package update.",
+      expectation:
+        "Expected next step: Buddy reviews the latest package update.",
     }),
   ];
-  const html = renderToStaticMarkup(React.createElement("div", null, ...children));
+  const html = renderToStaticMarkup(
+    React.createElement("div", null, ...children),
+  );
 
   assert.match(html, /Buddy is reviewing your package/);
   assert.match(html, /Documents received/);
@@ -126,7 +154,8 @@ test("trust and reassurance primitives render safe expectation language", () => 
       null,
       React.createElement(BorrowerReviewWindow, {
         title: "Review periods are normal in SBA preparation",
-        summary: "SBA loan preparation can take several days depending on the documents still needed.",
+        summary:
+          "SBA loan preparation can take several days depending on the documents still needed.",
         windowLabel: "Buddy usually reviews new uploads within 1 business day.",
       }),
       React.createElement(BorrowerExpectationCard, {
@@ -248,7 +277,10 @@ test("portal client uses borrower-safe shell and avoids signed URL language", ()
   assert.match(source, /Buddy reviewing your package/);
   assert.match(source, /Additional items needed/);
   assert.match(source, /Ready for SBA review/);
-  assert.match(source, /Buddy usually reviews new uploads within 1 business day/);
+  assert.match(
+    source,
+    /Buddy usually reviews new uploads within 1 business day/,
+  );
   assert.match(source, /SBA loan preparation can take several days/);
   assert.match(source, /You do not need to take action right now/);
   assert.match(source, /Email your loan officer/);
@@ -289,7 +321,7 @@ test("borrower shell supports mobile sticky CTA rendering", () => {
 test("start page opens the guided loan package workspace", () => {
   const source = read("src/app/(borrower)/start/page.tsx");
 
-  assert.match(source, /Build your SBA loan package/);
+  assert.match(source, /Your business. Your next chapter./);
   assert.match(source, /StartConciergeClient/);
   assert.match(source, /BorrowerTrustFooter/);
   assert.ok(!source.includes("Get a real SBA loan, on your terms."));

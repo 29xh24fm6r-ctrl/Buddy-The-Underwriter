@@ -37,3 +37,14 @@ export const LENDER_PACKAGE_FILES = [
     filename: "06-sba-forms.pdf",
   },
 ] as const;
+
+/** Borrowers review their application documents; internal underwriting stays with authorized lenders. */
+export const BORROWER_PACKAGE_FILES = LENDER_PACKAGE_FILES.filter(
+  (file) => file.kind !== "credit_memo",
+);
+export function canBorrowerDownload(kind: string) {
+  return kind !== "credit_memo";
+}
+export function packageFilesForActor(actor: "borrower" | "lender") {
+  return actor === "borrower" ? BORROWER_PACKAGE_FILES : LENDER_PACKAGE_FILES;
+}

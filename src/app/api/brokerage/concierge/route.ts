@@ -141,7 +141,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (!session || (body as any).dealId !== session.deal_id) return NextResponse.json({ ok: false }, { status: 404 });
       try {
         const snapshot = await saveGuidedAnswer(supabaseAdmin(), session, body as any);
-        return NextResponse.json({ ok: true, snapshot });
+        return NextResponse.json({ ok: true, dealId: session.deal_id, snapshot });
       } catch (error) {
         return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Unable to save answer" }, { status: 409 });
       }
@@ -1174,7 +1174,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (!session || req.nextUrl.searchParams.get("dealId") !== session.deal_id) return NextResponse.json({ ok: false }, { status: 404 });
   try {
     if (req.nextUrl.searchParams.get("view") === "schedules") return NextResponse.json({ ok: true, ...await guidedSchedules(supabaseAdmin(), session) }, { headers: { "Cache-Control": "no-store" } });
-    return NextResponse.json({ ok: true, snapshot: await loadGuidedPackage(supabaseAdmin(), session) }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ok: true, dealId: session.deal_id, snapshot: await loadGuidedPackage(supabaseAdmin(), session) }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ ok: false, error: "Unable to load your application. Please retry." }, { status: 503 });
   }

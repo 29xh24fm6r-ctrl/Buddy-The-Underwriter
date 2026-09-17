@@ -10,7 +10,8 @@ import { mockServerOnly } from "../../../../../test/utils/mockServerOnly";
 
 mockServerOnly();
 const require = createRequire(import.meta.url);
-const { renderProjectionsXlsx } = require("../projectionsXlsx") as typeof import("../projectionsXlsx");
+const { renderProjectionsXlsx } =
+  require("../projectionsXlsx") as typeof import("../projectionsXlsx");
 
 // ─── Mock state ────────────────────────────────────────────────────────
 const storedFiles = new Map<string, Buffer>();
@@ -79,7 +80,7 @@ require.cache[require.resolve("@/lib/supabase/admin")] = {
                 this._isNull.every((col: string) => b[col] == null),
             );
             return Promise.resolve({
-              data: state.queryError ? null : match ?? null,
+              data: state.queryError ? null : (match ?? null),
               error: state.queryError,
             });
           },
@@ -91,7 +92,9 @@ require.cache[require.resolve("@/lib/supabase/admin")] = {
           return {
             async download(path: string) {
               const bytes = storedFiles.get(path);
-              return bytes ? { data: new Blob([new Uint8Array(bytes)]), error: null } : { data: null, error: { message: "missing object" } };
+              return bytes
+                ? { data: new Blob([new Uint8Array(bytes)]), error: null }
+                : { data: null, error: { message: "missing object" } };
             },
             async createSignedUrl(_p: string, _ttl: number) {
               if (state.signedUrlReturns.error) {
@@ -125,9 +128,8 @@ require.cache[require.resolve("@/lib/brokerage/packageDelivery")] = {
 } as any;
 
 // Load the route handler.
-const routeModule = require(
-  "../../../../app/api/brokerage/deals/[dealId]/trident/download/[kind]/route",
-) as typeof import("../../../../app/api/brokerage/deals/[dealId]/trident/download/[kind]/route");
+const routeModule =
+  require("../../../../app/api/brokerage/deals/[dealId]/trident/download/[kind]/route") as typeof import("../../../../app/api/brokerage/deals/[dealId]/trident/download/[kind]/route");
 const { GET } = routeModule;
 
 function mkReq(): any {
@@ -245,41 +247,105 @@ test("signed artifact is withheld when download audit persistence fails", async 
   assert.equal(body.url, undefined);
 });
 
-test("complete package downloads all six real files, including model assumptions, and fails closed for any missing file", async () => {
-  resetState(); storedFiles.clear();
+test("borrower package excludes the internal memo and fails closed for missing visible documents", async () => {
+  resetState();
+  storedFiles.clear();
   state.session = { deal_id: "deal-1", bank_id: "bank-1" };
-  const pdf = await PDFDocument.create(); pdf.addPage().drawText("Synthetic package test");
+  const pdf = await PDFDocument.create();
+  pdf.addPage().drawText("Synthetic package test");
   const pdfBytes = Buffer.from(await pdf.save());
   const workbook = await renderProjectionsXlsx({
-    dealName: "Synthetic QA", baseYear: { revenue: 100000, cogs: 40000, operatingExpenses: 20000, ebitda: 40000, netIncome: 25000 },
-    annualProjections: [{ year: 1, revenue: 110000, ebitda: 44000, dscr: 2, totalDebtService: 22000 }], monthlyProjections: [], sensitivityScenarios: [], sourcesAndUses: null, balanceSheetProjections: null,
-    assumptions: { revenue_streams: [{ name: "Services", growthRateYear1: 0.10 }], loan_impact: { loanAmount: 50000 } },
-    assumptionsNarrative: "Revenue grows by 10 percent based on the synthetic customer contract.",
+    dealName: "Synthetic QA",
+    baseYear: {
+      revenue: 100000,
+      cogs: 40000,
+      operatingExpenses: 20000,
+      ebitda: 40000,
+      netIncome: 25000,
+    },
+    annualProjections: [
+      {
+        year: 1,
+        revenue: 110000,
+        ebitda: 44000,
+        dscr: 2,
+        totalDebtService: 22000,
+      },
+    ],
+    monthlyProjections: [],
+    sensitivityScenarios: [],
+    sourcesAndUses: null,
+    balanceSheetProjections: null,
+    assumptions: {
+      revenue_streams: [{ name: "Services", growthRateYear1: 0.1 }],
+      loan_impact: { loanAmount: 50000 },
+    },
+    assumptionsNarrative:
+      "Revenue grows by 10 percent based on the synthetic customer contract.",
   });
-  const bundle: any = { id: "run", deal_id: "deal-1", bank_id: "bank-1", mode: "final", status: "succeeded", superseded_at: null };
-  for (const file of LENDER_PACKAGE_FILES) { bundle[file.column] = `deal-1/final/run/${file.filename}`; storedFiles.set(bundle[file.column], file.kind === "projections_xlsx" ? workbook : pdfBytes); }
-  state.bundles.push(bundle);
-  const response = await GET(mkReq(), { params: Promise.resolve({ dealId: "deal-1", kind: "complete_package" }) });
-  assert.equal(response.status, 200); assert.equal(response.headers.get("content-type"), "application/zip");
-  const zip = await JSZip.loadAsync(await response.arrayBuffer());
-  assert.equal(Object.keys(zip.files).length, 7);
+  const bundle: any = {
+    id: "run",
+    deal_id: "deal-1",
+    bank_id: "bank-1",
+    mode: "final",
+    status: "succeeded",
+    superseded_at: null,
+  };
   for (const file of LENDER_PACKAGE_FILES) {
+    bundle[file.column] = `deal-1/final/run/${file.filename}`;
+    storedFiles.set(
+      bundle[file.column],
+      file.kind === "projections_xlsx" ? workbook : pdfBytes,
+    );
+  }
+  state.bundles.push(bundle);
+  const response = await GET(mkReq(), {
+    params: Promise.resolve({ dealId: "deal-1", kind: "complete_package" }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/zip");
+  const zip = await JSZip.loadAsync(await response.arrayBuffer());
+  assert.equal(Object.keys(zip.files).length, 6);
+  assert.equal(zip.file("05-credit-memo.pdf"), null);
+  for (const file of LENDER_PACKAGE_FILES.filter(
+    (file) => file.kind !== "credit_memo",
+  )) {
     const bytes = await zip.file(file.filename)!.async("nodebuffer");
     if (file.kind === "projections_xlsx") {
-      const wb = new ExcelJS.Workbook(); await wb.xlsx.load(bytes as any);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(bytes as any);
       assert.equal(wb.worksheets.length, 6);
       const rows = wb.getWorksheet("Assumptions")!.getSheetValues();
       assert.ok(JSON.stringify(rows).includes("growth Rate Year1"));
       assert.ok(JSON.stringify(rows).includes("0.1"));
     } else assert.equal((await PDFDocument.load(bytes)).getPageCount(), 1);
   }
-  for (const file of LENDER_PACKAGE_FILES) {
-    const path = bundle[file.column]; const bytes = storedFiles.get(path)!;
+  for (const file of LENDER_PACKAGE_FILES.filter(
+    (file) => file.kind !== "credit_memo",
+  )) {
+    const path = bundle[file.column];
+    const bytes = storedFiles.get(path)!;
     storedFiles.delete(path);
-    const unavailable = await GET(mkReq(), { params: Promise.resolve({ dealId: "deal-1", kind: "complete_package" }) });
+    const unavailable = await GET(mkReq(), {
+      params: Promise.resolve({ dealId: "deal-1", kind: "complete_package" }),
+    });
     assert.equal(unavailable.status, 503, file.kind);
     storedFiles.set(path, bytes);
   }
   state.session = { deal_id: "other", bank_id: "bank-1" };
-  assert.equal((await GET(mkReq(), { params: Promise.resolve({ dealId: "deal-1", kind: "complete_package" }) })).status, 404);
+  assert.equal(
+    (
+      await GET(mkReq(), {
+        params: Promise.resolve({ dealId: "deal-1", kind: "complete_package" }),
+      })
+    ).status,
+    404,
+  );
+});
+
+test("a borrower cannot request the internal credit memo directly", async () => {
+  resetState();
+  state.session = { deal_id: "deal-1", bank_id: "bank-1" };
+  const { status } = await call("deal-1", "credit_memo");
+  assert.equal(status, 404);
 });

@@ -42,11 +42,17 @@ type OwnerRow = {
 };
 
 function summarize(owners: OwnerRow[]) {
-  const total = owners.reduce((sum, o) => sum + Number(o.ownership_pct ?? 0), 0);
+  const total = owners.reduce(
+    (sum, o) => sum + Number(o.ownership_pct ?? 0),
+    0,
+  );
   const rounded = Number(total.toFixed(2));
   const seen = new Map<string, number>();
   for (const o of owners) {
-    const key = (o.display_name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    const key = (o.display_name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
     if (key) seen.set(key, (seen.get(key) ?? 0) + 1);
   }
   return {
@@ -60,14 +66,19 @@ function summarize(owners: OwnerRow[]) {
         : total > 100
           ? ("over" as const)
           : ("under" as const),
-    duplicateNames: [...seen.entries()].filter(([, n]) => n > 1).map(([name]) => name),
+    duplicateNames: [...seen.entries()]
+      .filter(([, n]) => n > 1)
+      .map(([name]) => name),
     ownersRequiringVerification: owners.filter(
       (o) => Number(o.ownership_pct ?? 0) >= OWNER_THRESHOLD_PERCENT,
     ).length,
   };
 }
 
-async function loadOwners(sb: ReturnType<typeof supabaseAdmin>, dealId: string): Promise<OwnerRow[]> {
+async function loadOwners(
+  sb: ReturnType<typeof supabaseAdmin>,
+  dealId: string,
+): Promise<OwnerRow[]> {
   const { data } = await sb
     .from("ownership_entities")
     .select("id, display_name, ownership_pct, created_at")
@@ -86,7 +97,10 @@ export async function GET(_req: NextRequest, { params }: { params: Params }) {
   try {
     ctx = await resolve(token);
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, error: "Invalid token" },
+      { status: 401 },
+    );
   }
 
   const sb = supabaseAdmin();
@@ -98,7 +112,8 @@ export async function GET(_req: NextRequest, { params }: { params: Params }) {
       id: o.id,
       displayName: o.display_name,
       ownershipPct: o.ownership_pct === null ? null : Number(o.ownership_pct),
-      requiresVerification: Number(o.ownership_pct ?? 0) >= OWNER_THRESHOLD_PERCENT,
+      requiresVerification:
+        Number(o.ownership_pct ?? 0) >= OWNER_THRESHOLD_PERCENT,
     })),
     summary: summarize(owners),
     threshold: OWNER_THRESHOLD_PERCENT,
@@ -111,13 +126,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
   try {
     ctx = await resolve(token);
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, error: "Invalid token" },
+      { status: 401 },
+    );
   }
 
   const body = await req.json().catch(() => ({}));
   const ownerId = body?.ownerId as string | undefined;
   if (!ownerId) {
-    return NextResponse.json({ ok: false, error: "ownerId is required" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "ownerId is required" },
+      { status: 400 },
+    );
   }
 
   const patch: Record<string, unknown> = {};
@@ -126,7 +147,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
     const name = String(body.displayName ?? "").trim();
     if (!name) {
       return NextResponse.json(
-        { ok: false, error: "INVALID_NAME", message: "Owner name cannot be blank." },
+        {
+          ok: false,
+          error: "INVALID_NAME",
+          message: "Owner name cannot be blank.",
+        },
         { status: 422 },
       );
     }
@@ -140,7 +165,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
         {
           ok: false,
           error: "INVALID_PCT",
-          message: "Ownership must be a number greater than 0 and no more than 100.",
+          message:
+            "Ownership must be a number greater than 0 and no more than 100.",
         },
         { status: 422 },
       );
@@ -149,7 +175,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
   }
 
   if (Object.keys(patch).length === 0) {
-    return NextResponse.json({ ok: false, error: "NOTHING_TO_UPDATE" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "NOTHING_TO_UPDATE" },
+      { status: 400 },
+    );
   }
 
   const sb = supabaseAdmin();
@@ -165,11 +194,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
     .maybeSingle();
 
   if (error) {
-    console.error(`[portal/owners] update failed deal=${ctx.dealId}`, error.message);
-    return NextResponse.json({ ok: false, error: "UPDATE_FAILED" }, { status: 500 });
+    console.error(
+      `[portal/owners] update failed deal=${ctx.dealId}`,
+      error.message,
+    );
+    return NextResponse.json(
+      { ok: false, error: "UPDATE_FAILED" },
+      { status: 500 },
+    );
   }
   if (!updated) {
-    return NextResponse.json({ ok: false, error: "OWNER_NOT_FOUND" }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: "OWNER_NOT_FOUND" },
+      { status: 404 },
+    );
   }
 
   const owners = await loadOwners(sb, ctx.dealId);
@@ -178,7 +216,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
   await sb.from("deal_events").insert({
     deal_id: ctx.dealId,
     kind: "ownership.owner_updated",
-    payload: { ownership_entity_id: ownerId, patch, total: summary.total, source: "borrower_portal" },
+    payload: {
+      ownership_entity_id: ownerId,
+      patch,
+      total: summary.total,
+      source: "borrower_portal",
+    },
   });
 
   return NextResponse.json({ ok: true, summary });
@@ -190,20 +233,31 @@ export async function DELETE(req: NextRequest, { params }: { params: Params }) {
   try {
     ctx = await resolve(token);
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, error: "Invalid token" },
+      { status: 401 },
+    );
   }
 
   const body = await req.json().catch(() => ({}));
   const ownerId = body?.ownerId as string | undefined;
   if (!ownerId) {
-    return NextResponse.json({ ok: false, error: "ownerId is required" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "ownerId is required" },
+      { status: 400 },
+    );
   }
 
   const sb = supabaseAdmin();
 
-  const existing = (await loadOwners(sb, ctx.dealId)).find((o) => o.id === ownerId);
+  const existing = (await loadOwners(sb, ctx.dealId)).find(
+    (o) => o.id === ownerId,
+  );
   if (!existing) {
-    return NextResponse.json({ ok: false, error: "OWNER_NOT_FOUND" }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: "OWNER_NOT_FOUND" },
+      { status: 404 },
+    );
   }
 
   // Never delete an owner who has already verified their identity — that
@@ -245,8 +299,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Params }) {
     .eq("deal_id", ctx.dealId);
 
   if (error) {
-    console.error(`[portal/owners] delete failed deal=${ctx.dealId}`, error.message);
-    return NextResponse.json({ ok: false, error: "DELETE_FAILED" }, { status: 500 });
+    console.error(
+      `[portal/owners] delete failed deal=${ctx.dealId}`,
+      error.message,
+    );
+    return NextResponse.json(
+      { ok: false, error: "DELETE_FAILED" },
+      { status: 500 },
+    );
   }
 
   const owners = await loadOwners(sb, ctx.dealId);
@@ -264,4 +324,82 @@ export async function DELETE(req: NextRequest, { params }: { params: Params }) {
   });
 
   return NextResponse.json({ ok: true, summary });
+}
+
+/** A stable client-generated ID makes a retried addition safe. Existing rows are never overwritten. */
+export async function POST(req: NextRequest, { params }: { params: Params }) {
+  const { token } = await params;
+  let ctx: { dealId: string; bankId: string };
+  try {
+    ctx = await resolve(token);
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "Invalid token" },
+      { status: 401 },
+    );
+  }
+  const body = await req.json().catch(() => ({}));
+  const id = typeof body.ownerId === "string" ? body.ownerId : "";
+  const name =
+    typeof body.displayName === "string" ? body.displayName.trim() : "";
+  const pct = body.ownershipPct;
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      id,
+    ) ||
+    !name ||
+    name.length > 200 ||
+    typeof pct !== "number" ||
+    !Number.isFinite(pct) ||
+    pct <= 0 ||
+    pct > 100
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message:
+          "Enter a name and ownership greater than 0% and no more than 100%.",
+      },
+      { status: 422 },
+    );
+  }
+  const sb = supabaseAdmin();
+  const { error } = await sb.from("ownership_entities").upsert(
+    {
+      id,
+      deal_id: ctx.dealId,
+      entity_type: "individual",
+      display_name: name,
+      ownership_pct: pct,
+      confidence: 1,
+      meta_json: { source: "borrower_portal" },
+    },
+    { onConflict: "id", ignoreDuplicates: true },
+  );
+  if (error)
+    return NextResponse.json(
+      { ok: false, message: "We could not add that owner. Please try again." },
+      { status: 500 },
+    );
+  const { data: saved, error: readError } = await sb
+    .from("ownership_entities")
+    .select("id, display_name, ownership_pct")
+    .eq("id", id)
+    .eq("deal_id", ctx.dealId)
+    .maybeSingle();
+  if (
+    readError ||
+    !saved ||
+    saved.display_name !== name ||
+    Number(saved.ownership_pct) !== pct
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message: "The owner list changed. Reload it before trying again.",
+      },
+      { status: 409 },
+    );
+  }
+  return NextResponse.json({ ok: true, ownerId: saved.id });
 }

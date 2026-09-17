@@ -1,54 +1,82 @@
 "use client";
+import { readGuidedResponse } from "@/lib/borrower/journey/response";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+  ArrowRight,
+  Check,
+  ListChecks,
+  MessageCircle,
+  ShieldCheck,
+} from "lucide-react";
 import { LenderPackageReview } from "./LenderPackageReview";
 import { PackageHandoff } from "./PackageHandoff";
 import { UseOfProceedsAnswer } from "./UseOfProceedsAnswer";
 import { GuidedPfsSchedules } from "./GuidedPfsSchedules";
+import { OwnershipEditor } from "./OwnershipEditor";
+import { IntakeOwnershipStep } from "./IntakeOwnershipStep";
+import { PortalUploadDropzone } from "./PortalUploadDropzone";
+import { UploadedDocumentsList } from "./UploadedDocumentsList";
+import { IdentityVerificationPanel } from "./IdentityVerificationPanel";
+import { SealPackageCard } from "@/components/brokerage/SealPackageCard";
+import { SigningPanel } from "@/components/brokerage/SigningPanel";
+import { FloatingConcierge } from "./FloatingConcierge";
+import { JourneyHelp } from "./JourneyHelp";
+import { useCapture } from "@/components/analytics/useCapture";
+import { ProgramOptions } from "./ProgramOptions";
 import BorrowerVoicePanel from "@/components/brokerage/BorrowerVoicePanel";
 import {
   GUIDED_CHOICES,
   type GuidedSnapshot,
   type GuidedQuestion,
 } from "@/lib/borrower/guidedPackage/questions";
+import {
+  DISCOVERY_CHOICES,
+  choiceLabel,
+} from "@/lib/borrower/journey/discovery";
+import {
+  CHAPTERS,
+  chapterFor,
+  orderedQuestions,
+  recommendedQuestions,
+  nextQuestion,
+  questionHelp,
+  type Chapter,
+} from "@/lib/borrower/journey/presentation";
+type Drafts = Record<
+  string,
+  {
+    value: string;
+    baseline: string | number | boolean | null;
+    source: "text" | "voice";
+  }
+>;
 export function GuidedPackageWorkspace({
   dealId,
-  tools,
   onSaved,
+  borrowerName = null,
+  initialGoal = "",
 }: {
   dealId: string;
-  tools: ReactNode;
   onSaved: () => void;
+  borrowerName?: string | null;
+  initialGoal?: string;
 }) {
-  const drafts = useRef<
-    Record<
-      string,
-      {
-        value: string;
-        baseline: string | number | boolean | null;
-        source: "text" | "voice";
-      }
-    >
-  >({});
+  const capture = useCapture();
+  const drafts = useRef<Drafts>({});
   const [snapshot, setSnapshot] = useState<GuidedSnapshot | null>(null);
   const [error, setError] = useState("");
-  const [section, setSection] = useState("");
+  const [chapter, setChapter] = useState<Chapter>("plan");
   const [selectedId, setSelectedId] = useState("");
+  const [showMap, setShowMap] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const [help, setHelp] = useState(false);
   const [reviewDirty, setReviewDirty] = useState(false);
-  const [showTools, setShowTools] = useState(false);
-  const [onlyOpen, setOnlyOpen] = useState(false);
-  useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => {
-      if (Object.keys(drafts.current).length) event.preventDefault();
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, []);
+  const [protectedDirty, setProtectedDirty] = useState(false);
+  const [uploadVersion, setUploadVersion] = useState(0);
+  const [goalPending, setGoalPending] = useState(initialGoal);
+  const [goalSaving, setGoalSaving] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const initialized = useRef(false);
   const refresh = useCallback(async () => {
     try {
       const response = await fetch(
@@ -57,226 +85,482 @@ export function GuidedPackageWorkspace({
       );
       const data = await response.json();
       if (!response.ok || !data.ok)
-        throw new Error(data.error || "Your application could not be loaded.");
-      setSnapshot(data.snapshot);
+        throw new Error(
+          "We couldn’t load your application. Your saved answers are safe; please retry.",
+        );
+      setSnapshot(readGuidedResponse(data, dealId));
       setError("");
+      if (!initialized.current) {
+        initialized.current = true;
+        // Resume the first unfinished task from confirmed server data, never from a guessed percentage.
+        const next = CHAPTERS.flatMap((c) =>
+          recommendedQuestions(readGuidedResponse(data, dealId), c.id),
+        ).find((q) => q.state !== "saved");
+        if (next && !initialGoal) {
+          setChapter(chapterFor(next));
+          setSelectedId(next.id);
+        }
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to load answers.");
+      setError(
+        e instanceof Error ? e.message : "Unable to load your application.",
+      );
     }
-  }, [dealId]);
+  }, [dealId, initialGoal]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  const sections = [
-    ...new Set(snapshot?.questions.map((q) => q.section) ?? []),
-  ];
-  const activeSection = sections.includes(section) ? section : sections[0];
-  const visible =
-    snapshot?.questions.filter(
-      (q) =>
-        q.section === activeSection &&
-        (!onlyOpen || !["saved", "not_applicable"].includes(q.state)),
-    ) ?? [];
-  const selected = visible.find((q) => q.id === selectedId) ?? visible[0];
-  const percent = snapshot?.total
-    ? Math.round((snapshot.saved / snapshot.total) * 100)
-    : 0;
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (Object.keys(drafts.current).length || protectedDirty || reviewDirty)
+        e.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [protectedDirty, reviewDirty]);
+  function navigate(next: Chapter, questionId = "") {
+    if (protectedDirty || reviewDirty) {
+      setError(
+        "Save your current protected answer or financial draft before changing tasks.",
+      );
+      return;
+    }
+    capture("borrower_journey_task_opened", { chapter: next });
+    setChapter(next);
+    setSelectedId(questionId);
+    setShowOptions(false);
+    setError("");
+    requestAnimationFrame(() => heading.current?.focus());
+  }
+  async function saveWelcomeGoal() {
+    const question = snapshot?.questions.find((q) => q.id === "A11");
+    if (!question) return;
+    setGoalSaving(true);
+    try {
+      const r = await fetch("/api/brokerage/concierge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "guided_answer",
+          dealId,
+          questionId: "A11",
+          expectedValue: question.value,
+          value: goalPending,
+          source: "text",
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok)
+        throw new Error(
+          data.error || "Your goal could not be saved. Please retry.",
+        );
+      setSnapshot(readGuidedResponse(data, dealId));
+      setGoalPending("");
+      onSaved();
+      navigate("plan", "A01");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Please retry.");
+    } finally {
+      setGoalSaving(false);
+    }
+  }
+  const questions = snapshot ? recommendedQuestions(snapshot, chapter) : [];
+  const selected =
+    snapshot?.questions.find(
+      (q) => q.id === selectedId && chapterFor(q) === chapter,
+    ) ?? nextQuestion(questions);
+  const current = CHAPTERS.find((c) => c.id === chapter)!;
+  const all = snapshot?.questions ?? [];
+  const goal = all.find((q) => q.id === "A11")?.value;
   return (
-    <div className="space-y-5 text-slate-900">
-      <header className="rounded-2xl border border-sky-100 bg-white p-5 sm:p-7">
-        <p className="text-xs font-semibold uppercase tracking-widest text-sky-700">
-          Your loan package
-        </p>
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-2xl font-semibold">
-            One question at a time. Everything in view.
-          </h2>
-          <button
-            type="button"
-            className="rounded-lg border px-4 py-2 text-sm"
-            onClick={() => {
-              if (showTools && reviewDirty) { setError("Save your assumption draft before returning to the questions."); return; }
-              if (showTools) void refresh();
-              setShowTools((v) => !v);
-            }}
-          >
-            {showTools ? "Back to questions" : "Owners, documents & review"}
-          </button>
+    <div className="space-y-7 pb-12 text-slate-900">
+      <header className="flex flex-wrap items-end justify-between gap-4 py-4">
+        <div>
+          <p className="text-sm font-medium text-sky-800">
+            {borrowerName
+              ? `${borrowerName}’s application`
+              : "Your application"}
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+            {goal ? choiceLabel("A11", goal) : "Let’s build your next chapter."}
+          </h1>
+          <p className="mt-3 max-w-2xl leading-7 text-slate-600">
+            A little at a time. Your saved answers stay with your application.
+          </p>
         </div>
-        <p className="mt-2 text-sm text-slate-600">
-          Type your answer or talk with Buddy. Review what was captured, then
-          save it to your application.
-        </p>
-        <div
-          className="mt-5 h-2 overflow-hidden rounded-full bg-slate-100"
-          role="progressbar"
-          aria-label="Answers saved"
-          aria-valuenow={percent}
-          aria-valuemin={0}
-          aria-valuemax={100}
+        <button
+          onClick={() => setShowMap((v) => !v)}
+          aria-expanded={showMap}
+          className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium"
         >
-          <div className="h-full bg-sky-600" style={{ width: `${percent}%` }} />
-        </div>
-        <p className="mt-2 text-sm text-slate-600">
-          {snapshot
-            ? `${snapshot.saved} of ${snapshot.total} answers saved`
-            : "Loading your answers…"}{" "}
-          · Documents, lender review and signatures are tracked separately.
-        </p>
+          <ListChecks className="h-4 w-4" />
+          {showMap ? "Close application map" : "View application map"}
+        </button>
       </header>
+      <nav
+        aria-label="Your application journey"
+        className="flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 sm:grid sm:grid-cols-5"
+      >
+        {CHAPTERS.map((c, i) => {
+          const qs = snapshot ? orderedQuestions(snapshot, c.id) : [];
+          const saved = qs.filter((q) => q.state === "saved").length;
+          return (
+            <button
+              key={c.id}
+              aria-current={chapter === c.id ? "step" : undefined}
+              onClick={() => navigate(c.id)}
+              className={`min-h-20 min-w-32 shrink-0 rounded-xl p-3 text-left sm:min-w-0 ${chapter === c.id ? "bg-sky-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+            >
+              <span className="block text-xs opacity-80">STEP {i + 1}</span>
+              <span className="mt-1 block text-sm font-semibold">
+                {c.title}
+              </span>
+              {saved > 0 && (
+                <span className="mt-1 block text-xs">
+                  {saved} answers saved
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
       {error && (
-        <div role="alert" className="rounded-xl bg-amber-50 p-4">
+        <div role="alert" className="rounded-xl bg-amber-50 p-4 text-sm">
           {error}{" "}
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="underline"
-          >
-            Retry loading
+          <button onClick={() => void refresh()} className="min-h-11 underline">
+            Reload saved information
           </button>
         </div>
       )}
       {!!snapshot?.readErrors.length && (
         <p role="alert" className="rounded-xl bg-amber-50 p-4">
-          Some saved information is unavailable. Progress is incomplete; retry
-          loading before editing.{" "}
-          <button onClick={() => void refresh()} className="underline">
-            Retry
-          </button>
+          Some saved information is unavailable. Editing is paused until it can
+          be reloaded.
         </p>
       )}
-      {showTools ? (
-        <div className="space-y-5">
-          <div className="rounded-2xl border bg-white p-4">{tools}</div>
-          <GuidedPfsSchedules dealId={dealId} />
-          <LenderPackageReview dealId={dealId} onDirtyChange={setReviewDirty} />
+      {goalPending && snapshot && (
+        <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-sky-200 bg-sky-50 p-5">
+          <p className="flex-1">
+            You chose <strong>{choiceLabel("A11", goalPending)}</strong>.{" "}
+            {goal
+              ? "Replace your saved goal with this choice?"
+              : "Save this goal to this application?"}
+          </p>
+          <button
+            disabled={goalSaving || !!snapshot.readErrors.length}
+            onClick={() => void saveWelcomeGoal()}
+            className="min-h-11 rounded-xl bg-sky-800 px-4 text-white disabled:opacity-50"
+          >
+            {goalSaving ? "Saving…" : "Save my goal"}
+          </button>
+          <button
+            disabled={goalSaving}
+            onClick={() => setGoalPending("")}
+            className="min-h-11 underline"
+          >
+            Keep current application
+          </button>
+        </div>
+      )}
+      {showMap && snapshot && (
+        <section
+          aria-label="Complete application map"
+          className="rounded-2xl border border-slate-200 bg-white p-6"
+        >
+          <h2 className="text-xl font-semibold">
+            Your application, at a glance
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            {snapshot.saved} answers saved. Requirements can change with your
+            project. Documents, signatures and lender review have their own
+            checks.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {CHAPTERS.map((c) => (
+              <details key={c.id} className="rounded-xl bg-slate-50 p-4">
+                <summary className="cursor-pointer font-semibold">
+                  {c.title}
+                </summary>
+                <ul className="mt-3 space-y-1">
+                  {orderedQuestions(snapshot, c.id).map((q) => (
+                    <li key={q.id}>
+                      <button
+                        onClick={() => {
+                          navigate(c.id, q.id);
+                          setShowMap(false);
+                        }}
+                        className="flex min-h-11 w-full items-start gap-2 rounded-lg p-2 text-left text-sm hover:bg-white"
+                      >
+                        <span aria-hidden="true">
+                          {q.state === "saved" ? "✓" : "○"}
+                        </span>
+                        <span>
+                          {q.ownerName && `${q.ownerName}: `}
+                          {q.id === "loan.sba_program"
+                            ? "Has a program been selected for your application?"
+                            : q.question}
+                          <span className="block text-xs text-slate-500">
+                            {q.state === "saved"
+                              ? "Saved"
+                              : q.state === "needs_confirmation"
+                                ? "Please confirm"
+                                : "To do"}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ))}
+          </div>
+        </section>
+      )}
+      <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="min-w-0 space-y-5">
+          <div>
+            <p className="text-sm font-semibold text-sky-800">
+              {current.title}
+            </p>
+            <h2
+              ref={heading}
+              tabIndex={-1}
+              className="mt-2 text-2xl font-semibold outline-none"
+            >
+              {current.subtitle}
+            </h2>
+          </div>
+          {!snapshot && (
+            <p role="status" className="rounded-2xl bg-white p-8">
+              Loading your saved application…
+            </p>
+          )}
+          {chapter === "plan" && (
+            <button
+              onClick={() => {
+                if (protectedDirty || reviewDirty) {
+                  setError(
+                    "Save your current protected answer or financial draft before changing tasks.",
+                  );
+                  return;
+                }
+                setShowOptions((v) => !v);
+              }}
+              aria-expanded={showOptions}
+              className="flex min-h-12 items-center gap-2 text-sm font-semibold text-sky-800"
+            >
+              {showOptions ? "Back to your plan" : "Explore financing options"}
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          )}
+          {showOptions && snapshot ? (
+            <ProgramOptions snapshot={snapshot} />
+          ) : selected && snapshot ? (
+            <AnswerCard
+              key={selected.id}
+              drafts={drafts.current}
+              question={selected}
+              dealId={dealId}
+              disabled={!!snapshot.readErrors.length}
+              onProtectedDirty={setProtectedDirty}
+              onSaved={(next) => {
+                setSelectedId(selected.id);
+                setSnapshot(next);
+                onSaved();
+              }}
+              onRefresh={refresh}
+              onNext={() => {
+                const index = questions.findIndex((q) => q.id === selected.id);
+                const next = questions
+                  .slice(index + 1)
+                  .find((q) => q.state !== "saved");
+                if (next) setSelectedId(next.id);
+                else if (chapter === "plan") setShowOptions(true);
+                else
+                  navigate(
+                    CHAPTERS[
+                      Math.min(
+                        CHAPTERS.findIndex((c) => c.id === chapter) + 1,
+                        4,
+                      )
+                    ].id,
+                  );
+              }}
+            />
+          ) : (
+            snapshot && (
+              <p className="rounded-2xl bg-white p-6">
+                No questions are available in this section yet. You can use the
+                tasks below or explore another chapter.
+              </p>
+            )
+          )}
+          {/* Keep work panels mounted after first visit so changing chapters cannot discard drafts. */}
+          <JourneyPanels
+            chapter={chapter}
+            dealId={dealId}
+            borrowerName={borrowerName}
+            snapshot={snapshot}
+            uploadVersion={uploadVersion}
+            onUpload={() => {
+              setUploadVersion((v) => v + 1);
+              onSaved();
+              void refresh();
+            }}
+            onSaved={() => {
+              onSaved();
+              void refresh();
+            }}
+            refresh={refresh}
+            onReviewDirty={setReviewDirty}
+          />
+        </div>
+        <aside className="space-y-4 lg:sticky lg:top-6">
+          <div className="rounded-2xl border border-sky-100 bg-white p-5">
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-800 font-semibold text-white">
+              B
+            </span>
+            <h2 className="mt-4 font-semibold">A little help from Buddy</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              {selected ? questionHelp(selected) : current.help}
+            </p>
+            <button
+              onClick={() => setHelp((v) => !v)}
+              aria-expanded={help}
+              className="mt-4 flex min-h-11 items-center gap-2 text-sm font-semibold text-sky-800"
+            >
+              <MessageCircle className="h-4 w-4" />
+              {help ? "Close Buddy" : "Ask Buddy"}
+            </button>
+            {help && (
+              <FloatingConcierge
+                inline
+                dealId={dealId}
+                borrowerName={borrowerName}
+              />
+            )}
+          </div>
+          <JourneyHelp dealId={dealId} />
+          <div className="rounded-2xl bg-sky-50 p-5">
+            <ShieldCheck className="h-5 w-5 text-sky-800" />
+            <p className="mt-3 text-sm leading-6 text-slate-700">
+              You’re in control. Review and correct your answers before
+              submitting. Saving an answer does not submit your application.
+            </p>
+          </div>
+          {snapshot && snapshot.saved > 0 && (
+            <div role="status" className="rounded-2xl bg-emerald-50 p-5">
+              <Check className="h-5 w-5 text-emerald-800" />
+              <p className="mt-2 text-sm text-emerald-900">
+                {snapshot.saved} answers are saved to your application. That’s
+                work you can return to.
+              </p>
+            </div>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+}
+function JourneyPanels({
+  chapter,
+  dealId,
+  borrowerName,
+  snapshot,
+  uploadVersion,
+  onUpload,
+  onSaved,
+  refresh,
+  onReviewDirty,
+}: {
+  chapter: Chapter;
+  dealId: string;
+  borrowerName: string | null;
+  snapshot: GuidedSnapshot | null;
+  uploadVersion: number;
+  onUpload: () => void;
+  onSaved: () => void;
+  refresh: () => Promise<void>;
+  onReviewDirty: (dirty: boolean) => void;
+}) {
+  const [visited, setVisited] = useState<Chapter[]>([chapter]);
+  if (!visited.includes(chapter)) setVisited([...visited, chapter]);
+  return (
+    <>
+      {visited.includes("business") && (
+        <div hidden={chapter !== "business"} className="space-y-5">
+          <details className="rounded-2xl border border-slate-200 bg-white p-5">
+            <summary className="cursor-pointer py-2 font-semibold">
+              People & ownership
+            </summary>
+            <div className="mt-4">
+              {snapshot?.owners.length ? (
+                <OwnershipEditor token={dealId} onChanged={onSaved} />
+              ) : (
+                <IntakeOwnershipStep
+                  dealId={dealId}
+                  borrowerName={borrowerName}
+                  onContinue={onSaved}
+                />
+              )}
+            </div>
+          </details>
+        </div>
+      )}
+      {visited.includes("numbers") && (
+        <div hidden={chapter !== "numbers"} className="space-y-5">
+          <section className="rounded-2xl border border-slate-200 bg-white p-6">
+            <h3 className="text-xl font-semibold">
+              Bring what you have. We’ll keep it organized.
+            </h3>
+            <p className="my-3 text-sm leading-6 text-slate-600">
+              Start with business tax returns, a recent profit and loss
+              statement, and a balance sheet if available. You can add more
+              later. Uploading is separate from processing and acceptance.
+            </p>
+            <PortalUploadDropzone
+              dealId={dealId}
+              token={dealId}
+              onUploadComplete={onUpload}
+            />
+            <UploadedDocumentsList token={dealId} refreshKey={uploadVersion} />
+          </section>
+          <details className="rounded-2xl border bg-white p-5">
+            <summary className="cursor-pointer py-2 font-semibold">
+              Personal financial schedules
+            </summary>
+            <div className="mt-4">
+              <GuidedPfsSchedules dealId={dealId} />
+            </div>
+          </details>
+        </div>
+      )}
+      {visited.includes("application") && (
+        <div hidden={chapter !== "application"}>
+          <LenderPackageReview dealId={dealId} onDirtyChange={onReviewDirty} />
+        </div>
+      )}
+      {visited.includes("review") && (
+        <div hidden={chapter !== "review"} className="space-y-5">
+          <section className="rounded-2xl border bg-white p-6">
+            <h3 className="text-xl font-semibold">Before you move forward</h3>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Check your saved answers in the application map, review your
+              documents, and complete any required identity and signature tasks.
+              Preparing a package does not mean it has been shared or approved.
+            </p>
+          </section>
           <PackageHandoff
             dealId={dealId}
             poster={snapshot?.form722}
             onSaved={refresh}
           />
+          <IdentityVerificationPanel token={dealId} />
+          <SealPackageCard dealId={dealId} />
+          <SigningPanel dealId={dealId} />
         </div>
-      ) : (
-        snapshot && (
-          <div className="grid items-start gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
-            <nav
-              aria-label="Application sections"
-              className="rounded-2xl border border-slate-200 bg-white p-3 lg:sticky lg:top-4"
-            >
-              <label className="mb-3 flex items-center gap-2 p-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={onlyOpen}
-                  onChange={(e) => setOnlyOpen(e.target.checked)}
-                />
-                Show unanswered questions
-              </label>
-              {sections.map((s) => {
-                const items = snapshot.questions.filter((q) => q.section === s);
-                return (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => {
-                      setSection(s);
-                      setSelectedId("");
-                    }}
-                    aria-current={activeSection === s ? "step" : undefined}
-                    className={`flex w-full items-start justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === s ? "bg-sky-50 font-semibold text-sky-800" : "hover:bg-slate-50"}`}
-                  >
-                    <span>{s}</span>
-                    <span className="shrink-0 text-xs">
-                      {items.filter((q) => q.state === "saved").length}/
-                      {items.length}
-                    </span>
-                  </button>
-                );
-              })}
-              {!snapshot.owners.length && (
-                <button
-                  type="button"
-                  onClick={() => setShowTools(true)}
-                  className="mt-3 w-full rounded-lg bg-sky-700 p-3 text-sm text-white"
-                >
-                  Add your owners to reveal their questions
-                </button>
-              )}
-            </nav>
-            <div className="min-w-0 space-y-4">
-              <div className="rounded-2xl border bg-white p-4">
-                <h3 className="mb-3 font-semibold">{activeSection}</h3>
-                <div className="max-h-72 overflow-auto">
-                  {visible.map((q) => (
-                    <button
-                      type="button"
-                      key={q.id}
-                      onClick={() => setSelectedId(q.id)}
-                      className={`mb-1 flex w-full gap-3 rounded-lg p-3 text-left text-sm ${q.id === selected?.id ? "bg-sky-50 ring-1 ring-sky-200" : "hover:bg-slate-50"}`}
-                    >
-                      <span aria-hidden="true" className="text-sky-700">
-                        {q.state === "saved"
-                          ? "✓"
-                          : q.state === "not_applicable"
-                            ? "–"
-                            : "○"}
-                      </span>
-                      <span className="flex-1">
-                        {q.ownerName && (
-                          <span className="block text-xs font-semibold text-slate-500">
-                            {q.ownerName}
-                          </span>
-                        )}
-                        {q.question}
-                      </span>
-                      <span className="text-xs text-slate-500">
-                        {q.responsibility === "lender"
-                          ? "Lender"
-                          : q.state.replaceAll("_", " ")}
-                      </span>
-                    </button>
-                  ))}
-                  {!visible.length && (
-                    <p className="p-3 text-sm text-slate-500">
-                      No unanswered questions in this section.
-                    </p>
-                  )}
-                </div>
-              </div>
-              {selected && (
-                <AnswerCard
-                  drafts={drafts.current}
-                  key={selected.id}
-                  question={selected}
-                  dealId={dealId}
-                  disabled={!!snapshot.readErrors.length}
-                  onSaved={(next) => {
-                    setSnapshot(next);
-                    onSaved();
-                  }}
-                  onRefresh={refresh}
-                  onNext={() => {
-                    const index = snapshot.questions.findIndex(
-                      (q) => q.id === selected.id,
-                    );
-                    const next = snapshot.questions
-                      .slice(index + 1)
-                      .find(
-                        (q) =>
-                          !onlyOpen ||
-                          !["saved", "not_applicable"].includes(q.state),
-                      );
-                    if (next) {
-                      setSection(next.section);
-                      setSelectedId(next.id);
-                    } else setShowTools(true);
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        )
       )}
-    </div>
+    </>
   );
 }
 function AnswerCard({
@@ -287,6 +571,7 @@ function AnswerCard({
   onSaved,
   onRefresh,
   onNext,
+  onProtectedDirty,
 }: {
   drafts: Record<
     string,
@@ -302,7 +587,9 @@ function AnswerCard({
   onSaved: (s: GuidedSnapshot) => void;
   onRefresh: () => Promise<void>;
   onNext: () => void;
+  onProtectedDirty: (dirty: boolean) => void;
 }) {
+  const capture = useCapture();
   const [draft, setDraft] = useState(
     drafts[q.id]?.value ??
       (q.field?.requiresPiiVault
@@ -378,37 +665,18 @@ function AnswerCard({
       const data = await response.json();
       if (!response.ok || !data.ok)
         throw new Error(data.error || "Unable to save your answer.");
+      readGuidedResponse(data, dealId);
+      capture("borrower_journey_answer_saved", {
+        chapter: chapterFor(q),
+        input_method: source,
+      });
       delete drafts[q.id];
       setDirty(false);
       setMessage("Saved to your application.");
-      onSaved(data.snapshot);
+      onSaved(readGuidedResponse(data, dealId));
       if (q.field?.requiresPiiVault) setDraft("");
-      else {
-        setBuddyReview("Buddy is reviewing your saved answer…");
-        void fetch("/api/brokerage/concierge", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            action: "guided_review",
-            dealId,
-            questionId: q.id,
-          }),
-        })
-          .then(async (response) => {
-            const review = await response.json();
-            setBuddyReview(
-              review.ok
-                ? review.message
-                : "Your answer is saved. Buddy's review is temporarily unavailable.",
-            );
-          })
-          .catch(() =>
-            setBuddyReview(
-              "Your answer is saved. Buddy's review is temporarily unavailable.",
-            ),
-          );
-      }
     } catch (e) {
+      capture("borrower_journey_save_failed", { chapter: chapterFor(q) });
       setMessage(
         e instanceof Error
           ? e.message
@@ -431,14 +699,44 @@ function AnswerCard({
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
+  useEffect(() => {
+    onProtectedDirty(dirty && !!q.field?.requiresPiiVault);
+    return () => onProtectedDirty(false);
+  }, [dirty, q.field?.requiresPiiVault, onProtectedDirty]);
+  const askReview = async () => {
+    setBuddyReview("Buddy is reviewing your saved answer…");
+    try {
+      const response = await fetch("/api/brokerage/concierge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "guided_review",
+          dealId,
+          questionId: q.id,
+        }),
+      });
+      const data = await response.json();
+      setBuddyReview(
+        response.ok && data.ok
+          ? data.message
+          : "Your answer is saved. Buddy’s review is temporarily unavailable; you can keep going.",
+      );
+    } catch {
+      setBuddyReview(
+        "Your answer is saved. Buddy’s review is temporarily unavailable; you can keep going.",
+      );
+    }
+  };
   const inputClass =
     "mt-3 w-full rounded-xl border border-slate-300 bg-white p-3 text-base focus:outline-none focus:ring-2 focus:ring-sky-500";
-  const choices = q.field && GUIDED_CHOICES[q.field.registryEntry.factPath];
+  const choices =
+    DISCOVERY_CHOICES[q.id] ??
+    (q.field && GUIDED_CHOICES[q.field.registryEntry.factPath]);
   const locked =
     disabled || q.responsibility === "lender" || q.state === "not_applicable";
   return (
     <section
-      className="rounded-2xl border bg-white p-5 sm:p-7"
+      className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
       aria-label="Answer the selected question"
     >
       <p className="text-xs font-medium text-sky-700">
@@ -448,14 +746,18 @@ function AnswerCard({
           : " · Supporting information"}
       </p>
       <h3 id="guided-question-label" className="mt-2 text-xl font-semibold">
-        {q.question}
+        {q.id === "loan.sba_program"
+          ? "Has a program been selected for your application?"
+          : q.question}
       </h3>
       {q.field && (
         <p className="mt-2 text-xs text-slate-500">
-          Used in {q.field.registryEntry.appliesToForms.join(", ")}.
+          This answer carries into your applicable application forms.
         </p>
       )}
-      {q.reason && <p className="mt-2 text-sm text-slate-500">{q.reason}</p>}
+      {q.reason && !q.reason.startsWith("Package narrative") && (
+        <p className="mt-2 text-sm text-slate-500">{q.reason}</p>
+      )}
       {q.responsibility === "lender" ? (
         <p className="mt-4 text-sm">
           Your lender completes this field during review or closing.
@@ -480,6 +782,25 @@ function AnswerCard({
               <option value="7A">SBA 7(a)</option>
               <option value="504">SBA 504</option>
             </select>
+          ) : q.id === "A11" && choices ? (
+            <div
+              role="group"
+              aria-labelledby="guided-question-label"
+              className="mt-5 grid gap-3 sm:grid-cols-2"
+            >
+              {choices.map(([key, label]) => (
+                <button
+                  type="button"
+                  key={key}
+                  disabled={locked}
+                  aria-pressed={draft === key}
+                  onClick={() => edit(key)}
+                  className={`min-h-16 rounded-xl border p-4 text-left text-sm font-medium ${draft === key ? "border-sky-700 bg-sky-50 text-sky-900" : "border-slate-200 hover:bg-slate-50"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           ) : choices ? (
             <select
               className={inputClass}
@@ -507,6 +828,18 @@ function AnswerCard({
               <option value="true">Yes</option>
               <option value="false">No</option>
             </select>
+          ) : ["number", "currency"].includes(q.type) ? (
+            <input
+              aria-labelledby="guided-question-label"
+              className={inputClass}
+              inputMode="decimal"
+              value={draft}
+              onChange={(e) => edit(e.target.value)}
+              disabled={locked}
+              placeholder={
+                q.type === "currency" ? "Amount in USD" : "Enter a number"
+              }
+            />
           ) : q.field?.requiresPiiVault || q.type === "date" ? (
             <input
               aria-labelledby="guided-question-label"
@@ -569,7 +902,7 @@ function AnswerCard({
               onClick={onNext}
               className="rounded-lg border px-4 py-2.5 text-sm disabled:opacity-40"
             >
-              Next question
+              {q.state === "saved" ? "Continue" : "Return later"}
             </button>
             {!q.field?.requiresPiiVault && (
               <button
@@ -608,6 +941,15 @@ function AnswerCard({
               {message}
             </p>
           )}
+          {q.state === "saved" && !dirty && !q.field?.requiresPiiVault && (
+            <button
+              type="button"
+              onClick={() => void askReview()}
+              className="mt-3 min-h-11 text-sm font-semibold text-sky-800 underline"
+            >
+              Ask Buddy to review this answer
+            </button>
+          )}
           {buddyReview && (
             <div
               className="mt-4 rounded-xl bg-slate-50 p-4 text-sm"
@@ -621,7 +963,7 @@ function AnswerCard({
             <div className="mt-5">
               <BorrowerVoicePanel
                 dealId={dealId}
-                question={`${q.ownerName ? "For " + q.ownerName + ": " : ""}${q.question}`}
+                question={`${q.ownerName ? "For " + q.ownerName + ": " : ""}${q.id === "loan.sba_program" ? "Has a program been selected for your application?" : q.question}`}
                 onUserAnswer={(text) => {
                   setTranscript((previous) =>
                     previous ? previous + " " + text : text,

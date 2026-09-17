@@ -13,7 +13,7 @@
  * visual grammar. Flag for eyeball pass.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type PackageResource = {
   type: string;
@@ -51,7 +51,6 @@ const DOWNLOADABLE_KINDS = new Set([
   "projections_pdf",
   "projections_xlsx",
   "feasibility",
-  "credit_memo",
   "sba_forms",
   "spreads",
   "complete_package",
@@ -60,15 +59,15 @@ const DOWNLOADABLE_KINDS = new Set([
 export function SealPackageCard({ dealId }: { dealId: string }) {
   const [status, setStatus] = useState<SealStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sharingConfirmed, setSharingConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
-      const res = await fetch(
-        `/api/brokerage/deals/${dealId}/seal-status`,
-        { credentials: "include" },
-      );
+      const res = await fetch(`/api/brokerage/deals/${dealId}/seal-status`, {
+        credentials: "include",
+      });
       if (!res.ok) {
         setError("Could not load seal status");
         return;
@@ -79,14 +78,14 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
     } catch {
       setError("Network error");
     }
-  };
+  }, [dealId]);
 
   useEffect(() => {
     void load();
-  }, [dealId]);
+  }, [load]);
 
   const seal = async () => {
-    if (busy) return;
+    if (busy || !sharingConfirmed) return;
     setBusy(true);
     setError(null);
     try {
@@ -96,7 +95,13 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
       });
       const data = await res.json();
       if (!data.ok) {
-        setError(data.error ?? "Seal failed");
+        setError(
+          data.error === "test_application_distribution_blocked"
+            ? "This is a test application. It cannot be sent to lenders."
+            : data.error === "not_sealable"
+              ? "Some required items still need attention. Review the tasks below before submitting."
+              : "We could not confirm submission. Your saved application is available; check its status before trying again.",
+        );
       } else {
         await load();
       }
@@ -165,7 +170,8 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = blobUrl;
-        link.download = kind === "complete_package" ? "lender-package.zip" : `${kind}.pdf`;
+        link.download =
+          kind === "complete_package" ? "lender-package.zip" : `${kind}.pdf`;
         link.click();
         // Give the new tab time to load the blob before revoking it.
         setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
@@ -278,8 +284,8 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
               </>
             ) : (
               <p className="text-sm text-slate-600">
-                Waiting for a lender to claim your deal. We&rsquo;ll notify you as
-                soon as one does.
+                Waiting for a lender to claim your deal. We&rsquo;ll notify you
+                as soon as one does.
               </p>
             )}
           </div>
@@ -343,9 +349,7 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
             </button>
           </div>
         )}
-        {error && (
-          <p className="mt-3 text-sm text-rose-600">{error}</p>
-        )}
+        {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
       </div>
     );
   }
@@ -353,21 +357,32 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
   return (
     <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <h3 className="text-lg font-semibold text-slate-900 mb-2">
-        Seal your package for the marketplace
+        Review and submit for lender matching
       </h3>
       <p className="text-sm text-slate-600 mb-4">
-        Once you seal, up to 3 matched lenders can review your deal. Your
-        identity stays hidden until you pick one.
+        Submitting starts the lender-matching process using your prepared
+        application. Review the application and sharing authorization before
+        continuing. This is not a credit approval.
       </p>
+      <label className="mb-4 flex items-start gap-3 rounded-xl bg-sky-50 p-4 text-sm leading-6">
+        <input
+          type="checkbox"
+          checked={sharingConfirmed}
+          onChange={(e) => setSharingConfirmed(e.target.checked)}
+          className="mt-1 h-5 w-5"
+        />
+        I have reviewed my application and want to submit it for lender matching
+        under the application’s sharing authorization.
+      </label>
       {status.canSeal ? (
         <>
           <button
             onClick={seal}
-            disabled={busy}
+            disabled={busy || !sharingConfirmed}
             className="px-5 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
             type="button"
           >
-            {busy ? "Sealing…" : "Seal package"}
+            {busy ? "Submitting…" : "Submit for lender matching"}
           </button>
           {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
         </>
