@@ -356,7 +356,8 @@ export async function finishInstitutionalArtifact(input: {
       // Never publish a partial batch or hide the infrastructure failure behind
       // a content finding. Keep the last reviewed prose and its findings.
       const timeout = failed.reason instanceof Error && /aborted|aborterror|timed?\s*out|timeout/i.test(failed.reason.message);
-      remaining.push({
+      if (input.artifactType !== "feasibility" && failed.reason instanceof Error && failed.reason.message === "invalid_repair_contract") remaining = [];
+      if (input.artifactType === "feasibility" || (failed.reason instanceof Error && failed.reason.message === "invalid_repair_contract")) remaining.push({
         sectionKey: "artifact", claim: "Automated repair incomplete",
         reason: timeout ? "A targeted repair and its bounded retry timed out; no partial rewrite was published." : "A targeted repair failed or returned an invalid section contract; no partial rewrite was published.",
         severity: "critical", category: "credit_policy",
