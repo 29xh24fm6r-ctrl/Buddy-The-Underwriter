@@ -389,3 +389,21 @@ test("citations follow repaired prose and cannot retain a removed claim's precis
   assert.equal(tables.buddy_feasibility_studies[0].narrative_citations.marketDemandNarrative.precise, false);
   assert.ok(tables.deal_conditions.some(r => r.source_key.endsWith(":marketDemandNarrative")));
 });
+
+test("review and repair receive the canonical borrower identity instead of inheriting names from generated prose", async () => {
+  __setVendorApprovalForTests("anthropic", "APPROVED");
+  __setProviderImplForTests("anthropic", async (request) => {
+    assert.match(request.prompt, /Apex Precision Fabrication, LLC/);
+    assert.match(request.prompt, /Fort Worth/);
+    assert.match(request.prompt, /Precision machining/);
+    assert.doesNotMatch(request.prompt, /Different tenant/);
+    return { text: JSON.stringify({ issues: [] }), tokensIn: 1, tokensOut: 1 };
+  });
+  const tables: Record<string, Row[]> = {
+    deals: [{ id: "deal-1", bank_id: "bank-1", name: "QA display label", city: "Fort Worth", state: "TX" }, { id: "deal-1", bank_id: "other-bank", name: "Different tenant" }],
+    borrower_applications: [{ deal_id: "deal-1", business_legal_name: "Apex Precision Fabrication, LLC", industry: "Precision machining", created_at: "2026-09-17" }],
+    buddy_feasibility_studies: [{ id: "study-1", narratives: { executiveSummary: "Borrower identity needs confirmation." } }],
+  };
+  const result = await enrichFeasibilityStudy({ dealId: "deal-1", bankId: "bank-1", studyId: "study-1", composite: baseComposite(), sb: makeDb(tables) });
+  assert.equal(result.verdict, "pass");
+});

@@ -308,55 +308,63 @@ export async function finishInstitutionalArtifact(input: {
     const artifactWide = remaining.some((issue) => !sectionKeys.has(issue.sectionKey));
     const targets = artifactWide ? sections : sections.filter((section) =>
       remaining.some((issue) => issue.sectionKey === section.key));
-    let repair;
-    try {
+    // Feasibility has seven long sections. Rewriting all of them in one
+    // response repeatedly exhausted the 75s deadline. Bound each response to
+    // two sections, and retain the independent whole-artifact review.
+    const batches: ArtifactSection[][] = input.artifactType === "feasibility"
+      ? Array.from({ length: Math.ceil(targets.length / 2) }, (_, i) => targets.slice(i * 2, i * 2 + 2))
+      : [targets];
+    const repairs = await Promise.allSettled(batches.map(async (batch, batchIndex) => {
       const request = {
         systemInstruction: REPAIR_SYSTEM,
         prompt: [
           `ARTIFACT TYPE: ${input.artifactType}`,
           "IMMUTABLE EVIDENCE AND CALCULATIONS:",
-          typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts, null, 2),
-          "ALL SECTIONS (read-only context except requested repair keys):",
-          JSON.stringify(sections, null, 2),
+          typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts),
+          "SECTIONS TO REPAIR (claims here are not evidence):",
+          JSON.stringify(input.artifactType === "feasibility" ? batch : sections),
           ...(sectionAudit ? ["AUDIT OF THE CURRENT SECTIONS (not source evidence):", JSON.stringify(sectionAudit)] : []),
           "REQUESTED REPAIR SECTION KEYS:",
-          JSON.stringify(targets.map((section) => section.key)),
+          JSON.stringify(batch.map((section) => section.key)),
           "INDEPENDENT REVIEW FINDINGS:",
-          JSON.stringify(remaining, null, 2),
+          JSON.stringify(remaining.filter((issue) => !sectionKeys.has(issue.sectionKey) || batch.some((s) => s.key === issue.sectionKey))),
           `REPAIR CYCLE: ${cycle + 1} OF 3`,
-          "Return only the requested repaired sections. Do not repeat unchanged sections.",
+          input.artifactType === "feasibility"
+            ? "Return only the requested repaired sections. Remove unsupported claims; do not pad the response. Keep each section concise (normally 150-250 words)."
+            : "Return only the requested repaired sections. Do not repeat unchanged sections.",
         ].join("\n\n"),
         responseSchema: REPAIR_SCHEMA,
-        purpose: `${input.artifactType}_targeted_repair_${cycle + 1}`,
+        purpose: `${input.artifactType}_targeted_repair_${cycle + 1}${batches.length > 1 ? `_batch_${batchIndex + 1}` : ""}`,
         dealId: input.dealId,
         npiTagged,
-        maxOutputTokens: 8_192,
+        maxOutputTokens: input.artifactType === "feasibility" ? 4_096 : 8_192,
         timeoutMs: 75_000,
       };
+      let repair;
       try {
         repair = await runRole("underwriter", request);
       } catch (error) {
-        // One bounded retry for a transient abort/timeout; never retry billing,
-        // authentication or budget errors. Keep the release review mandatory.
         if (!(error instanceof Error) || !/aborted|aborterror|timed?\s*out|timeout/i.test(error.message)) throw error;
         repair = await runRole("underwriter", { ...request, purpose: `${request.purpose}_retry` });
       }
-    } catch {
+      const parsed = parseSections(repair.text, batch);
+      if (!parsed) throw new Error("invalid_repair_contract");
+      return parsed;
+    }));
+    const failed = repairs.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") {
+      // Never publish a partial batch or hide the infrastructure failure behind
+      // a content finding. Keep the last reviewed prose and its findings.
+      const timeout = failed.reason instanceof Error && /aborted|aborterror|timed?\s*out|timeout/i.test(failed.reason.message);
+      remaining.push({
+        sectionKey: "artifact", claim: "Automated repair incomplete",
+        reason: timeout ? "A targeted repair and its bounded retry timed out; no partial rewrite was published." : "A targeted repair failed or returned an invalid section contract; no partial rewrite was published.",
+        severity: "critical", category: "credit_policy",
+        repairInstruction: "Complete the targeted repair and independent review before publication.",
+      });
       break;
     }
-
-    const repairedSections = parseSections(repair.text, targets);
-    if (!repairedSections) {
-      remaining = [{
-        sectionKey: "artifact",
-        claim: "(artifact repair output invalid)",
-        reason: "The automated repair did not preserve the complete artifact section contract.",
-        severity: "critical",
-        category: "credit_policy",
-        repairInstruction: "Regenerate the complete section contract.",
-      }];
-      break;
-    }
+    const repairedSections = repairs.flatMap((result) => result.status === "fulfilled" ? result.value : []);
     const replacements = new Map(repairedSections.map((section) => [section.key, section]));
     sections = sections.map((section) => replacements.get(section.key) ?? section);
     repaired = true;

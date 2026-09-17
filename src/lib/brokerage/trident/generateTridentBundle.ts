@@ -662,7 +662,7 @@ export async function generateTridentBundle(args: {
               .maybeSingle();
             const findings = Array.isArray(reviewEvidence?.verification_flagged_claims)
               ? reviewEvidence.verification_flagged_claims
-                  .slice(0, 3)
+                  .filter((finding: { claim?: unknown }, index: number) => index < 3 || finding.claim === "Automated repair incomplete")
                   .map((finding: { severity?: unknown; reason?: unknown }) =>
                     `${String(finding.severity ?? "warning")}: ${String(finding.reason ?? "unresolved review finding")}`,
                   )
