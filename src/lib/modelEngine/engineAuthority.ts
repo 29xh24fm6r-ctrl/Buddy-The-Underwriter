@@ -70,6 +70,7 @@ export interface LegacyResult {
 export async function computeAuthoritativeEngine(
   dealId: string,
   bankId: string,
+  options: { persist?: boolean } = {},
 ): Promise<AuthoritativeResult> {
   const sb = supabaseAdmin();
 
@@ -85,7 +86,7 @@ export async function computeAuthoritativeEngine(
       .neq("fact_type", "EXTRACTION_HEARTBEAT"),
     (sb as any)
       .from("deals")
-      .select("deal_mode")
+      .select("deal_mode,is_test")
       .eq("id", dealId)
       .maybeSingle(),
     (sb as any)
@@ -102,7 +103,15 @@ export async function computeAuthoritativeEngine(
     throw new Error(`facts_load_failed: ${factsRes.error.message}`);
   }
 
-  const facts = (factsRes.data ?? []) as FinancialFact[];
+  const facts = ((factsRes.data ?? []) as FinancialFact[]).map(fact => {
+    // Compatibility for earlier governed QA fixtures only. Production inputs
+    // never gain acceptance merely by claiming a QA fact type.
+    if ((dealModeRes.data as any)?.is_test === true && fact.fact_type === "qa_certified_financial") {
+      return { ...fact, fact_type: fact.source_canonical_type === "BALANCE_SHEET" ? "BALANCE_SHEET" : "INCOME_STATEMENT",
+        fact_value_num: fact.fact_value_num == null ? null : Number(fact.fact_value_num) };
+    }
+    return fact;
+  });
   const dealMode: string = (dealModeRes.data as any)?.deal_mode ?? "full_underwrite";
 
   // 2. Build financial model
@@ -151,6 +160,7 @@ export async function computeAuthoritativeEngine(
 
   // 6. Persist snapshot (authoritative — only this function may do this)
   let snapshotId: string | null = null;
+  if (options.persist !== false) {
   try {
     const persistResult = await persistModelV2SnapshotFromDeal({
       dealId,
@@ -206,6 +216,8 @@ export async function computeAuthoritativeEngine(
     .catch((err: any) => {
       console.warn("[engineAuthority] deal_spreads persist failed (non-fatal)", err?.message);
     });
+
+  }
 
   // 8. Emit authoritative served event
   emitV2Event({

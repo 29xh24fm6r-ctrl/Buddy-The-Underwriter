@@ -207,3 +207,29 @@ test("a failed feasibility batch never publishes partial repairs and reports exh
   assert.equal(result.repaired, false);
   assert.match(result.flaggedClaims.at(-1)!.reason, /timed out; no partial rewrite/);
 });
+
+test("accepted repaired content is the reusable review fingerprint", async () => {
+  let reviews = 0;
+  __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify(++reviews === 1 ? {
+    issues: [{ sectionKey: "a", claim: "4x", reason: "Evidence says 1.4x", severity: "critical", category: "numeric_inconsistency", repairInstruction: "Use 1.4x" }],
+  } : { issues: [] }), tokensIn: 10, tokensOut: 10 }));
+  __setProviderImplForTests("openai", async () => ({ text: JSON.stringify({ sections: [{ key: "a", text: "Coverage is 1.4x." }] }), tokensIn: 10, tokensOut: 10 }));
+  const args = { artifactType: "credit_memo" as const, dealId: "deal-1", facts: { dscr: 1.4 }, sections: [{ key: "a", text: "Coverage is 4x." }] };
+  const result = await finishInstitutionalArtifact(args);
+  const { reviewContentHash } = require("../frontierArtifactFactory") as typeof import("../frontierArtifactFactory");
+  assert.equal(result.contentHash, reviewContentHash({ ...args, sections: result.sections }));
+  assert.notEqual(result.contentHash, reviewContentHash(args));
+});
+
+test("a disclosed advisory condition does not spend three repair cycles", async () => {
+  let reviews = 0;
+  __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify({ issues: [{
+    sectionKey: "a", claim: "Lender pricing pending", reason: "Lender must confirm pricing", severity: "warning", category: "credit_policy", repairInstruction: "Obtain lender confirmation",
+  }] }), tokensIn: ++reviews, tokensOut: 5 }));
+  __setProviderImplForTests("openai", async () => { throw new Error("No repair should run"); });
+  const result = await finishInstitutionalArtifact({ artifactType: "credit_memo", dealId: "deal-1", facts: {}, sections: [{ key: "a", text: "Lender pricing pending." }] });
+  assert.equal(result.verdict, "pass");
+  assert.equal(result.advisoryIssues.length, 1);
+  assert.equal(result.repaired, false);
+  assert.equal(reviews, 1);
+});

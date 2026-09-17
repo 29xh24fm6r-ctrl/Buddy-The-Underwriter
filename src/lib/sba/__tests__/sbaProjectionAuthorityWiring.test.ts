@@ -7,6 +7,7 @@ const ROOT = process.cwd();
 
 const PROJECTION_CONSUMERS = [
   "src/lib/sba/sbaPackageOrchestrator.ts",
+  "src/lib/modelEngine/packageFinancialComputation.ts",
   "src/app/api/borrower/portal/[token]/generate-pdf/route.ts",
   "src/components/borrower/intake/AssumptionInterview.tsx",
   "src/components/borrower/intake/ProjectionDashboard.tsx",
@@ -25,7 +26,7 @@ test("borrower-facing projection consumers use the versioned authority", () => {
     const source = readFileSync(resolve(ROOT, relativePath), "utf8");
     assert.match(
       source,
-      /computeSBAProjectionModel/,
+      /computeSBAProjectionModel|preparePackageFinancialSnapshot/,
       `${relativePath} must consume the authoritative SBA projection model`,
     );
     for (const calculator of FORBIDDEN_DIRECT_CALCULATORS) {

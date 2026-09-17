@@ -1,4 +1,5 @@
 import "server-only";
+import { loadPackageFinancialSnapshot } from "@/lib/modelEngine/packageFinancialSnapshot";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -49,14 +50,16 @@ export function isDispatchedSbaTemplateCode(templateCode: string): boolean {
 
 export async function renderSbaPackageItem(
   templateCode: string,
-  args: { dealId: string; bankId: string; supabase: SupabaseClient; ownershipEntityId?: string },
+  args: { dealId: string; bankId: string; supabase: SupabaseClient; ownershipEntityId?: string; financialSnapshotId?: string },
 ): Promise<SbaFormDispatchResult> {
   const { dealId, bankId, supabase, ownershipEntityId } = args;
+  const financial = args.financialSnapshotId
+    ? (await loadPackageFinancialSnapshot({ dealId, snapshotId: args.financialSnapshotId })).output : undefined;
   const sb = supabase as unknown as { from: (t: string) => any };
 
   switch (templateCode) {
     case "SBA_1919": {
-      const buildResult = await buildForm1919WithSignature(dealId, sb);
+      const buildResult = await buildForm1919WithSignature(dealId, sb, financial);
       if (!buildResult.is_complete) return { ok: false, reason: `form_incomplete: ${JSON.stringify(buildResult.missing)}` };
       // Section II is per-individual on the real form (see form1919/
       // render.ts). Ambiguous calls must identify their intended signer.
@@ -69,7 +72,7 @@ export async function renderSbaPackageItem(
     }
 
     case "SBA_1244": {
-      const buildResult = await buildForm1244WithSignature(dealId, sb);
+      const buildResult = await buildForm1244WithSignature(dealId, sb, financial);
       if (!buildResult.is_complete) return { ok: false, reason: `form_incomplete: ${JSON.stringify(buildResult.missing)}` };
       // Section Two is per-individual on the real form (see form1244/
       // render.ts). Ambiguous calls must identify their intended signer.
@@ -148,7 +151,7 @@ export async function renderSbaPackageItem(
     }
 
     case "SBA_148": {
-      const buildResult = await buildForm148WithSignature(dealId, bankId, sb);
+      const buildResult = await buildForm148WithSignature(dealId, bankId, sb, financial);
       const signer = ownershipEntityId
         ? buildResult.input.signers.find((s) => s.ownership_entity_id === ownershipEntityId && s.guaranteeType === "unconditional")
         : buildResult.input.signers.find((s) => s.guaranteeType === "unconditional");
@@ -160,7 +163,7 @@ export async function renderSbaPackageItem(
     }
 
     case "SBA_148L": {
-      const buildResult = await buildForm148WithSignature(dealId, bankId, sb);
+      const buildResult = await buildForm148WithSignature(dealId, bankId, sb, financial);
       const signer = ownershipEntityId
         ? buildResult.input.signers.find((s) => s.ownership_entity_id === ownershipEntityId && s.guaranteeType === "limited")
         : buildResult.input.signers.find((s) => s.guaranteeType === "limited");

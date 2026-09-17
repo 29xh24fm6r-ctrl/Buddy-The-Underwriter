@@ -119,6 +119,7 @@ export function buildNarrativeInput(
   const qa = memo.qualitative_assessment;
 
   return {
+    package_financials: memo.package_financials ?? null,
     // ── Header / deal identity ──────────────────────────────────────────
     deal_name: memo.header.deal_name,
     borrower_name: memo.header.borrower_name,

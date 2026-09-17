@@ -13,6 +13,7 @@
 
 import "server-only";
 
+import { deterministicHash } from "@/lib/modelEngine/hashing";
 import { createHash } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadClassicSpreadData } from "@/lib/classicSpread/classicSpreadLoader";
@@ -46,6 +47,8 @@ export type ClassicPdfWorkerResult = {
 };
 
 export type ClassicPdfCachedPayload = {
+  financialSnapshotId?: string;
+  financialRenderInputHash?: string;
   pdf_base64: string;
   pdf_sha256: string;
   pdf_size_bytes: number;
@@ -64,12 +67,16 @@ export type ClassicPdfCachedPayload = {
 export async function renderClassicPdfSpread(args: {
   dealId: string;
   bankId: string;
+  financialSnapshotId?: string;
 }): Promise<ClassicPdfWorkerResult> {
   const { dealId, bankId } = args;
   const sb = supabaseAdmin();
 
   // 1. Load input data (same path as synchronous route) — bank-scoped (#1).
-  const input = await loadClassicSpreadData(dealId, bankId);
+  const financialSnapshot = args.financialSnapshotId
+    ? await (await import("@/lib/modelEngine/packageFinancialSnapshot")).loadPackageFinancialSnapshot({ dealId, bankId, snapshotId: args.financialSnapshotId })
+    : null;
+  const input = financialSnapshot?.output.spreadInput ?? await loadClassicSpreadData(dealId, bankId);
 
   // 2. Preflight gate — if BS or IS rows are empty, don't generate
   const preflight = await preflightClassicSpread({
@@ -110,6 +117,7 @@ export async function renderClassicPdfSpread(args: {
     existingRow?.status === "ready" &&
     existingRow?.inputs_hash &&
     existingRow.inputs_hash === inputsHash &&
+    (!args.financialSnapshotId || existingRow.rendered_json?.financialSnapshotId === args.financialSnapshotId) &&
     existingRow.rendered_json?.pdf_base64
   ) {
     // Content + renderer unchanged. Refresh only the staleness stamp so the
@@ -170,6 +178,8 @@ export async function renderClassicPdfSpread(args: {
     generatedAt,
     renderVersion: CLASSIC_PDF_RENDER_VERSION,
     inputsHash,
+    financialSnapshotId: args.financialSnapshotId,
+    financialRenderInputHash: financialSnapshot ? deterministicHash(financialSnapshot.output.spreadInput) : undefined,
     certificationAudit: input.certificationAudit ?? null,
   };
 

@@ -10,7 +10,7 @@ export function memoEvidenceReview(memo: CanonicalCreditMemoV1) {
   if (!principals.length || principals.some(p => !p.bio || p.bio.startsWith("Pending"))) findings.push("Management qualifications need completion or verification.");
   const cashFlow = memo.financial_analysis.cash_flow_available.value;
   const historical = memo.financial_analysis.debt_coverage_table;
-  if (typeof cashFlow === "number" && historical.some(row => typeof row.cash_flow_available === "number" && Math.abs(row.cash_flow_available - cashFlow) > 1)) {
+  if (!memo.package_financials && typeof cashFlow === "number" && historical.some(row => typeof row.cash_flow_available === "number" && Math.abs(row.cash_flow_available - cashFlow) > 1)) {
     findings.push("Historical and underwriting cash-flow bases differ. Underwriter must verify the adjustment bridge before relying on underwriting repayment capacity.");
   }
   if (memo.financial_analysis.dscr?.preliminary) findings.push("Coverage is preliminary; resolve its stated caveat before lender reliance.");

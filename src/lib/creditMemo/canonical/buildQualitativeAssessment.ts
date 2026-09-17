@@ -297,11 +297,11 @@ function scoreManagement(args: {
     score = 5;
     basis =
       principalCount >= 2
-        ? `Multiple experienced principals (${principalCount} entities, avg ${avgYears.toFixed(0)} years).`
+        ? `Experienced management team (${principalCount} members, avg ${avgYears.toFixed(0)} years); ownership and guarantor roles assessed separately.`
         : "Banker-documented strong management track record.";
   } else if (avgYears >= 5 || principalCount >= 2) {
     score = 4;
-    basis = `Owner-operator(s) with relevant experience (${principalCount} principal${principalCount !== 1 ? "s" : ""}, avg ${avgYears.toFixed(0)} years).`;
+    basis = `Management with relevant experience (${principalCount} member${principalCount !== 1 ? "s" : ""}, avg ${avgYears.toFixed(0)} years).`;
   } else if (bankerFlaggedWeak || avgYears > 0) {
     score = 3;
     basis = "Single owner-operator with limited documented experience.";

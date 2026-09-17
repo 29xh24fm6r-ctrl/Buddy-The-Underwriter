@@ -1,3 +1,4 @@
+import type { PackageFinancialOutput } from "@/lib/modelEngine/packageFinancialComputation";
 /**
  * SPEC S7 (ARC-00 Phase 5) — DB-aware wrapper. `form_code` in
  * `signed_documents` is `FORM_148` or `FORM_148L` depending on the
@@ -18,8 +19,10 @@ export async function buildForm148WithSignature(
   dealId: string,
   bankId: string,
   sb: Form148InputBuilderClient,
+  financial?: PackageFinancialOutput,
 ): Promise<Form148BuildResult> {
   const input = await buildForm148Input(dealId, bankId, sb);
+  if (financial) for (const signer of input.signers) signer.fields.loan_amount = financial.assumptions.loanImpact.loanAmount;
   const result = buildForm148(input);
 
   const { data: signedDocs } = await sb

@@ -1,0 +1,292 @@
+[
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "ACCOUNTS_PAYABLE",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 210000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "ACCOUNTS_RECEIVABLE",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 310000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "ADS",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 120000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "CASH",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 240000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "COST_OF_GOODS_SOLD",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 1320000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "DEPRECIATION",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 90000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "EBITDA",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 360000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "GROSS_RECEIPTS",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 2400000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "INTEREST_EXPENSE",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 45000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "INVENTORY",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 180000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "NET_INCOME",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 190000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "SL_ACCOUNTS_PAYABLE",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 210000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "SL_AR_GROSS",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 310000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "SL_CASH",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 240000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "SL_INVENTORY",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 180000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "SL_LONG_TERM_DEBT",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 620000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "SL_PPE_GROSS",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 950000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "SL_TOTAL_ASSETS",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 1680000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "SL_TOTAL_EQUITY",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 850000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "SL_TOTAL_LIABILITIES",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 830000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "TOTAL_ASSETS",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 1680000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "TOTAL_EQUITY",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 850000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "TOTAL_FIXED_ASSETS",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 950000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "TOTAL_LIABILITIES",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 830000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "TOTAL_LONG_TERM_DEBT",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 620000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "TOTAL_OPERATING_EXPENSES",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 720000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "TOTAL_REVENUE",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 2400000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "TOTAL_TAX",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 35000,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  },
+  {
+    "fact_type": "INCOME_STATEMENT",
+    "fact_key": "YEARS_IN_BUSINESS",
+    "fact_period_end": "2025-12-31",
+    "fact_value_num": 9,
+    "is_superseded": false,
+    "resolution_status": "inferred",
+    "owner_type": "DEAL",
+    "confidence": 1
+  }
+]

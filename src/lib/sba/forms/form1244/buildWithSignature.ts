@@ -1,3 +1,4 @@
+import type { PackageFinancialOutput } from "@/lib/modelEngine/packageFinancialComputation";
 /**
  * SPEC S6 (ARC-00 Phase 4) — DB-aware wrapper around the pure
  * buildForm1244(). Same split as form1919/buildWithSignature.ts.
@@ -12,8 +13,10 @@ const MS_PER_DAY = 86_400_000;
 export async function buildForm1244WithSignature(
   dealId: string,
   sb: Form1244InputBuilderClient,
+  financial?: PackageFinancialOutput,
 ): Promise<Form1244BuildResult> {
   const input = await buildForm1244Input(dealId, sb);
+  if (financial) input.sectionI.loan_amount_required = financial.assumptions.loanImpact.loanAmount;
   const result = buildForm1244(input);
 
   const { data: signedDoc } = await sb

@@ -19,6 +19,6 @@ test("the shared precondition helper remains the one route gate", () => {
 test("canonical service owns deterministic build, review, and one writer", () => {
   assert.match(service, /buildCanonicalCreditMemo/);
   assert.match(service, /verifyMemoNarratives/);
-  assert.equal((service.match(/canonical_memo_narratives/g) ?? []).length, 1);
+  assert.equal((service.match(/\.upsert\(/g) ?? []).length, 1, "reads may reuse accepted output; there is still one writer");
   assert.match(service, /input_hash:\s*inputHash/);
 });

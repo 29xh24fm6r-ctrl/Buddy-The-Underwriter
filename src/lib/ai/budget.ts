@@ -1,4 +1,5 @@
 import "server-only";
+import { getAIExecutionContext } from "./executionContext";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -110,11 +111,14 @@ export async function reserveGatewayBudget(
   client?: SupabaseClient,
 ): Promise<GatewayBudgetReservation> {
   const sb = (client ?? supabaseAdmin()) as any;
+  const context = getAIExecutionContext();
+  const runId = context?.artifactType === "trident_bundle" ? context.traceId : null;
   const { data, error } = await sb
-    .rpc("reserve_ai_gateway_tokens", {
+    .rpc(runId ? "reserve_trident_gateway_tokens" : "reserve_ai_gateway_tokens", {
       p_role: role,
       p_requested_tokens: requestedTokens,
       p_daily_budget: dailyBudget,
+      ...(runId ? { p_run_id: runId } : {}),
     })
     .single();
 
@@ -123,7 +127,7 @@ export async function reserveGatewayBudget(
   }
   if (!data?.allowed || !data.reservation_id) {
     throw new GatewayBudgetExceededError(
-      `daily token budget exceeded for role "${role}" (${Number(
+      `${runId ? "Package run, QA allocation, or daily" : "daily"} token budget exceeded for role "${role}" (${Number(
         data?.tokens_consumed ?? 0,
       )} consumed + ${Number(data?.tokens_reserved ?? 0)} reserved + ${requestedTokens} requested / ${dailyBudget})`,
     );

@@ -48,6 +48,14 @@ export type ProjectionsAssumptionsNarrative =
  */
 export type AuthoritativeProjectionFacts = {
   engineVersion: string;
+  financialSnapshotId?: string;
+  annualProjections?: unknown;
+  monthlyProjections?: unknown;
+  sourcesAndUses?: unknown;
+  balanceSheetProjections?: unknown;
+  baseYear?: unknown;
+  sensitivityScenarios?: unknown;
+  breakEven?: unknown;
   methodologySlate: unknown;
   formType: string;
   projectedEbitda: number;
@@ -183,6 +191,7 @@ export async function generateProjectionsAssumptionsNarrative(
       disclaimer: getDisclaimer("memo"),
     };
   } catch (err) {
+    if (authoritativeFacts) throw err;
     console.error("[projections-assumptions] generator/verifier call failed:", err);
     return {
       status: "degraded",

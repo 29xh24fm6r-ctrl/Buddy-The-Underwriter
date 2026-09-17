@@ -29,6 +29,7 @@ export async function prepareSbaPackage(opts: {
   supabase: SupabaseClient;
   dealId: string;
   token?: string | null;
+  financialSnapshotId?: string;
   packageTemplateCode: string;
   product: "7a" | "504" | "express";
   answers: Record<string, any>;
@@ -36,7 +37,7 @@ export async function prepareSbaPackage(opts: {
 }) {
   const { supabase, dealId, token, packageTemplateCode, product, answers, borrowerData } = opts;
 
-  const ctx = buildSbaPackageContext({ dealId, token, product, answers, borrowerData });
+  const ctx = { ...buildSbaPackageContext({ dealId, token, product, answers, borrowerData }), financialSnapshotId: opts.financialSnapshotId ?? null };
 
   const { data: runRows, error: rErr } = await supabase
     .from("sba_package_runs")

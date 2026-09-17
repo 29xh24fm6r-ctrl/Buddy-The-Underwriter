@@ -132,11 +132,14 @@ export const BALANCE_MAP: Record<string, NumericBalanceField> = {
   PPE_GROSS: "ppeGross",
   ACCUMULATED_DEPRECIATION: "accumulatedDepreciation",
   NET_FIXED_ASSETS: "netFixedAssets",
+  TOTAL_FIXED_ASSETS: "netFixedAssets",
+  TOTAL_LONG_TERM_DEBT: "longTermDebt",
 };
 
 const CASHFLOW_MAP: Record<string, keyof FinancialPeriod["cashflow"]> = {
   CAPITAL_EXPENDITURES: "capex",
   DEBT_SERVICE: "annualDebtService",
+  ADS: "annualDebtService",
 };
 
 // Fact types we care about
