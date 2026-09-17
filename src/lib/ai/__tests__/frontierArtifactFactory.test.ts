@@ -108,3 +108,102 @@ test("fails closed when automated repair is unavailable", async () => {
   assert.equal(result.reviewIssues[0].category, "unsupported_fact");
   assert.equal(result.reviewIssues[0].repairInstruction, "Remove it");
 });
+
+test("repairs only flagged sections, preserves other prose and reviews the whole result", async () => {
+  let reviews = 0;
+  let repairs = 0;
+  __setProviderImplForTests("anthropic", async (req) => {
+    reviews++;
+    if (reviews === 2) {
+      assert.match(req.prompt, /Unchanged management biography/);
+      assert.match(req.prompt, /Base-case cash shortfall; downside debt service is not covered/);
+    }
+    return { text: JSON.stringify({ issues: reviews === 1 ? [{
+      sectionKey: "sensitivity", claim: "Downside cash dip", reason: "Base case misattributed",
+      severity: "critical", category: "cross_artifact_conflict", repairInstruction: "Label the base case and disclose deficient downside coverage",
+    }] : [] }), tokensIn: 1, tokensOut: 1 };
+  });
+  __setProviderImplForTests("openai", async (req) => {
+    repairs++;
+    assert.match(req.prompt, /REQUESTED REPAIR SECTION KEYS:\n\n\["sensitivity"\]/);
+    if (repairs === 1) throw new Error("This operation was aborted");
+    return { text: JSON.stringify({ sections: [{ key: "sensitivity", text: "Base-case cash shortfall; downside debt service is not covered." }] }), tokensIn: 1, tokensOut: 1 };
+  });
+  const result = await finishInstitutionalArtifact({ artifactType: "business_plan", dealId: "qa", facts: {},
+    sections: [{ key: "management", text: "Unchanged management biography" }, { key: "sensitivity", text: "Downside cash dip" }] });
+  assert.equal(result.verdict, "pass");
+  assert.equal(repairs, 2);
+  assert.equal(reviews, 2);
+  assert.equal(result.sections[0].text, "Unchanged management biography");
+});
+
+test("missing review contract cannot silently approve an artifact", async () => {
+  __setProviderImplForTests("anthropic", async () => ({ text: "{}", tokensIn: 1, tokensOut: 1 }));
+  __setProviderImplForTests("openai", async () => { throw new Error("Unavailable"); });
+  const result = await finishInstitutionalArtifact({ artifactType: "business_plan", dealId: "qa", facts: {}, sections: [{ key: "a", text: "Claim" }] });
+  assert.equal(result.verdict, "flagged");
+});
+
+test("bounded retry does not retry billing errors or accept out-of-scope section edits", async () => {
+  for (const mode of ["billing", "extra", "duplicate", "missing", "timeout"]) {
+    __resetGatewayBudgetForTests();
+    let calls = 0;
+    __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify({ issues: [{
+      sectionKey: "a", claim: "Wrong", reason: "Wrong", severity: "critical",
+      category: "unsupported_fact", repairInstruction: "Correct a",
+    }] }), tokensIn: 1, tokensOut: 1 }));
+    __setProviderImplForTests("openai", async () => {
+      calls++;
+      if (mode === "billing") throw new Error("credit_balance_exhausted");
+      if (mode === "timeout") throw new Error("This operation was aborted");
+      const patch = mode === "missing" ? [] : mode === "duplicate"
+        ? [{ key: "a", text: "Fixed" }, { key: "a", text: "Again" }]
+        : [{ key: "a", text: "Fixed" }, { key: "b", text: "Unauthorized rewrite" }];
+      return { text: JSON.stringify({ sections: patch }), tokensIn: 1, tokensOut: 1 };
+    });
+    const result = await finishInstitutionalArtifact({ artifactType: "business_plan", dealId: "qa", facts: {},
+      sections: [{ key: "a", text: "Wrong" }, { key: "b", text: "Keep" }] });
+    assert.equal(result.verdict, "flagged", mode);
+    assert.equal(calls, mode === "timeout" ? 2 : 1, mode);
+    assert.equal(result.sections[1].text, "Keep");
+  }
+});
+
+test("feasibility repairs use small batches then independently review the complete artifact", async () => {
+  const sections = Array.from({ length: 7 }, (_, i) => ({ key: `section${i}`, text: `Unsupported claim ${i}` }));
+  let reviews = 0;
+  let repairs = 0;
+  __setProviderImplForTests("anthropic", async (req) => {
+    reviews++;
+    if (reviews > 1) for (let i = 0; i < 7; i++) assert.match(req.prompt, new RegExp(`Verified section${i}`));
+    return { text: JSON.stringify({ issues: reviews === 1 ? sections.map(s => ({ sectionKey: s.key, claim: s.text, reason: "Unsupported", severity: "critical", category: "unsupported_fact", repairInstruction: "Use supplied facts" })) : [] }), tokensIn: 1, tokensOut: 1 };
+  });
+  __setProviderImplForTests("openai", async (req) => {
+    repairs++;
+    const keys = JSON.parse(req.prompt.split("REQUESTED REPAIR SECTION KEYS:\n\n")[1].split("\n\n")[0]) as string[];
+    assert.ok(keys.length <= 2);
+    return { text: JSON.stringify({ sections: keys.map(key => ({ key, text: `Verified ${key}` })) }), tokensIn: 1, tokensOut: 1 };
+  });
+  const result = await finishInstitutionalArtifact({ artifactType: "feasibility", dealId: "qa", facts: {}, sections });
+  assert.equal(repairs, 4);
+  assert.equal(reviews, 2);
+  assert.equal(result.verdict, "pass");
+  assert.equal(result.sections.length, 7);
+});
+
+test("a failed feasibility batch never publishes partial repairs and reports exhausted timeout recovery", async () => {
+  const sections = [{ key: "identity", text: "Wrong managers" }, { key: "market", text: "Invented competitors" }, { key: "location", text: "Wrong city" }];
+  let failedCalls = 0;
+  __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify({ issues: sections.map(s => ({ sectionKey: s.key, claim: s.text, reason: "Unsupported", severity: "critical", category: "unsupported_fact", repairInstruction: "Use supplied facts" })) }), tokensIn: 1, tokensOut: 1 }));
+  __setProviderImplForTests("openai", async (req) => {
+    const keys = JSON.parse(req.prompt.split("REQUESTED REPAIR SECTION KEYS:\n\n")[1].split("\n\n")[0]) as string[];
+    if (keys.includes("location")) { failedCalls++; throw new Error("This operation was aborted"); }
+    return { text: JSON.stringify({ sections: keys.map(key => ({ key, text: `Verified ${key}` })) }), tokensIn: 1, tokensOut: 1 };
+  });
+  const result = await finishInstitutionalArtifact({ artifactType: "feasibility", dealId: "qa", facts: {}, sections });
+  assert.equal(failedCalls, 2);
+  assert.equal(result.verdict, "flagged");
+  assert.deepEqual(result.sections, sections);
+  assert.equal(result.repaired, false);
+  assert.match(result.flaggedClaims.at(-1)!.reason, /timed out; no partial rewrite/);
+});

@@ -257,6 +257,9 @@ export function buildAnnualProjections(
       taxEstimate,
       netIncome,
       totalDebtService,
+      existingDebtService: existingDS,
+      proposedLoanDebtService: sbaMonthly * sbaMonthsPaid,
+      sellerDebtService: sellerMonthly * sellerMonthsPaid,
       dscr,
       revenueGrowthPct:
         prev.revenue > 0 ? (revenue - prev.revenue) / prev.revenue : 0,

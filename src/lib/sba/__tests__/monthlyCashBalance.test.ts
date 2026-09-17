@@ -161,3 +161,21 @@ test("[cash] a missing or non-finite opening balance degrades to zero, not NaN",
   );
   assert.ok(defaulted.every((m) => Number.isFinite(m.cumulativeCash)));
 });
+
+test("loan, retained debt and seller components reconcile to the DSCR denominator", () => {
+  const assumptions = fixtureAssumptions();
+  assumptions.loanImpact.sellerFinancingAmount = 50000;
+  assumptions.loanImpact.sellerFinancingRate = 0.06;
+  assumptions.loanImpact.sellerFinancingTermMonths = 24;
+  const base = buildBaseYear({ revenue: 2400000, cogs: 1320000, operatingExpenses: 720000,
+    ebitda: 360000, depreciation: 90000, netIncome: 190000, existingDebtServiceAnnual: 120000 });
+  const years = buildAnnualProjections(assumptions, base);
+  for (const year of years) {
+    assert.equal(year.totalDebtService, year.existingDebtService! + year.proposedLoanDebtService! + year.sellerDebtService!);
+    assert.equal(year.existingDebtService, 120000);
+    assert.ok(year.proposedLoanDebtService! > 137000 && year.proposedLoanDebtService! < 138000);
+  }
+  assert.equal(years[2].sellerDebtService, 0);
+  assumptions.loanImpact.existingDebt[0].treatment = "payoff";
+  assert.equal(buildAnnualProjections(assumptions, base)[0].existingDebtService, 0);
+});

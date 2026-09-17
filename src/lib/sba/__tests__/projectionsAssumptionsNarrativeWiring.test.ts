@@ -42,14 +42,16 @@ test("TRIPWIRE: only a 'ready' result is persisted (degraded/unavailable must no
   const src = readSrc();
   const callIdx = findNarrativeCall(src);
   assert.ok(callIdx > -1);
-  const after = src.slice(callIdx, callIdx + 1_200);
+  const after = src.slice(callIdx, src.indexOf("} catch (e)", callIdx));
   assert.match(after, /status === "ready"/);
   assert.match(after, /engineVersion:\s*projectionModel\.engineVersion/);
   assert.match(after, /projectedEbitda:\s*year1Projection\?\.ebitda/);
   assert.match(
     after,
-    /proposedAnnualDebtService:\s*year1Projection\?\.totalDebtService/,
+    /proposedAnnualDebtService:\s*year1Projection\?\.proposedLoanDebtService/,
   );
+  assert.match(after, /totalAnnualDebtService:\s*year1Projection\?\.totalDebtService/);
+  assert.match(after, /confirmedAssumptions:/);
   assert.match(after, /projectedDscr:\s*year1Projection\?\.dscr/);
 });
 

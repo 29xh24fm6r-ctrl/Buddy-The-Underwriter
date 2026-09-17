@@ -12,7 +12,7 @@ import "server-only";
 
 import { loadDealGroundingSegments, attributeFeasibilityCitations, flagUncitedFeasibilityFields } from "./feasibilityCitations";
 import { auditNarrativeFigures } from "./narrativeFigureAudit";
-import { finishInstitutionalArtifact, reviewContentHash } from "@/lib/ai/frontierArtifactFactory";
+import { finishInstitutionalArtifact, reviewContentHash, type ArtifactSection } from "@/lib/ai/frontierArtifactFactory";
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
 import type { CompositeFeasibilityScore, FeasibilityNarratives } from "./types";
 
@@ -85,7 +85,6 @@ export async function enrichFeasibilityStudy(args: {
 
   const { segments, allUrls } = await loadDealGroundingSegments(dealId, sb);
   const citations = attributeFeasibilityCitations(narratives, segments, allUrls);
-  await flagUncitedFeasibilityFields({ dealId, bankId, studyId, citations, sb });
 
   const sections = Object.entries(narratives).flatMap(([key, text]) =>
     typeof text === "string" && text.trim() ? [{ key, text }] : [],
@@ -122,7 +121,16 @@ export async function enrichFeasibilityStudy(args: {
         .maybeSingle()
     : { data: null };
 
+  const [{ data: deal }, { data: application }] = await Promise.all([
+    sb.from("deals").select("name,city,state").eq("id", dealId).eq("bank_id", bankId).maybeSingle(),
+    sb.from("borrower_applications").select("business_legal_name,industry").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
   const facts = {
+    borrower: {
+      name: application?.business_legal_name || deal?.name || null,
+      city: deal?.city ?? null, state: deal?.state ?? null,
+      industry: application?.industry ?? null,
+    },
     evidencePolicy: {
       financialMetrics: "Use only supplied deterministic metrics; do not derive new thresholds, debt-inclusive break-even, residual cushions, or percentages.",
       missingMetrics: "State unavailable and recommend deterministic model support.",
@@ -258,25 +266,32 @@ export async function enrichFeasibilityStudy(args: {
       untracedFigures.map((f) => `${f.section}:${f.text}`).join(", "),
     );
   }
-  const auditedFacts = {
-    ...facts,
-    untracedFigures: untracedFigures.map((f) => ({
+  // Findings describe prose, not immutable evidence. Recompute them from the
+  // current sections on every review so removed figures do not remain findings
+  // and newly introduced unsupported figures are still detected.
+  const auditSections = (currentSections: ArtifactSection[]) => ({
+    untracedFigures: auditNarrativeFigures({
+      narratives: Object.fromEntries(currentSections.map(({ key, text }) => [key, text])),
+      evidence: facts,
+    }).untraced.slice(0, 20).map((f) => ({
       section: f.section,
       figure: f.text,
       finding:
-        "This figure does not appear in the supplied deterministic evidence. Either remove it or attribute it explicitly as an author estimate.",
+        "This figure does not appear in the supplied deterministic evidence. Remove it unless supplied evidence supports it; do not relabel invented metrics as author estimates.",
     })),
-  };
+  });
 
   // Keep the evidence boundary comfortably below the synchronous review
   // budget. This is a fail-fast invariant, not a license to silently discard
   // calculations: the curated contract above contains every decision-material
   // figure and explicitly excludes high-volume monthly detail.
-  const serializedFacts = JSON.stringify(auditedFacts);
+  const serializedFacts = JSON.stringify(facts);
+  const initialSectionAudit = auditSections(sections);
+  const evidenceCharacters = serializedFacts.length + JSON.stringify(initialSectionAudit).length;
   const maxEvidenceCharacters = 24_000;
-  if (serializedFacts.length > maxEvidenceCharacters) {
+  if (evidenceCharacters > maxEvidenceCharacters) {
     throw new Error(
-      `Feasibility review evidence exceeds ${maxEvidenceCharacters} characters (${serializedFacts.length})`,
+      `Feasibility review evidence exceeds ${maxEvidenceCharacters} characters (${evidenceCharacters})`,
     );
   }
 
@@ -287,6 +302,7 @@ export async function enrichFeasibilityStudy(args: {
     artifactType: "feasibility" as const,
     facts: serializedFacts,
     sections,
+    sectionAudit: initialSectionAudit,
   };
   const contentHash = reviewContentHash(reviewIdentity);
   if (
@@ -294,6 +310,7 @@ export async function enrichFeasibilityStudy(args: {
     typeof studyRow?.verification_input_hash === "string" &&
     studyRow.verification_input_hash === contentHash
   ) {
+    await flagUncitedFeasibilityFields({ dealId, bankId, studyId, citations, sb });
     return { verdict: "pass" as const, repaired: false, advisoryCount: 0, reusedVerdict: true };
   }
 
@@ -301,6 +318,7 @@ export async function enrichFeasibilityStudy(args: {
     ...reviewIdentity,
     dealId,
     npiTagged: true,
+    auditSections,
   });
   await persistArtifactFlags({
     dealId, bankId, artifactType: "feasibility", sectionKey: "narratives",
@@ -310,16 +328,19 @@ export async function enrichFeasibilityStudy(args: {
     finished.sections.map((section) => [section.key, section.text]),
   ) as unknown as FeasibilityNarratives;
 
-  await sb
+  const finalCitations = attributeFeasibilityCitations(repairedNarratives, segments, allUrls);
+  await flagUncitedFeasibilityFields({ dealId, bankId, studyId, citations: finalCitations, sb });
+  const saved = await sb
     .from("buddy_feasibility_studies")
     .update({
-      narrative_citations: citations,
+      narrative_citations: finalCitations,
       narratives: repairedNarratives,
       verification_verdict: finished.verdict,
       verification_flagged_claims: finished.flaggedClaims,
       verification_input_hash: finished.contentHash,
     })
     .eq("id", studyId);
+  if (saved.error) throw new Error(`Feasibility evidence save failed: ${saved.error.message}`);
   // Warnings that survived repair publish with the study and are disclosed as
   // conditions; the count travels so the release manifest can say the study
   // shipped with N advisories rather than leaving that only in the flag rows.

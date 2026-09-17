@@ -1,3 +1,4 @@
+import { memoEvidenceReview } from "./memoEvidenceReview";
 import type { DealBankAccessGrant } from "@/lib/tenant/ensureDealBankAccess";
 import "server-only";
 
@@ -54,17 +55,6 @@ export async function generateCanonicalMemoArtifact(args: {
   });
   if (!built.ok) return { ok: false as const, error: built.error, status: 400 };
 
-  const inputHash = computeMemoInputHash(await fetchMemoHashInputs(sb, args.dealId));
-  const generated = await assembleNarratives({
-    memo: built.memo,
-    forceRegenerate: args.forceRegenerate,
-    inputHash,
-    persist: false,
-  });
-  if (generated.aiError) {
-    return { ok: false as const, error: `Credit memo generation failed: ${generated.aiError}`, status: 502 };
-  }
-
   // Deterministic self-consistency, before a model is asked to notice it.
   // The reviewer has been blocking runs on contradictions between the memo's
   // own numbers — two DSCR floors in one document, a figure derived from a
@@ -82,6 +72,19 @@ export async function generateCanonicalMemoArtifact(args: {
       status: 422,
     };
   }
+
+
+  const inputHash = computeMemoInputHash(await fetchMemoHashInputs(sb, args.dealId));
+  const generated = await assembleNarratives({
+    memo: built.memo,
+    forceRegenerate: args.forceRegenerate,
+    inputHash,
+    persist: false,
+  });
+  if (generated.aiError) {
+    return { ok: false as const, error: `Credit memo generation failed: ${generated.aiError}`, status: 502 };
+  }
+
 
   const verification = await verifyMemoNarratives({
     dealId: args.dealId,
@@ -112,6 +115,7 @@ export async function generateCanonicalMemoArtifact(args: {
       bank_id: args.bankId,
       input_hash: inputHash,
       narratives: envelope as any,
+      metadata_json: { content_review: memoEvidenceReview(built.memo) },
       model: MODEL_UNDERWRITER,
       generated_at: new Date().toISOString(),
       research_trace_json: researchTrace,

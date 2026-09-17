@@ -191,3 +191,30 @@ test("degrades gracefully when the generator call fails outright", async () => {
   const result = await generateProjectionsAssumptionsNarrative("deal-1", "bank-1", db);
   assert.equal(result.status, "degraded");
 });
+
+test("SBA narrator and reviewer receive reviewed drivers and separated debt service", async () => {
+  const prompts: string[] = [];
+  __setProviderImplForTests("openai", async request => {
+    prompts.push(request.prompt);
+    return { text: JSON.stringify({ narrative: "Confirmed assumptions support the supplied projection; lender review remains required." }), tokensIn: 1, tokensOut: 1 };
+  });
+  __setProviderImplForTests("anthropic", async request => {
+    prompts.push(request.prompt);
+    return { text: JSON.stringify({ issues: [] }), tokensIn: 1, tokensOut: 1 };
+  });
+  const result = await generateProjectionsAssumptionsNarrative("deal-1", "bank-1", makeDb({}), {
+    engineVersion: "sba", methodologySlate: "confirmed", formType: "SBA_FORWARD_MODEL",
+    projectedEbitda: 441496, projectedOfficerCompAddback: null, projectedNcads: 441496,
+    proposedAnnualDebtService: 137634, existingAnnualDebtService: 120000,
+    sellerAnnualDebtService: 0, totalAnnualDebtService: 257634, projectedDscr: 1.71,
+    components: "Model-computed", dscrThreshold: 1.15,
+    confirmedAssumptions: { loanImpact: { termMonths: 120, interestRate: 0.105 }, revenueStreams: [{ name: "Machining", growthRateYear1: 0.09 }], workingCapital: { targetDSO: 42 } },
+  });
+  assert.equal(result.status, "ready");
+  assert.equal(prompts.length, 2);
+  for (const prompt of prompts) {
+    assert.match(prompt, /137634/); assert.match(prompt, /257634/);
+    assert.match(prompt, /Machining/); assert.match(prompt, /targetDSO/);
+    assert.match(prompt, /termMonths/); assert.match(prompt, /0.105/);
+  }
+});

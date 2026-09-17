@@ -116,6 +116,10 @@ export interface AnnualProjectionYear {
   taxEstimate: number;
   netIncome: number;
   totalDebtService: number;
+  /** Model-calculated components; optional for historical rows. */
+  existingDebtService?: number;
+  proposedLoanDebtService?: number;
+  sellerDebtService?: number;
   dscr: number;
   revenueGrowthPct?: number; // undefined for year 0
 }

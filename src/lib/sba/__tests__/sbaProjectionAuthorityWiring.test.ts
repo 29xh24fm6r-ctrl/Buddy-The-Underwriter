@@ -47,7 +47,7 @@ test("Golden Trident narrative receives the same versioned projection facts", ()
   assert.match(source, /projectedEbitda:\s*year1Projection\?\.ebitda/);
   assert.match(
     source,
-    /proposedAnnualDebtService:\s*year1Projection\?\.totalDebtService/,
+    /proposedAnnualDebtService:\s*year1Projection\?\.proposedLoanDebtService/,
   );
   assert.match(source, /projectedDscr:\s*year1Projection\?\.dscr/);
 });

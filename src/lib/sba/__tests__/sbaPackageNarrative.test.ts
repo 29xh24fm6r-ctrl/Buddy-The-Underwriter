@@ -10,6 +10,8 @@ const { callGeminiJSON } =
   require("../sbaPackageNarrative") as typeof import("../sbaPackageNarrative");
 const { parseNarrativeField } =
   require("../sbaPackageNarrative") as typeof import("../sbaPackageNarrative");
+const { generateMarketingAndOperations, generateSensitivityNarrative } =
+  require("../sbaPackageNarrative") as typeof import("../sbaPackageNarrative");
 const { GEMINI_PRO } = require("../../ai/models") as typeof import("../../ai/models");
 const {
   __setProviderImplForTests,
@@ -45,6 +47,32 @@ test("happy path: returns the gateway's text verbatim", async () => {
   __setProviderImplForTests("google", async () => okResult('{"thesis":"hi"}'));
   const text = await callGeminiJSON("write a thesis");
   assert.equal(text, '{"thesis":"hi"}');
+});
+
+test("operations prompt distinguishes absent seller financing from a real seller note", async () => {
+  let prompt = "";
+  __setProviderImplForTests("google", async (req) => { prompt = req.prompt; return okResult('{"marketingStrategy":"Marketing","operationsPlan":"Operations"}'); });
+  const params = { dealName: "Apex", industryDescription: "Machining", revenueStreamNames: [], plannedHires: [],
+    useOfProceedsDescription: "Equipment", existingDebtService: 120000, newDebtService: 137616, totalDebtService: 257616, dscrYear1: 1.42 };
+  await generateMarketingAndOperations({ ...params, sellerFinancingAmount: 0 });
+  assert.match(prompt, /There is NO seller financing/);
+  assert.doesNotMatch(prompt, /New SBA and seller-financing annual debt service/);
+  await generateMarketingAndOperations({ ...params, sellerFinancingAmount: 100000 });
+  assert.match(prompt, /Seller financing is included/);
+  assert.doesNotMatch(prompt, /There is NO seller financing/);
+});
+
+test("sensitivity prompt keeps base cash separate and prohibits unsupported debt-service claims", async () => {
+  let prompt = "";
+  __setProviderImplForTests("google", async (req) => { prompt = req.prompt; return okResult('{"narrative":"Conservative scenario analysis"}'); });
+  await generateSensitivityNarrative({ scenarios: [], breakEvenMarginOfSafetyPct: 0.1,
+    year1MinCumulativeCash: -149641.76, dscrThreshold: 1.15, loanType: "SBA_7A" });
+  assert.match(prompt, /BASE CASE ONLY.*-149,642/);
+  assert.match(prompt, /No downside monthly cash schedule is supplied/);
+  assert.match(prompt, /DSCR below 1.00x means modeled cash flow does not cover debt service/);
+  assert.match(prompt, /NOT proof that coverage is restored/);
+  assert.match(prompt, /applicable DSCR threshold is 1.15x/);
+  assert.doesNotMatch(prompt, /minimum DSCR is 1.25x/);
 });
 
 test("missing GEMINI_API_KEY: returns empty string without calling the gateway", async () => {

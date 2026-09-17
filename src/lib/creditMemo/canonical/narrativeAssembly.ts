@@ -129,6 +129,9 @@ export function buildNarrativeInput(
     rate_summary: memo.key_metrics.rate_summary,
     purpose: memo.transaction_overview.loan_request.purpose,
     term_months: memo.transaction_overview.loan_request.term_months,
+    sources_uses: memo.sources_uses ?? null,
+    management_principals: memo.management_qualifications?.principals ?? [],
+    loan_structure: memo.transaction_overview.loan_request,
 
     // ── Key coverage + CRE metrics ──────────────────────────────────────
     dscr_uw: memo.key_metrics.dscr_uw.value,
@@ -163,6 +166,7 @@ export function buildNarrativeInput(
 
     // ── Phase 92: risk grade + covenant rationale ───────────────────────
     risk_grade: memo.recommendation.risk_grade,
+    assessment_interpretation: "The recommendation risk grade and Five Cs qualitative scores are separate frameworks, not interchangeable scales. Name each framework. Do not invent a conversion or treat unlike scores alone as a policy contradiction.",
     covenant_rationale: memo.covenant_package?.rationale ?? null,
 
     // ── Collateral ──────────────────────────────────────────────────────
@@ -176,6 +180,10 @@ export function buildNarrativeInput(
     policy_exceptions: memo.policy_exceptions.map((p) => p.exception),
     recommendation_verdict: memo.recommendation.verdict,
     recommendation_headline: memo.recommendation.headline,
+    recommendation_rationale: memo.recommendation.rationale ?? [],
+    conditions_precedent: memo.conditions?.precedent ?? [],
+    coverage_preliminary: memo.financial_analysis.dscr?.preliminary ?? false,
+    coverage_caveat: memo.financial_analysis.dscr?.caveat ?? null,
 
     // ── Sponsors / guarantor pool ───────────────────────────────────────
     sponsors: memo.borrower_sponsor.sponsors.map((s) => ({
@@ -223,7 +231,7 @@ export function buildNarrativeInput(
           composite_label: qa.composite_label,
           composite_score: qa.composite_score,
           character: { score: qa.character.score, label: qa.character.label, basis: qa.character.basis },
-          capital: { score: qa.capital.score, label: qa.capital.label },
+          capital: { score: qa.capital.score, label: qa.capital.label, basis: qa.capital.basis },
           conditions: { score: qa.conditions.score, label: qa.conditions.label },
           management: { score: qa.management.score, label: qa.management.label },
           business_model: { score: qa.business_model.score, label: qa.business_model.label },
@@ -265,6 +273,9 @@ export function buildNarrativeInput(
             memo.financial_analysis.debt_service.value
           : null,
       basis: "underwriting_cash_flow_available / underwriting_debt_service",
+      cash_flow_provenance: memo.financial_analysis.cash_flow_available,
+      debt_service_provenance: memo.financial_analysis.debt_service,
+      reconciliation_instruction: "Historical period cash flow and the underwriting snapshot have separate bases. An arithmetic difference is not evidence of an adjustment. If documented adjustments are absent, disclose that the bridge is unverified and do not present the higher cash flow as proven repayment capacity.",
     },
 
     // ── Phase 92 (d): business context from overrides ───────────────────
@@ -420,6 +431,8 @@ export async function assembleNarratives(args: {
     "",
     "EXECUTIVE_SUMMARY:",
     "Lead with the verdict and the most important number.",
+    "Preserve recommendation_verdict as the calculated financial recommendation, not a final lender approval. Explain recommendation_rationale, conditions_precedent and any coverage_caveat separately; outstanding conditions do not authorize changing the calculated verdict. Never describe preliminary coverage as a final approval.",
+    "Reconcile project uses against ALL sources_uses sources, including borrower equity and seller financing. The loan amount alone is not total project funding. Unknown funding is missing evidence, not a quantified shortfall. Corporate balance-sheet equity is not a cash equity injection or guarantor net worth.",
     "First sentence format: \"[Borrower name] is requesting $[amount] for [purpose]. The deal [presents as approve/caution/decline] at [DSCR]x coverage...\"",
     "2-3 paragraphs. Committee should be able to make a preliminary judgment after reading this alone.",
     "",

@@ -14,6 +14,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type MemoHashInputs = {
+  fundingInputs?: unknown;
   snapshotId: string | null;
   snapshotUpdatedAt: string | null;
   pricingDecisionId: string | null;
@@ -34,7 +35,7 @@ export async function fetchMemoHashInputs(
   sb: SupabaseClient,
   dealId: string,
 ): Promise<MemoHashInputs> {
-  const [snapshotRes, pricingRes, factsRes] = await Promise.all([
+  const [snapshotRes, pricingRes, factsRes, assumptionsRes, proceedsRes] = await Promise.all([
     // financial_snapshots is the correct table (deal_financial_snapshots does not exist)
     // ordered by created_at (no updated_at column)
     sb.from("financial_snapshots")
@@ -57,11 +58,17 @@ export async function fetchMemoHashInputs(
       .eq("deal_id", dealId)
       .not("fact_value_num", "is", null)
       .order("created_at", { ascending: false }),
+    sb.from("buddy_sba_assumptions").select("status,confirmed_at,loan_impact,management_team").eq("deal_id", dealId).maybeSingle(),
+    sb.from("deal_proceeds_items").select("id,category,description,amount").eq("deal_id", dealId).order("id"),
   ]);
+  for (const result of [snapshotRes, pricingRes, factsRes, assumptionsRes, proceedsRes]) {
+    if (result.error) throw new Error(`Memo input load failed: ${result.error.message}`);
+  }
 
   const facts = factsRes.data ?? [];
 
   return {
+    fundingInputs: { assumptions: assumptionsRes.data ?? null, proceeds: proceedsRes.data ?? [] },
     snapshotId: snapshotRes.data?.id ?? null,
     snapshotUpdatedAt: snapshotRes.data?.created_at ?? null,
     pricingDecisionId: pricingRes.data?.id ?? null,

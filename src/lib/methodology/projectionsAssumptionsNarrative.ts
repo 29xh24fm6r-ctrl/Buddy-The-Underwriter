@@ -54,6 +54,11 @@ export type AuthoritativeProjectionFacts = {
   projectedOfficerCompAddback: number | null;
   projectedNcads: number;
   proposedAnnualDebtService: number;
+  totalAnnualDebtService?: number;
+  existingAnnualDebtService?: number;
+  sellerAnnualDebtService?: number;
+  confirmedAssumptions?: unknown;
+  dscrThreshold?: number;
   projectedDscr: number;
   components: string;
 };
@@ -68,7 +73,11 @@ const GENERATOR_SYSTEM_INSTRUCTION =
   "was or wasn't folded into cash flow available for debt service. Use " +
   "only the exact figures and methodology labels given — never invent a " +
   "number, never recompute anything, and never state or imply a credit " +
-  "decision or approval.";
+  "decision or approval. When confirmed assumptions are supplied, explain revenue " +
+  "drivers, costs and staffing, working capital, loan amount, rate and term. " +
+  "Distinguish proposed-loan, retained-existing, seller and total debt service; " +
+  "use the supplied total as the SBA DSCR denominator. A null officer add-back " +
+  "is not an additional cash-flow adjustment. Do not describe supplied inputs as missing.";
 
 const NARRATIVE_SCHEMA = {
   type: "object",
@@ -84,8 +93,8 @@ function buildPrompt(facts: Record<string, unknown>): string {
     "FACTS (immutable, already computed — do not question or recompute these):",
     JSON.stringify(facts, null, 2),
     "",
-    "Write a short (3-5 sentence) narrative explaining this DSCR projection " +
-      "and the officer-compensation fold-in treatment to a bank underwriter.",
+    "Explain the supplied assumptions and DSCR calculation in concise paragraphs. " +
+      "Cover the assumptions supplied, their uncertainty and the applicable threshold without inventing missing evidence.",
   ].join("\n");
 }
 

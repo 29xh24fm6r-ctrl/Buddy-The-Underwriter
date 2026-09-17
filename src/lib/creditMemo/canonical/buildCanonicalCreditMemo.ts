@@ -1,5 +1,8 @@
 import "server-only";
+import { confirmedLoanTerms } from "./confirmedLoanTerms";
+import { confirmedMemoFunding, reconcileMemoFunding } from "./memoFunding";
 import { formatLoanPurpose } from "./formatLoanPurpose";
+import { shouldRefreshCovenantDraft, supportedMemoRatios } from "./memoConsistency";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -702,8 +705,8 @@ export async function buildCanonicalCreditMemo(args: {
       bankLoanTotal: metricValueFromSnapshot({ snapshot, metric: "bank_loan_total", label: "Bank Loan Total" }),
     };
 
-    // Fallback: if bank_loan_total is missing from snapshot, read from facts directly
-    const needsSourcesFallback = snapshotSourcesUses.bankLoanTotal.value === null;
+    // Resolve each missing funding metric; a loan amount alone is not a complete funding plan.
+    const needsSourcesFallback = Object.values(snapshotSourcesUses).some(metric => metric.value === null);
     const spreadSourcesUses = needsSourcesFallback
       ? await computeSourcesUsesMetrics({ dealId: args.dealId, bankId })
       : null;
@@ -726,7 +729,46 @@ export async function buildCanonicalCreditMemo(args: {
       discountedValue: snapshotDiscounted,
     };
 
-    const bankLoanTotal = sourcesUses.bankLoanTotal;
+    const [fundingAssumptions, fundingProceeds] = await Promise.all([
+      (sb as any).from("buddy_sba_assumptions").select("status,confirmed_at,loan_impact,management_team").eq("deal_id", args.dealId).maybeSingle(),
+      (sb as any).from("deal_proceeds_items").select("category,description,amount").eq("deal_id", args.dealId),
+    ]);
+    requireCanonicalMemoQuery("buddy_sba_assumptions", fundingAssumptions);
+    requireCanonicalMemoQuery("deal_proceeds_items", fundingProceeds);
+    const confirmedInputs = fundingAssumptions.data?.status === "confirmed" ? fundingAssumptions.data : null;
+    const confirmedLoan = confirmedInputs?.loan_impact;
+    // Dedicated management profiles retain authority; confirmed interview bios fill absent people.
+    for (const member of confirmedInputs?.management_team ?? []) {
+      if (!member.name || mgmtProfileByName.has(member.name.toLowerCase().trim())) continue;
+      const profile = { person_name: member.name, title: member.title,
+        ownership_pct: member.ownershipPct, years_experience: member.yearsInIndustry,
+        resume_summary: member.bio, credit_relevance: "Borrower-confirmed SBA interview; independently verify experience." };
+      mgmtProfiles.push(profile);
+      mgmtProfileByName.set(member.name.toLowerCase().trim(), profile);
+    }
+    const resolvedFunding = reconcileMemoFunding({
+        total_project_cost: sourcesUses.totalProjectCost,
+        borrower_equity: sourcesUses.borrowerEquity,
+        borrower_equity_pct: sourcesUses.borrowerEquityPct,
+        bank_loan_total: sourcesUses.bankLoanTotal,
+        sources: [
+          { description: "Bank Loan", amount: sourcesUses.bankLoanTotal },
+          { description: "Borrower Equity", amount: sourcesUses.borrowerEquity },
+        ],
+        uses: [
+          { description: "Total Project Cost", amount: sourcesUses.totalProjectCost },
+        ],
+        equity_source_description: "Source not supplied",
+      }, confirmedMemoFunding(fundingAssumptions.data, fundingProceeds.data ?? []));
+
+    if (fundingAssumptions.data?.status === "confirmed") {
+      const requestedAmount = loanReq?.requested_amount != null ? Number(loanReq.requested_amount) : dealAmount;
+      if (requestedAmount !== null && Number.isFinite(requestedAmount) && resolvedFunding.bank_loan_total.value !== null && Math.abs(requestedAmount - resolvedFunding.bank_loan_total.value) > 1) {
+        throw new Error("Funding conflict: confirmed loan amount differs from the current loan request. Review assumptions before generating the memo.");
+      }
+    }
+
+    const bankLoanTotal = resolvedFunding.bank_loan_total;
     const ltvGross = computeLtvPct({ loanAmount: bankLoanTotal.value, collateralValue: collateralFromSnapshot.grossValue, label: "LTV Gross" });
     const ltvNet = computeLtvPct({ loanAmount: bankLoanTotal.value, collateralValue: collateralFromSnapshot.netValue, label: "LTV Net" });
     const discountedCoverage = computeDiscountedCoverageRatio({
@@ -745,10 +787,10 @@ export async function buildCanonicalCreditMemo(args: {
       { key: "LTV_GROSS", label: "Gross LTV", metric: ltvGross },
       { key: "LTV_NET", label: "Net LTV", metric: ltvNet },
       { key: "DISCOUNTED_COVERAGE", label: "Discounted Coverage", metric: discountedCoverage },
-      { key: "TOTAL_PROJECT_COST", label: "Total Project Cost", metric: sourcesUses.totalProjectCost },
-      { key: "BORROWER_EQUITY", label: "Borrower Equity", metric: sourcesUses.borrowerEquity },
-      { key: "BORROWER_EQUITY_PCT", label: "Borrower Equity %", metric: sourcesUses.borrowerEquityPct },
-      { key: "BANK_LOAN_TOTAL", label: "Bank Loan Total", metric: sourcesUses.bankLoanTotal },
+      { key: "TOTAL_PROJECT_COST", label: "Total Project Cost", metric: resolvedFunding.total_project_cost },
+      { key: "BORROWER_EQUITY", label: "Borrower Equity", metric: resolvedFunding.borrower_equity },
+      { key: "BORROWER_EQUITY_PCT", label: "Borrower Equity %", metric: resolvedFunding.borrower_equity_pct },
+      { key: "BANK_LOAN_TOTAL", label: "Bank Loan Total", metric: resolvedFunding.bank_loan_total },
     ];
 
     const readiness = computeReadiness({
@@ -764,8 +806,8 @@ export async function buildCanonicalCreditMemo(args: {
 
     // SPEC-CREDIT-MEMO-PDF-LAYOUT-1 Fix 8: prefer loan request amount over deals.loan_amount
     const loanReqAmount = loanReq?.requested_amount != null ? Number(loanReq.requested_amount) : null;
-    const loanAmount = sourcesUses.bankLoanTotal.value !== null
-      ? sourcesUses.bankLoanTotal
+    const loanAmount = resolvedFunding.bank_loan_total.value !== null
+      ? resolvedFunding.bank_loan_total
       : loanReqAmount !== null && Number.isFinite(loanReqAmount)
         ? { value: loanReqAmount, source: "LoanRequest:requested_amount", updated_at: null }
         : dealAmount !== null
@@ -942,14 +984,19 @@ export async function buildCanonicalCreditMemo(args: {
     const loanReqProduct = loanReq?.product_type ?? "—";
     // SPEC-CREDIT-MEMO-AUDIT-1 Bug 6: LOC products have no term/amort — use sensible defaults
     const isLOC = loanReqProduct === "LOC_SECURED" || loanReqProduct === "LINE_OF_CREDIT" || loanReqProduct === "LOC";
-    const loanReqTermMonths = loanReq?.requested_term_months ?? (isLOC ? 12 : null);
+    const confirmedTerms = confirmedLoanTerms({ status: confirmedInputs?.status,
+      loanImpact: confirmedLoan, requestedTerm: loanReq?.requested_term_months,
+      pricedRatePct: proposedRate.all_in_rate });
+    const loanReqTermMonths = loanReq?.requested_term_months ?? confirmedTerms.termMonths ?? (isLOC ? 12 : null);
     const rateSummary = scenarioStructure
       ? `${scenarioStructure.index_code ?? ""} + ${scenarioStructure.spread_bps ?? "—"}bps = ${Number(scenarioStructure.all_in_rate_pct ?? 0).toFixed(2)}% [${pricingDecision?.decision ?? ""}]`
       : pricingQuote
         ? `${pricingQuote.index_code ?? ""} + ${pricingQuote.spread_bps ?? "—"}bps = ${Number(pricingQuote.all_in_rate_pct ?? 0).toFixed(2)}%`
-        : loanReq?.requested_rate_type
-          ? `${loanReq.requested_rate_type}${loanReq.requested_rate_index ? ` (${loanReq.requested_rate_index})` : ""}${loanReq.requested_spread_bps ? ` + ${loanReq.requested_spread_bps}bps` : ""}`
-          : "—";
+        : confirmedTerms.ratePct !== null
+          ? `${confirmedTerms.ratePct.toFixed(2)}% (borrower-confirmed projection assumption; lender pricing pending)`
+          : loanReq?.requested_rate_type
+            ? `${loanReq.requested_rate_type}${loanReq.requested_rate_index ? ` (${loanReq.requested_rate_index})` : ""}${loanReq.requested_spread_bps ? ` + ${loanReq.requested_spread_bps}bps` : ""}`
+            : "—";
 
     // Key metrics rate fields
     const rateIndex = proposedRate.index;
@@ -1177,19 +1224,20 @@ export async function buildCanonicalCreditMemo(args: {
     // ===== Phase 90 Part B: Covenant package =====
     // The covenant rule engine already exists (src/lib/covenants/). We call
     // it with the deal's metrics post-recommendation. To avoid table bloat
-    // on every memo render, we first check for an existing package and only
-    // build a new one if none exists. Wrapped in try/catch — a failure here
-    // must NOT fail the whole memo.
+    // on every memo render, reuse current packages and refresh only stale
+    // untouched machine drafts. Read/build failures must not silently remove
+    // covenants from the memo.
     let covenantPackage: CovenantPackage | null = null;
     try {
-      const { data: existingPkg } = await (sb as any)
+      const { data: existingPkg, error: covenantReadError } = await (sb as any)
         .from("buddy_covenant_packages")
-        .select("deal_id, generated_at, risk_grade, deal_type, financial_covenants, reporting_covenants, behavioral_covenants, springing_covenants, rationale, customizations, banker_notes, snapshot_hash, rule_engine_version")
+        .select("status, deal_id, generated_at, risk_grade, deal_type, financial_covenants, reporting_covenants, behavioral_covenants, springing_covenants, rationale, customizations, banker_notes, snapshot_hash, rule_engine_version")
         .eq("deal_id", args.dealId)
         .order("generated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
+      if (covenantReadError) throw new Error(`Covenant package read failed: ${covenantReadError.message}`);
       if (existingPkg) {
         covenantPackage = {
           dealId: String(existingPkg.deal_id),
@@ -1206,14 +1254,14 @@ export async function buildCanonicalCreditMemo(args: {
           snapshotHash: existingPkg.snapshot_hash ?? null,
           ruleEngineVersion: String(existingPkg.rule_engine_version ?? ""),
         };
-      } else if (hasMinimalData) {
-        // Only create on first render for deals with usable financial data.
+      }
+      if (hasMinimalData && (!covenantPackage || shouldRefreshCovenantDraft(covenantPackage, String(existingPkg?.status), memoThresholds.dscr.value))) {
+        // Rebuild stale machine drafts through the existing rule engine.
+        // Customized or approved packages stay intact for explicit review.
         covenantPackage = await buildCovenantPackage({
           dealId: args.dealId,
           riskGrade: recommendation.risk_grade,
-          governedDscrFloor: resolvePolicy("dscr_floor", {
-            productId: policyProductId(loanReq?.product_type, loanAmount.value),
-          }).effective,
+          governedDscrFloor: memoThresholds.dscr.value,
           dealType: toCovenantDealType(loanReq?.product_type),
           actualDscr: financial.dscrGlobal.value,
           actualLeverage: metricValueFromSnapshot({ snapshot, metric: "debt_to_equity", label: "Debt-to-Equity" }).value,
@@ -1225,7 +1273,7 @@ export async function buildCanonicalCreditMemo(args: {
       }
     } catch (err) {
       console.warn("[buildCanonicalCreditMemo] buildCovenantPackage failed:", err);
-      covenantPackage = null;
+      throw err;
     }
 
     // ===== Phase 33: Build income_statement_table =====
@@ -1358,10 +1406,18 @@ export async function buildCanonicalCreditMemo(args: {
     // 26 ratios across Liquidity/Leverage/Coverage/Profitability/Activity,
     // each with a Strong/Adequate/Weak assessment, deal-specific interpretation,
     // and benchmark note. Suppresses inventory/CCC for service companies.
-    const [balanceSheetTable, ratioAnalysisSuite] = await Promise.all([
+    const [balanceSheetTable, rawRatioAnalysisSuite] = await Promise.all([
       buildBalanceSheetTable({ dealId: args.dealId, bankId }),
       buildRatioAnalysisSuite({ dealId: args.dealId, bankId, dealContext: ratioDealContext, naicsCode: borrower?.naics_code ?? null, annualRevenue: revenueForStress }),
     ]);
+
+    const ratioAnalysisSuite = supportedMemoRatios(
+      rawRatioAnalysisSuite,
+      snapshotMetricIsGoverned(snapshot, "net_income")
+        ? metricValueFromSnapshot({ snapshot, metric: "net_income", label: "Net Income" }).value
+        : null,
+      balanceSheetTable[0]?.total_assets ?? null,
+    );
 
     // ===== Phase 90 Part C: Qualitative assessment =====
     // Deterministic five-dimension scoring (Character / Capital / Conditions /
@@ -1378,6 +1434,7 @@ export async function buildCanonicalCreditMemo(args: {
         loanAmount: loanAmount.value,
         naicsCode: borrower?.naics_code ?? null,
         bankerNotes: borrowerStory?.banker_notes ?? null,
+        businessNetWorth: balanceSheetTable[0]?.total_equity ?? null,
       });
     } catch (err) {
       console.warn("[buildCanonicalCreditMemo] buildQualitativeAssessment failed:", err);
@@ -1844,20 +1901,7 @@ export async function buildCanonicalCreditMemo(args: {
         sba_sop: sbaSop,
       },
 
-      sources_uses: {
-        total_project_cost: sourcesUses.totalProjectCost,
-        borrower_equity: sourcesUses.borrowerEquity,
-        borrower_equity_pct: sourcesUses.borrowerEquityPct,
-        bank_loan_total: sourcesUses.bankLoanTotal,
-        sources: [
-          { description: "Bank Loan", amount: sourcesUses.bankLoanTotal },
-          { description: "Borrower Equity", amount: sourcesUses.borrowerEquity },
-        ],
-        uses: [
-          { description: "Total Project Cost", amount: sourcesUses.totalProjectCost },
-        ],
-        equity_source_description: "Borrower cash equity",
-      },
+      sources_uses: resolvedFunding,
 
       eligibility,
 

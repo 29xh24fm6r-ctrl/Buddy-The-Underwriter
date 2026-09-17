@@ -125,13 +125,17 @@ const REPAIR_SYSTEM = [
   "Follow every repair instruction that is supported by the evidence.",
   "Never invent a number, person, credential, market fact, or policy conclusion.",
   "If evidence is absent, state the limitation concisely instead of filling space.",
-  "Return every original section key exactly once, including unchanged sections.",
+  "Return only the requested repair section keys, exactly once each. Unaffected sections are read-only context and must not be returned or changed.",
 ].join(" ");
 
 function parseIssues(text: string): ReviewIssue[] {
   try {
     const value = JSON.parse(text) as { issues?: ReviewIssue[]; flaggedClaims?: FlaggedClaim[] };
-    if (Array.isArray(value.issues)) return value.issues;
+    if (Array.isArray(value.issues) && value.issues.every((issue) =>
+      issue && typeof issue.sectionKey === "string" && typeof issue.reason === "string" &&
+      typeof issue.claim === "string" && typeof issue.repairInstruction === "string" &&
+      ["info", "warning", "critical"].includes(issue.severity)
+    )) return value.issues;
     // Backward-compatible with the original fact-checker contract while
     // deployments and tests move to the richer institutional review shape.
     if (Array.isArray(value.flaggedClaims)) {
@@ -144,7 +148,7 @@ function parseIssues(text: string): ReviewIssue[] {
         repairInstruction: `Remove or correct the unsupported claim: ${flag.claim}`,
       }));
     }
-    return [];
+    throw new Error("Invalid review contract");
   } catch {
     return [{
       sectionKey: "artifact",
@@ -162,9 +166,9 @@ function parseSections(text: string, original: ArtifactSection[]): ArtifactSecti
     const value = JSON.parse(text) as { sections?: ArtifactSection[] };
     if (!Array.isArray(value.sections)) return null;
     const expected = new Set(original.map((section) => section.key));
-    const repaired = value.sections.filter(
-      (section) => expected.has(section.key) && typeof section.text === "string" && section.text.trim(),
-    );
+    if (!value.sections.every((section) => section && expected.has(section.key) &&
+      typeof section.text === "string" && section.text.trim())) return null;
+    const repaired = value.sections;
     if (repaired.length !== expected.size || new Set(repaired.map((s) => s.key)).size !== expected.size) {
       return null;
     }
@@ -180,6 +184,7 @@ async function review(input: {
   sections: ArtifactSection[];
   dealId: string;
   npiTagged: boolean;
+  sectionAudit?: Record<string, unknown>;
 }): Promise<ReviewIssue[]> {
   const result = await runRole("verifier", {
     systemInstruction: REVIEW_SYSTEM,
@@ -189,6 +194,7 @@ async function review(input: {
       typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts, null, 2),
       "ARTIFACT SECTIONS:",
       JSON.stringify(input.sections, null, 2),
+      ...(input.sectionAudit ? ["AUDIT OF THE CURRENT SECTIONS (not source evidence):", JSON.stringify(input.sectionAudit)] : []),
       "Return all material issues. Return an empty issues array only if this is release-ready.",
     ].join("\n\n"),
     responseSchema: REVIEW_SCHEMA,
@@ -249,6 +255,7 @@ export function reviewContentHash(input: {
   artifactType: ArtifactType;
   facts: Record<string, unknown> | string;
   sections: ArtifactSection[];
+  sectionAudit?: Record<string, unknown>;
 }): string {
   const factsText = typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts);
   const sectionsText = JSON.stringify(
@@ -257,7 +264,7 @@ export function reviewContentHash(input: {
       .map((s) => [s.key, s.text]),
   );
   return createHash("sha256")
-    .update(`${input.artifactType}\u0000${factsText}\u0000${sectionsText}`)
+    .update(`${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}`)
     .digest("hex");
 }
 
@@ -267,9 +274,11 @@ export async function finishInstitutionalArtifact(input: {
   sections: ArtifactSection[];
   dealId: string;
   npiTagged?: boolean;
+  /** Recompute narrative-derived findings after every repair; never change source facts. */
+  auditSections?: (sections: ArtifactSection[]) => Record<string, unknown>;
 }): Promise<FrontierArtifactResult> {
   const npiTagged = input.npiTagged ?? true;
-  const contentHash = reviewContentHash(input);
+  const contentHash = reviewContentHash({ ...input, sectionAudit: input.auditSections?.(input.sections) });
   let sections = input.sections;
   let repaired = false;
   let reviewPasses = 0;
@@ -279,7 +288,8 @@ export async function finishInstitutionalArtifact(input: {
   // Three repair cycles prevent a single imperfect rewrite from discarding an
   // otherwise recoverable institutional package.
   for (let cycle = 0; cycle <= 3; cycle += 1) {
-    const issues = await review({ ...input, sections, npiTagged });
+    const sectionAudit = input.auditSections?.(sections);
+    const issues = await review({ ...input, sections, npiTagged, sectionAudit });
     reviewPasses += 1;
     // Repair still attempts everything above info — a warning worth fixing is
     // worth fixing. What changed is what happens to one that survives.
@@ -292,45 +302,72 @@ export async function finishInstitutionalArtifact(input: {
     }
     if (cycle === 3) break;
 
-    let repair;
-    try {
-      repair = await runRole("underwriter", {
+    const sectionKeys = new Set(sections.map((section) => section.key));
+    // Legacy/artifact-wide findings require the whole set. Otherwise preserve
+    // unaffected sections byte-for-byte and request only the diagnosed edits.
+    const artifactWide = remaining.some((issue) => !sectionKeys.has(issue.sectionKey));
+    const targets = artifactWide ? sections : sections.filter((section) =>
+      remaining.some((issue) => issue.sectionKey === section.key));
+    // Feasibility has seven long sections. Rewriting all of them in one
+    // response repeatedly exhausted the 75s deadline. Bound each response to
+    // two sections, and retain the independent whole-artifact review.
+    const batches: ArtifactSection[][] = input.artifactType === "feasibility"
+      ? Array.from({ length: Math.ceil(targets.length / 2) }, (_, i) => targets.slice(i * 2, i * 2 + 2))
+      : [targets];
+    const repairs = await Promise.allSettled(batches.map(async (batch, batchIndex) => {
+      const request = {
         systemInstruction: REPAIR_SYSTEM,
         prompt: [
           `ARTIFACT TYPE: ${input.artifactType}`,
           "IMMUTABLE EVIDENCE AND CALCULATIONS:",
-          typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts, null, 2),
-          "CURRENT SECTIONS:",
-          JSON.stringify(sections, null, 2),
+          typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts),
+          "SECTIONS TO REPAIR (claims here are not evidence):",
+          JSON.stringify(input.artifactType === "feasibility" ? batch : sections),
+          ...(sectionAudit ? ["AUDIT OF THE CURRENT SECTIONS (not source evidence):", JSON.stringify(sectionAudit)] : []),
+          "REQUESTED REPAIR SECTION KEYS:",
+          JSON.stringify(batch.map((section) => section.key)),
           "INDEPENDENT REVIEW FINDINGS:",
-          JSON.stringify(remaining, null, 2),
+          JSON.stringify(remaining.filter((issue) => !sectionKeys.has(issue.sectionKey) || batch.some((s) => s.key === issue.sectionKey))),
           `REPAIR CYCLE: ${cycle + 1} OF 3`,
-          "Return the complete repaired section set.",
+          input.artifactType === "feasibility"
+            ? "Return only the requested repaired sections. Remove unsupported claims; do not pad the response. Keep each section concise (normally 150-250 words)."
+            : "Return only the requested repaired sections. Do not repeat unchanged sections.",
         ].join("\n\n"),
         responseSchema: REPAIR_SCHEMA,
-        purpose: `${input.artifactType}_targeted_repair_${cycle + 1}`,
+        purpose: `${input.artifactType}_targeted_repair_${cycle + 1}${batches.length > 1 ? `_batch_${batchIndex + 1}` : ""}`,
         dealId: input.dealId,
         npiTagged,
-        maxOutputTokens: 8_192,
+        maxOutputTokens: input.artifactType === "feasibility" ? 4_096 : 8_192,
         timeoutMs: 75_000,
+      };
+      let repair;
+      try {
+        repair = await runRole("underwriter", request);
+      } catch (error) {
+        if (!(error instanceof Error) || !/aborted|aborterror|timed?\s*out|timeout/i.test(error.message)) throw error;
+        repair = await runRole("underwriter", { ...request, purpose: `${request.purpose}_retry` });
+      }
+      const parsed = parseSections(repair.text, batch);
+      if (!parsed) throw new Error("invalid_repair_contract");
+      return parsed;
+    }));
+    const failed = repairs.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") {
+      // Never publish a partial batch or hide the infrastructure failure behind
+      // a content finding. Keep the last reviewed prose and its findings.
+      const timeout = failed.reason instanceof Error && /aborted|aborterror|timed?\s*out|timeout/i.test(failed.reason.message);
+      if (input.artifactType !== "feasibility" && failed.reason instanceof Error && failed.reason.message === "invalid_repair_contract") remaining = [];
+      if (input.artifactType === "feasibility" || (failed.reason instanceof Error && failed.reason.message === "invalid_repair_contract")) remaining.push({
+        sectionKey: "artifact", claim: "Automated repair incomplete",
+        reason: timeout ? "A targeted repair and its bounded retry timed out; no partial rewrite was published." : "A targeted repair failed or returned an invalid section contract; no partial rewrite was published.",
+        severity: "critical", category: "credit_policy",
+        repairInstruction: "Complete the targeted repair and independent review before publication.",
       });
-    } catch {
       break;
     }
-
-    const repairedSections = parseSections(repair.text, sections);
-    if (!repairedSections) {
-      remaining = [{
-        sectionKey: "artifact",
-        claim: "(artifact repair output invalid)",
-        reason: "The automated repair did not preserve the complete artifact section contract.",
-        severity: "critical",
-        category: "credit_policy",
-        repairInstruction: "Regenerate the complete section contract.",
-      }];
-      break;
-    }
-    sections = repairedSections;
+    const repairedSections = repairs.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+    const replacements = new Map(repairedSections.map((section) => [section.key, section]));
+    sections = sections.map((section) => replacements.get(section.key) ?? section);
     repaired = true;
   }
 

@@ -121,6 +121,41 @@ test("no-ops when the study row has no narratives yet", async () => {
   assert.equal(tables.buddy_feasibility_studies[0].narrative_citations, undefined);
 });
 
+test("re-audits corrected feasibility prose instead of retaining stale unsupported figures", async () => {
+  __setVendorApprovalForTests("openai", "APPROVED");
+  let reviews = 0;
+  let repairs = 0;
+  const audits: string[][] = [];
+  __setProviderImplForTests("anthropic", async (request) => {
+    reviews++;
+    const audit = JSON.parse(request.prompt.split("AUDIT OF THE CURRENT SECTIONS (not source evidence):\n\n")[1].split("\n\n")[0]);
+    const figures = audit.untracedFigures.map((f: { figure: string }) => f.figure);
+    audits.push(figures);
+    // Model the production failure: stale audit entries block even when the
+    // repaired prose no longer contains them. A newly invented number must
+    // also be audited, not merely removed from the original finding list.
+    return { text: JSON.stringify({ issues: figures.map((figure: string) => ({
+      sectionKey: "executiveSummary", claim: figure, reason: "Absent from source evidence",
+      severity: "critical", category: "unsupported_fact", repairInstruction: "Remove unsupported number",
+    })) }), tokensIn: 1, tokensOut: 1 };
+  });
+  __setProviderImplForTests("openai", async () => {
+    repairs++;
+    return { text: JSON.stringify({ sections: [{ key: "executiveSummary", text: repairs === 1
+      ? "Replacement unsupported income is $88,888."
+      : "Income evidence is unavailable." }] }), tokensIn: 1, tokensOut: 1 };
+  });
+  const tables: Record<string, Row[]> = { buddy_feasibility_studies: [{ id: "study-1", narratives: {
+    executiveSummary: "Income is $78,400 and the threshold is 1.25x.",
+    riskAssessment: "Keep this risk disclosure unchanged.",
+  } }] };
+  const result = await enrichFeasibilityStudy({ dealId: "deal-1", bankId: "bank-1", studyId: "study-1", composite: baseComposite(), sb: makeDb(tables) });
+  assert.deepEqual(audits, [["$78,400", "1.25x"], ["$88,888"], []]);
+  assert.equal(reviews, 3);
+  assert.equal(result.verdict, "pass");
+  assert.equal(tables.buddy_feasibility_studies[0].narratives.riskAssessment, "Keep this risk disclosure unchanged.");
+});
+
 test("writes citations and verification verdict back onto the study row", async () => {
   __setProviderImplForTests("anthropic", async () => ({
     text: JSON.stringify({ flaggedClaims: [] }),
@@ -332,4 +367,43 @@ test("reviewer receives exact same-run financial and management evidence", async
     reviewPrompt.length < 30_000,
     `review prompt must stay below 30,000 characters; received ${reviewPrompt.length}`,
   );
+});
+
+test("citations follow repaired prose and cannot retain a removed claim's precision", async () => {
+  __setVendorApprovalForTests("openai", "APPROVED");
+  let reviews = 0;
+  __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify({ issues: reviews++ === 0 ? [{
+    sectionKey: "marketDemandNarrative", claim: "Median household income supports demand",
+    reason: "Demographics not applicable to industrial borrower", severity: "critical", category: "unsupported_fact",
+    repairInstruction: "Remove demographic inference",
+  }] : [] }), tokensIn: 1, tokensOut: 1 }));
+  __setProviderImplForTests("openai", async () => ({ text: JSON.stringify({ sections: [{
+    key: "marketDemandNarrative", text: "Customer contracts need independent verification.",
+  }] }), tokensIn: 1, tokensOut: 1 }));
+  const tables: Record<string, Row[]> = {
+    buddy_feasibility_studies: [{ id: "study-1", narratives: { marketDemandNarrative: "Median household income supports demand" } }],
+    buddy_research_missions: [{ id: "mission-1", deal_id: "deal-1", status: "complete", completed_at: "2026-01-01" }],
+    buddy_research_evidence: [{ mission_id: "mission-1", claim: "Median household income supports demand", source_uris: ["https://example.com/research"] }],
+  };
+  await enrichFeasibilityStudy({ dealId: "deal-1", bankId: "bank-1", studyId: "study-1", composite: baseComposite(), sb: makeDb(tables) });
+  assert.equal(tables.buddy_feasibility_studies[0].narrative_citations.marketDemandNarrative.precise, false);
+  assert.ok(tables.deal_conditions.some(r => r.source_key.endsWith(":marketDemandNarrative")));
+});
+
+test("review and repair receive the canonical borrower identity instead of inheriting names from generated prose", async () => {
+  __setVendorApprovalForTests("anthropic", "APPROVED");
+  __setProviderImplForTests("anthropic", async (request) => {
+    assert.match(request.prompt, /Apex Precision Fabrication, LLC/);
+    assert.match(request.prompt, /Fort Worth/);
+    assert.match(request.prompt, /Precision machining/);
+    assert.doesNotMatch(request.prompt, /Different tenant/);
+    return { text: JSON.stringify({ issues: [] }), tokensIn: 1, tokensOut: 1 };
+  });
+  const tables: Record<string, Row[]> = {
+    deals: [{ id: "deal-1", bank_id: "bank-1", name: "QA display label", city: "Fort Worth", state: "TX" }, { id: "deal-1", bank_id: "other-bank", name: "Different tenant" }],
+    borrower_applications: [{ deal_id: "deal-1", business_legal_name: "Apex Precision Fabrication, LLC", industry: "Precision machining", created_at: "2026-09-17" }],
+    buddy_feasibility_studies: [{ id: "study-1", narratives: { executiveSummary: "Borrower identity needs confirmation." } }],
+  };
+  const result = await enrichFeasibilityStudy({ dealId: "deal-1", bankId: "bank-1", studyId: "study-1", composite: baseComposite(), sb: makeDb(tables) });
+  assert.equal(result.verdict, "pass");
 });
