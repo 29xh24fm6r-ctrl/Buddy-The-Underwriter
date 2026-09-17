@@ -1,4 +1,5 @@
 import test from "node:test";
+import { safeJourneyAnalytics } from "../analytics";
 import assert from "node:assert/strict";
 import { buildGuidedSnapshot } from "../../guidedPackage/questions";
 import {
@@ -140,4 +141,42 @@ test("optional unrelated topics are deferred without removing saved answers or t
         assert.ok(!recommended.some((r) => r.id === q.id));
     }
   }
+});
+
+test("analytics excludes private links and borrower content and limits journey metadata", () => {
+  const event = {
+    event: "borrower_journey_answer_saved",
+    properties: {
+      distinct_id: "anonymous-id",
+      chapter: "numbers",
+      input_method: "text",
+      answer: "private financial details",
+      $current_url: "https://example.test/portal/share/bearer-secret",
+    },
+  };
+  assert.equal(
+    safeJourneyAnalytics(event, "/portal/share/bearer-secret"),
+    null,
+  );
+  assert.deepEqual(safeJourneyAnalytics(event, "/start")?.properties, {
+    distinct_id: "anonymous-id",
+    chapter: "numbers",
+    input_method: "text",
+  });
+  assert.equal(
+    safeJourneyAnalytics({ ...event, event: "$autocapture" }, "/start"),
+    null,
+  );
+  const later = safeJourneyAnalytics(
+    {
+      event: "public_event",
+      properties: {
+        $referrer: "private",
+        $set_once: { $initial_current_url: "private", source: "public" },
+      },
+    },
+    "/",
+  );
+  assert.ok(!JSON.stringify(later).includes("private"));
+  assert.equal(event.properties.answer, "private financial details");
 });
