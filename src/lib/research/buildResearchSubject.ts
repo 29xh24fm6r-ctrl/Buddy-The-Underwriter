@@ -303,18 +303,20 @@ export function assembleResearchEntityProfile(raw: ResearchSubjectRaw): Research
   const company_search_name = firstNonEmpty(legal_name, dba, nonPlaceholderDisplay);
   const name_is_placeholder = company_search_name === null;
 
-  const businessDesc = base.subject.business_description ?? null;
+  // Certification must come from the reviewed story itself. An empty staff
+  // story row must not certify the borrower-interview fallback above.
+  const reviewedBusinessDesc = firstNonEmpty(story?.business_description, story?.products_services, story?.revenue_model, story?.banker_notes);
   const has_management_context = (base.subject.principals?.length ?? 0) > 0;
   const has_industry_context = !!(
     base.subject.naics_description ||
     (base.subject.naics_code && base.subject.naics_code !== PLACEHOLDER_NAICS)
   );
   const has_public_anchor = !!(website || dba || legal_name);
-  const has_banker_certified_anchor = !!(raw.story && (
-    (businessDesc && has_management_context) ||
+  const has_banker_certified_anchor = !!(
+    (reviewedBusinessDesc && has_management_context) ||
     (banker_identity_summary && banker_identity_summary.length > 10) ||
-    (base.subject.banker_summary && businessDesc)
-  ));
+    (base.subject.banker_summary && reviewedBusinessDesc)
+  );
   const private_company_mode_eligible = base.represented && has_banker_certified_anchor;
 
   let certification_level: EntityCertificationLevel;

@@ -32,4 +32,10 @@ test("confirmed borrower business answers reach research without being labeled b
   assert.equal(profile.has_banker_certified_anchor, false);
   assert.equal(profile.private_company_mode_eligible, false);
   assert.equal(JSON.stringify(profile).includes("Protected personal information"), false);
+  const emptyStaffStory = assembleResearchEntityProfile({
+    borrowerId: "borrower", borrower: { legal_name: "Example Coffee LLC" },
+    ownershipEntities: [{ display_name: "Example Owner" }], borrowerInterview, story: {},
+  });
+  assert.equal(emptyStaffStory.has_banker_certified_anchor, false);
+  assert.equal(emptyStaffStory.private_company_mode_eligible, false);
 });
