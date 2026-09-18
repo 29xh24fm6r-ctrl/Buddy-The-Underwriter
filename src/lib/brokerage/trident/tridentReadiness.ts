@@ -2,11 +2,15 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { evaluateTridentResearchTrust } from "./tridentReleaseGate";
+import { hasSavedProceeds } from "../borrowerPackagePreparationState";
 
 export type TridentReadiness = {
   ok: boolean;
   reasons: string[];
   warnings: string[];
+  /** Inputs the borrower can complete; validation/research are produced by preparation. */
+  preparationReady: boolean;
+  preparationBlockers: string[];
   evidence: {
     assumptionsStatus: string | null;
     documentCount: number;
@@ -40,6 +44,7 @@ export async function getTridentReadiness(args: {
     dealResult,
     missionResult,
     interviewResult,
+    loanResult,
   ] = await Promise.all([
     sb
       .from("buddy_sba_assumptions")
@@ -83,6 +88,9 @@ export async function getTridentReadiness(args: {
       .limit(1)
       .maybeSingle(),
     sb.from("borrower_concierge_sessions").select("confirmed_facts").eq("deal_id", dealId).maybeSingle(),
+    sb.from("deal_loan_requests").select("use_of_proceeds")
+      .eq("deal_id", dealId).eq("bank_id", bankId)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
 
   const gateResult = missionResult.data?.id
@@ -129,11 +137,16 @@ export async function getTridentReadiness(args: {
   if (factsResult.error) reasons.push(`Financial facts could not be checked: ${factsResult.error.message}`);
   else if (financialFactCount < 5) reasons.push(`At least 5 extracted financial facts are required (${financialFactCount} found).`);
 
-  if (proceedsResult.error) reasons.push(`Use of proceeds could not be checked: ${proceedsResult.error.message}`);
-  else if (useOfProceedsCount < 1) reasons.push("At least one canonical use-of-proceeds line is required.");
+  if (proceedsResult.error || loanResult.error) reasons.push("Your project budget could not be checked. Please retry.");
+  else if (useOfProceedsCount < 1 && !hasSavedProceeds(loanResult.data?.use_of_proceeds))
+    reasons.push("Add your financing purposes and amounts to the project budget.");
+
+  const preparationBlockers = [...reasons];
+  if (!proceedsResult.error && useOfProceedsCount < 1)
+    reasons.push("At least one canonical use-of-proceeds line is required.");
 
   if (validationResult.error) reasons.push(`Validation status could not be checked: ${validationResult.error.message}`);
-  else if (!validationStatus) reasons.push("Run the AI assessment and deterministic validation before generating Final Trident.");
+  else if (!validationStatus) reasons.push("Buddy needs to check your financial information before generating the package.");
   else if (validationStatus === "FAIL") reasons.push("The latest deterministic validation report must not be FAIL.");
 
   if (missionResult.error) reasons.push(`Research status could not be checked: ${missionResult.error.message}`);
@@ -144,16 +157,23 @@ export async function getTridentReadiness(args: {
     warnings.push(...research.warnings);
   }
 
-  if (confirmedRevenueStreams < 1) reasons.push("At least one confirmed revenue stream is required.");
-  if (managementMembers < 1) reasons.push("At least one management-team member is required.");
-  if (!assumptions?.cost_assumptions) reasons.push("Confirmed cost assumptions are required.");
-  if (!assumptions?.working_capital) reasons.push("Confirmed working-capital assumptions are required.");
-  if (!assumptions?.loan_impact) reasons.push("Confirmed loan-impact and debt assumptions are required.");
+  const assumptionBlockers: string[] = [];
+  if (confirmedRevenueStreams < 1) assumptionBlockers.push("At least one confirmed revenue stream is required.");
+  if (managementMembers < 1) assumptionBlockers.push("At least one management-team member is required.");
+  if (!assumptions?.cost_assumptions) assumptionBlockers.push("Confirmed cost assumptions are required.");
+  if (!assumptions?.working_capital) assumptionBlockers.push("Confirmed working-capital assumptions are required.");
+  if (!assumptions?.loan_impact) assumptionBlockers.push("Confirmed loan-impact and debt assumptions are required.");
+  reasons.push(...assumptionBlockers);
+  preparationBlockers.push(...assumptionBlockers);
+  if (validationResult.error || missionResult.error || gateResult.error)
+    preparationBlockers.push("Your preparation checks could not be loaded. Please retry.");
 
   return {
     ok: reasons.length === 0,
     reasons,
     warnings,
+    preparationReady: preparationBlockers.length === 0,
+    preparationBlockers,
     evidence: {
       assumptionsStatus,
       documentCount,

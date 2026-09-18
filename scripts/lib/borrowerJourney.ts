@@ -278,19 +278,31 @@ export async function runBorrowerJourney(options: Options): Promise<JourneyRepor
     await step("Authoritative package readiness", async () => {
       const state = await http.json(actions + "package-status");
       // No admin writes, injected facts, lowered gates or repeated paid retries.
-      require(state.readiness?.readyToGenerate === true, `Package is not ready (${state.readiness?.blockers?.length ?? "unknown"} blockers). Review the package screen; no generation was started.`, true);
+      require(state.readiness?.readyToPrepare === true, `Package inputs are not ready (${state.readiness?.blockers?.length ?? "unknown"} blockers). Review the package screen; no preparation was started.`, true);
     });
     const generation = await step("Request final-package generation once", () => http.json(actions + "build-package", {}));
-    require(typeof generation.bundleId === "string" && generation.bundleId.length > 0, "Generation did not return a bundle ID.");
-    report.bundleId = generation.bundleId;
+    require(typeof generation.bundleId === "string" || typeof generation.preparationId === "string", "Preparation did not return a run ID.");
+    let expectedBundleId: string | undefined = generation.bundleId;
+    report.bundleId = expectedBundleId;
     if (generation.completed === true) report.notVerified.push("Fresh generation (an existing completed run was reused)");
     await step("Wait for all six artifacts from this run", async () => {
       const maxPolls = options.maxPolls ?? 60;
       require(Number.isInteger(maxPolls) && maxPolls >= 1 && maxPolls <= 120, "Poll limit must be between 1 and 120.");
       for (let i = 0; i < maxPolls; i++) {
         const state = await http.json(actions + "package-status");
+        if (generation.preparationId) {
+          require(state.preparation?.id === generation.preparationId, "Status is not for the preparation started by this test.");
+          require(state.preparation.status !== "failed", "Package preparation failed. Review its message on the package screen.");
+          if (state.preparation.status === "running") {
+            if (i + 1 < maxPolls) await (options.pause ?? (() => new Promise(resolve => setTimeout(resolve, 15_000))))();
+            continue;
+          }
+          require(state.preparation.status === "succeeded" && typeof state.preparation.bundleId === "string", "Preparation did not hand off to final generation.");
+          expectedBundleId = state.preparation.bundleId;
+          report.bundleId = expectedBundleId;
+        }
         const bundle = state.bundle;
-        require(bundle?.id === generation.bundleId, "Status is not for the generation started by this test.");
+        require(bundle?.id === expectedBundleId, "Status is not for the generation started by this test.");
         require(!["failed", "cancelled"].includes(bundle.status), "Package generation failed. Inspect its stage and error in the package screen.");
         if (bundle.status === "succeeded") {
           require(LENDER_PACKAGE_FILES.every(file => bundle[file.column]), "Final run succeeded but is missing required artifacts.");
@@ -304,7 +316,7 @@ export async function runBorrowerJourney(options: Options): Promise<JourneyRepor
     await step("Download and inspect the borrower package", async () => {
       const response = await http.raw(`/api/brokerage/deals/${dealId}/trident/download/complete_package`);
       require(response.ok && response.headers.get("content-type")?.includes("application/zip"), `Package download returned HTTP ${response.status}, not a ZIP.`);
-      await verifyBorrowerZip(new Uint8Array(await response.arrayBuffer()), generation.bundleId);
+      await verifyBorrowerZip(new Uint8Array(await response.arrayBuffer()), expectedBundleId!);
     });
     await step("Internal credit memo remains lender-only", async () => {
       const response = await http.raw(`/api/brokerage/deals/${dealId}/trident/download/credit_memo`);

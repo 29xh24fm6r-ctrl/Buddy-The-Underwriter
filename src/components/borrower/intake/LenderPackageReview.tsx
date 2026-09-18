@@ -4,6 +4,7 @@ import {
   LENDER_PACKAGE_FILES,
   BORROWER_PACKAGE_FILES,
 } from "@/lib/brokerage/lenderPackageFiles";
+import { PACKAGE_PREPARATION_LABELS, type PackagePreparationStatus } from "@/lib/brokerage/borrowerPackagePreparationState";
 
 type Value = string | number | null | Value[] | { [key: string]: Value };
 const groups = {
@@ -230,8 +231,10 @@ export function LenderPackageReview({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [bundle, setBundle] = useState<Record<string, any> | null>(null);
+  const [preparation, setPreparation] = useState<PackagePreparationStatus | null>(null);
   const [readiness, setReadiness] = useState<{
     readyToGenerate: boolean;
+    readyToPrepare: boolean;
     blockers: string[];
     warnings: string[];
     packageFiles: Array<{ key: string; label: string; ready: boolean }>;
@@ -272,6 +275,7 @@ export function LenderPackageReview({
   const refresh = useCallback(async () => {
     const r = await call("package-status");
     setBundle(r.bundle);
+    setPreparation(r.preparation ?? null);
     setReadiness(r.readiness ?? null);
   }, [call]);
   useEffect(() => {
@@ -283,6 +287,7 @@ export function LenderPackageReview({
         setRevision(a.revision);
         setStatus(a.status);
         setBundle(b.bundle);
+        setPreparation(b.preparation ?? null);
         setReadiness(b.readiness ?? null);
       })
       .catch((e) => {
@@ -292,7 +297,7 @@ export function LenderPackageReview({
       cancelled = true;
     };
   }, [call]);
-  const running = bundle && ["pending", "running"].includes(bundle.status);
+  const running = preparation?.status === "running" || (bundle && ["pending", "running"].includes(bundle.status));
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => {
@@ -344,6 +349,8 @@ export function LenderPackageReview({
     }
   }
   const ready =
+    !running &&
+    preparation?.status !== "failed" &&
     !dirty &&
     status === "confirmed" &&
     (!revision ||
@@ -471,10 +478,10 @@ export function LenderPackageReview({
       <div className="mt-6 border-t pt-4">
         {readiness && !running && (
           <section
-            className={`mb-5 rounded-xl border p-4 ${readiness.readyToGenerate ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}
+            className={`mb-5 rounded-xl border p-4 ${readiness.readyToPrepare ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}
           >
             <h4 className="font-semibold">
-              {readiness.readyToGenerate
+              {readiness.readyToPrepare
                 ? "Your information is ready for package preparation"
                 : "Here’s what Buddy still needs"}
             </h4>
@@ -504,7 +511,7 @@ export function LenderPackageReview({
             !!running ||
             dirty ||
             status !== "confirmed" ||
-            readiness?.readyToGenerate !== true
+            readiness?.readyToPrepare !== true
           }
           className="rounded-lg bg-sky-700 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
           onClick={() => void perform("build-package")}
@@ -513,7 +520,9 @@ export function LenderPackageReview({
             ? "Buddy is preparing your package…"
             : busy === "build-package"
               ? "Checking your application…"
-              : "Prepare lender package"}
+              : preparation?.status === "failed" || bundle?.status === "failed"
+                ? "Retry package preparation"
+                : "Prepare lender package"}
         </button>
         <button
           type="button"
@@ -523,12 +532,17 @@ export function LenderPackageReview({
           Refresh status
         </button>
         {running && (
-          <p className="mt-2 text-sm text-slate-600">
-            This can take several minutes. You can return to this page to check
-            progress.
+          <div role="status" aria-live="polite" className="mt-3 rounded-lg bg-sky-50 p-3 text-sm text-slate-700">
+            <p className="font-medium">{PACKAGE_PREPARATION_LABELS[preparation?.status === "running" ? preparation.stage : "generation"]}</p>
+            <p className="mt-1">Buddy checks your information, prepares business research, then creates your documents. This can take several minutes. You can leave this page and return to check progress.</p>
+          </div>
+        )}
+        {preparation?.status === "failed" && !running && (
+          <p role="alert" className="mt-3 whitespace-pre-wrap rounded-lg bg-amber-50 p-3 text-sm">
+            {preparation.message || "Preparation could not be completed. Please retry."}
           </p>
         )}
-        {bundle?.status === "failed" && (
+        {bundle?.status === "failed" && preparation?.status !== "failed" && !running && (
           <p
             role="alert"
             className="mt-3 whitespace-pre-wrap rounded-lg bg-amber-50 p-3 text-sm"

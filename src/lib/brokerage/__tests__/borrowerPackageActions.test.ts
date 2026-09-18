@@ -11,7 +11,7 @@ let race = false;
 let started = 0;
 let questions: any[] = [];
 let bundle: any = null;
-let tridentReadiness: any = { ok: true, reasons: [], warnings: [], evidence: {} };
+let tridentReadiness: any = { ok: true, preparationReady: true, preparationBlockers: [], reasons: [], warnings: [], evidence: {} };
 let readinessCalls = 0;
 const input = () => ({
   revenueStreams: [
@@ -131,8 +131,9 @@ stub("../trident/tridentReadiness", {
     return tridentReadiness;
   },
 });
-stub("../trident/startTridentGeneration", {
-  startTridentGeneration: async () => {
+stub("../borrowerPackagePreparation", {
+  readBorrowerPackagePreparation: async () => null,
+  startBorrowerPackagePreparation: async () => {
     started++;
     return { ok: true };
   },
@@ -149,7 +150,7 @@ test.beforeEach(() => {
   started = 0;
   questions = [];
   bundle = null;
-  tridentReadiness = { ok: true, reasons: [], warnings: [], evidence: {} };
+  tridentReadiness = { ok: true, preparationReady: true, preparationBlockers: [], reasons: [], warnings: [], evidence: {} };
   readinessCalls = 0;
 });
 
@@ -248,6 +249,8 @@ test("package status exposes authoritative blockers and individual artifacts", a
   ];
   tridentReadiness = {
     ok: false,
+    preparationReady: false,
+    preparationBlockers: ["Upload at least two financial documents."],
     reasons: ["Upload at least two financial documents."],
     warnings: ["An estimate still needs review."],
     evidence: { documentCount: 1 },

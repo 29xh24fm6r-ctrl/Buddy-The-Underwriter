@@ -45,6 +45,8 @@ export function isPlaceholderEntityName(name: string | null | undefined): boolea
 // ─── Raw input (already-fetched rows) ────────────────────────────────────────
 
 export type ResearchSubjectRaw = {
+  /** Borrower-confirmed interview context, never banker certification. */
+  borrowerInterview?: { productsServices?: string; industry?: string; project?: string };
   borrowerId?: string | null;
   // deals
   dealBorrowerName?: string | null;
@@ -181,12 +183,15 @@ export function assembleResearchSubject(raw: ResearchSubjectRaw): AssembledResea
     raw.dealName,
   );
 
-  // 2. Business description — from the banker-certified borrower story.
+  // 2. Prefer the reviewed story; confirmed business answers provide a
+  // borrower-supplied fallback without granting banker certification.
   const businessDescription = firstNonEmpty(
     raw.story?.business_description,
     raw.story?.products_services,
     raw.story?.revenue_model,
     raw.story?.banker_notes,
+    raw.borrowerInterview?.productsServices,
+    raw.borrowerInterview?.project,
   );
 
   // 3/4. NAICS — never invent a number. Source order (SPEC-MEMO-INPUTS-INDUSTRY-
@@ -204,6 +209,7 @@ export function assembleResearchSubject(raw: ResearchSubjectRaw): AssembledResea
     raw.borrower?.naics_description,
     raw.story?.naics_description,
     raw.story?.industry_classification,
+    raw.borrowerInterview?.industry,
   );
   if (!naicsDescription && naicsProvisional) {
     naicsDescription = deriveProvisionalIndustry(raw.story);
@@ -235,7 +241,7 @@ export function assembleResearchSubject(raw: ResearchSubjectRaw): AssembledResea
     annual_revenue: raw.annualRevenue ?? null,
     loan_amount: raw.loanAmount ?? null,
     loan_purpose: raw.loanPurpose ?? null,
-    products_services: firstNonEmpty(raw.story?.products_services),
+    products_services: firstNonEmpty(raw.story?.products_services, raw.borrowerInterview?.productsServices),
     competitive_position: firstNonEmpty(raw.story?.competitive_position),
     has_dscr: raw.hasDscr ?? false,
     has_financial_statements: raw.hasFinancialStatements ?? false,
@@ -297,7 +303,9 @@ export function assembleResearchEntityProfile(raw: ResearchSubjectRaw): Research
   const company_search_name = firstNonEmpty(legal_name, dba, nonPlaceholderDisplay);
   const name_is_placeholder = company_search_name === null;
 
-  const businessDesc = base.subject.business_description ?? null;
+  // Certification must come from the reviewed story itself. An empty staff
+  // story row must not certify the borrower-interview fallback above.
+  const reviewedBusinessDesc = firstNonEmpty(story?.business_description, story?.products_services, story?.revenue_model, story?.banker_notes);
   const has_management_context = (base.subject.principals?.length ?? 0) > 0;
   const has_industry_context = !!(
     base.subject.naics_description ||
@@ -305,9 +313,9 @@ export function assembleResearchEntityProfile(raw: ResearchSubjectRaw): Research
   );
   const has_public_anchor = !!(website || dba || legal_name);
   const has_banker_certified_anchor = !!(
-    (businessDesc && has_management_context) ||
+    (reviewedBusinessDesc && has_management_context) ||
     (banker_identity_summary && banker_identity_summary.length > 10) ||
-    (base.subject.banker_summary && businessDesc)
+    (base.subject.banker_summary && reviewedBusinessDesc)
   );
   const private_company_mode_eligible = base.represented && has_banker_certified_anchor;
 
@@ -362,6 +370,15 @@ export function assembleResearchEntityProfile(raw: ResearchSubjectRaw): Research
 
 type MinimalSb = { from: (table: string) => any };
 
+/** Allowlisted business answers only; never send the protected personal interview to research. */
+export function borrowerResearchInterview(facts: Record<string, any> | null | undefined): ResearchSubjectRaw["borrowerInterview"] {
+  const answer = (id: string) => {
+    const value = facts?.package_answers?.[id]?.value;
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  };
+  return { productsServices: answer("B05"), industry: answer("B06"), project: answer("A01") };
+}
+
 /**
  * Load every source the research builders need into a ResearchSubjectRaw.
  * Story / management reads are filtered by deal_id ONLY (no bank_id), matching
@@ -385,7 +402,7 @@ async function loadResearchRaw(sb: MinimalSb, dealId: string): Promise<ResearchS
     borrower = data ?? null;
   }
 
-  const [storyRes, mgmtRes, ownersRes, revRes, loanRes, dscrRes, collateralRes, finDocsRes] = await Promise.all([
+  const [storyRes, mgmtRes, ownersRes, revRes, loanRes, dscrRes, collateralRes, finDocsRes, interviewRes] = await Promise.all([
     sb
       .from("deal_borrower_story")
       .select(
@@ -448,7 +465,9 @@ async function loadResearchRaw(sb: MinimalSb, dealId: string): Promise<ResearchS
         "TAX_RETURN_1120", "TAX_RETURN_1120S", "TAX_RETURN_1065", "TAX_RETURN_1040",
       ])
       .limit(1),
+    sb.from("borrower_concierge_sessions").select("confirmed_facts").eq("deal_id", dealId).maybeSingle(),
   ]);
+  if (interviewRes.error) throw new Error("Saved business answers could not be loaded for research.");
 
   const revenueRows = ((revRes as any)?.data ?? []) as Array<{
     fact_key: string; fact_value_num: number | string | null; fact_period_end: string | null;
@@ -472,6 +491,7 @@ async function loadResearchRaw(sb: MinimalSb, dealId: string): Promise<ResearchS
     dealName: (deal as any)?.name ?? null,
     dealState: (deal as any)?.state ?? null,
     borrower,
+    borrowerInterview: borrowerResearchInterview(interviewRes.data?.confirmed_facts),
     story: storyRes?.data ?? null,
     managementProfiles: (mgmtRes?.data ?? []) as ResearchSubjectRaw["managementProfiles"],
     ownershipEntities: (ownersRes?.data ?? []) as ResearchSubjectRaw["ownershipEntities"],

@@ -1,0 +1,42 @@
+name: Borrower Package Preparation Schema
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - supabase/migrations/20260918150744_borrower_package_preparation.sql
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: brokerage-schema-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    env:
+      MIGRATION_DATABASE_URL: ${{ secrets.BROKERAGE_MIGRATION_DB_URL }}
+      VERIFICATION_DATABASE_URL: ${{ secrets.DRIFT_DETECT_DB_URL }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require production schema connections and ownership
+        shell: bash
+        run: |
+          test -n "$MIGRATION_DATABASE_URL"
+          test -n "$VERIFICATION_DATABASE_URL"
+          test "$(psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select pg_has_role(current_user,c.relowner,'USAGE') from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='deal_proceeds_items'")" = "t"
+      - name: Apply reviewed repeat-safe preparation schema
+        run: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260918150744_borrower_package_preparation.sql
+      - name: Verify preparation contract and access boundaries
+        shell: bash
+        run: |
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select relrowsecurity from pg_class where oid='public.borrower_package_preparations'::regclass")" = "t"
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_attribute where attrelid='public.borrower_package_preparations'::regclass and attname in ('mission_id','bundle_id','expires_at','research_subject_hash') and not attisdropped")" = "4"
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_attribute where attrelid='public.deal_proceeds_items'::regclass and attname='borrower_source' and not attisdropped")" = "1"
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select has_function_privilege('service_role','public.acquire_borrower_package_preparation(uuid,uuid)','EXECUTE') and not has_function_privilege('anon','public.acquire_borrower_package_preparation(uuid,uuid)','EXECUTE') and not has_function_privilege('authenticated','public.sync_borrower_package_proceeds(uuid,uuid,uuid)','EXECUTE') and not has_table_privilege('anon','public.borrower_package_preparations','SELECT')")" = "t"
