@@ -728,5 +728,25 @@
     "name": "deals.brokerage_comms_last_run_at",
     "type": "column",
     "migration": "20260908183000_deals_brokerage_comms_last_run_at.sql"
+  },
+  {
+    "name": "borrower_package_preparations",
+    "type": "table",
+    "migration": "20260918150744_borrower_package_preparation.sql"
+  },
+  {
+    "name": "deal_proceeds_items.borrower_source",
+    "type": "column",
+    "migration": "20260918150744_borrower_package_preparation.sql"
+  },
+  {
+    "name": "acquire_borrower_package_preparation",
+    "type": "function",
+    "migration": "20260918150744_borrower_package_preparation.sql"
+  },
+  {
+    "name": "sync_borrower_package_proceeds",
+    "type": "function",
+    "migration": "20260918150744_borrower_package_preparation.sql"
   }
 ]

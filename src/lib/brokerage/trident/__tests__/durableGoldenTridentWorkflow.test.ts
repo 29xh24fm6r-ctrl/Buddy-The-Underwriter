@@ -143,7 +143,7 @@ test("production commissioning cannot reuse stale evidence or bypass validation"
   assert.match(completionMigration, /'growth_trajectory'/);
   assert.match(completionMigration, /cardinality\(input_fact_ids\) > 0/);
   assert.match(completionMigration, /jsonb_build_array/);
-  assert.match(readiness, /Run the AI assessment and deterministic validation/);
+  assert.match(readiness, /else if \(!validationStatus\) reasons\.push\("Buddy needs to check your financial information/);
   assert.match(readiness, /else if \(!validationStatus\)/);
 });
 

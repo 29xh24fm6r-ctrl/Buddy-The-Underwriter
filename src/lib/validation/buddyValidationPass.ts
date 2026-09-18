@@ -49,12 +49,13 @@ export async function runBuddyValidationPass(
     .from("buddy_validation_reports")
     .select("*")
     .eq("deal_id", dealId)
-    .eq("snapshot_hash", snapshotHash)
     .order("run_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (cached) {
+  // Admission reads the latest report. Reusing an older matching snapshot
+  // would leave a newer, unrelated FAIL in front of the current result.
+  if (cached?.snapshot_hash === snapshotHash) {
     return {
       dealId,
       runAt: cached.run_at,

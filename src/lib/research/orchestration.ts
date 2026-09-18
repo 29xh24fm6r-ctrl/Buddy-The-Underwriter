@@ -59,7 +59,12 @@ export function generateRunKey(input: RunKeyInput): string {
     depth: input.depth,
   };
 
-  const json = JSON.stringify(normalized, Object.keys(normalized).sort());
+  // A JSON replacer *array* applies at every depth. Using only root keys
+  // silently reduced every subject to {}, reusing research for changed companies.
+  const json = JSON.stringify(normalized, (_key, value) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
+      : value);
   return createHash("sha256").update(json).digest("hex").slice(0, 16);
 }
 
@@ -67,7 +72,7 @@ export function generateRunKey(input: RunKeyInput): string {
  * Normalize subject for consistent hashing.
  */
 function normalizeSubject(subject: MissionSubject): Record<string, unknown> {
-  const normalized: Record<string, unknown> = {};
+  const normalized: Record<string, unknown> = { ...subject };
 
   if (subject.naics_code) {
     normalized.naics_code = subject.naics_code.replace(/[^0-9]/g, "");

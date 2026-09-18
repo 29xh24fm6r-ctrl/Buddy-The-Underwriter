@@ -6,7 +6,7 @@ import { assumptionsInput } from "@/lib/sba/assumptionsInput";
 import { validateSBAAssumptions } from "@/lib/sba/sbaAssumptionsValidator";
 import { draftAssumptionsFromContext } from "@/lib/sba/sbaAssumptionDrafter";
 import { getTridentReadiness } from "./trident/tridentReadiness";
-import { startTridentGeneration } from "./trident/startTridentGeneration";
+import { readBorrowerPackagePreparation, startBorrowerPackagePreparation } from "./borrowerPackagePreparation";
 
 export async function borrowerPackageAction(
   action: string,
@@ -16,10 +16,11 @@ export async function borrowerPackageAction(
 ) {
   const sb = supabaseAdmin();
   if (action === "package-status") {
+    const preparation = await readBorrowerPackagePreparation(dealId, bankId);
     const bundleResult = await sb
       .from("buddy_trident_bundles")
       .select(
-        "id,status,current_stage,generation_error,generation_completed_at,business_plan_pdf_path,projections_xlsx_path,feasibility_pdf_path,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path",
+        "id,status,current_stage,generation_error,generation_completed_at,lease_expires_at,business_plan_pdf_path,projections_xlsx_path,feasibility_pdf_path,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path",
       )
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
@@ -29,7 +30,12 @@ export async function borrowerPackageAction(
       .maybeSingle();
     const { data: bundle, error } = bundleResult;
     if (error) throw new Error("Your package status could not be loaded");
-    const generating = ["pending", "running"].includes(bundle?.status ?? "");
+    if (bundle && ["pending", "running"].includes(bundle.status) &&
+      bundle.lease_expires_at && Date.parse(bundle.lease_expires_at) <= Date.now()) {
+      bundle.status = "failed";
+      bundle.generation_error = "Package preparation stopped before completion. Please retry.";
+    }
+    const generating = preparation?.status === "running" || ["pending", "running"].includes(bundle?.status ?? "");
     const [readiness, answers] = generating
       ? [null, null]
       : await Promise.all([
@@ -53,7 +59,11 @@ export async function borrowerPackageAction(
     return NextResponse.json({
       ok: true,
       bundle,
+      preparation,
       readiness: {
+        readyToPrepare:
+          !generating && readiness?.preparationReady === true &&
+          unanswered.length === 0 && !(answers?.readErrors.length ?? 0),
         readyToGenerate:
           !generating &&
           readiness?.ok === true &&
@@ -64,7 +74,7 @@ export async function borrowerPackageAction(
             ? ["Your saved answers could not be verified. Reload before continuing."]
             : []),
           ...unanswered.slice(0, 8).map((q) => q.question),
-          ...(generating ? [] : (readiness?.reasons ?? [])),
+          ...(generating ? [] : (readiness?.preparationBlockers ?? [])),
         ],
         warnings: readiness?.warnings ?? [],
         evidence: readiness?.evidence ?? {},
@@ -105,16 +115,16 @@ export async function borrowerPackageAction(
         },
         { status: 409 },
       );
-    if (!readiness.ok)
+    if (!readiness.preparationReady)
       return NextResponse.json(
         {
           ok: false,
           error: "Please complete these items first.",
-          blockers: readiness.reasons,
+          blockers: readiness.preparationBlockers,
         },
         { status: 409 },
       );
-    const started = await startTridentGeneration({ dealId, mode: "final" });
+    const started = await startBorrowerPackagePreparation(dealId, bankId);
     return NextResponse.json(started, { status: started.ok ? 202 : 503 });
   }
   const { data: row, error } = await sb

@@ -37,11 +37,13 @@ type Changes = {
   generationState?: string; wrongBundle?: boolean; leakMemo?: boolean;
   zip?: Uint8Array; persistenceLost?: boolean;
   prepared?: boolean;
+  preparation?: "succeeded" | "failed" | "running" | "wrong-run";
 };
 async function harness(changes: Changes = {}) {
   const calls: Array<{ path: string; method: string; body: any; cookie: string | null }> = [];
   let value: any = changes.prepared ? 250000 : null;
   let generationStarted = false;
+  let preparationPolls = 0;
   let assumption: any = changes.prepared ? scenario.assumptions : null;
   let assumptionsRevision: string | null = changes.prepared ? "revision-1" : null;
   const files: string[] = changes.prepared ? ["tax.pdf", "financials.pdf"] : [];
@@ -71,8 +73,11 @@ async function harness(changes: Changes = {}) {
       return json({ ok: true, dealId }, body.action === "create" ? 201 : 200, { "set-cookie": "buddy_borrower_session=session; Path=/; HttpOnly" });
     }
     if (path.endsWith("/package-status")) {
+      const preparing = generationStarted && changes.preparation;
+      const preparationStatus = preparationPolls++ === 0 ? "running" : changes.preparation;
       return json({ ok: true,
-        readiness: { evidence: { isTestDeal: !changes.realDeal }, readyToGenerate: !changes.readinessBlocked, blockers: changes.readinessBlocked ? ["Validation is missing"] : [] },
+        preparation: preparing ? { id: changes.preparation === "wrong-run" ? "other-preparation" : "prep", status: preparationStatus, bundleId: preparationStatus === "succeeded" ? bundleId : null } : null,
+        readiness: { evidence: { isTestDeal: !changes.realDeal }, readyToPrepare: !changes.readinessBlocked, readyToGenerate: !changes.readinessBlocked, blockers: changes.readinessBlocked ? ["Validation is missing"] : [] },
         bundle: generationStarted ? {
           id: changes.wrongBundle ? "another-run" : bundleId, status: changes.generationState ?? "succeeded",
           ...Object.fromEntries(LENDER_PACKAGE_FILES.map((f, i) => [f.column, changes.missingArtifact && i === 0 ? null : `artifacts/${f.filename}`])),
@@ -104,7 +109,7 @@ async function harness(changes: Changes = {}) {
       if (method === "POST") { assert.equal(body.revision, assumptionsRevision); assumption = body.assumptions; assumptionsRevision = "revision-1"; }
       return json({ ok: true, assumptions: assumption, revision: assumptionsRevision, status: assumption ? "confirmed" : "draft" });
     }
-    if (path.endsWith("/build-package")) { generationStarted = true; return json({ ok: true, bundleId }, 202); }
+    if (path.endsWith("/build-package")) { generationStarted = true; preparationPolls = 0; return json({ ok: true, ...(changes.preparation ? { preparationId: "prep" } : { bundleId }) }, 202); }
     if (path.endsWith("/download/complete_package")) return new Response(Buffer.from(zip), { headers: { "content-type": "application/zip" } });
     if (path.endsWith("/download/credit_memo")) return json({ ok: changes.leakMemo === true }, changes.leakMemo ? 200 : 404);
     throw new Error(`Unexpected request ${method} ${path}`);
@@ -132,6 +137,22 @@ test("full HTTP path accepts 201, does not resend OTP, validates all files, and 
   assert.equal(h.calls.some(c => /\/(seal|kyc|esign|mock-complete)/.test(c.path)), false);
   assert.ok(h.calls.some(c => c.path.endsWith("/files/record")));
 });
+
+test("HTTP journey follows preparation into its exact final bundle", async () => {
+  const h = await harness({ preparation: "succeeded" });
+  const result = await runBorrowerJourney(h.options);
+  assert.equal(result.status, "package_verified", JSON.stringify(result));
+  assert.equal(result.bundleId, bundleId);
+  assert.equal(h.calls.filter(call => call.path.endsWith("/build-package")).length, 1);
+});
+for (const preparation of ["failed", "running", "wrong-run"] as const) {
+  test(`HTTP journey cannot pass with ${preparation} preparation`, async () => {
+    const h = await harness({ preparation });
+    const result = await runBorrowerJourney(h.options);
+    assert.notEqual(result.status, "package_verified");
+    assert.equal(h.calls.some(call => call.path.endsWith("/download/complete_package")), false);
+  });
+}
 test("generation requires explicit spend permission before any requests", async () => {
   const h = await harness(); const result = await runBorrowerJourney({ ...h.options, allowGeneration: false });
   assert.equal(result.exitCode, 2); assert.equal(h.calls.length, 0);

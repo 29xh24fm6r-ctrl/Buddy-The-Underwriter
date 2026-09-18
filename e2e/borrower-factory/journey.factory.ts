@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { buildGuidedSnapshot } from "../../src/lib/borrower/guidedPackage/questions";
-async function setup(page: Page) {
+async function setup(page: Page, preparePackage = false) {
   const facts: Record<string, any> = { package_answers: {} };
   const rows: Record<string, any[]> = { deals: [{}], deal_loan_requests: [{}] };
   const snapshot = () => ({
@@ -11,6 +11,7 @@ async function setup(page: Page) {
   let failNext = false;
   let helperCreated = false;
   let helperRevoked = false;
+  let preparation: null | { id: string; status: string; stage: string; message?: string } = null;
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== "127.0.0.1") return route.abort("blockedbyclient");
@@ -76,12 +77,19 @@ async function setup(page: Page) {
     if (url.pathname.endsWith("/assumptions"))
       return respond({
         ok: true,
-        assumptions: null,
+        assumptions: preparePackage ? { revenueStreams: [] } : null,
         revision: null,
-        status: "draft",
+        status: preparePackage ? "confirmed" : "draft",
       });
     if (url.pathname.endsWith("/package-status"))
-      return respond({ ok: true, bundle: null });
+      return respond({ ok: true, bundle: null, preparation, readiness: {
+        readyToPrepare: preparePackage && preparation?.status !== "running",
+        readyToGenerate: false, blockers: [], warnings: [], packageFiles: [],
+      } });
+    if (url.pathname.endsWith("/build-package")) {
+      preparation = { id: "preparation", status: "running", stage: "research" };
+      return respond({ ok: true, preparationId: preparation.id }, 202);
+    }
     if (url.pathname.endsWith("/owners"))
       return respond({ ok: true, owners: [], summary: null });
     return respond({
@@ -101,8 +109,28 @@ async function setup(page: Page) {
       failNext = true;
     },
     facts,
+    failPreparation: () => {
+      preparation = { id: "preparation", status: "failed", stage: "research", message: "Business research could not be completed. Review your business details and retry preparation." };
+    },
   };
 }
+test("completed inputs start preparation while research is missing, resume progress, and allow retry", async ({ page }) => {
+  const fixture = await setup(page, true);
+  await page.getByRole("button", { name: /MISSION 4 Prepare your package/ }).click();
+  const prepare = page.getByRole("button", { name: "Prepare lender package", exact: true });
+  await expect(prepare).toBeEnabled();
+  await prepare.click();
+  await expect(page.getByText("Preparing research for your business plan", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Buddy is preparing your package…", exact: true })).toBeDisabled();
+  await page.reload();
+  await page.getByRole("button", { name: /MISSION 4 Prepare your package/ }).click();
+  await expect(page.getByText("Preparing research for your business plan", { exact: true })).toBeVisible();
+  fixture.failPreparation();
+  await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Business research could not be completed");
+  await expect(page.getByRole("button", { name: "Retry package preparation", exact: true })).toBeEnabled();
+  expect(fixture.calls.filter(call => call.endsWith("/build-package"))).toHaveLength(1);
+});
 test("goal-first journey saves, resumes, keeps drafts and does not call models", async ({
   page,
 }) => {
