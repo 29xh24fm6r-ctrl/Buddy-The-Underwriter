@@ -73,8 +73,13 @@ export function CollateralModal({ open, onClose, item, onSave, onUpdate }: Props
   if (!open) return null;
 
   const numericValue = value ? Number(value) : 0;
-  const effectiveAdvRate = advanceRate ? Number(advanceRate) / 100 : getEffectiveAdvanceRate({ item_type: type } as CollateralItem);
-  const computedLendable = numericValue * effectiveAdvRate;
+  const effectiveAdvRate = advanceRate
+    ? Number(advanceRate) / 100
+    : getEffectiveAdvanceRate({ item_type: type } as CollateralItem);
+  // No defensible default for this type (life-insurance assignment, purchase
+  // target): the banker must enter a rate, so show no lendable value rather
+  // than one computed from a rate nobody chose.
+  const computedLendable = effectiveAdvRate === null ? null : numericValue * effectiveAdvRate;
 
   const needsNote = valuationMethod === "management_stated_value" || valuationMethod === "other";
 
@@ -162,12 +167,17 @@ export function CollateralModal({ open, onClose, item, onSave, onUpdate }: Props
             value={advanceRate}
             onChange={setAdvanceRate}
             type="number"
-            placeholder={`Default: ${Math.round(getEffectiveAdvanceRate({ item_type: type } as CollateralItem) * 100)}%`}
+            placeholder={(() => {
+              const d = getEffectiveAdvanceRate({ item_type: type } as CollateralItem);
+              return d === null ? "Required for this type" : `Default: ${Math.round(d * 100)}%`;
+            })()}
           />
           <div className="space-y-1">
             <label className="text-xs font-medium text-white/70">Net Lendable Value</label>
             <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/60">
-              ${computedLendable.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {computedLendable === null
+                ? "—"
+                : `$${computedLendable.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
             </div>
           </div>
         </div>
