@@ -44,6 +44,7 @@ const POLL_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_POLLS = Math.ceil(POLL_TIMEOUT_MS / POLL_MS);
 
 export function TridentPreviewCard({ token }: { token: string }) {
+  const [released, setReleased] = React.useState(false);
   const [state, setState] = React.useState<LocalState>({
     phase: "loading-existing",
   });
@@ -64,7 +65,8 @@ export function TridentPreviewCard({ token }: { token: string }) {
       credentials: "include",
     });
     if (!res.ok) return null;
-    const json = (await res.json()) as { ok: boolean; bundle: BundleShape | null };
+    const json = (await res.json()) as { ok: boolean; bundle: BundleShape | null; release?: { released: boolean } };
+    setReleased(json.release?.released === true);
     return json.bundle ?? null;
   }, [token]);
 
@@ -176,18 +178,17 @@ export function TridentPreviewCard({ token }: { token: string }) {
       <header className="mb-4 flex items-start justify-between gap-4">
         <div>
           <h2 className="font-heading text-lg font-semibold text-slate-900">
-            Your Business Plan &amp; Feasibility Preview
+            Buddy is building your loan package
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Buddy will prepare a preview of your business plan, projections,
-            and feasibility study. The full package unlocks when you pick a
-            lender.
+            Buddy prepares your business plan, projections and feasibility study for lender review.
+            These documents unlock after a bank claims your deal and you select that bank.
           </p>
         </div>
       </header>
 
       {state.phase === "loading-existing" && (
-        <p className="text-sm text-slate-500">Checking for existing preview…</p>
+        <p className="text-sm text-slate-500">Checking your package preparation…</p>
       )}
 
       {state.phase === "no-preview" && (
@@ -196,7 +197,7 @@ export function TridentPreviewCard({ token }: { token: string }) {
           onClick={onGenerate}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
-          Generate My Preview
+          Prepare my documents
         </button>
       )}
 
@@ -206,14 +207,14 @@ export function TridentPreviewCard({ token }: { token: string }) {
             aria-hidden
             className="h-3 w-3 animate-pulse rounded-full bg-blue-600"
           />
-          Preparing your preview…
+          Preparing your documents…
         </div>
       )}
 
       {state.phase === "blocked" && (
         <div>
           <p className="text-sm font-medium text-amber-900">
-            I can build your preview - I just need a couple more things first:
+            I can prepare your documents — I just need a couple more things first:
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
             {state.gaps.map((g, i) => (
@@ -233,10 +234,10 @@ export function TridentPreviewCard({ token }: { token: string }) {
       {state.phase === "failed" && (
         <div>
           <p className="text-sm font-medium text-red-700">
-            Buddy couldn&apos;t finish your preview this time.
+            Buddy couldn&apos;t finish preparing your documents this time.
           </p>
           <p className="mt-1 text-xs text-red-700/80">
-            The secure preview service needs another try. Your documents are still safe and your package has not been changed.
+            Your saved information is safe. Try again to continue preparing your documents.
           </p>
           <button
             type="button"
@@ -248,7 +249,13 @@ export function TridentPreviewCard({ token }: { token: string }) {
         </div>
       )}
 
-      {state.phase === "succeeded" && (
+      {state.phase === "succeeded" && !released && (
+        <p role="status" className="rounded-xl bg-sky-50 p-4 text-sm text-sky-900">
+          Your documents are prepared. Keep going with your application; you don’t need to
+          unlock these documents to complete your information, forms or signatures.
+        </p>
+      )}
+      {state.phase === "succeeded" && released && (
         <div className="grid gap-3 sm:grid-cols-3">
           <PreviewSubCard
             token={token}

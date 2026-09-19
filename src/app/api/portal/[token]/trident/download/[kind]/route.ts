@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolvePortalToken } from "@/lib/brokerage/trident/portalTokenAuth";
 import { auditPackageDownload } from "@/lib/brokerage/packageDelivery";
+import { getBorrowerArtifactRelease } from "@/lib/brokerage/borrowerArtifactRelease";
 
 export const runtime = "nodejs";
 
@@ -51,6 +52,11 @@ export async function GET(
   }
   const { dealId } = ctx;
   const sb = supabaseAdmin();
+  const release = await getBorrowerArtifactRelease(dealId, sb);
+  if (!release.released) return NextResponse.json(
+    { ok: false, error: release.reason },
+    { status: release.reason === "state_unavailable" ? 503 : 403 },
+  );
 
   // PREVIEW-ONLY. Spec: borrower portal pre-pick must not touch final
   // bundles. The cookie-scoped download route is the surface that

@@ -3,6 +3,12 @@ import type { GuidedQuestion } from "../guidedPackage/questions";
 type Choice = readonly [value: string, label: string];
 
 const ACTIVITY_CHOICES: Record<string, readonly Choice[]> = {
+  K02: [
+    ["New franchise location", "Open a new location"],
+    ["Purchase of an operating franchise location", "Buy an operating location"],
+    ["Expansion of an existing franchise business", "Expand my franchise business"],
+    ["Franchise transaction not yet decided", "Still exploring"],
+  ],
   A02: [
     ["Starting a business", "Start a business"],
     ["Buying an existing business", "Buy a business"],
@@ -35,6 +41,14 @@ const ACTIVITY_CHOICES: Record<string, readonly Choice[]> = {
 };
 
 const FRIENDLY_QUESTIONS: Record<string, { title: string; hint: string }> = {
+  K01: {
+    title: "Which franchise and proposed location are you working with?",
+    hint: "Share the brand and the city or site, if known. We’ll keep your company’s legal name separate.",
+  },
+  K02: {
+    title: "What does buying this franchise mean for your project?",
+    hint: "A new location and an existing operating business need different follow-ups. Choose what fits.",
+  },
   A01: {
     title: "What are we helping you make happen?",
     hint: "Tell Buddy the outcome in your own words. A sentence or two is enough.",
@@ -71,4 +85,3 @@ export function activityCopy(q: GuidedQuestion) {
     }
   );
 }
-

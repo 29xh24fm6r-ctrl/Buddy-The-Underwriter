@@ -27,7 +27,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { canSeal } from "@/lib/brokerage/sealingGate";
 import { deepMerge } from "@/lib/brokerage/borrowerConversation";
-import { buildPackageManifest, type PackageManifest } from "@/lib/brokerage/packageDelivery";
+import { buildBorrowerPackageManifest, type PackageManifest } from "@/lib/brokerage/packageDelivery";
 import { computeApplicableForms } from "@/lib/sba/forms/applicability";
 import { computeFieldProgress, type FieldProgress } from "@/lib/sba/forms/borrowerFieldProgress";
 
@@ -178,7 +178,7 @@ export async function GET(
     // independent and should not delay it.
     const manifestPromise: Promise<PackageManifest | null> =
       row.status === "picked"
-        ? buildPackageManifest(dealId, "full", sb as any)
+        ? buildBorrowerPackageManifest(dealId, "full", sb as any)
         : Promise.resolve(null);
 
     // Active claims — the lenders who have claimed this listing. The borrower

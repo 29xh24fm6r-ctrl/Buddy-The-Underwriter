@@ -232,6 +232,7 @@ export function LenderPackageReview({
   const [error, setError] = useState("");
   const [bundle, setBundle] = useState<Record<string, any> | null>(null);
   const [preparation, setPreparation] = useState<PackagePreparationStatus | null>(null);
+  const [released, setReleased] = useState(false);
   const [readiness, setReadiness] = useState<{
     readyToGenerate: boolean;
     readyToPrepare: boolean;
@@ -275,6 +276,7 @@ export function LenderPackageReview({
   const refresh = useCallback(async () => {
     const r = await call("package-status");
     setBundle(r.bundle);
+    setReleased(r.release?.released === true);
     setPreparation(r.preparation ?? null);
     setReadiness(r.readiness ?? null);
   }, [call]);
@@ -287,6 +289,7 @@ export function LenderPackageReview({
         setRevision(a.revision);
         setStatus(a.status);
         setBundle(b.bundle);
+        setReleased(b.release?.released === true);
         setPreparation(b.preparation ?? null);
         setReadiness(b.readiness ?? null);
       })
@@ -574,7 +577,7 @@ export function LenderPackageReview({
                 }
               >
                 {file.ready
-                  ? "Ready for your review"
+                  ? "Prepared"
                   : running
                     ? "Preparing"
                     : "Not ready yet"}
@@ -582,7 +585,14 @@ export function LenderPackageReview({
             </li>
           ))}
         </ul>
-        {ready && (
+        {ready && !released && (
+          <p role="status" className="mt-4 rounded-xl bg-sky-50 p-4 text-sm text-sky-900">
+            Your documents are prepared for lender review. Your business plan, feasibility study,
+            projections and spreads unlock after a bank claims your deal and you select that bank.
+            You can continue reviewing your information and completing required forms and signatures.
+          </p>
+        )}
+        {ready && released && (
           <div className="mt-4">
             <a
               className="inline-block rounded-lg bg-emerald-700 px-4 py-3 text-sm text-white"

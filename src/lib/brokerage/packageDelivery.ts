@@ -2,6 +2,7 @@
  * BRK-10G Package Delivery — controlled delivery for borrowers and lenders.
  */
 import { LENDER_PACKAGE_FILES } from "./lenderPackageFiles";
+import { getBorrowerArtifactRelease } from "./borrowerArtifactRelease";
 import { getLatestAssembledPackageRun } from "@/lib/sba/package/getLatestAssembledPackageRun";
 
 export type PackageResource = { type: string; label: string; available: boolean; downloadKey: string | null };
@@ -89,10 +90,20 @@ export async function getBorrowerPackageStatus(session: { deal_id: string }, sb:
   if (pickError) throw new Error(`package_state_unavailable:marketplace_pick:${pickError.message}`);
   let pln: string | null = null;
   if (pick?.picked_lender_bank_id) { const { data: bank, error: bankError } = await sb.from("banks").select("name").eq("id", pick.picked_lender_bank_id).maybeSingle(); if (bankError) throw new Error(`package_state_unavailable:lender_bank:${bankError.message}`); pln = str(bank?.name); }
-  const sealed = Boolean(sp); const manifest = await buildPackageManifest(dealId, sealed ? "full" : "none", sb);
+  const sealed = Boolean(sp); const manifest = await buildBorrowerPackageManifest(dealId, sealed ? "full" : "none", sb);
   const { data: f159, error: f159Error } = await sb.from("sba_form_159_records").select("status").eq("deal_id", dealId).in("status", ["generated","borrower_acknowledged","fully_acknowledged","locked"]).limit(1).maybeSingle();
   if (f159Error) throw new Error(`package_state_unavailable:borrower_form_159:${f159Error.message}`);
   return { sealed, sealedAt: str(sp?.sealed_at), dealId, packageId: sp ? String(sp.id) : null, pickedLenderName: pln, complianceReady: Boolean(f159), manifest };
+}
+
+/** Borrower projection: keep forms available, never advertise lender-only memo downloads. */
+export async function buildBorrowerPackageManifest(dealId: string, accessLevel: "full" | "none", sb: SB) {
+  const [manifest, release] = await Promise.all([
+    buildPackageManifest(dealId, accessLevel, sb), getBorrowerArtifactRelease(dealId, sb),
+  ]);
+  return { ...manifest, resources: manifest.resources.filter(resource => resource.type !== "credit_memo")
+    .map(resource => release.released || ["sba_forms", "form_159", "source_docs"].includes(resource.type)
+      ? resource : { ...resource, available: false, downloadKey: null }) };
 }
 
 export async function getLenderPackageAccess(accessId: string, lenderBankId: string, sb: SB): Promise<{ ok: true; access: LenderPackageAccess } | { ok: false; error: string }> {
