@@ -10,6 +10,11 @@ import { mockServerOnly } from "../../../../../test/utils/mockServerOnly";
 
 mockServerOnly();
 const require = createRequire(import.meta.url);
+let borrowerReleased = true;
+require.cache[require.resolve("@/lib/brokerage/borrowerArtifactRelease")] = {
+  id: "release-stub", filename: "release-stub", loaded: true,
+  exports: { getBorrowerArtifactRelease: async () => ({ released: borrowerReleased, reason: borrowerReleased ? "released" : "bank_selection_required" }) },
+} as any;
 const { renderProjectionsXlsx } =
   require("../projectionsXlsx") as typeof import("../projectionsXlsx");
 
@@ -30,6 +35,7 @@ const state: {
 };
 
 function resetState() {
+  borrowerReleased = true;
   state.session = null;
   state.bundles = [];
   state.signedUrlReturns = { signedUrl: "https://signed.example/path" };
@@ -144,6 +150,17 @@ async function call(dealId: string, kind: string) {
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────
+test("borrower previews and complete package stay locked before bank claim plus selection", async () => {
+  resetState();
+  borrowerReleased = false;
+  state.session = { deal_id: "deal-1", tokenHash: "h" };
+  for (const kind of ["business_plan", "projections_pdf", "projections_xlsx", "feasibility", "spreads", "complete_package"]) {
+    const { status, body } = await call("deal-1", kind);
+    assert.equal(status, 403);
+    assert.equal(body.url, undefined);
+  }
+  resetState();
+});
 
 test("no cookie → 404", async () => {
   resetState();

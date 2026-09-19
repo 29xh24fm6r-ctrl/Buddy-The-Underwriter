@@ -6,6 +6,7 @@ import { assumptionsInput } from "@/lib/sba/assumptionsInput";
 import { validateSBAAssumptions } from "@/lib/sba/sbaAssumptionsValidator";
 import { draftAssumptionsFromContext } from "@/lib/sba/sbaAssumptionDrafter";
 import { getTridentReadiness } from "./trident/tridentReadiness";
+import { getBorrowerArtifactRelease } from "./borrowerArtifactRelease";
 import { readBorrowerPackagePreparation, startBorrowerPackagePreparation } from "./borrowerPackagePreparation";
 
 export async function borrowerPackageAction(
@@ -56,9 +57,16 @@ export async function borrowerPackageAction(
       ["spreads_pdf_path", "Financial spreads"],
       ["sba_forms_pdf_path", "Applicable SBA forms"],
     ] as const;
+    const release = await getBorrowerArtifactRelease(dealId, sb);
     return NextResponse.json({
       ok: true,
-      bundle,
+      // Status is useful before release. Storage paths and underwriting output are not.
+      bundle: bundle ? {
+        id: bundle.id, status: bundle.status, current_stage: bundle.current_stage,
+        generation_error: bundle.status === "failed" ? "Package preparation needs another try." : null,
+        generation_completed_at: bundle.generation_completed_at,
+      } : null,
+      release,
       preparation,
       readiness: {
         readyToPrepare:

@@ -136,16 +136,17 @@ test("goal-first journey saves, resumes, keeps drafts and does not call models",
 }) => {
   const fixture = await setup(page);
   await expect(
-    page.getByRole("heading", { name: "What’s next for your business?" }),
+    page.getByText("What’s next for your business?", { exact: true }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Buy a business", exact: true })
     .click();
-  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
+  await page.getByRole("button", { name: "Save activity and continue", exact: true }).click();
   await expect(
     page.getByText("Nice work—your plan just got clearer.", { exact: true }),
   ).toBeVisible();
   expect(fixture.calls).not.toContain("guided_review");
+  await page.getByRole("button", { name: /MISSION 1 Shape your idea/ }).click();
   await page
     .getByRole("textbox", {
       name: "What are we helping you make happen?",
@@ -159,20 +160,18 @@ test("goal-first journey saves, resumes, keeps drafts and does not call models",
     }),
   ).toHaveValue("Acquire a local repair business");
   fixture.fail();
-  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
+  await page.getByRole("button", { name: "Save activity and continue", exact: true }).click();
   await expect(page.getByText("Simulated save interruption")).toBeVisible();
   await expect(
     page.getByRole("textbox", {
       name: "What are we helping you make happen?",
     }),
   ).toHaveValue("Acquire a local repair business");
-  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
+  await page.getByRole("button", { name: "Save activity and continue", exact: true }).click();
   await expect(page.getByText("Nice work—your plan just got clearer.")).toBeVisible();
   await page.reload();
   await expect(
-    page.getByRole("heading", {
-      name: "Where are you in your business journey?",
-    }),
+    page.getByText("Where are you in your business journey?", { exact: true }),
   ).toBeVisible();
   expect(fixture.calls).not.toContain("guided_review");
   await page.screenshot({
@@ -187,7 +186,7 @@ test("options are educational; documents and manual financial review are reachab
   await page
     .getByRole("button", { name: "Buy or improve property", exact: true })
     .click();
-  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
+  await page.getByRole("button", { name: "Save activity and continue", exact: true }).click();
   await expect(page.getByText("Nice work—your plan just got clearer.")).toBeVisible();
   await page.getByRole("button", { name: "Explore financing options" }).click();
   await expect(

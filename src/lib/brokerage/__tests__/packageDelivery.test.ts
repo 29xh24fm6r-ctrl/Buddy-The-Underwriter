@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
+mockServerOnly();
 const require = createRequire(import.meta.url);
 const m = require("../packageDelivery") as typeof import("../packageDelivery");
 type Row = Record<string, any>;
@@ -9,6 +11,13 @@ class Q { db:S;table:string;filters:Array<{t:string;k:string;v:any}>;_i:Row[]|nu
 function sealedDb(extras?:Partial<Record<string,Row[]>>){return new S({buddy_sealed_packages:[{id:"sp1",deal_id:"d1",sealed_at:"2026-06-01",unsealed_at:null,final_business_plan_path:"/gcs/bp-final.pdf",final_projections_path:"/gcs/proj-final.xlsx",final_feasibility_path:"/gcs/feas-final.pdf",final_credit_memo_path:null,final_forms_path:null,final_source_docs_zip_path:"/gcs/src.zip"}],buddy_trident_bundles:[{deal_id:"d1",mode:"preview",status:"succeeded",superseded_at:null,business_plan_pdf_path:"/gcs/bp-preview.pdf",projections_pdf_path:"/gcs/proj-preview.pdf",projections_xlsx_path:null,feasibility_pdf_path:"/gcs/feas-preview.pdf"}],credit_memo_snapshots:[{id:"cm1",deal_id:"d1",status:"banker_submitted"}],sba_form_159_records:[{deal_id:"d1",status:"generated",generated_pdf_path:"/gcs/f159.pdf"}],marketplace_picks:[{deal_id:"d1",picked_lender_bank_id:"b1",status:"picked"}],marketplace_package_access:[{id:"acc1",listing_id:"l1",claim_id:"c1",deal_id:"d1",lender_bank_id:"b1",access_level:"full",granted_at:"2026-06-02",revoked_at:null}],marketplace_listings:[{deal_id:"d1",loan_amount:850000,sba_program:"7a",term_months:120,score:78,band:"strong_fit",kfs:{state:"TX"}}],banks:[{id:"b1",name:"First National"}],...extras});}
 test("borrower sees own package",async()=>{const s=await m.getBorrowerPackageStatus({deal_id:"d1"},sealedDb() as any);assert.equal(s.sealed,true);assert.ok(s.manifest.resources.length>=3);assert.equal(s.pickedLenderName,"First National");});
 test("borrower other deal empty",async()=>{const s=await m.getBorrowerPackageStatus({deal_id:"dX"},sealedDb() as any);assert.equal(s.sealed,false);assert.equal(s.manifest.resources.length,0);});
+test("borrower manifest locks generated documents without hiding required forms", async () => {
+  const manifest = await m.buildBorrowerPackageManifest("d1", "full", sealedDb() as any);
+  assert.equal(manifest.resources.some(r => r.type === "credit_memo"), false);
+  assert.equal(manifest.resources.find(r => r.type === "business_plan")?.available, false);
+  assert.equal(manifest.resources.find(r => r.type === "business_plan")?.downloadKey, null);
+  assert.equal(manifest.resources.find(r => r.type === "form_159")?.available, true);
+});
 test("picked lender sees",async()=>{const r=await m.getLenderPackageAccess("acc1","b1",sealedDb() as any);assert.equal(r.ok,true);if(r.ok)assert.equal(r.access.accessLevel,"full");});
 test("wrong lender denied",async()=>{const r=await m.getLenderPackageAccess("acc1","bX",sealedDb() as any);assert.equal(r.ok,false);});
 test("revoked denied",async()=>{const r=await m.getLenderPackageAccess("acc1","b1",sealedDb({marketplace_package_access:[{id:"acc1",listing_id:"l1",claim_id:"c1",deal_id:"d1",lender_bank_id:"b1",access_level:"full",granted_at:"2026-06-02",revoked_at:"2026-06-03"}]}) as any);assert.equal(r.ok,false);});

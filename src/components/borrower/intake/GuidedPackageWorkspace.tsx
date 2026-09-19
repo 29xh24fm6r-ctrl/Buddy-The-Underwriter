@@ -14,6 +14,8 @@ import {
   Store,
 } from "lucide-react";
 import { LenderPackageReview } from "./LenderPackageReview";
+import { FactoryActivityCard } from "./FactoryActivityCard";
+import { FACTORY_ACTIVITIES, canGroupQuestion, factoryActivityFor } from "@/lib/borrower/journey/factoryActivities";
 import { PackageHandoff } from "./PackageHandoff";
 import { UseOfProceedsAnswer } from "./UseOfProceedsAnswer";
 import { GuidedPfsSchedules } from "./GuidedPfsSchedules";
@@ -79,6 +81,8 @@ export function GuidedPackageWorkspace({
   const [error, setError] = useState("");
   const [chapter, setChapter] = useState<Chapter>("plan");
   const [selectedId, setSelectedId] = useState("");
+  const [singleQuestion, setSingleQuestion] = useState(false);
+  const [activitySaving, setActivitySaving] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [help, setHelp] = useState(false);
@@ -132,7 +136,7 @@ export function GuidedPackageWorkspace({
     return () => window.removeEventListener("beforeunload", warn);
   }, [protectedDirty, reviewDirty]);
   function navigate(next: Chapter, questionId = "") {
-    if (protectedDirty || reviewDirty) {
+    if (protectedDirty || reviewDirty || activitySaving) {
       setError(
         "Save your current protected answer or financial draft before changing tasks.",
       );
@@ -141,6 +145,7 @@ export function GuidedPackageWorkspace({
     capture("borrower_journey_task_opened", { chapter: next });
     setChapter(next);
     setSelectedId(questionId);
+    setSingleQuestion(Boolean(questionId));
     setShowOptions(false);
     setError("");
     requestAnimationFrame(() => heading.current?.focus());
@@ -186,6 +191,22 @@ export function GuidedPackageWorkspace({
   const all = snapshot?.questions ?? [];
   const goal = all.find((q) => q.id === "A11")?.value;
   const project = snapshot ? projectCard(snapshot) : null;
+  const savedBrief = all.find(q => q.id === "A01" && q.state === "saved")?.value;
+  const activityQuestions = selected && canGroupQuestion(selected)
+    ? [selected, ...questions.filter(q => q.id !== selected.id && q.state !== "saved" &&
+        canGroupQuestion(q) && factoryActivityFor(q).id === factoryActivityFor(selected).id)].slice(0, 4)
+    : [];
+  function advanceActivity(nextSnapshot: GuidedSnapshot) {
+    const doneIds = new Set(activityQuestions.map(q => q.id));
+    const remaining = recommendedQuestions(nextSnapshot, chapter)
+      .find(q => q.state !== "saved" && !doneIds.has(q.id));
+    if (remaining) setSelectedId(remaining.id);
+    else if (chapter === "plan") setShowOptions(true);
+    else {
+      setChapter(CHAPTERS[Math.min(CHAPTERS.findIndex(c => c.id === chapter) + 1, 4)].id);
+      setSelectedId("");
+    }
+  }
   const journeyTitle = project?.business
     ? `Let’s build ${project.business}’s ${goal === "startup" ? "opening " : ""}plan.`
     : goal
@@ -206,6 +227,7 @@ export function GuidedPackageWorkspace({
           <p className="mt-3 max-w-2xl leading-7 text-slate-600">
             A little at a time. Your saved answers stay with your application.
           </p>
+          {savedBrief && <p className="mt-2 max-w-2xl text-sm text-sky-900">Your goal: {String(savedBrief)}</p>}
         </div>
         <button
           onClick={() => setShowMap((v) => !v)}
@@ -312,17 +334,17 @@ export function GuidedPackageWorkspace({
             checks.
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {CHAPTERS.map((c) => (
-              <details key={c.id} className="rounded-xl bg-slate-50 p-4">
+            {FACTORY_ACTIVITIES.map((activity) => (
+              <details key={activity.id} className="rounded-xl bg-slate-50 p-4">
                 <summary className="cursor-pointer font-semibold">
-                  {c.title}
+                  {activity.title}
                 </summary>
                 <ul className="mt-3 space-y-1">
-                  {orderedQuestions(snapshot, c.id).map((q) => (
+                  {CHAPTERS.flatMap(c => orderedQuestions(snapshot, c.id)).filter(q => factoryActivityFor(q).id === activity.id).map((q) => (
                     <li key={q.id}>
                       <button
                         onClick={() => {
-                          navigate(c.id, q.id);
+                          navigate(chapterFor(q), q.id);
                           setShowMap(false);
                         }}
                         className="flex min-h-11 w-full items-start gap-2 rounded-lg p-2 text-left text-sm hover:bg-white"
@@ -374,7 +396,7 @@ export function GuidedPackageWorkspace({
           {chapter === "plan" && (
             <button
               onClick={() => {
-                if (protectedDirty || reviewDirty) {
+                if (protectedDirty || reviewDirty || activitySaving) {
                   setError(
                     "Save your current protected answer or financial draft before changing tasks.",
                   );
@@ -391,6 +413,23 @@ export function GuidedPackageWorkspace({
           )}
           {showOptions && snapshot ? (
             <ProgramOptions snapshot={snapshot} />
+          ) : selected && snapshot && !singleQuestion && activityQuestions.length > 1 ? (
+            <FactoryActivityCard
+              key={`${chapter}-${factoryActivityFor(selected).id}`}
+              questions={activityQuestions}
+              snapshot={snapshot}
+              dealId={dealId}
+              drafts={drafts.current}
+              disabled={!!snapshot.readErrors.length}
+              onBusy={setActivitySaving}
+              onSingle={(id) => { setSelectedId(id); setSingleQuestion(true); }}
+              onSaved={(next) => {
+                setSnapshot(next);
+                setAchievement("Your activity has saved information. Buddy will reuse it throughout your application.");
+                onSaved();
+              }}
+              onNext={advanceActivity}
+            />
           ) : selected && snapshot ? (
             <AnswerCard
               key={selected.id}
@@ -414,6 +453,7 @@ export function GuidedPackageWorkspace({
               }}
               onRefresh={refresh}
               onNext={() => {
+                setSingleQuestion(false);
                 const index = questions.findIndex((q) => q.id === selected.id);
                 const next = questions
                   .slice(index + 1)
@@ -516,7 +556,7 @@ function ProjectCard({ project }: { project: ReturnType<typeof projectCard> }) {
     { label: "Timeline", value: project.timeline, icon: Clock3 },
     {
       label: "Funds needed",
-      value: project.fundsNeeded ?? project.projectCost,
+      value: project.fundsNeeded,
       icon: CircleDollarSign,
     },
   ];
@@ -527,7 +567,7 @@ function ProjectCard({ project }: { project: ReturnType<typeof projectCard> }) {
           Your project is taking shape
         </p>
         <h2 className="mt-2 text-lg font-semibold">
-          {project.business ?? "Your business plan"}
+          {project.business ?? "Your project outline"}
         </h2>
         <dl className="mt-4 space-y-3">
           {facts.map(({ label, value, icon: Icon }) => (

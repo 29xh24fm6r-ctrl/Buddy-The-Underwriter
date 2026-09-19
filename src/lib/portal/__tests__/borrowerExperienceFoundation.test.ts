@@ -330,7 +330,8 @@ test("start page opens the guided loan package workspace", () => {
 test("trident preview failure copy stays borrower-safe", () => {
   const source = read("src/components/borrower/TridentPreviewCard.tsx");
 
-  assert.match(source, /secure preview service needs another try/);
+  assert.match(source, /Your saved information is safe/);
+  assert.match(source, /Try again to continue preparing your documents/);
   assert.ok(!source.includes("state.bundle?.generationError"));
 });
 
