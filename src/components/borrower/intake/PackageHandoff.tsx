@@ -38,7 +38,7 @@ export function PackageHandoff({
   }
   return (
     <section className="rounded-2xl border bg-white p-5">
-      <h3 className="text-lg font-semibold">Documents and lender handoff</h3>
+      <h3 className="text-lg font-semibold">Before Buddy prepares your forms</h3>
       <p className="mt-2 text-sm text-slate-600">
         Your lender reviews the completed application, prepares any business
         tax-transcript requests and closing documents, and confirms the required

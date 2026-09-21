@@ -1,4 +1,5 @@
 import "server-only";
+import { packageCompletionItems, borrowerPackageFailure } from "@/lib/borrower/guidedPackage/completion";
 import { loadGuidedPackage } from "@/lib/borrower/guidedPackage/service";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -43,12 +44,7 @@ export async function borrowerPackageAction(
           getTridentReadiness({ sb, dealId, bankId }),
           loadGuidedPackage(sb, { deal_id: dealId, bank_id: bankId }),
         ]);
-    const unanswered = (answers?.questions ?? []).filter(
-      (q) =>
-        q.responsibility === "borrower" &&
-        q.required &&
-        !["saved", "not_applicable"].includes(q.state),
-    );
+    const completion = answers ? packageCompletionItems(answers) : [];
     const packageFiles = [
       ["business_plan_pdf_path", "Business plan"],
       ["projections_xlsx_path", "Projections and assumptions"],
@@ -63,7 +59,7 @@ export async function borrowerPackageAction(
       // Status is useful before release. Storage paths and underwriting output are not.
       bundle: bundle ? {
         id: bundle.id, status: bundle.status, current_stage: bundle.current_stage,
-        generation_error: bundle.status === "failed" ? "Package preparation needs another try." : null,
+        generation_error: bundle.status === "failed" ? borrowerPackageFailure(bundle.generation_error) : null,
         generation_completed_at: bundle.generation_completed_at,
       } : null,
       release,
@@ -71,19 +67,20 @@ export async function borrowerPackageAction(
       readiness: {
         readyToPrepare:
           !generating && readiness?.preparationReady === true &&
-          unanswered.length === 0 && !(answers?.readErrors.length ?? 0),
+          completion.length === 0 && !(answers?.readErrors.length ?? 0),
         readyToGenerate:
           !generating &&
           readiness?.ok === true &&
-          unanswered.length === 0 &&
+          completion.length === 0 &&
           !(answers?.readErrors.length ?? 0),
         blockers: [
           ...(answers?.readErrors.length
             ? ["Your saved answers could not be verified. Reload before continuing."]
             : []),
-          ...unanswered.slice(0, 8).map((q) => q.question),
+          ...completion.map(item => item.label),
           ...(generating ? [] : (readiness?.preparationBlockers ?? [])),
         ],
+        completionItems: completion,
         warnings: readiness?.warnings ?? [],
         evidence: readiness?.evidence ?? {},
         packageFiles: packageFiles.map(([key, label]) => ({
@@ -100,12 +97,7 @@ export async function borrowerPackageAction(
       deal_id: dealId,
       bank_id: bankId,
     });
-    const unanswered = answers.questions.filter(
-      (q) =>
-        q.responsibility === "borrower" &&
-        q.required &&
-        !["saved", "not_applicable"].includes(q.state),
-    );
+    const completion = packageCompletionItems(answers);
     if (answers.readErrors.length)
       return NextResponse.json(
         {
@@ -114,12 +106,12 @@ export async function borrowerPackageAction(
         },
         { status: 503 },
       );
-    if (unanswered.length)
+    if (completion.length)
       return NextResponse.json(
         {
           ok: false,
-          error: `${unanswered.length} required answers remain. Please return to your questions.`,
-          blockers: unanswered.slice(0, 8).map((q) => q.question),
+          error: "Complete the listed questions and poster acknowledgment before preparing your package.",
+          blockers: completion.map(item => item.label),
         },
         { status: 409 },
       );

@@ -12,9 +12,9 @@ async function setup() {
  CREATE TABLE deals(id uuid primary key,bank_id uuid,borrower_id uuid,loan_amount numeric);
  CREATE TABLE borrowers(id uuid primary key default gen_random_uuid(),bank_id uuid,legal_name text,employee_count integer);
  CREATE TABLE borrower_concierge_sessions(id uuid primary key default gen_random_uuid(),deal_id uuid unique,bank_id uuid,program text,extracted_facts jsonb,confirmed_facts jsonb,updated_at timestamptz);
- CREATE TABLE ownership_entities(id uuid primary key,deal_id uuid,display_name text,ownership_pct numeric,home_phone text,legal_action_pending boolean);
+ CREATE TABLE ownership_entities(id uuid primary key,deal_id uuid,display_name text,ownership_pct numeric,home_phone text,title text,legal_action_pending boolean);
  CREATE TABLE borrower_applicant_financials(applicant_id uuid primary key,liquid_assets numeric);
- CREATE TABLE deal_loan_requests(id uuid primary key default gen_random_uuid(),deal_id uuid,bank_id uuid,sba_program text CHECK(sba_program IN ('7A','504','EXPRESS','COMMUNITY_ADVANTAGE')),use_of_proceeds jsonb,product_type text,requested_amount numeric,created_at timestamptz default now());
+ CREATE TABLE deal_loan_requests(id uuid primary key default gen_random_uuid(),deal_id uuid,bank_id uuid,agent_used boolean,sba_program text CHECK(sba_program IN ('7A','504','EXPRESS','COMMUNITY_ADVANTAGE')),use_of_proceeds jsonb,product_type text,requested_amount numeric,created_at timestamptz default now());
  CREATE TABLE deal_structured_field_confirmations(deal_id uuid,bank_id uuid,form_code text,field_key text,value jsonb,rationale text,confidence text,confirmed boolean,generated_at timestamptz,confirmed_at timestamptz,unique(deal_id,form_code,field_key));
  CREATE TABLE character_question_confirmations(deal_id uuid,ownership_entity_id uuid,field_key text,answer boolean,confirmed_at timestamptz,confirmed_by text,unique(deal_id,ownership_entity_id,field_key));
  CREATE TABLE borrower_pfs_real_estate(id uuid primary key default gen_random_uuid(),deal_id uuid,applicant_id uuid,property_label text,address text);
@@ -255,4 +255,15 @@ test("program and financing purposes update the canonical request and confirmed 
   } finally {
     await db.close();
   }
+});
+
+ test("owner title and agent use save to the canonical form columns with concurrency protection", async () => {
+  const db = await setup();
+  try {
+    await answer(db, "owner.title", "ownership_entities", "title", "Managing Member", null, owner);
+    await answer(db, "loan.agent_used", "deal_loan_requests", "agent_used", false);
+    assert.equal((await db.query<{title:string}>("select title from ownership_entities")).rows[0].title, "Managing Member");
+    assert.equal((await db.query<{agent_used:boolean}>("select agent_used from deal_loan_requests")).rows[0].agent_used, false);
+    await assert.rejects(answer(db, "owner.title", "ownership_entities", "title", "President", null, owner));
+  } finally { await db.close(); }
 });

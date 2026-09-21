@@ -35,7 +35,7 @@ export type BorrowerFieldEntry = {
 
 export const BORROWER_FIELD_REGISTRY: BorrowerFieldEntry[] = [
   { key: "sba_program", label: "Which SBA program are you applying for: 7a or 504?", type: "string", entityScope: "loan", factPath: "loan.sba_program", sourceTable: "deal_loan_requests", sourceColumn: "sba_program", appliesToForms: ["1919", "1244"], requiredForForms: [], sensitive: false },
-  { key: "agent_used", label: "Are you paying an agent or packager for help with this application?", type: "boolean", entityScope: "loan", factPath: "loan.agent_used", sourceTable: "deal_loan_requests", sourceColumn: "agent_used", appliesToForms: ["1919", "1244", "159"], requiredForForms: [], sensitive: false },
+  { key: "agent_used", label: "Are you paying an agent or packager for help with this application?", type: "boolean", entityScope: "loan", factPath: "loan.agent_used", sourceTable: "deal_loan_requests", sourceColumn: "agent_used", appliesToForms: ["1919", "1244", "159"], requiredForForms: ["1919", "1244"], sensitive: false },
   { key: "seller_note_equity_portion", label: "How much seller financing is proposed as equity on standby?", type: "number", entityScope: "loan", factPath: "loan.seller_note_equity_portion", sourceTable: "deal_loan_requests", sourceColumn: "seller_note_equity_portion", appliesToForms: ["1919", "1244", "155"], requiredForForms: [], sensitive: false },
   // ── business (borrowers, deal-level) ──────────────────────────────────
   { key: "legal_name", label: "Business legal name", type: "string", entityScope: "business", factPath: "business.legal_name", sourceTable: "borrowers", sourceColumn: "legal_name", appliesToForms: ["1919", "1244", "148", "155", "601"], requiredForForms: ["1919", "1244", "148", "155", "601"], sensitive: false },
@@ -94,7 +94,7 @@ export const BORROWER_FIELD_REGISTRY: BorrowerFieldEntry[] = [
   { key: "guarantee_limit_percent_payment", label: "Percentage of amounts owing at demand", type: "number", entityScope: "owner", factPath: "owner.guarantee_limit_percent_payment", sourceTable: "ownership_entities", sourceColumn: "guarantee_limit_percent_payment", appliesToForms: ["148"], requiredForForms: [], sensitive: false },
   { key: "guarantee_limit_time_years", label: "Years after final disbursement until release", type: "number", entityScope: "owner", factPath: "owner.guarantee_limit_time_years", sourceTable: "ownership_entities", sourceColumn: "guarantee_limit_time_years", appliesToForms: ["148"], requiredForForms: [], sensitive: false },
   { key: "guarantee_limit_collateral_description", label: "Collateral the guarantee is limited to", type: "string", entityScope: "owner", factPath: "owner.guarantee_limit_collateral_description", sourceTable: "ownership_entities", sourceColumn: "guarantee_limit_collateral_description", appliesToForms: ["148"], requiredForForms: [], sensitive: false },
-  { key: "title", label: "Title / role", type: "string", entityScope: "owner", factPath: "owner.title", sourceTable: "ownership_entities", sourceColumn: "title", appliesToForms: [], requiredForForms: [], sensitive: false },
+  { key: "title", label: "Title / role", type: "string", entityScope: "owner", factPath: "owner.title", sourceTable: "ownership_entities", sourceColumn: "title", appliesToForms: ["1919"], requiredForForms: ["1919"], sensitive: false },
   // Real 912/4506-C/413 fields want the FULL SSN, not last-4 (confirmed
   // against real copies of each PDF) — "912"/"4506c"/"413" removed here,
   // see the full_ssn entry below instead. ssn_last4 stays tagged for

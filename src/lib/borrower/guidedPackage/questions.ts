@@ -74,6 +74,7 @@ export type GuidedQuestion = {
   reason?: string;
 };
 export type GuidedSnapshot = {
+  form159?: { complete: boolean };
   form722?: { posterAvailable: boolean; acknowledged: boolean };
   questions: GuidedQuestion[];
   owners: Array<{
