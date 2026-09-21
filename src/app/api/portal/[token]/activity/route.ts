@@ -8,10 +8,10 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ token: string }> };
 
 function normalizeEvent(
-  event: { id: string; event_type: string | null; title: string | null; detail: string | null; created_at: string },
+  event: { id: string; kind: string | null; title: string | null; detail: string | null; created_at: string },
   idx: number,
 ) {
-  const eventType = String(event.event_type ?? "").toUpperCase();
+  const eventType = String(event.kind ?? "").toUpperCase();
   const title = String(event.title ?? "");
   const detail = String(event.detail ?? "");
 
@@ -66,9 +66,9 @@ export async function GET(_req: Request, ctx: Ctx) {
 
     const { data, error } = await sb
       .from("deal_timeline_events")
-      .select("id, event_type, title, detail, created_at")
+      .select("id, kind, title, detail, created_at")
       .eq("deal_id", invite.deal_id)
-      .eq("visibility", "borrower")
+      .eq("visible_to_borrower", true)
       .order("created_at", { ascending: false })
       .limit(20);
 
