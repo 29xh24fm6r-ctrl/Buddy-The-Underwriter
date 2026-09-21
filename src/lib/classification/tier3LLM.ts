@@ -16,6 +16,7 @@ import type { NormalizedDocument, Tier3Result, EvidenceItem } from "./types";
 import { MODEL_CLASSIFICATION } from "@/lib/ai/models";
 import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
 import { runRole } from "@/lib/ai/gateway";
+import { normalizePeriodDate } from "./normalizePeriodDate";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -313,8 +314,8 @@ Classify this document and extract key information. Respond with JSON only.`;
         ? parsed.form_numbers.map(String)
         : null,
       issuer: parsed.issuer ? String(parsed.issuer) : null,
-      periodStart: parsed.period_start ? String(parsed.period_start) : null,
-      periodEnd: parsed.period_end ? String(parsed.period_end) : null,
+      periodStart: normalizePeriodDate(parsed.period_start),
+      periodEnd: normalizePeriodDate(parsed.period_end),
       model: modelName,
     };
   } catch (error: any) {

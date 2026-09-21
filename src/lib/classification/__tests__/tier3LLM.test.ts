@@ -37,6 +37,17 @@ const VALID_JSON = JSON.stringify({
   confusion_candidates: [],
 });
 
+test("non-applicable model dates stay unknown without failing document classification", async () => {
+  __setProviderImplForTests("google", async () => okResult(JSON.stringify({
+    doc_type: "OTHER", confidence: 0.9, reasoning: "Startup project budget",
+    period_start: "Not applicable", period_end: "2026-09-21",
+  })));
+  const result = await runTier3LLM(DOC);
+  assert.equal(result.matched, true);
+  assert.equal(result.periodStart, null);
+  assert.equal(result.periodEnd, "2026-09-21");
+});
+
 beforeEach(() => {
   __setProviderImplForTests("openai", async () => {
     throw new Error("openai fallback not configured in this test");

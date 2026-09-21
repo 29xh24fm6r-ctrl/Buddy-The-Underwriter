@@ -14,6 +14,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { downloadDocumentBytes } from "@/lib/storage/documentBytes";
 import { classifyDocumentSpine } from "@/lib/classification/classifyDocumentSpine";
+import { normalizePeriodDate } from "@/lib/classification/normalizePeriodDate";
 import type { SpineClassificationResult, DocAiSignals } from "@/lib/classification/types";
 import { CLASSIFICATION_SCHEMA_VERSION } from "@/lib/classification/types";
 import { GEMINI_FLASH } from "@/lib/ai/models";
@@ -142,8 +143,8 @@ function buildCanonicalStampPayload(args: {
     ai_form_numbers: args.aiFields.formNumbers,
     ai_issuer: args.aiFields.issuer,
     ai_tax_year: args.aiFields.taxYear,
-    ai_period_start: args.aiFields.periodStart,
-    ai_period_end: args.aiFields.periodEnd,
+    ai_period_start: normalizePeriodDate(args.aiFields.periodStart),
+    ai_period_end: normalizePeriodDate(args.aiFields.periodEnd),
     ai_extracted_json: args.aiFields.extractedJson,
     ai_borrower_name: args.aiFields.borrowerName,
     ai_business_name: args.aiFields.businessName,
