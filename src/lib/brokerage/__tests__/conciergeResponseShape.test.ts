@@ -64,7 +64,7 @@ const FULLY_ANSWERED_1919_FACTS = {
     is_engaged_in_lobbying: false,
     is_franchise: false,
   },
-  loan: { amount_requested: 250000, use_of_proceeds: "working capital" },
+  loan: { amount_requested: 250000, use_of_proceeds: "working capital", agent_used: false },
 };
 
 test("computeNextRequiredFields returns the bootstrap keys when facts are empty", () => {

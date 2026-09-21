@@ -129,7 +129,7 @@ test("buildSafeFallbackReply: everything essential known responds positively, no
       is_engaged_in_lobbying: false,
       is_franchise: false,
     },
-    loan: { amount_requested: 250000, use_of_proceeds: "working capital" },
+    loan: { amount_requested: 250000, use_of_proceeds: "working capital", agent_used: false },
   };
   const msg = buildSafeFallbackReply(facts);
   assert.notEqual(msg, OLD_DEAD_END_MESSAGE);
