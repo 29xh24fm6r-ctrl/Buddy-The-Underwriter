@@ -211,7 +211,7 @@ function DocumentClarification({ document: doc, token, onSaved }: { document: Bo
   return <div className="w-full space-y-2 border-t border-slate-200 pt-2">
     {doc.canClarify && <>
       <label className="block text-sm">Document type
-        <select aria-label={`Document type for ${doc.filename}`} value={type} onChange={(e) => { setType(e.target.value); setPeriod(""); }} className="ml-2 rounded border p-2" disabled={busy}>
+        <select aria-label={`Document type for ${doc.filename}`} value={type} onChange={(e) => { setType(e.target.value); setPeriod(""); }} className="mt-1 block w-full max-w-full rounded border p-2 sm:ml-2 sm:inline-block sm:w-auto" disabled={busy}>
           <option value="">Choose the type shown on your file</option>
           {BORROWER_DOCUMENT_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
@@ -220,7 +220,7 @@ function DocumentClarification({ document: doc, token, onSaved }: { document: Bo
         <input aria-label={`Tax year for ${doc.filename}`} inputMode="numeric" value={year} onChange={(e) => setYear(e.target.value)} className="ml-2 w-24 rounded border p-2" disabled={busy} />
       </label>}
       {financial && <label className="block text-sm">Statement period
-        <select aria-label={`Statement period for ${doc.filename}`} value={period} onChange={(e) => setPeriod(e.target.value)} className="ml-2 rounded border p-2" disabled={busy}>
+        <select aria-label={`Statement period for ${doc.filename}`} value={period} onChange={(e) => setPeriod(e.target.value)} className="mt-1 block w-full max-w-full rounded border p-2 sm:ml-2 sm:inline-block sm:w-auto" disabled={busy}>
           <option value="">Choose a period</option>
           {(type === "BALANCE_SHEET" ? [["CURRENT", "Current"], ["HISTORICAL", "Earlier period"]] : [["YTD", "Year to date"], ["ANNUAL", "Full year"]]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>

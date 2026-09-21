@@ -297,3 +297,32 @@ test("accountant help requires a selected scope and confirmation and can be revo
   await expect(page.getByLabel("Private upload link")).toHaveCount(0);
   expect(fixture.calls).not.toContain("guided_review");
 });
+
+test("borrower clarifies a document and Buddy resumes processing without staff", async ({ page }) => {
+  await setup(page);
+  let saved = false;
+  let submitted: unknown = null;
+  await page.route("**/api/borrower/portal/test-deal/documents**", async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/process")) {
+      const body = route.request().postDataJSON();
+      if (body.documentId) { submitted = body; saved = true; }
+      return route.fulfill({ json: { ok: true, queued: body.documentId ? 1 : 0 } });
+    }
+    return route.fulfill({ json: { ok: true, documents: [{
+      id: "00000000-0000-4000-8000-000000000001", filename: "Opening balance sheet.pdf", label: "Opening balance sheet.pdf",
+      status: saved ? "queued" : "classified", processingComplete: false,
+      canClarify: !saved, canRetry: false, suggestedType: "BALANCE_SHEET", taxYear: null,
+      actionMessage: saved ? null : "Buddy needs one detail: what kind of document is this?",
+    }] } });
+  });
+  await page.getByRole("button", { name: /MISSION 3 Build your budget/ }).click();
+  await expect(page.getByText("Buddy needs one detail: what kind of document is this?")).toBeVisible();
+  const save = page.getByRole("button", { name: "Save detail and let Buddy continue" });
+  await expect(save).toBeDisabled();
+  await page.getByRole("combobox", { name: "Statement period for Opening balance sheet.pdf" }).selectOption("CURRENT");
+  await save.click();
+  await expect(page.getByText("Buddy is reading and organizing this document…")).toBeVisible();
+  await expect(page.getByText("Processed by Buddy — added to your application")).toHaveCount(0);
+  expect(submitted).toEqual({ documentId: "00000000-0000-4000-8000-000000000001", clarification: { doc_type: "BALANCE_SHEET", tax_year: null, statement_period: "CURRENT" } });
+});
