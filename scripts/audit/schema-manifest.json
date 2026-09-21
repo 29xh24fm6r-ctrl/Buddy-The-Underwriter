@@ -748,5 +748,15 @@
     "name": "sync_borrower_package_proceeds",
     "type": "function",
     "migration": "20260918150744_borrower_package_preparation.sql"
+  },
+  {
+    "name": "deal_documents.is_active",
+    "type": "column",
+    "migration": "20260921194522_borrower_document_review_columns.sql"
+  },
+  {
+    "name": "deal_documents.ocr_text_length",
+    "type": "column",
+    "migration": "20260921194522_borrower_document_review_columns.sql"
   }
 ]
