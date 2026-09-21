@@ -103,7 +103,7 @@ export interface SBAAssumptions {
 
 export interface AnnualProjectionYear {
   year: 0 | 1 | 2 | 3;
-  label: "Actual" | "Projected";
+  label: "Actual" | "Projected" | "Pre-opening";
   revenue: number;
   cogs: number;
   grossProfit: number;

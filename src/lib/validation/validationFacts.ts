@@ -1,6 +1,6 @@
 export type ValidationFactMap = Record<string, number | null>;
 
-export const VALIDATION_RULESET_VERSION = "buddy-validation-v2";
+export const VALIDATION_RULESET_VERSION = "buddy-validation-v3";
 
 const CANONICAL_ALIASES: Readonly<Record<string, readonly string[]>> = {
   ANNUAL_DEBT_SERVICE: ["CF_ANNUAL_DEBT_SERVICE", "ADS"],

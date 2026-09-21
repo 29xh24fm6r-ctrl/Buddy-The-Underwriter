@@ -11,6 +11,7 @@ import { detectNewBusinessFromFacts, assessNewBusinessRisk } from "@/lib/sba/new
 import { buildSourcesAndUses } from "@/lib/sba/sbaSourcesAndUses";
 import { buildBalanceSheetProjections } from "@/lib/sba/sbaBalanceSheetProjector";
 import { computeGlobalCashFlow, type GuarantorCashFlow } from "@/lib/sba/sbaGlobalCashFlow";
+import { loadPackageBusinessStage } from "./packageBusinessStage";
 import type { SBAAssumptions } from "@/lib/sba/sbaReadinessTypes";
 
 /** The package extension of Model Engine V2. All existing calculators execute here, once. */
@@ -34,6 +35,13 @@ export async function computePackageFinancialOutput(dealId: string, bankId: stri
     };
   }
 
+  return computePackageFinancialModel(dealId, bankId);
+}
+
+/** Calculation only: validation consumes this same model before artifact admission.
+ * Does not generate package artifacts or override validation admission. */
+export async function computePackageFinancialModel(dealId: string, bankId: string) {
+  const sb = supabaseAdmin();
   // Gate 2: Assumptions must be confirmed
   const { data: assumptionsRow, error: assumptionsError } = await sb
     .from("buddy_sba_assumptions")
@@ -75,6 +83,8 @@ export async function computePackageFinancialOutput(dealId: string, bankId: stri
   if (dealError || !deal) throw new Error("Financial snapshot deal/bank mismatch");
   const authority = await computeAuthoritativeEngine(dealId, bankId, { persist: false });
   const periods = authority.financialModel.periods;
+  const businessStage = await loadPackageBusinessStage(sb, dealId, bankId);
+  const preOpening = businessStage === "pre_opening";
   const latest = [...periods].filter(p => p.type === "FYE").sort((a,b) => b.periodEnd.localeCompare(a.periodEnd))[0];
   const revenue = latest?.income.revenue ?? 0;
   const cogs = latest?.income.cogs ?? 0;
@@ -83,15 +93,26 @@ export async function computePackageFinancialOutput(dealId: string, bankId: stri
   const netIncome = latest?.income.netIncome ?? 0;
   const ebitda = latest?.cashflow.ebitda ?? 0;
   const ads = latest?.cashflow.annualDebtService ?? 0;
+  // A startup's opening statement is usually interim, not a December FYE.
+  const opening = preOpening
+    ? [...periods].filter(p => p.balance.cash != null).sort((a,b) => b.periodEnd.localeCompare(a.periodEnd))[0]
+    : latest;
+  if (preOpening && periods.some(p => Object.values(p.income).some(v => typeof v === "number" && v !== 0))) {
+    throw new Error("financial_input_required: your preparing-to-open answer conflicts with operating history. Review the business stage and financial documents.");
+  }
+  if (preOpening && (!opening || [opening.balance.cash, opening.balance.totalAssets,
+    opening.balance.totalLiabilities, opening.balance.equity].some(v => v == null || !Number.isFinite(v)))) {
+    throw new Error("financial_input_required: add an opening balance sheet with cash, total assets, total liabilities and equity before preparing a startup package.");
+  }
   const bsBase = {
-    cash: latest?.balance.cash ?? 0, accountsReceivable: latest?.balance.accountsReceivable ?? 0,
-    inventory: latest?.balance.inventory ?? 0, fixedAssets: latest?.balance.netFixedAssets ?? 0,
-    accountsPayable: latest?.balance.accountsPayable ?? 0, shortTermDebt: latest?.balance.shortTermDebt ?? 0,
-    longTermDebt: latest?.balance.longTermDebt ?? 0, paidInCapital: (latest?.balance.paidInCapital ?? 0) + (latest?.balance.commonStock ?? 0),
-    retainedEarnings: latest?.balance.retainedEarnings ?? ((latest?.balance.equity ?? 0) - (latest?.balance.paidInCapital ?? 0) - (latest?.balance.commonStock ?? 0)),
+    cash: opening?.balance.cash ?? 0, accountsReceivable: opening?.balance.accountsReceivable ?? 0,
+    inventory: opening?.balance.inventory ?? 0, fixedAssets: opening?.balance.netFixedAssets ?? 0,
+    accountsPayable: opening?.balance.accountsPayable ?? 0, shortTermDebt: opening?.balance.shortTermDebt ?? 0,
+    longTermDebt: opening?.balance.longTermDebt ?? 0, paidInCapital: (opening?.balance.paidInCapital ?? 0) + (opening?.balance.commonStock ?? 0),
+    retainedEarnings: opening?.balance.retainedEarnings ?? ((opening?.balance.equity ?? 0) - (opening?.balance.paidInCapital ?? 0) - (opening?.balance.commonStock ?? 0)),
   };
   const bsFacts = authority.facts;
-  const yearsInBusiness = Number(bsFacts.find(f => f.fact_key === "YEARS_IN_BUSINESS")?.fact_value_num ?? 0);
+  const yearsInBusiness = preOpening ? 0 : Number(bsFacts.find(f => f.fact_key === "YEARS_IN_BUSINESS")?.fact_value_num ?? 0);
   // New-business detection + risk assessment — single source of truth
   // (src/lib/sba/newBusinessProtocol.ts), same function sbaRiskProfile.ts
   // and feasibilityEngine.ts already call. This used to be a local
@@ -114,8 +135,8 @@ export async function computePackageFinancialOutput(dealId: string, bankId: stri
       ? Math.max(...assumptions.managementTeam.map((m) => m.yearsInIndustry))
       : null;
   const newBusinessAssessment = assessNewBusinessRisk({
-    yearsInBusiness: nbYears,
-    monthsInBusiness: nbMonths,
+    yearsInBusiness: preOpening ? 0 : nbYears,
+    monthsInBusiness: preOpening ? 0 : nbMonths,
     hasBusinessPlan: true,
     managementYearsInIndustry,
     loanType: deal?.deal_type ?? "SBA",
@@ -136,6 +157,7 @@ export async function computePackageFinancialOutput(dealId: string, bankId: stri
     netIncome,
     existingDebtServiceAnnual: ads,
   });
+  if (preOpening) baseYear.label = "Pre-opening";
 
   // One versioned authority computes every borrower-facing SBA projection.
   // Artifacts consume this immutable model; they do not invoke individual
@@ -212,6 +234,17 @@ export async function computePackageFinancialOutput(dealId: string, bankId: stri
       year1EndingCash: typeof year1EndingCash === "number" ? year1EndingCash : undefined,
     },
   );
+
+  if (preOpening && opening) {
+    const renderedOpening = balanceSheetProjections[0];
+    if ([
+      [renderedOpening.totalAssets, opening.balance.totalAssets],
+      [renderedOpening.totalLiabilities, opening.balance.totalLiabilities],
+      [renderedOpening.totalEquity, opening.balance.equity],
+    ].some(([actual, expected]) => expected == null || Math.abs(actual! - expected) > 0.01)) {
+      throw new Error("financial_input_required: the opening balance sheet needs asset, liability and equity details that reconcile to its totals. Missing amounts cannot be treated as zero.");
+    }
+  }
 
   // ── Phase BPG — Global cash flow (query per-deal guarantor cashflow rows)
   const { data: guarantorRows, error: guarantorError } = await sb
@@ -317,7 +350,7 @@ export async function computePackageFinancialOutput(dealId: string, bankId: stri
     assumptions, assumptionsId: assumptionsRow.id as string, deal,
     historicalModel: authority.financialModel, historicalView: authority.viewModel,
     computedMetrics: authority.computedMetrics, riskFlags: authority.riskFlags,
-    yearsInBusiness, newBusinessAssessment, isNewBusiness, projectedDscrThreshold,
+    businessStage, openingBalance: opening?.balance ?? null, yearsInBusiness, newBusinessAssessment, isNewBusiness, projectedDscrThreshold,
     baseYear, projectionModel, sourcesAndUses, useOfProceeds,
     balanceSheetProjections, globalCashFlow, guarantors,
     dscrYear1Base, dscrYear2Base, dscrYear3Base, dscrYear1Downside, dscrBelowThreshold,

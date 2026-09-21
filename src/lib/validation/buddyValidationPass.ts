@@ -13,6 +13,8 @@ import { runCompletenessChecks } from "./completenessChecks";
 import { runPlausibilityChecks } from "./plausibilityChecks";
 import type { ValidationReport, ValidationCheck } from "./validationTypes";
 import { normalizeValidationFacts, VALIDATION_RULESET_VERSION } from "./validationFacts";
+import { loadPackageBusinessStage } from "@/lib/modelEngine/packageBusinessStage";
+import { startupProjectionChecks } from "./startupProjectionChecks";
 import crypto from "node:crypto";
 
 export async function runBuddyValidationPass(
@@ -31,13 +33,40 @@ export async function runBuddyValidationPass(
 
   const rawFactMap: Record<string, number | null> = {};
   for (const row of factsRows ?? []) {
-    rawFactMap[row.fact_key] = row.fact_value_num ?? null;
+    rawFactMap[row.fact_key] = row.fact_value_num == null ? null : Number(row.fact_value_num);
   }
   const factMap = normalizeValidationFacts(rawFactMap);
 
+  const { data: deal, error: dealError } = await sb.from("deals")
+    .select("entity_type,bank_id").eq("id", dealId).maybeSingle();
+  if (dealError || !deal?.bank_id) throw new Error("validation_deal_load_failed");
+  const dealType = mapEntityType(deal.entity_type);
+  let startupChecks: ValidationCheck[] | null = null;
+  let startupEvidence: unknown = null;
+  if (dealType === "operating_company") {
+    try {
+      if (await loadPackageBusinessStage(sb, dealId, deal.bank_id) === "pre_opening") {
+        const { computePackageFinancialModel } = await import("@/lib/modelEngine/packageFinancialComputation");
+        const model = await computePackageFinancialModel(dealId, deal.bank_id);
+        if (!model.ok) throw new Error("financial_input_required: " + model.error + ("blockers" in model ? " — " + model.blockers?.join("; ") : ""));
+        // This exact calculator also supplies the immutable artifact snapshot.
+        // Its forecast is validated separately and NEVER upserted as actual facts.
+        startupEvidence = { stage: model.output.businessStage, assumptions: model.output.assumptions,
+          projection: model.output.projectionModel, opening: model.output.openingBalance };
+        startupChecks = startupProjectionChecks(model.output.projectionModel.annualProjections, model.output.openingBalance);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.startsWith("financial_input_required:")) throw error;
+      startupEvidence = { error: message };
+      startupChecks = [{ family: "completeness", name: "Startup projection inputs", status: "BLOCK",
+        message: message.replace("financial_input_required: ", ""), severity: "error" }];
+    }
+  }
+
   // Include the ruleset version so a corrected alias or rule cannot reuse a
   // stale cached verdict produced by an older validator.
-  const hashInput = { ruleset: VALIDATION_RULESET_VERSION, facts: factMap };
+  const hashInput = { ruleset: VALIDATION_RULESET_VERSION, facts: factMap, dealType, startupEvidence };
   const snapshotHash = crypto
     .createHash("sha256")
     .update(JSON.stringify(hashInput))
@@ -69,18 +98,9 @@ export async function runBuddyValidationPass(
     };
   }
 
-  // Determine deal type
-  const { data: deal } = await sb
-    .from("deals")
-    .select("entity_type")
-    .eq("id", dealId)
-    .maybeSingle();
-
-  const dealType = mapEntityType(deal?.entity_type);
-
   // Run all check families
   const checks: ValidationCheck[] = [
-    ...runCompletenessChecks(factMap, dealType),
+    ...(startupChecks ?? runCompletenessChecks(factMap, dealType)),
     ...runMathematicalChecks(factMap),
     ...runPlausibilityChecks(factMap),
   ];

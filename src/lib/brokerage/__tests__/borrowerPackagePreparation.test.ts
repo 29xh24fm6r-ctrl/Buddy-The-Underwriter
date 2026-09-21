@@ -48,6 +48,7 @@ const sb = {
         rows = rows.slice(0, limit);
         return { data: count ? null : single ? rows[0] ?? null : rows, count: count ? rows.length : null, error: null };
       },
+      single() { single = true; return Promise.resolve(q.result()); },
       maybeSingle() { single = true; return Promise.resolve(q.result()); },
       then(resolve: any, reject: any) { return Promise.resolve(q.result()).then(resolve, reject); },
     };
@@ -69,6 +70,13 @@ const sb = {
   },
 };
 stub("@/lib/supabase/admin", { supabaseAdmin: () => sb });
+stub("@/lib/modelEngine/engineAuthority", { computeAuthoritativeEngine: async () => {
+  const facts = tables.deal_financial_facts;
+  const financialModel = require("@/lib/modelEngine/buildFinancialModel").buildFinancialModel("deal", facts);
+  return { financialModel, facts, viewModel: {}, computedMetrics: {}, riskFlags: [] };
+} });
+stub("@/lib/classicSpread/classicSpreadLoader", { loadClassicSpreadData: async () => ({ periods: [], incomeStatement: [], balanceSheet: [] }) });
+
 stub("workflow/api", { start: async (workflow: any, args: any[]) => {
   if (startFails) throw new Error("queue unavailable");
   queued.push({ workflow, args }); return { runId: "durable-run" };
@@ -205,4 +213,26 @@ test("returning to a previously valid fact snapshot replaces a newer unrelated F
   await runBuddyValidationPass("deal");
   assert.equal(tables.buddy_validation_reports.length, 3);
   const state = await status(); assert.equal(state.readiness.evidence.validationStatus, "PASS");
+});
+
+test("a pre-opening borrower reaches final admission from documents and assumptions without historical income or staff facts", async () => {
+  tables.deals[0].is_test=true;
+  tables.borrower_concierge_sessions[0].confirmed_facts={package_answers:{B07:{value:"The business is preparing to open"},K02:{value:"New franchise location"}}};
+  tables.deal_financial_facts=Object.entries({ CASH_AND_EQUIVALENTS:250000, TOTAL_ASSETS:250000, TOTAL_LIABILITIES:0, TOTAL_EQUITY:250000, COMMON_STOCK:250000 }).map(([fact_key,fact_value_num])=>({
+    deal_id:"deal",bank_id:"bank",is_superseded:false,fact_type:"BALANCE_SHEET",fact_key,fact_value_num,fact_period_end:"2026-09-21",resolution_status:"inferred",owner_type:"DEAL",confidence:1,
+  }));
+  Object.assign(tables.buddy_sba_assumptions[0], {
+    revenue_streams:[{id:"r1",name:"Coffee",pricingModel:"flat",baseAnnualRevenue:1500000,growthRateYear1:0,growthRateYear2:.05,growthRateYear3:.05}],
+    cost_assumptions:{cogsPercentYear1:.3,cogsPercentYear2:.3,cogsPercentYear3:.3,fixedCostCategories:[{id:"o1",name:"Operating costs",annualAmount:650000,escalationPctPerYear:.03}],plannedHires:[],plannedCapex:[]},
+    working_capital:{targetDSO:1,targetDPO:15,inventoryTurns:24},
+    loan_impact:{loanAmount:950000,termMonths:120,interestRate:.1,existingDebt:[],equityInjectionAmount:250000,equityInjectionSource:"cash_savings",sellerFinancingAmount:0,sellerFinancingTermMonths:0,sellerFinancingRate:0,otherSources:[]},
+    management_team:[{name:"QA Owner",title:"Manager",yearsInIndustry:10,bio:"Synthetic test owner with ten years of beverage management experience."}],
+  });
+  tables.buddy_guarantor_cashflow=[]; tables.deal_ownership_entities=[]; tables.deal_ownership_interests=[];
+  const originalFacts=JSON.stringify(tables.deal_financial_facts);
+  await start(); await run();
+  assert.equal((await status()).preparation.status,"succeeded");
+  assert.deepEqual(events,["budget","budget","generation"]);
+  assert.equal(tables.buddy_validation_reports.at(-1).overall_status,"PASS_WITH_FLAGS");
+  assert.equal(JSON.stringify(tables.deal_financial_facts),originalFacts);
 });
