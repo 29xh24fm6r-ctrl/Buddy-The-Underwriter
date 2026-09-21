@@ -347,6 +347,7 @@ test("borrower clarifies a document and Buddy resumes processing without staff",
   await page.getByRole("button",{name:"Save and continue",exact:true}).click();
   await expect(page.getByRole("button",{name:"Answer this question",exact:true})).toHaveCount(0);
   await expect(page.getByRole("button",{name:"Prepare lender package",exact:true})).toBeDisabled();
+  await expect(page.getByRole("link", {name:"Open the poster",exact:true})).toHaveAttribute("href", "/sba-templates/SBA_722.pdf");
   await page.getByRole("button",{name:"I have received and reviewed this poster",exact:true}).click();
   await expect(page.getByText("Receipt acknowledged",{exact:true})).toBeVisible();
   await expect(page.getByRole("button",{name:"Prepare lender package",exact:true})).toBeEnabled();
