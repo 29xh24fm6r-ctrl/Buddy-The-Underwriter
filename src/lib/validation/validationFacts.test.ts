@@ -19,7 +19,7 @@ test("normalizes current spread facts into deterministic validation keys", () =>
   assert.equal(facts.CASH_FLOW_AVAILABLE, 360_000);
   assert.equal(facts.DSCR, 2.616);
   assert.equal(facts.NET_WORTH, 850_000);
-  assert.equal(VALIDATION_RULESET_VERSION, "buddy-validation-v2");
+  assert.equal(VALIDATION_RULESET_VERSION, "buddy-validation-v3");
 });
 
 test("does not overwrite an explicit canonical fact with an alias", () => {

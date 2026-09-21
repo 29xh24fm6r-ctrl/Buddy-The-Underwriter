@@ -733,7 +733,7 @@ function renderRevenueChart(s: DocState) {
       .font(FONT_NORMAL)
       .fontSize(8)
       .text(
-        yr.label === "Actual" ? "Base Year" : `Year ${yr.year}`,
+        yr.label === "Pre-opening" ? "Pre-opening" : yr.label === "Actual" ? "Base Year" : `Year ${yr.year}`,
         barX,
         chartY + chartH + 4,
         { width: barW, align: "center" },
@@ -1075,7 +1075,7 @@ function renderSection1_BusinessOverview(s: DocState) {
 function renderSection2_Projections(s: DocState) {
   const { doc, input } = s;
   const allYears = [input.baseYear, ...input.annualProjections];
-  const colLabels = ["", "Base Year", "Year 1", "Year 2", "Year 3"];
+  const colLabels = ["", input.baseYear.label === "Pre-opening" ? "Pre-opening" : "Base Year", "Year 1", "Year 2", "Year 3"];
   const colWidths = [140, 95, 95, 95, 95];
   const startX = PAGE_MARGIN;
   const tableW = colWidths.reduce((a, b) => a + b, 0);

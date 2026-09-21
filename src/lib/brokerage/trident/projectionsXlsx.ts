@@ -24,6 +24,7 @@ export type ProjectionsXlsxInputs = {
   assumptionsNarrative?: string;
   dealName: string;
   baseYear: {
+    label?: "Actual" | "Projected" | "Pre-opening";
     revenue: number;
     cogs: number;
     operatingExpenses: number;
@@ -80,7 +81,7 @@ export async function renderProjectionsXlsx(
   const pnlHeader = pnl.addRow(["Year", "Revenue", "EBITDA", "Total Debt Service", "DSCR"]);
   styleHeaderRow(pnlHeader);
   pnl.addRow([
-    "Base",
+    inputs.baseYear.label === "Pre-opening" ? "Pre-opening (no operating history)" : "Base",
     inputs.baseYear.revenue,
     inputs.baseYear.ebitda,
     0,
