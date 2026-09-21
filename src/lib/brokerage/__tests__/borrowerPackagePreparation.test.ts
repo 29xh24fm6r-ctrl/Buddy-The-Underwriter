@@ -89,7 +89,7 @@ stub("workflow", { FatalError: class FatalError extends Error {}, sleep: async (
   tables.buddy_research_quality_gates = [{ mission_id: "mission", trust_grade: "preliminary" }];
 } });
 stub("@/lib/borrower/guidedPackage/service", { loadGuidedPackage: async () => ({
-  questions: [{ responsibility: "borrower", required: true, state: answersComplete ? "saved" : "missing", question: "Business address" }], readErrors: [],
+  questions: [{ responsibility: "borrower", required: true, state: answersComplete ? "saved" : "missing", question: "Business address" }], readErrors: [], form722: { posterAvailable: true, acknowledged: true },
 }) });
 stub("@/lib/sba/sbaAssumptionDrafter", { draftAssumptionsFromContext: async () => { throw new Error("Unexpected model call"); } });
 stub("@/lib/research/buildResearchSubject", { buildResearchEntityProfile: async () => ({ represented: true, subject }) });

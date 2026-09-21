@@ -218,9 +218,15 @@ function Field({
 export function LenderPackageReview({
   dealId,
   onDirtyChange,
+  onQuestion,
+  snapshotRevision,
+  posterAcknowledged,
 }: {
   dealId: string;
   onDirtyChange: (dirty: boolean) => void;
+  onQuestion?: (id: string) => void;
+  snapshotRevision?: string | null;
+  posterAcknowledged?: boolean;
 }) {
   const [assumptions, setAssumptions] = useState<Record<string, Value> | null>(
     null,
@@ -237,6 +243,7 @@ export function LenderPackageReview({
     readyToGenerate: boolean;
     readyToPrepare: boolean;
     blockers: string[];
+    completionItems?: Array<{ id: string; label: string; questionId?: string }>;
     warnings: string[];
     packageFiles: Array<{ key: string; label: string; ready: boolean }>;
   } | null>(null);
@@ -281,17 +288,16 @@ export function LenderPackageReview({
     setReadiness(r.readiness ?? null);
   }, [call]);
   useEffect(() => {
+    void refresh().catch((e) => setError(e.message));
+  }, [refresh, snapshotRevision, posterAcknowledged]);
+  useEffect(() => {
     let cancelled = false;
-    void Promise.all([call("assumptions"), call("package-status")])
-      .then(([a, b]) => {
+    void call("assumptions")
+      .then((a) => {
         if (cancelled) return;
         setAssumptions(a.assumptions);
         setRevision(a.revision);
         setStatus(a.status);
-        setBundle(b.bundle);
-        setReleased(b.release?.released === true);
-        setPreparation(b.preparation ?? null);
-        setReadiness(b.readiness ?? null);
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);
@@ -363,7 +369,7 @@ export function LenderPackageReview({
     LENDER_PACKAGE_FILES.every((file) => bundle[file.column]);
   return (
     <section className="rounded-2xl border bg-white p-5 text-slate-900">
-      <h3 className="text-lg font-semibold">
+      <h3 id="package-preparation-heading" tabIndex={-1} className="text-lg font-semibold">
         Review and prepare your lender package
       </h3>
       <p className="mt-2 text-sm text-slate-600">
@@ -495,7 +501,10 @@ export function LenderPackageReview({
                 {readiness.blockers.map((blocker) => (
                   <li key={blocker} className="flex gap-2">
                     <span aria-hidden="true">○</span>
-                    <span>{blocker}</span>
+                    <span>{blocker}{readiness.completionItems?.find(item => item.label === blocker)?.questionId && onQuestion && (
+                      <button type="button" className="ml-2 underline text-sky-700" disabled={dirty || !!busy}
+                        onClick={() => onQuestion(readiness.completionItems!.find(item => item.label === blocker)!.questionId!)}>Answer this question</button>
+                    )}</span>
                   </li>
                 ))}
               </ul>

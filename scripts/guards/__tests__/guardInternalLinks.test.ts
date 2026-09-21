@@ -27,6 +27,7 @@ function run(allowlistLines: string[]) {
       LINK_GUARD_APP_DIR: path.join(root, "app"),
       LINK_GUARD_SRC_DIR: path.join(root, "src"),
       LINK_GUARD_ALLOWLIST: allowlist,
+      LINK_GUARD_PUBLIC_DIR: path.join(root, "public"),
     },
   });
 }
@@ -44,6 +45,16 @@ describe("guard-internal-links", () => {
     write("src/a.tsx", `<Link href="/exists">go</Link>`);
     const r = run([]);
     assert.equal(r.status, 0, r.stdout + r.stderr);
+  });
+
+  it("accepts an existing public PDF and rejects missing, directory and traversal targets", () => {
+    write("public/sba-templates/poster.pdf", "%PDF-1.7");
+    write("src/a.tsx", '<a href="/sba-templates/poster.pdf">Poster</a>');
+    assert.equal(run([]).status, 0);
+    for (const target of ["/sba-templates/missing.pdf", "/sba-templates", "/../public/sba-templates/poster.pdf"]) {
+      write("src/a.tsx", `<a href="${target}">Poster</a>`);
+      assert.equal(run([]).status, 1, target);
+    }
   });
 
   it("resolves a dynamic-param link via router.push", () => {

@@ -196,12 +196,18 @@ export function GuidedPackageWorkspace({
     ? [selected, ...questions.filter(q => q.id !== selected.id && q.state !== "saved" &&
         canGroupQuestion(q) && factoryActivityFor(q).id === factoryActivityFor(selected).id)].slice(0, 4)
     : [];
+  function showPreparationTasks() {
+    setSelectedId("");
+    setAchievement("Your application answers are saved. Review the preparation checklist and poster below.");
+    requestAnimationFrame(() => document.getElementById("package-preparation-heading")?.focus());
+  }
   function advanceActivity(nextSnapshot: GuidedSnapshot) {
     const doneIds = new Set(activityQuestions.map(q => q.id));
     const remaining = recommendedQuestions(nextSnapshot, chapter)
       .find(q => q.state !== "saved" && !doneIds.has(q.id));
     if (remaining) setSelectedId(remaining.id);
     else if (chapter === "plan") setShowOptions(true);
+    else if (chapter === "application") showPreparationTasks();
     else {
       setChapter(CHAPTERS[Math.min(CHAPTERS.findIndex(c => c.id === chapter) + 1, 4)].id);
       setSelectedId("");
@@ -460,6 +466,7 @@ export function GuidedPackageWorkspace({
                   .find((q) => q.state !== "saved");
                 if (next) setSelectedId(next.id);
                 else if (chapter === "plan") setShowOptions(true);
+                else if (chapter === "application") showPreparationTasks();
                 else
                   navigate(
                     CHAPTERS[
@@ -497,6 +504,7 @@ export function GuidedPackageWorkspace({
             }}
             refresh={refresh}
             onReviewDirty={setReviewDirty}
+            onQuestion={(id) => { const q = snapshot?.questions.find(q => q.id === id); if (q) navigate(chapterFor(q), id); }}
           />
         </div>
         <aside className="space-y-4 lg:sticky lg:top-6">
@@ -597,6 +605,7 @@ function JourneyPanels({
   onSaved,
   refresh,
   onReviewDirty,
+  onQuestion,
 }: {
   chapter: Chapter;
   dealId: string;
@@ -607,6 +616,7 @@ function JourneyPanels({
   onSaved: () => void;
   refresh: () => Promise<void>;
   onReviewDirty: (dirty: boolean) => void;
+  onQuestion: (id: string) => void;
 }) {
   const [visited, setVisited] = useState<Chapter[]>([chapter]);
   if (!visited.includes(chapter)) setVisited([...visited, chapter]);
@@ -663,7 +673,8 @@ function JourneyPanels({
       )}
       {visited.includes("application") && (
         <div hidden={chapter !== "application"}>
-          <LenderPackageReview dealId={dealId} onDirtyChange={onReviewDirty} />
+          <LenderPackageReview dealId={dealId} onDirtyChange={onReviewDirty} onQuestion={onQuestion} snapshotRevision={snapshot?.revision} posterAcknowledged={snapshot?.form722?.acknowledged} />
+          <PackageHandoff dealId={dealId} poster={snapshot?.form722} onSaved={refresh} />
         </div>
       )}
       {visited.includes("review") && (
@@ -676,11 +687,7 @@ function JourneyPanels({
               Preparing a package does not mean it has been shared or approved.
             </p>
           </section>
-          <PackageHandoff
-            dealId={dealId}
-            poster={snapshot?.form722}
-            onSaved={refresh}
-          />
+
           <IdentityVerificationPanel token={dealId} />
           <SealPackageCard dealId={dealId} />
           <SigningPanel dealId={dealId} />

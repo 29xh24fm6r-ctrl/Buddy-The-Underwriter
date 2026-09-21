@@ -1,4 +1,5 @@
 import "server-only";
+import { packageCompletionItems } from "@/lib/borrower/guidedPackage/completion";
 
 import { start } from "workflow/api";
 import { FatalError } from "workflow";
@@ -84,8 +85,8 @@ async function checkInputs(args: PreparationArgs) {
     loadGuidedPackage(sb, { deal_id: args.dealId, bank_id: args.bankId }),
   ]);
   if (answers.readErrors.length) throw new Error("preparation_answers_read_failed");
-  const unanswered = answers.questions.filter(q => q.responsibility === "borrower" && q.required && !["saved", "not_applicable"].includes(q.state));
-  if (unanswered.length) await blocked(args, "Please complete your required questions, then prepare the package again.");
+  const completion = packageCompletionItems(answers);
+  if (completion.length) await blocked(args, completion.map(item => item.label).join("\n"));
   if (!readiness.preparationReady) await blocked(args, readiness.preparationBlockers.join("\n"));
   return readiness;
 }

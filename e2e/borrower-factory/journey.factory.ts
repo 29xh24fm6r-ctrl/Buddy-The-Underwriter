@@ -1,11 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
 import { buildGuidedSnapshot } from "../../src/lib/borrower/guidedPackage/questions";
-async function setup(page: Page, preparePackage = false) {
+async function setup(page: Page, preparePackage = false, testCompletion = false) {
   const facts: Record<string, any> = { package_answers: {} };
   const rows: Record<string, any[]> = { deals: [{}], deal_loan_requests: [{}] };
+  let posterAcknowledged = false;
+  let revision = 0;
   const snapshot = () => ({
-    ...buildGuidedSnapshot({ rows, facts, revision: null }),
-    form722: { posterAvailable: true, acknowledged: false },
+    ...buildGuidedSnapshot({ rows, facts, revision: String(revision) }),
+    form722: { posterAvailable: true, acknowledged: posterAcknowledged },
   });
   const calls: string[] = [];
   let failNext = false;
@@ -21,6 +23,7 @@ async function setup(page: Page, preparePackage = false) {
     const respond = (json: unknown, status = 200) =>
       route.fulfill({ status, json });
     if (url.pathname === "/api/brokerage/concierge") {
+      if (body?.action === "guided_ack_722" && body.confirmed === true) posterAcknowledged = true;
       if (body?.action === "guided_answer") {
         if (failNext) {
           failNext = false;
@@ -35,6 +38,7 @@ async function setup(page: Page, preparePackage = false) {
             { ok: false, error: "Answer changed in another session" },
             409,
           );
+        revision++;
         if (q.field)
           rows.deal_loan_requests[0][q.field.registryEntry.sourceColumn] =
             body.value;
@@ -81,6 +85,12 @@ async function setup(page: Page, preparePackage = false) {
         revision: null,
         status: preparePackage ? "confirmed" : "draft",
       });
+    if (url.pathname.endsWith("/package-status") && testCompletion) {
+      const missing = snapshot().questions.filter(q => q.id === "loan.agent_used" && q.state !== "saved");
+      const completionItems = missing.map(q => ({id:q.id,questionId:q.id,label:q.question}));
+      if (!posterAcknowledged) completionItems.push({id:"form722",questionId:"",label:"Review the SBA equal opportunity poster below and acknowledge receipt."});
+      return respond({ok:true,bundle:null,preparation,readiness:{readyToPrepare:completionItems.length===0,readyToGenerate:false,blockers:completionItems.map(i=>i.label),completionItems,warnings:[],packageFiles:[]}});
+    }
     if (url.pathname.endsWith("/package-status"))
       return respond({ ok: true, bundle: null, preparation, readiness: {
         readyToPrepare: preparePackage && preparation?.status !== "running",
@@ -325,4 +335,21 @@ test("borrower clarifies a document and Buddy resumes processing without staff",
   await expect(page.getByText("Buddy is reading and organizing this document…")).toBeVisible();
   await expect(page.getByText("Processed by Buddy — added to your application")).toHaveCount(0);
   expect(submitted).toEqual({ documentId: "00000000-0000-4000-8000-000000000001", clarification: { doc_type: "BALANCE_SHEET", tax_year: null, statement_period: "CURRENT" } });
+});
+
+ test("preparation links to missing answers and requires poster receipt before starting", async ({page}) => {
+  const fixture = await setup(page, true, true);
+  await page.getByRole("button", {name:/MISSION 4 Prepare your package/}).click();
+  await expect(page.getByRole("button", {name:"Prepare lender package",exact:true})).toBeDisabled();
+  await page.getByRole("button", {name:"Answer this question",exact:true}).click();
+  await expect(page.getByRole("heading", {name:"Are you paying an agent or packager for help with this application?",exact:true})).toBeVisible();
+  await page.getByRole("group", {name:"Are you paying an agent or packager for help with this application?",exact:true}).getByRole("button",{name:"No",exact:true}).click();
+  await page.getByRole("button",{name:"Save and continue",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Answer this question",exact:true})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Prepare lender package",exact:true})).toBeDisabled();
+  await expect(page.getByRole("link", {name:"Open the poster",exact:true})).toHaveAttribute("href", "/sba-templates/SBA_722.pdf");
+  await page.getByRole("button",{name:"I have received and reviewed this poster",exact:true}).click();
+  await expect(page.getByText("Receipt acknowledged",{exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Prepare lender package",exact:true})).toBeEnabled();
+  expect(fixture.calls.filter(call=>call.endsWith("/build-package"))).toHaveLength(0);
 });

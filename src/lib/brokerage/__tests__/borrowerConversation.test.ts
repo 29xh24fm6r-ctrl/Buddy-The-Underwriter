@@ -64,7 +64,7 @@ test("computeNextCriticalField: returns null once every applicable-form required
       has_pending_lawsuits: false,
       is_engaged_in_lobbying: false,
     },
-    loan: { amount_requested: 250000, use_of_proceeds: "working capital" },
+    loan: { amount_requested: 250000, use_of_proceeds: "working capital", agent_used: false },
   };
   const result = computeNextCriticalField(facts);
   assert.equal(result, null);

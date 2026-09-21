@@ -10,6 +10,7 @@ let saved: any = null;
 let race = false;
 let started = 0;
 let questions: any[] = [];
+let posterAcknowledged = true;
 let bundle: any = null;
 let tridentReadiness: any = { ok: true, preparationReady: true, preparationBlockers: [], reasons: [], warnings: [], evidence: {} };
 let readinessCalls = 0;
@@ -139,11 +140,12 @@ stub("../borrowerPackagePreparation", {
   },
 });
 stub("@/lib/borrower/guidedPackage/service", {
-  loadGuidedPackage: async () => ({ questions, readErrors: [] }),
+  loadGuidedPackage: async () => ({ questions, readErrors: [], form722: { posterAvailable: true, acknowledged: posterAcknowledged } }),
 });
 const { borrowerPackageAction } =
   require("../borrowerPackageActions") as typeof import("../borrowerPackageActions");
 test.beforeEach(() => {
+  posterAcknowledged = true;
   row = null;
   saved = null;
   race = false;
@@ -280,4 +282,20 @@ test("active generation status does not rerun expensive readiness checks", async
   assert.equal(payload.readiness.readyToGenerate, false);
   assert.deepEqual(payload.readiness.blockers, []);
   assert.equal(readinessCalls, 0);
+});
+
+test("poster acknowledgment blocks both status and POST before any workflow starts", async () => {
+  posterAcknowledged = false;
+  const status = await (await borrowerPackageAction("package-status", "d", "b")).json();
+  assert.equal(status.readiness.readyToPrepare, false);
+  assert.equal(status.readiness.completionItems[0].id, "form722");
+  const before = started;
+  assert.equal((await borrowerPackageAction("build-package", "d", "b", {})).status, 409);
+  assert.equal(started, before);
+});
+test("failed form generation returns safe actionable instructions without raw identifiers", async () => {
+  bundle = {status: "failed", generation_error: "SBA_1919 position private-owner-id; SBA_722 not_acknowledged"};
+  const status = await (await borrowerPackageAction("package-status", "d", "b")).json();
+  assert.match(status.bundle.generation_error, /title or role/);
+  assert.doesNotMatch(status.bundle.generation_error, /private-owner-id/);
 });

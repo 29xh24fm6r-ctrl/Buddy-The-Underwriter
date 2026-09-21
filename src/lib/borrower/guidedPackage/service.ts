@@ -75,6 +75,14 @@ export async function loadGuidedPackage(sb: SB, session: Session) {
     .maybeSingle();
   if (result.error) readErrors.push("answers");
   const form722 = await getForm722Status(session.deal_id, sb);
+  // Reuse the same payload builder as the form renderer. Never invent agent
+  // details or fee amounts, and never charge/create a fee during a status read.
+  let form159: { complete: boolean } | undefined;
+  if (rows.deal_loan_requests?.[0]?.agent_used === true) {
+    const { buildForm159PayloadForDeal } = await import("@/lib/brokerage/compliancePackage");
+    const payload = await buildForm159PayloadForDeal(session.deal_id, sb, null);
+    form159 = { complete: payload.missing.length === 0 };
+  }
   return {
     ...buildGuidedSnapshot({
       rows,
@@ -83,6 +91,7 @@ export async function loadGuidedPackage(sb: SB, session: Session) {
       readErrors,
     }),
     form722,
+    form159,
   };
 }
 export async function saveGuidedAnswer(
