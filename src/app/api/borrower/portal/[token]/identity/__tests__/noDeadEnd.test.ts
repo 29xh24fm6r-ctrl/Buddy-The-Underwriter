@@ -38,6 +38,7 @@ const db: { owners: Row[]; verifications: Row[]; events: Row[] } = {
 let vendorStatus = "Approved";
 let vendorThrows: Error | null = null;
 let fetchCalls = 0;
+let failedReadTable: string | null = null;
 
 function q(table: string) {
   const filters: Array<{ k: string; v: any; kind: "eq" | "in" | "notnull" }> = [];
@@ -73,7 +74,14 @@ function q(table: string) {
     insert: (p: Row) => { if (table === "deal_events") db.events.push(p); return builder; },
     maybeSingle: async () => { apply(); return { data: rows()[0] ?? null, error: null }; },
     single: async () => { apply(); return { data: rows()[0] ?? null, error: null }; },
-    then: (res: any, rej?: any) => { apply(); return Promise.resolve({ data: rows(), error: null }).then(res, rej); },
+    then: (res: any, rej?: any) => {
+      const invalidUuid = filters.some(f => f.k === "ownership_entity_id" && f.kind === "in" &&
+        f.v.some((id: string) => !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)));
+      if (table === failedReadTable || invalidUuid) {
+        return Promise.resolve({ data: null, error: { code: invalidUuid ? "22P02" : "XX000" } }).then(res, rej);
+      }
+      apply(); return Promise.resolve({ data: rows(), error: null }).then(res, rej);
+    },
   };
   return builder;
 }
@@ -125,7 +133,45 @@ function seedProductionState() {
   db.events = [];
   fetchCalls = 0;
   vendorThrows = null;
+  failedReadTable = null;
 }
+
+test("a new application returns ownership setup instead of querying an invalid UUID", async () => {
+  seedProductionState();
+  db.owners = [];
+  db.verifications = [];
+  const res = await GET({} as any, ctx());
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.deepEqual(body.owners, []);
+  assert.deepEqual(body.ownership, { total: 0, valid: false, ownerCount: 0 });
+  assert.equal(body.allVerified, false);
+});
+
+test("owners below the threshold do not cause a UUID query error or imply verification", async () => {
+  seedProductionState();
+  db.owners = [{ id: OWNER, deal_id: DEAL, display_name: "QA owner", ownership_pct: 10 }];
+  db.verifications = [];
+  const res = await GET({} as any, ctx());
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.deepEqual(body.owners, []);
+  assert.deepEqual(body.ownership, { total: 10, valid: false, ownerCount: 1 });
+  assert.equal(body.allVerified, false);
+});
+
+test("real ownership and verification read failures still fail closed", async () => {
+  for (const table of ["ownership_entities", "borrower_identity_verifications"]) {
+    seedProductionState();
+    db.verifications = [];
+    failedReadTable = table;
+    const res = await GET({} as any, ctx());
+    const body = await res.json();
+    assert.equal(res.status, 503);
+    assert.equal(body.ok, false);
+    assert.equal(body.error, "identity_state_unavailable");
+  }
+});
 
 test("GET reconciles the stranded production row instead of echoing 'created'", async () => {
   seedProductionState();
@@ -195,8 +241,8 @@ test("GET reports a broken ownership total so a 149% deal explains itself", asyn
   vendorStatus = "Approved";
   db.owners = [
     { id: OWNER, deal_id: DEAL, display_name: "Sebrina Colon", ownership_pct: 51 },
-    { id: "791f44da", deal_id: DEAL, display_name: "Matthew Paller", ownership_pct: 49 },
-    { id: "6a73cd59", deal_id: DEAL, display_name: "matt paller", ownership_pct: 49 },
+    { id: "791f44da-0000-4000-8000-000000000001", deal_id: DEAL, display_name: "Matthew Paller", ownership_pct: 49 },
+    { id: "6a73cd59-0000-4000-8000-000000000002", deal_id: DEAL, display_name: "matt paller", ownership_pct: 49 },
   ];
 
   const res = await GET({} as any, ctx() as any);
