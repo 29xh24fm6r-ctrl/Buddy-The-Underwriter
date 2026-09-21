@@ -1,3 +1,4 @@
+import "server-only";
 /**
  * Process a document artifact through the Magic Intake pipeline.
  *
@@ -15,6 +16,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { downloadDocumentBytes } from "@/lib/storage/documentBytes";
 import { classifyDocumentSpine } from "@/lib/classification/classifyDocumentSpine";
 import { normalizePeriodDate } from "@/lib/classification/normalizePeriodDate";
+import { canAutomaticallyProcessBorrowerDocument, readDocumentClarification } from "@/lib/borrower/documents/service";
+import { applyDocumentClarification } from "@/lib/borrower/documents/clarification";
 import type { SpineClassificationResult, DocAiSignals } from "@/lib/classification/types";
 import { CLASSIFICATION_SCHEMA_VERSION } from "@/lib/classification/types";
 import { GEMINI_FLASH } from "@/lib/ai/models";
@@ -1159,7 +1162,30 @@ export async function processArtifact(
     }
 
     // 2. Classify the document (Spine v2: Tier 1 → Tier 2 → Gate → Tier 3)
-    const classification = await classifyDocumentSpine(text, filename, mimeType, docAiSignals);
+    let classification = await classifyDocumentSpine(text, filename, mimeType, docAiSignals);
+    const borrowerClarification = source_table === "deal_documents"
+      ? await readDocumentClarification(dealId, bankId, source_id, sb)
+      : null;
+    if (borrowerClarification && !isExtractionErrorPayload(classification.rawExtraction)) {
+      classification = applyDocumentClarification(classification, {
+        doc_type: borrowerClarification.doc_type,
+        tax_year: borrowerClarification.tax_year,
+        statement_period: borrowerClarification.statement_period,
+      });
+      const { computeGatekeeperRoute } = await import("@/lib/gatekeeper/routing");
+      const gatekeeperType = ["BALANCE_SHEET", "INCOME_STATEMENT"].includes(classification.docType)
+        ? "FINANCIAL_STATEMENT" : classification.docType === "PFS" ? "PERSONAL_FINANCIAL_STATEMENT" : classification.docType === "COMMERCIAL_LEASE" ? "OTHER" : classification.docType;
+      const route = computeGatekeeperRoute({ doc_type: gatekeeperType as any, confidence: 1, tax_year: classification.taxYear });
+      const clarified = await sb.from("deal_documents").update({
+        statement_period: borrowerClarification.statement_period,
+        gatekeeper_doc_type: gatekeeperType, gatekeeper_route: route,
+        gatekeeper_needs_review: route === "NEEDS_REVIEW", gatekeeper_confidence: 1,
+        gatekeeper_tax_year: classification.taxYear, gatekeeper_model: "borrower_clarification",
+        gatekeeper_reasons: ["Document type supplied by authenticated borrower; financial contents are not approved."],
+      }).eq("id", source_id).eq("deal_id", dealId).eq("bank_id", bankId);
+      if (clarified.error) throw new Error(clarified.error.message);
+    }
+    let automatedBorrowerAdmission = false;
 
     // ── PIPELINE INTEGRITY GUARD ────────────────────────────────────
     // classifyDocument() swallows API errors and returns { error: "..." }
@@ -1644,8 +1670,8 @@ export async function processArtifact(
     }
 
     // ── Phase E0: Intake Confirmation Gate (fail-closed) ──────────────────
-    // When enabled, stop after classification. No matching, no extraction,
-    // no spreads, no lifecycle. Downstream deferred to processConfirmedIntake.
+    // Bank-managed intake keeps its batch confirmation gate. Self-serve
+    // borrower documents use quality-checked per-document admission below.
     if (isIntakeConfirmationGateEnabled() && source_table === "deal_documents") {
       try {
         const { data: dealPhaseRow } = await sb
@@ -1660,12 +1686,15 @@ export async function processArtifact(
         const { deriveIntakeStatus, INTAKE_CONFIRMATION_VERSION } = await import(
           "@/lib/intake/confirmation/types"
         );
-        const intakeStatus = deriveIntakeStatus(classification.confidence);
+        const intakeStatus = borrowerClarification ? "USER_CONFIRMED" : deriveIntakeStatus(classification.confidence);
 
-        await (sb as any)
-          .from("deal_documents")
-          .update({ intake_status: intakeStatus } as any)
-          .eq("id", source_id);
+        const intakeUpdate = await sb.from("deal_documents")
+          .update({ intake_status: intakeStatus })
+          .eq("id", source_id).eq("deal_id", dealId).eq("bank_id", bankId);
+        if (intakeUpdate.error) throw new Error(intakeUpdate.error.message);
+        // Self-serve documents pass the existing extraction pipeline individually.
+        // This neither seals the deal nor grants access to final lender artifacts.
+        automatedBorrowerAdmission = await canAutomaticallyProcessBorrowerDocument(dealId, bankId, source_id, sb);
 
         // Auto-transition deal from BULK_UPLOADED to CLASSIFIED_PENDING_CONFIRMATION
         if (phase === "BULK_UPLOADED") {
@@ -1684,7 +1713,7 @@ export async function processArtifact(
           "@/lib/intake/confirmation/isPreConfirmationPhase"
         );
 
-        if (isPreConfirmationPhase(phase)) {
+        if (isPreConfirmationPhase(phase) && !automatedBorrowerAdmission) {
           // Mark artifact as classified (deferred, not matched)
           await (sb as any)
             .from("document_artifacts")
@@ -1727,7 +1756,7 @@ export async function processArtifact(
         }
 
         // Post-confirmation: log incremental processing for observability
-        const isIncremental = phase !== "CONFIRMED_READY_FOR_PROCESSING";
+        const isIncremental = !automatedBorrowerAdmission && phase !== "CONFIRMED_READY_FOR_PROCESSING";
         if (isIncremental) {
           void writeEvent({
             dealId,
@@ -1834,7 +1863,7 @@ export async function processArtifact(
           }).catch(() => {});
 
         // ── Gatekeeper drives routing ──
-        } else if (gkCols.gatekeeper_doc_type) {
+        } else if (gkCols.gatekeeper_doc_type && !borrowerClarification) {
           const { mapGatekeeperDocTypeToEffectiveDocType } = await import(
             "@/lib/gatekeeper/routing"
           );
@@ -2016,7 +2045,7 @@ export async function processArtifact(
 
           // Persist extraction result to document_extracts (mirrors extractProcessor)
           const extractSb = supabaseAdmin();
-          await (extractSb as any).from("document_extracts").upsert(
+          const persistedExtract = await (extractSb as any).from("document_extracts").upsert(
             {
               deal_id: dealId,
               attachment_id: source_id,
@@ -2030,6 +2059,8 @@ export async function processArtifact(
             },
             { onConflict: "attachment_id" },
           );
+
+          if (automatedBorrowerAdmission && persistedExtract.error) throw new Error(persistedExtract.error.message);
 
           // Fact extraction belongs to the document-version workflow, not the
           // spread renderer. This call is deterministic-first and its Gemini
@@ -2081,6 +2112,7 @@ export async function processArtifact(
               payload: { artifactId, documentId: source_id, docType: effectiveDocType },
             }),
           ).catch(() => {});
+          if (automatedBorrowerAdmission) throw extractErr;
         }
       }
     }
@@ -2264,6 +2296,14 @@ export async function processArtifact(
         source_id,
         error: namingErr?.message,
       });
+    }
+
+    if (automatedBorrowerAdmission) {
+      if (gkBlockedByReview) throw new Error("Document details need clarification before processing can complete.");
+      const finished = await sb.from("document_artifacts")
+        .update({ status: "matched", error_message: null, match_reason: "borrower_automated_processing_complete", updated_at: new Date().toISOString() })
+        .eq("id", artifactId).eq("deal_id", dealId).eq("bank_id", bankId);
+      if (finished.error) throw new Error(finished.error.message);
     }
 
     // 7. Log success
