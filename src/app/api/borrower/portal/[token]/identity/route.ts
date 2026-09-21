@@ -1,3 +1,4 @@
+import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -110,11 +111,15 @@ export async function GET(
 
   const ownerIds = qualifyingOwners.map((o) => o.id);
 
-  const { data: verifications, error: verificationsError } = await sb
-    .from("borrower_identity_verifications")
-    .select("id, ownership_entity_id, status, vendor_artifacts_url, created_at, completed_at")
-    .eq("deal_id", ctx.dealId)
-    .in("ownership_entity_id", ownerIds.length > 0 ? ownerIds : ["__none__"]);
+  // A new application has no qualifying owners yet. Do not send a string
+  // sentinel to this UUID column; return the ownership setup state below.
+  const { data: verifications, error: verificationsError } = ownerIds.length === 0
+    ? { data: [], error: null }
+    : await sb
+        .from("borrower_identity_verifications")
+        .select("id, ownership_entity_id, status, vendor_artifacts_url, created_at, completed_at")
+        .eq("deal_id", ctx.dealId)
+        .in("ownership_entity_id", ownerIds);
 
   if (verificationsError || !Array.isArray(verifications)) {
     return NextResponse.json(
