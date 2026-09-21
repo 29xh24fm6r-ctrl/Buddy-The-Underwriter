@@ -20,35 +20,15 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
+import { borrowerDocumentAdmission, DOCUMENT_ACTION_TEXT, type AdmissionDocument } from "@/lib/borrower/documents/admission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ token: string }> };
 
-/**
- * The columns this route selects from `deal_documents`.
- *
- * Every column here is defined by a migration. An earlier revision selected
- * `document_category`, `document_label` and `is_active`: those exist in the
- * production database but NO migration adds them to this table
- * (`document_category`/`document_label` are added to `deal_checklist_items`
- * by 20260106_prod_checklist_columns_safe.sql — a different table), so they
- * are undeclared schema drift. Selecting them would 400 in any environment
- * built from migrations, which is exactly what `gate:schema-select` exists
- * to prevent.
- *
- * They were also the wrong fields regardless: `ingestDocument.ts` — the
- * canonical writer, with its own ALLOWED_COLUMNS guard — never populates
- * any of the three, so they are null on every borrower upload.
- * `checklist_key` is what the uploader actually stamps when a borrower
- * picks a document category.
- *
- * Declared explicitly because the Supabase client cannot resolve this
- * select to a literal type, and without it the mapper infers
- * GenericStringError and fails to typecheck.
- */
-type BorrowerDocumentRow = {
+// Explicit row type for the borrower-facing selection.
+type BorrowerDocumentRow = AdmissionDocument & {
   id: string;
   original_filename: string | null;
   checklist_key: string | null;
@@ -77,7 +57,7 @@ export async function GET(_req: NextRequest, ctx: Context) {
   const { data, error } = await sb
     .from("deal_documents")
     .select(
-      "id, original_filename, checklist_key, created_at, size_bytes, status, source",
+      "id, original_filename, checklist_key, created_at, size_bytes, status, source, is_active, intake_status, quality_status, canonical_type, doc_year, segmented, ocr_text_length, logical_key, gatekeeper_needs_review, gatekeeper_route",
     )
     .eq("deal_id", context.dealId)
     .neq("status", "withdrawn")
@@ -92,19 +72,35 @@ export async function GET(_req: NextRequest, ctx: Context) {
     );
   }
 
+  const artifacts = await sb.from("document_artifacts").select("source_id,status,match_reason")
+    .eq("deal_id", context.dealId).eq("bank_id", context.bankId).eq("source_table", "deal_documents");
+  if (artifacts.error) return NextResponse.json({ ok: false, error: "Document processing status could not be loaded." }, { status: 503 });
+  const byDocument = new Map((artifacts.data ?? []).map((a) => [a.source_id, a]));
+
   return NextResponse.json({
     ok: true,
-    documents: ((data ?? []) as unknown as BorrowerDocumentRow[]).map((d) => ({
+    documents: ((data ?? []) as unknown as BorrowerDocumentRow[]).map((d) => {
+      const artifact = byDocument.get(d.id);
+      const pending = ["queued", "processing"].includes(artifact?.status ?? "");
+      const complete = artifact?.status === "matched" && artifact?.match_reason === "borrower_automated_processing_complete";
+      const action = pending || complete ? null : borrowerDocumentAdmission(d);
+      return ({
       id: d.id,
       filename: d.original_filename ?? "Document",
       category: d.checklist_key ?? "other_supporting_document",
       label: d.original_filename ?? "Document",
       uploadedAt: d.created_at,
       sizeBytes: d.size_bytes ?? null,
-      status: d.status ?? "uploaded",
+      status: complete ? "processed" : (artifact?.status ?? d.status ?? "uploaded"),
+      processingComplete: complete,
+      action,
+      actionMessage: action ? DOCUMENT_ACTION_TEXT[action] : null,
+      suggestedType: d.canonical_type,
+      taxYear: d.doc_year,
+      canClarify: ["document_details", "tax_year"].includes(action ?? ""),
       // Only borrower-uploaded documents may be withdrawn by the borrower.
       removable: d.source === "borrower_portal" || d.source === "borrower",
-    })),
+    }); }),
   });
 }
 
@@ -155,7 +151,7 @@ export async function DELETE(req: NextRequest, ctx: Context) {
     // one is a schema change this launch does not need. `status` alone is
     // sufficient: the GET above filters on .neq("status", "withdrawn"), so
     // the row disappears from the borrower's view while remaining for audit.
-    // `is_active` is deliberately NOT set — it has no migration on this table.
+    // Admission also rejects withdrawn status, so this cannot restart extraction.
     .update({ status: "withdrawn", updated_at: new Date().toISOString() })
     .eq("id", id)
     .eq("deal_id", context.dealId);
