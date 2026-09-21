@@ -18,6 +18,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolvePortalToken } from "@/lib/brokerage/trident/portalTokenAuth";
+import { getBorrowerArtifactRelease } from "@/lib/brokerage/borrowerArtifactRelease";
 
 export const runtime = "nodejs";
 
@@ -49,8 +50,10 @@ export async function GET(
     return NextResponse.json({ ok: true, bundle: null });
   }
 
+  const release = await getBorrowerArtifactRelease(dealId, sb);
   return NextResponse.json({
     ok: true,
+    release,
     bundle: {
       id: bundle.id as string,
       dealId: bundle.deal_id as string,
@@ -58,13 +61,13 @@ export async function GET(
       status: bundle.status as "succeeded",
       version: bundle.version as number,
       businessPlanPdfPath:
-        (bundle.business_plan_pdf_path as string | null) ?? null,
+        release.released ? (bundle.business_plan_pdf_path as string | null) ?? null : null,
       projectionsPdfPath:
-        (bundle.projections_pdf_path as string | null) ?? null,
+        release.released ? (bundle.projections_pdf_path as string | null) ?? null : null,
       projectionsXlsxPath:
-        (bundle.projections_xlsx_path as string | null) ?? null,
+        release.released ? (bundle.projections_xlsx_path as string | null) ?? null : null,
       feasibilityPdfPath:
-        (bundle.feasibility_pdf_path as string | null) ?? null,
+        release.released ? (bundle.feasibility_pdf_path as string | null) ?? null : null,
       generationError: (bundle.generation_error as string | null) ?? null,
       generatedAt: (bundle.generated_at as string | null) ?? null,
       redactorVersion: (bundle.redactor_version as string | null) ?? null,

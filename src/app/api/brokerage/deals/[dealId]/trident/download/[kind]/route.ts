@@ -2,6 +2,7 @@ import "server-only";
 
 /** Download the immutable files from one completed package run. */
 import JSZip from "jszip";
+import { getBorrowerArtifactRelease } from "@/lib/brokerage/borrowerArtifactRelease";
 import {
   LENDER_PACKAGE_FILES,
   canBorrowerDownload,
@@ -206,6 +207,14 @@ export async function GET(
   }
 
   const sb = supabaseAdmin();
+
+  if (actorInfo.actorScope === "borrower" && kind !== "sba_forms") {
+    const release = await getBorrowerArtifactRelease(dealId, sb);
+    if (!release.released) return NextResponse.json(
+      { ok: false, error: release.reason },
+      { status: release.reason === "state_unavailable" ? 503 : 403 },
+    );
+  }
 
   // Prefer final, fall back to preview. Two small queries are clearer than a
   // clever ORDER BY. A preview-tier grant skips the final lookup entirely so

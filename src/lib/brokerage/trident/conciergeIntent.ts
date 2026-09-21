@@ -15,7 +15,7 @@
  */
 
 export const TRIDENT_PREVIEW_RESPONSE =
-  "I can generate a preview package inside Buddy. The full package unlocks when you pick a lender.";
+  "I can prepare your loan package inside Buddy. Your business plan, feasibility study and projections unlock after a bank claims your deal and you select that bank. You can keep completing your application in the meantime.";
 
 export type TridentIntent =
   | "business_plan"

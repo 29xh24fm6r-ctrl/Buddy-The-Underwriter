@@ -16,6 +16,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
+import { getBorrowerArtifactRelease } from "@/lib/brokerage/borrowerArtifactRelease";
 
 export const runtime = "nodejs";
 
@@ -56,10 +57,12 @@ export async function GET(
   }
 
   const artifacts: Partial<Record<ArtifactKind, { url: string }>> = {};
+  const release = await getBorrowerArtifactRelease(dealId, sb);
   for (const [kind, column] of Object.entries(ARTIFACT_COLUMNS) as [
     ArtifactKind,
     string,
   ][]) {
+    if (!release.released) break;
     const path = (bundle as Record<string, unknown>)[column] as string | null;
     if (!path) continue;
     const { data: signed } = await sb.storage
@@ -77,5 +80,6 @@ export async function GET(
       redactorVersion: bundle.redactor_version,
     },
     artifacts,
+    release,
   });
 }

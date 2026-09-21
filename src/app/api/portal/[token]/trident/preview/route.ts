@@ -97,7 +97,7 @@ export async function POST(
         ok: false,
         error: "generation_failed",
         bundle: bundle ? shapeBundle(bundle) : null,
-        message: started.error,
+        message: "Preparation needs another try. Your saved information is safe.",
       },
       { status: 200 },
     );
@@ -123,11 +123,12 @@ function shapeBundle(b: Record<string, unknown>) {
     mode: b.mode as "preview" | "final",
     status: b.status as "pending" | "running" | "succeeded" | "failed",
     version: b.version as number,
-    businessPlanPdfPath: (b.business_plan_pdf_path as string | null) ?? null,
-    projectionsPdfPath: (b.projections_pdf_path as string | null) ?? null,
-    projectionsXlsxPath: (b.projections_xlsx_path as string | null) ?? null,
-    feasibilityPdfPath: (b.feasibility_pdf_path as string | null) ?? null,
-    generationError: (b.generation_error as string | null) ?? null,
+    // Admission/error responses are status only; downloads have their own release check.
+    businessPlanPdfPath: null,
+    projectionsPdfPath: null,
+    projectionsXlsxPath: null,
+    feasibilityPdfPath: null,
+    generationError: b.generation_error ? "Preparation needs another try." : null,
     generatedAt: (b.generated_at as string | null) ?? null,
   };
 }

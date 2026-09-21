@@ -220,7 +220,10 @@ test("portal preview: admission failure surfaces bundle in failed state", async 
   assert.equal(body.ok, false);
   assert.equal(body.error, "generation_failed");
   assert.equal(body.bundle.status, "failed");
-  assert.equal(body.bundle.generationError, "feasibility renderer crashed");
+  assert.equal(body.bundle.generationError, "Preparation needs another try.");
+  assert.equal(body.bundle.businessPlanPdfPath, null);
+  assert.equal(body.bundle.projectionsXlsxPath, null);
+  assert.doesNotMatch(JSON.stringify(body), /renderer crashed|deal-1\/preview/);
 });
 
 test("portal preview: NEVER allows mode=final via this surface", async () => {

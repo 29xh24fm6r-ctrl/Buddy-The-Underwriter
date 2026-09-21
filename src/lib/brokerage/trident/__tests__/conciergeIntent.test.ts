@@ -121,7 +121,7 @@ test("does NOT match borrower describing their OWN uploads (no request cue)", ()
 test("canonical response message is exact", () => {
   assert.equal(
     TRIDENT_PREVIEW_RESPONSE,
-    "I can generate a preview package inside Buddy. The full package unlocks when you pick a lender.",
+    "I can prepare your loan package inside Buddy. Your business plan, feasibility study and projections unlock after a bank claims your deal and you select that bank. You can keep completing your application in the meantime.",
   );
 });
 

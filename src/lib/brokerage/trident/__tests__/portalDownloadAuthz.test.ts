@@ -5,6 +5,11 @@ import { mockServerOnly } from "../../../../../test/utils/mockServerOnly";
 
 mockServerOnly();
 const require = createRequire(import.meta.url);
+let borrowerReleased = true;
+require.cache[require.resolve("@/lib/brokerage/borrowerArtifactRelease")] = {
+  id: "release-stub", filename: "release-stub", loaded: true,
+  exports: { getBorrowerArtifactRelease: async () => ({ released: borrowerReleased, reason: borrowerReleased ? "released" : "bank_selection_required" }) },
+} as any;
 
 // Mock state
 const state: {
@@ -22,6 +27,7 @@ const state: {
 };
 
 function reset() {
+  borrowerReleased = true;
   state.resolvedToken = null;
   state.bundles = [];
   state.signedUrl = "https://signed.example/path";
@@ -121,6 +127,18 @@ async function call(token: string, kind: string) {
   const body = await res.json();
   return { status: res.status, body };
 }
+
+test("portal download: valid owner cannot preview before bank claim plus selection", async () => {
+  reset();
+  borrowerReleased = false;
+  state.resolvedToken = { token: "t", dealId: "deal-1" };
+  for (const kind of ["business-plan", "projections", "feasibility"]) {
+    const { status, body } = await call("t", kind);
+    assert.equal(status, 403);
+    assert.equal(body.url, undefined);
+  }
+  reset();
+});
 
 test("portal download: missing/invalid token → 404", async () => {
   reset();

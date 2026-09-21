@@ -29,7 +29,7 @@ export const CHAPTERS = [
     id: "application",
     title: "Prepare your package",
     subtitle: "Bring your answers and documents together.",
-    reward: "Your lender-ready draft",
+    reward: "Your package preparation status",
     help: "Your reviewed assumptions feed the existing financial model. Preparing documents does not submit an application or approve a loan.",
   },
   {
@@ -61,7 +61,7 @@ export function projectCard(snapshot: GuidedSnapshot) {
       ? null
       : String(found);
   };
-  const business = text("business.dba") ?? text("business.legal_name");
+  const business = text("business.dba") ?? text("business.legal_name") ?? text("K01");
   const city = text("business.address_city");
   const state = text("business.address_state");
   const amount = value("loan.amount_requested");
@@ -100,6 +100,7 @@ export function chapterFor(q: GuidedQuestion): Chapter {
 export function orderedQuestions(snapshot: GuidedSnapshot, chapter: Chapter) {
   const replaced: Record<string, string[]> = {
     A03: ["loan.amount_requested"],
+    A02: ["A11"],
     A05: ["loan.use_of_proceeds"],
     B01: ["business.legal_name", "business.dba"],
     B03: ["business.ein"],
@@ -207,6 +208,12 @@ export function recommendedQuestions(
   const goal = value("A11");
   return orderedQuestions(snapshot, chapter).filter((q) => {
     if (q.required || q.state === "saved") return true;
+    // Relevant transaction follow-ups must not disappear behind the mission allowlist.
+    const franchise = value("business.is_franchise") === true ||
+      /franchise|7\s*brew/i.test(String(value("A01") ?? "")) || Boolean(value("K01"));
+    if (/^K\d{2}$/.test(q.id)) return franchise && value("business.is_franchise") !== false;
+    if (/^I\d{2}$/.test(q.id)) return ["acquisition", "mixed"].includes(String(goal));
+    if (/^J\d{2}$/.test(q.id)) return ["property", "equipment", "mixed"].includes(String(goal));
     if (!MISSION_QUESTION_IDS[chapter].has(q.id)) return false;
     if (
       /^I\d{2}$/.test(q.id) &&
