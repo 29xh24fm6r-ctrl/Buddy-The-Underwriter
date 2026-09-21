@@ -24,6 +24,7 @@ const sb = { from(table: string) {
   const q: any = {
     select: () => q, order: () => q, limit: () => q,
     eq: (key: string, value: any) => { filters.push(r => r[key] === value); return q; },
+    neq: (key: string, value: any) => { filters.push(r => r[key] !== value); return q; },
     is: (key: string, value: any) => { filters.push(r => r[key] === value); return q; },
     in: (key: string, values: any[]) => { filters.push(r => values.includes(r[key])); return q; },
     contains: (key: string, value: any) => { filters.push(r => Object.entries(value).every(([k,v]) => r[key]?.[k] === v)); return q; },
@@ -44,6 +45,7 @@ require.cache[require.resolve("@/lib/supabase/admin")] = { id: "sb", filename: "
 require.cache[require.resolve("@/lib/borrower/resolvePortalContext")] = { id: "ctx", filename: "ctx", loaded: true, exports: { resolvePortalContext: async () => { if (!authorized) throw new Error("unauthorized"); return { dealId: "deal", bankId: "bank" }; } } } as any;
 const service = require("../service") as typeof import("../service");
 const { POST } = require("../../../../app/api/borrower/portal/[token]/documents/process/route") as typeof import("../../../../app/api/borrower/portal/[token]/documents/process/route");
+const { GET } = require("../../../../app/api/borrower/portal/[token]/documents/route") as typeof import("../../../../app/api/borrower/portal/[token]/documents/route");
 const { applyDocumentClarification } = require("../clarification") as typeof import("../clarification");
 beforeEach(() => {
   authorized = true; failedTable = ""; calls = 0;
@@ -141,4 +143,23 @@ test("withdrawn document cannot be resumed or clarified", async () => {
 test("a processing file does not falsely report that clarification restarted it", async () => {
   tables.document_artifacts[0].status = "processing";
   assert.equal((await request({ documentId: DOC, clarification: { doc_type: "OTHER" } })).status, 409);
+});
+
+const list = async () => (await GET({} as any, { params: Promise.resolve({ token: "session-bound-deal" }) })).json();
+test("document list distinguishes processed work from a retry with stale completion metadata", async () => {
+  Object.assign(tables.document_artifacts[0], { status: "matched", match_reason: "borrower_automated_processing_complete" });
+  assert.equal((await list()).documents[0].processingComplete, true);
+  tables.document_artifacts[0].status = "failed";
+  const doc = (await list()).documents[0];
+  assert.equal(doc.processingComplete, false);
+  assert.equal(doc.canRetry, true);
+});
+test("document list offers clarification only for editable borrower applications", async () => {
+  tables.deal_documents[0].gatekeeper_needs_review = true;
+  assert.equal((await list()).documents[0].canClarify, true);
+  tables.deals[0].origin = "banker";
+  assert.equal((await list()).documents[0].canClarify, false);
+  tables.deals[0].origin = "brokerage_claimed";
+  tables.buddy_sealed_packages.push({ deal_id: "deal", id: "sealed", unsealed_at: null });
+  assert.equal((await list()).documents[0].canClarify, false);
 });

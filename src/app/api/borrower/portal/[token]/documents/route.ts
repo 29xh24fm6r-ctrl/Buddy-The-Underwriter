@@ -20,7 +20,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
-import { borrowerDocumentAdmission, DOCUMENT_ACTION_TEXT, type AdmissionDocument } from "@/lib/borrower/documents/admission";
+import { borrowerDocumentAdmission, isSelfServeOrigin, isBorrowerCollectionPhase, DOCUMENT_ACTION_TEXT, type AdmissionDocument } from "@/lib/borrower/documents/admission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +75,10 @@ export async function GET(_req: NextRequest, ctx: Context) {
   const artifacts = await sb.from("document_artifacts").select("source_id,status,match_reason")
     .eq("deal_id", context.dealId).eq("bank_id", context.bankId).eq("source_table", "deal_documents");
   if (artifacts.error) return NextResponse.json({ ok: false, error: "Document processing status could not be loaded." }, { status: 503 });
+  const deal = await sb.from("deals").select("origin,intake_phase").eq("id", context.dealId).eq("bank_id", context.bankId).maybeSingle();
+  const sealed = await sb.from("buddy_sealed_packages").select("id").eq("deal_id", context.dealId).is("unsealed_at", null).limit(1);
+  if (deal.error || sealed.error) return NextResponse.json({ ok: false, error: "Document review status could not be loaded." }, { status: 503 });
+  const canReview = isSelfServeOrigin(deal.data?.origin) && isBorrowerCollectionPhase(deal.data?.intake_phase) && !sealed.data?.length;
   const byDocument = new Map((artifacts.data ?? []).map((a) => [a.source_id, a]));
 
   return NextResponse.json({
@@ -83,7 +87,7 @@ export async function GET(_req: NextRequest, ctx: Context) {
       const artifact = byDocument.get(d.id);
       const pending = ["queued", "processing"].includes(artifact?.status ?? "");
       const complete = artifact?.status === "matched" && artifact?.match_reason === "borrower_automated_processing_complete";
-      const action = pending || complete ? null : borrowerDocumentAdmission(d);
+      const action = !canReview || pending || complete ? null : borrowerDocumentAdmission(d);
       return ({
       id: d.id,
       filename: d.original_filename ?? "Document",
@@ -98,6 +102,7 @@ export async function GET(_req: NextRequest, ctx: Context) {
       suggestedType: d.canonical_type,
       taxYear: d.doc_year,
       canClarify: ["document_details", "tax_year"].includes(action ?? ""),
+      canRetry: canReview && d.is_active === true && ["borrower", "borrower_portal"].includes(d.source ?? "") && artifact?.status === "failed",
       // Only borrower-uploaded documents may be withdrawn by the borrower.
       removable: d.source === "borrower_portal" || d.source === "borrower",
     }); }),

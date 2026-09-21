@@ -14,6 +14,7 @@ type BorrowerDocument = {
   processingComplete?: boolean;
   actionMessage?: string | null;
   canClarify?: boolean;
+  canRetry?: boolean;
   suggestedType?: string | null;
   taxYear?: number | null;
 };
@@ -140,7 +141,7 @@ export function UploadedDocumentsList({
           const statusLabel = d.processingComplete
             ? "Processed by Buddy — added to your application"
             : d.actionMessage ?? (failed
-              ? "Processing stopped. You can retry below."
+              ? (d.canRetry ? "Processing stopped. You can retry below." : "Processing stopped.")
               : processing ? "Buddy is reading and organizing this document…"
                 : "Buddy is checking this document.");
           const meta = [formatSize(d.sizeBytes), formatDate(d.uploadedAt)]
@@ -171,7 +172,7 @@ export function UploadedDocumentsList({
               {meta && (
                 <span className="shrink-0 text-xs text-slate-500">{meta}</span>
               )}
-              {(d.canClarify || failed) && <DocumentClarification document={d} token={token} onSaved={load} />}
+              {(d.canClarify || d.canRetry) && <DocumentClarification document={d} token={token} onSaved={load} />}
             </li>
           );
         })}
