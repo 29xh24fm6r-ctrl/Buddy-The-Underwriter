@@ -54,3 +54,19 @@ test("wrong-deal success cannot erase a draft", async () => {
     request: (async () => Response.json({ ok: true, dealId: "other", snapshot })) as typeof fetch, onSaved: () => assert.fail("must not update") }));
   assert.equal(drafts.A01.value, "My idea");
 });
+test("activity saves invoke browser fetch without binding it to the options object", async () => {
+  const snapshot = buildGuidedSnapshot({ rows: {}, facts: {}, revision: null });
+  const questions = snapshot.questions.filter(q => q.id === "A01");
+  const drafts: ActivityDrafts = { A01: { value: "My idea", baseline: null, source: "text" } };
+  let saved = 0;
+  const request = async function (this: unknown) {
+    // Native browser fetch rejects a receiver other than Window or undefined.
+    assert.ok(this === undefined, "request must not receive the options object as its receiver");
+    return Response.json({ ok: true, dealId: "d", snapshot });
+  } as typeof fetch;
+  const result = await saveActivityAnswers({ questions, snapshot, drafts, dealId: "d", request,
+    onSaved: () => saved++ });
+  assert.deepEqual(result, JSON.parse(JSON.stringify(snapshot)));
+  assert.equal(saved, 1);
+  assert.equal(drafts.A01, undefined);
+});
