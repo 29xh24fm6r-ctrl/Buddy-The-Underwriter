@@ -3,7 +3,7 @@
 //
 // Every static internal navigation target — `<Link href="/…">`, `href={"/…"}`,
 // `router.push("/…")`, `router.replace("/…")` — must resolve to a real page route
-// under src/app/**/page.tsx. Prevents shipping NEW dead links (the audit found a
+// under src/app/**/page.tsx or an existing public asset. Prevents shipping NEW dead links (the audit found a
 // pile of them: /capture/*, /tenant/create, /borrower/portal/demo, /privacy, …).
 //
 // Only STRICT string literals are checked. Template literals with `${…}`,
@@ -14,12 +14,13 @@
 // SPEC-DEADLINK-CLEANUP-1; the guard's job here is to stop NEW ones (Principle #13).
 //
 // Env overrides (fixture tests): LINK_GUARD_APP_DIR, LINK_GUARD_SRC_DIR,
-// LINK_GUARD_ALLOWLIST.
+// LINK_GUARD_ALLOWLIST, LINK_GUARD_PUBLIC_DIR.
 import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = process.cwd();
 const APP_DIR = process.env.LINK_GUARD_APP_DIR || path.join(ROOT, "src/app");
+const PUBLIC_DIR = process.env.LINK_GUARD_PUBLIC_DIR || path.join(ROOT, "public");
 const SRC_DIR = process.env.LINK_GUARD_SRC_DIR || path.join(ROOT, "src");
 const ALLOWLIST_PATH = process.env.LINK_GUARD_ALLOWLIST || path.join(ROOT, "scripts/guards/internal-links-allowlist.txt");
 
@@ -108,11 +109,17 @@ function main() {
   const routes = collectRoutes();
   const allow = readAllowlist();
   const links = collectLinks();
+  // Next serves checked-in public files directly, without an app page route.
+  // Enumerate actual files: extensions, directories and traversal paths alone
+  // never qualify, and no dead-link allowlist entry is needed.
+  const assets = new Set(walk(PUBLIC_DIR, () => true).map(file =>
+    "/" + path.relative(PUBLIC_DIR, file).split(path.sep).join("/")));
+
 
   const offenders = [];
   for (const link of links) {
     const clean = link.url.split(/[?#]/)[0];
-    if (allow.has(clean)) continue;
+    if (allow.has(clean) || assets.has(clean)) continue;
     const segs = linkToSegments(link.url);
     if (routes.some((r) => matchSegments(r, segs))) continue;
     offenders.push(link);
@@ -127,7 +134,7 @@ function main() {
   }
 
   console.error(
-    "\n❌ static internal link(s) resolve to no page route under src/app (SPEC-PORTAL-1 §4b):\n",
+    "\n❌ static internal link(s) resolve to no page route under src/app or existing public file (SPEC-PORTAL-1 §4b):\n",
   );
   for (const o of offenders) console.error(` - ${o.file}:${o.line}  →  ${o.url}`);
   console.error(
