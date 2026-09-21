@@ -369,7 +369,7 @@ export function LenderPackageReview({
     LENDER_PACKAGE_FILES.every((file) => bundle[file.column]);
   return (
     <section className="rounded-2xl border bg-white p-5 text-slate-900">
-      <h3 className="text-lg font-semibold">
+      <h3 id="package-preparation-heading" tabIndex={-1} className="text-lg font-semibold">
         Review and prepare your lender package
       </h3>
       <p className="mt-2 text-sm text-slate-600">

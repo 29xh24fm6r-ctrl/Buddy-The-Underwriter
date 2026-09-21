@@ -7,6 +7,7 @@ Production test after #1110: startup validation passed with explicitly labeled f
 - Restore owner.title to the Form 1919 registry and require the canonical agent-use answer for 7(a)/504. Existing transactional SQL already permits both fields; no migration needed.
 - Share one borrower completion check between package status, POST admission, and durable workflow. Check every required answer and poster availability/receipt before starting generation.
 - Move the existing explicit poster receipt control into Prepare your package. Never infer or manufacture consent.
+- Keep borrowers in Prepare your package after the final application answer and focus the preparation checklist; both grouped and individual answer paths preserve access to the poster.
 - Link missing questions directly to their existing editors. Refresh readiness after saved-answer revisions or poster receipt without replacing financial drafts.
 - When an agent is used, check the existing Form 159 payload builder for recorded fees and agent details. Status reads do not create fees; incomplete configuration is reported explicitly.
 - Translate recognized generation failures to fixed borrower instructions. Do not expose renderer payloads, owner IDs, private paths, or internal errors.
