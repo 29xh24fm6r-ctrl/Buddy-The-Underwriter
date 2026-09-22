@@ -206,7 +206,7 @@ function DocumentClarification({ document: doc, token, onSaved }: { document: Bo
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ documentId: doc.id, ...(doc.canClarify ? { clarification: {
           doc_type: type, tax_year: tax ? Number(year) : null, statement_period: financial ? period : null,
-          ownership_entity_id: ownerRequired ? ownerId : null,
+          ...(ownerRequired ? { ownership_entity_id: ownerId } : {}),
         } } : {}) }),
       });
       const result = await response.json();
