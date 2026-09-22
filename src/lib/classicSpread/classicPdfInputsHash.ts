@@ -49,6 +49,7 @@ export function computeClassicPdfInputsHash(input: ClassicSpreadInput): string {
     naicsDescription: input.naicsDescription,
     bankName: input.bankName,
     periods: input.periods,
+    startup: input.startup ?? null,
     balanceSheet: input.balanceSheet,
     incomeStatement: input.incomeStatement,
     cashFlow: input.cashFlow,

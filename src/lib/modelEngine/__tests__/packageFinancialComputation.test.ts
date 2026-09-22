@@ -79,6 +79,14 @@ test("startup uses an interim opening statement and the real calculator without 
   const result=await computePackageFinancialOutput("deal-1","bank-1");
   assert.equal(result.ok,true); if(!result.ok)return;
   assert.equal(result.output.isNewBusiness,true);
+  const { checkSpreadPreflight } = await import("../../spreads/preflight/spreadPreflightPure");
+  const input = result.output.spreadInput;
+  assert.equal(input.balanceSheet.length, 0, "reproduces the real interim loader output");
+  assert.equal(input.incomeStatement.length, 0, "never backfill forecast into history");
+  assert.equal(checkSpreadPreflight({ balanceSheetRowCount: 0, incomeStatementRowCount: 0,
+    sourceDocuments: [], startup: input.startup }).status, "ok");
+  assert.deepEqual(input.startup?.projections, result.output.projectionModel.annualProjections);
+  assert.deepEqual(input.startup?.openingBalance, result.output.openingBalance);
   assert.equal(result.output.baseYear.label,"Pre-opening");
   assert.equal(result.output.openingBalance?.cash,250000);
   assert.equal(result.output.balanceSheetProjections[0].cash,250000);

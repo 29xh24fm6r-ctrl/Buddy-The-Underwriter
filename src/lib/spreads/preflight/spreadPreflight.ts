@@ -28,6 +28,7 @@ export async function preflightClassicSpread(args: {
   dealId: string;
   bankId: string;
   balanceSheetRowCount: number;
+  startup?: SpreadPreflightInput["startup"];
   incomeStatementRowCount: number;
 }): Promise<SpreadPreflightResult> {
   const sourceDocuments = await loadDistinctSourceDocuments(args.dealId, args.bankId);
@@ -36,6 +37,7 @@ export async function preflightClassicSpread(args: {
     balanceSheetRowCount: args.balanceSheetRowCount,
     incomeStatementRowCount: args.incomeStatementRowCount,
     sourceDocuments,
+    startup: args.startup,
   };
 
   const result = checkSpreadPreflight(input);
