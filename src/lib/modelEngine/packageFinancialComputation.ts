@@ -310,6 +310,16 @@ export async function computePackageFinancialModel(dealId: string, bankId: strin
   // Document workers consume the stored render input and never load/recompute it.
   const spreadInput = await loadClassicSpreadData(dealId, bankId);
   assertPackageHistoricalConsistency(authority.financialModel, spreadInput);
+  if (preOpening && opening) {
+    spreadInput.startup = {
+      businessStage: "pre_opening", confirmedAt: assumptions.confirmedAt ?? "",
+      openingDate: opening.periodEnd, openingBalance: opening.balance,
+      projections: annualProjections,
+    };
+    const { startupSpreadBlockers } = await import("@/lib/classicSpread/startupSpread");
+    const blockers = startupSpreadBlockers(spreadInput.startup);
+    if (blockers.length) throw new Error(`financial_input_required: ${blockers.join(" ")}`);
+  }
   const year1 = annualProjections[0];
   const metric = (value: number | null, basis: string) => ({ value, source: `ModelV2:${basis}`, updated_at: assumptions.confirmedAt ?? null });
   const memoFinancial = {

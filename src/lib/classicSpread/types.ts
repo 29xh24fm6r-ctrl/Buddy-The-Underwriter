@@ -91,6 +91,9 @@ export type ClassicSpreadInput = {
   // Periods (chronological order)
   periods: StatementPeriod[];
 
+  // Startup-only package presentation; forecasts never populate historical rows.
+  startup?: import("./startupSpread").StartupSpread;
+
   // Financial statements
   balanceSheet: FinancialRow[];
   incomeStatement: FinancialRow[];

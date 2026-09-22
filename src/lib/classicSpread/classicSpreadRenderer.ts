@@ -1,3 +1,4 @@
+import { startupSpreadBlockers, startupOpeningRows, startupProjectionRows } from "./startupSpread";
 import PDFDocument from "pdfkit";
 import type {
   CashFlowRow,
@@ -1081,6 +1082,59 @@ function renderPersonalIncomePage(
 // Main Renderer
 // ---------------------------------------------------------------------------
 
+/** Startup pages use the exact saved model, with separate actual/forecast columns. */
+function renderStartupPages(doc: PDFKit.PDFDocument, input: ClassicSpreadInput) {
+  const startup = input.startup!;
+  const blockers = startupSpreadBlockers(startup);
+  if (blockers.length) throw new Error(`Startup spread incomplete: ${blockers.join(" ")}`);
+  const openingPeriods: StatementPeriod[] = [{ date: startup.openingDate, months: 0,
+    auditMethod: "Records", stmtType: "Opening", label: "Opening" }];
+  const s: DocState = { doc, input, periods: openingPeriods, pageNum: 1, y: 0,
+    pageTitle: "Startup Opening Balance Sheet", showPctColumns: false, layout: computeLayout(1) };
+  drawPageHeader(s);
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).text(
+    "PRELIMINARY - Pre-opening business. No historical operating results are represented. Opening balances are document-sourced model values; missing details remain blank. Lender review required.",
+    PAGE_MARGIN, s.y, { width: 530 });
+  s.y += 42;
+  drawMetadataGrid(s);
+  drawColumnHeaders(s);
+  for (const row of startupOpeningRows(startup)) drawFinancialRow(s, row);
+  drawPageFooter(s);
+
+  doc.addPage();
+  s.pageNum++;
+  s.pageTitle = "Startup Forecast - Not Historical Results";
+  s.periods = startup.projections.map(year => ({ date: `Forecast year ${year.year}`, months: 12,
+    auditMethod: "Model", stmtType: "Projected", label: `Year ${year.year}` }));
+  s.layout = computeLayout(s.periods.length);
+  drawPageHeader(s);
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).text(
+    `PRELIMINARY - Based on borrower-confirmed assumptions (${startup.confirmedAt.slice(0, 10)}). These are model projections, not historical earnings or a lender approval. Business DSCR excludes guarantor global cash flow.`,
+    PAGE_MARGIN, s.y, { width: 530 });
+  s.y += 42;
+  drawMetadataGrid(s);
+  drawColumnHeaders(s);
+  for (const row of startupProjectionRows(startup)) drawFinancialRow(s, row);
+  s.y += 12;
+  drawRatioSections(s, [{ title: "PROJECTED BUSINESS COVERAGE", rows: [{ label: "Business DSCR",
+    values: startup.projections.map(year => year.dscr), format: "ratio", decimals: 2 }] }]);
+  drawPageFooter(s);
+  if (input.personalIncome?.years.length) {
+    doc.addPage();
+    s.pageNum = renderPersonalIncomePage(doc, input, input.personalIncome, s.pageNum + 1, s.layout);
+  }
+  // Preserve source-certification findings; startup forecasts do not certify documents.
+  if (input.certificationSummary || input.certificationAudit?.spreadAccuracy || input.certified === false) {
+    doc.addPage();
+    s.pageNum++;
+    s.pageTitle = "Source Certification and Review";
+    drawPageHeader(s);
+    drawCertificationStatus(s, input.certificationSummary ?? null);
+    drawSpreadAuditSection(s, input.certificationAudit?.spreadAccuracy ?? null, input.certified === false);
+    drawPageFooter(s);
+  }
+}
+
 export function renderClassicSpread(
   input: ClassicSpreadInput,
   narrative?: SpreadNarrative | null,
@@ -1093,6 +1147,11 @@ export function renderClassicSpread(
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
+    if (input.startup) {
+      renderStartupPages(doc, input);
+      doc.end();
+      return;
+    }
     const { periods } = input;
     if (periods.length === 0) {
       // No data at all — single page with message

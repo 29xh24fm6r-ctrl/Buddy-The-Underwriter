@@ -82,6 +82,7 @@ export async function renderClassicPdfSpread(args: {
   const preflight = await preflightClassicSpread({
     dealId,
     bankId,
+    startup: input.startup,
     balanceSheetRowCount: input.balanceSheet.length,
     incomeStatementRowCount: input.incomeStatement.length,
   });

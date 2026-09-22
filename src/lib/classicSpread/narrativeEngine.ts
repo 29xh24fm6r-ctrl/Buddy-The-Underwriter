@@ -102,6 +102,9 @@ const SYSTEM_INSTRUCTION =
 export async function generateSpreadNarrative(
   input: ClassicSpreadInput,
 ): Promise<SpreadNarrative | null> {
+  // Historical narrative prompts cannot describe a pre-opening forecast accurately.
+  // The startup PDF carries deterministic basis/disclosure text instead.
+  if (input.startup) return null;
   // Skip if insufficient data
   if (input.incomeStatement.length === 0 && input.balanceSheet.length === 0) {
     return null;

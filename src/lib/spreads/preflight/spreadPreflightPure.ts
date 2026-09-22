@@ -1,3 +1,5 @@
+import { startupSpreadBlockers, type StartupSpread } from "@/lib/classicSpread/startupSpread";
+
 /**
  * Spread Preflight — pure checker.
  *
@@ -16,6 +18,7 @@
 export type SpreadPreflightInput = {
   /** Number of balance-sheet rows the loader produced. 0 = renderer would emit "Balance sheet data not available". */
   balanceSheetRowCount: number;
+  startup?: StartupSpread;
   /** Number of income-statement rows the loader produced. 0 = renderer would emit "Income statement data not available". */
   incomeStatementRowCount: number;
   /** Distinct source_document_ids that contributed any fact for this deal. Surfaced to the UI so the banker can see what was processed. */
@@ -63,6 +66,12 @@ const USER_MESSAGE =
 export function checkSpreadPreflight(
   input: SpreadPreflightInput,
 ): SpreadPreflightResult {
+  if (input.startup) {
+    const blockers = startupSpreadBlockers(input.startup);
+    if (!blockers.length) return { status: "ok" };
+    return { status: "blocked", reason: "missing_financial_facts", missingFacts: blockers,
+      sourceDocuments: input.sourceDocuments, userMessage: "Review the opening balance sheet and confirmed startup projections." };
+  }
   const missing: string[] = [];
 
   if (input.balanceSheetRowCount <= 0) {
