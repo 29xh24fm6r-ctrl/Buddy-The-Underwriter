@@ -145,6 +145,28 @@ test("a processing file does not falsely report that clarification restarted it"
   assert.equal((await request({ documentId: DOC, clarification: { doc_type: "OTHER" } })).status, 409);
 });
 
+test("borrower can save type and year while a newly uploaded document waits in queue", async () => {
+  Object.assign(tables.deal_documents[0], {
+    quality_status: null, canonical_type: null, doc_year: null,
+    intake_status: null, ocr_text_length: 0, logical_key: null,
+  });
+  tables.document_artifacts[0].status = "queued";
+  const response = await request({ documentId: DOC, clarification: { doc_type: "PERSONAL_TAX_RETURN", tax_year: 2025 } });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.clarificationSaved, true);
+  assert.equal(body.processing, true);
+  assert.equal(tables.document_artifacts[0].status, "queued");
+  assert.equal(tables.deal_events[0].payload.tax_year, 2025);
+});
+
+test("known unreadable queued document cannot be self-described around quality controls", async () => {
+  Object.assign(tables.deal_documents[0], { quality_status: "FAILED_LOW_TEXT", ocr_text_length: 0 });
+  tables.document_artifacts[0].status = "queued";
+  assert.equal((await request({ documentId: DOC, clarification: { doc_type: "OTHER" } })).status, 422);
+  assert.equal(tables.deal_events.length, 0);
+});
+
 const list = async () => (await GET({} as any, { params: Promise.resolve({ token: "session-bound-deal" }) })).json();
 test("document list distinguishes processed work from a retry with stale completion metadata", async () => {
   Object.assign(tables.document_artifacts[0], { status: "matched", match_reason: "borrower_automated_processing_complete" });
@@ -162,4 +184,22 @@ test("document list offers clarification only for editable borrower applications
   tables.deals[0].origin = "brokerage_claimed";
   tables.buddy_sealed_packages.push({ deal_id: "deal", id: "sealed", unsealed_at: null });
   assert.equal((await list()).documents[0].canClarify, false);
+});
+
+test("document list exposes saved borrower details while automated processing is queued", async () => {
+  Object.assign(tables.deal_documents[0], {
+    quality_status: null, canonical_type: null, doc_year: null,
+    intake_status: null, ocr_text_length: 0, logical_key: null,
+  });
+  tables.document_artifacts[0].status = "queued";
+  tables.deal_events.push({
+    deal_id: "deal", kind: "borrower.document.clarified", created_at: "2026-09-22T00:00:00Z",
+    payload: { document_id: DOC, sha256: "abc", doc_type: "PERSONAL_TAX_RETURN", tax_year: 2024, statement_period: null },
+  });
+  const doc = (await list()).documents[0];
+  assert.equal(doc.canClarify, true);
+  assert.equal(doc.clarificationSaved, true);
+  assert.equal(doc.suggestedType, "PERSONAL_TAX_RETURN");
+  assert.equal(doc.taxYear, 2024);
+  assert.match(doc.actionMessage, /Details saved/);
 });

@@ -25,6 +25,35 @@ type UploadedFile = {
   pct: number;
 };
 
+function sameFile(a: File, b: File): boolean {
+  return a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+}
+
+/** A successful retry replaces stale failures for the exact same local file. */
+export function reconcileCompletedUpload(
+  uploads: UploadedFile[],
+  id: string,
+  result: { ok: boolean; error?: string },
+): UploadedFile[] {
+  const completed = uploads.find((upload) => upload.id === id);
+  return uploads
+    .map((upload) => upload.id === id
+      ? {
+          ...upload,
+          status: result.ok ? "success" as const : "error" as const,
+          error: result.ok ? undefined : result.error,
+          pct: result.ok ? 100 : upload.pct,
+        }
+      : upload)
+    .filter((upload) => !(
+      result.ok &&
+      completed &&
+      upload.id !== id &&
+      upload.status === "error" &&
+      sameFile(upload.file, completed.file)
+    ));
+}
+
 let uploadIdCounter = 0;
 
 export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
@@ -40,18 +69,7 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
         const result = await uploadBorrowerFile(token, file, null, (pct) => {
           setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, pct } : u)));
         });
-        setUploads((prev) =>
-          prev.map((u) =>
-            u.id === id
-              ? {
-                  ...u,
-                  status: result.ok ? "success" : "error",
-                  error: result.ok ? undefined : result.error,
-                  pct: result.ok ? 100 : u.pct,
-                }
-              : u,
-          ),
-        );
+        setUploads((prev) => reconcileCompletedUpload(prev, id, result));
         if (result.ok) onUploadComplete?.();
       } catch (err) {
         const message = err instanceof Error ? err.message : "Upload failed";
