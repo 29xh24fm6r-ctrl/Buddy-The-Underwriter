@@ -25,6 +25,7 @@ test.afterEach(() => {
 type Row = Record<string, any>;
 
 function makeDb(tables: Record<string, Row[]>) {
+  tables.deals ??= [{ id: "deal-1", bank_id: "bank-1", name: "Test borrower" }];
   function builder(tableName: string) {
     const stored = tables[tableName] ?? (tables[tableName] = []);
     let rows = [...stored];
@@ -403,6 +404,24 @@ test("review and repair receive the canonical borrower identity instead of inher
     deals: [{ id: "deal-1", bank_id: "bank-1", name: "QA display label", city: "Fort Worth", state: "TX" }, { id: "deal-1", bank_id: "other-bank", name: "Different tenant" }],
     borrower_applications: [{ deal_id: "deal-1", business_legal_name: "Apex Precision Fabrication, LLC", industry: "Precision machining", created_at: "2026-09-17" }],
     buddy_feasibility_studies: [{ id: "study-1", narratives: { executiveSummary: "Borrower identity needs confirmation." } }],
+  };
+  const result = await enrichFeasibilityStudy({ dealId: "deal-1", bankId: "bank-1", studyId: "study-1", composite: baseComposite(), sb: makeDb(tables) });
+  assert.equal(result.verdict, "pass");
+});
+
+test("review preserves saved franchise and operating city when the legacy application is absent", async () => {
+  __setProviderImplForTests("anthropic", async (request) => {
+    assert.match(request.prompt, /QA 7 Brew Franchise Test LLC/);
+    assert.match(request.prompt, /Flowery Branch/);
+    assert.match(request.prompt, /franchiseDeclared/);
+    assert.match(request.prompt, /New franchise location/);
+    return { text: JSON.stringify({ issues: [] }), tokensIn: 1, tokensOut: 1 };
+  });
+  const tables: Record<string, Row[]> = {
+    deals: [{ id: "deal-1", bank_id: "bank-1", borrower_id: "b1", name: "QA label" }],
+    borrowers: [{ id: "b1", legal_name: "QA 7 Brew Franchise Test LLC", city: "Flowery Branch", state: "GA" }],
+    borrower_concierge_sessions: [{ deal_id: "deal-1", confirmed_facts: { package_answers: { K01: { value: "7 Brew, proposed Flowery Branch" }, K02: { value: "New franchise location" } } } }],
+    buddy_feasibility_studies: [{ id: "study-1", narratives: { executiveSummary: "This is the borrower's proposed franchise location; agreement and site remain unverified." } }],
   };
   const result = await enrichFeasibilityStudy({ dealId: "deal-1", bankId: "bank-1", studyId: "study-1", composite: baseComposite(), sb: makeDb(tables) });
   assert.equal(result.verdict, "pass");

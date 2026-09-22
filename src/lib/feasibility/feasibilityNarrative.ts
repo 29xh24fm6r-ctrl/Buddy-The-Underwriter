@@ -1,11 +1,11 @@
 import "server-only";
+import { isSubstantiveNarrative } from "@/lib/brokerage/trident/narrativeAcceptance";
 
 // src/lib/feasibility/feasibilityNarrative.ts
 // Phase God Tier Feasibility — Narrative Generator (step 9/16).
 // Turns deterministic scores + BIE research into consultant-quality prose
 // via Gemini Pro. Does NOT compute scores. Parallel Promise.allSettled so
-// a single Gemini failure never blocks the whole narrative — each section
-// falls back to a humane "not available" placeholder.
+// deficient sections get one targeted retry; final acceptance remains fail-closed.
 
 import { callGeminiJSON } from "@/lib/sba/sbaPackageNarrative";
 import type { ExtractedResearch } from "@/lib/sba/sbaResearchExtractor";
@@ -36,6 +36,7 @@ export interface FeasibilityNarrativeInput {
   managementTeam: ManagementMemberLite[];
   industry: string | null;
   financialEvidence?: Record<string, unknown>;
+  borrowerContext?: Record<string, unknown>;
 }
 
 /** Every section sees the same identity and calculated evidence. Research prose
@@ -44,6 +45,7 @@ export interface FeasibilityNarrativeInput {
 export function buildFeasibilityNarrativePrompts(params: FeasibilityNarrativeInput): Array<{ key: string; prompt: string }> {
   const evidence = JSON.stringify({
     borrower: { name: params.dealName, city: params.city, state: params.state, industry: params.industry },
+    borrowerConfirmedContext: params.borrowerContext ?? null,
     managementTeam: params.managementTeam,
     financialEvidence: params.financialEvidence ?? null,
     composite: params.composite,
@@ -75,7 +77,7 @@ Every factual name, number, business detail and market claim must be supported b
 A component with dataAvailable=false is unavailable, even if it has a neutral score. Explain the limitation; do not invent a value.
 Keep calculated scores and recommendations unchanged. Do not compute new financial metrics or infer an amount from a score.
 Clearly separate borrower statements, calculated results and proposed follow-up actions. Missing evidence must remain missing.
-Write concise, substantive analysis in third person, typically 150-250 words. Use less when evidence is sparse; never pad with invented facts.
+Write concise, substantive analysis in third person, typically 150-250 words, with at least 45 words explaining the supported findings and limitations. When evidence is sparse, describe the missing evidence and its decision impact; never pad with invented facts.
 
 SHARED DEAL EVIDENCE:
 ${evidence}
@@ -84,14 +86,27 @@ Return ONLY valid JSON: { "${key}": "..." }`,
   }));
 }
 
-export async function generateFeasibilityNarratives(params: FeasibilityNarrativeInput): Promise<FeasibilityNarratives> {
+/** One bounded retry per deficient section; successful sections are reused.
+ * Both attempts use the same evidence and existing governed model gateway. */
+export async function generateFeasibilityNarratives(
+  params: FeasibilityNarrativeInput,
+  generate: (prompt: string) => Promise<string | null> = callGeminiJSON,
+): Promise<FeasibilityNarratives> {
   const prompts = buildFeasibilityNarrativePrompts(params);
-  const results = await Promise.allSettled(prompts.map(({ prompt }) => callGeminiJSON(prompt)));
+  const run = async (prompt: string, key: string) => {
+    try { return extractNarrativeResult({ status: "fulfilled", value: await generate(prompt) }, key); }
+    catch { return `${key} not available.`; }
+  };
+  const entries = await Promise.all(prompts.map(async ({ prompt, key }) => {
+    let value = await run(prompt, key);
+    if (!isSubstantiveNarrative(value)) value = await run(
+      prompt + "\nThe previous attempt was missing, malformed or incomplete. Return the requested JSON field with substantive evidence-grounded prose. Do not invent facts to fill gaps.", key,
+    );
+    return [key, value];
+  }));
   return {
-    ...Object.fromEntries(prompts.map(({ key }, index) => [key, extractNarrativeResult(results[index], key)])),
-    franchiseComparisonNarrative: params.franchiseComparison
-      ? extractNarrativeResult(results[results.length - 1], "franchiseComparisonNarrative")
-      : null,
+    ...Object.fromEntries(entries),
+    ...(!params.franchiseComparison ? { franchiseComparisonNarrative: null } : {}),
   } as unknown as FeasibilityNarratives;
 }
 
