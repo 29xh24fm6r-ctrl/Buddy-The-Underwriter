@@ -34,6 +34,8 @@ type BorrowerDocumentRow = AdmissionDocument & {
   checklist_key: string | null;
   created_at: string;
   size_bytes: number | null;
+  sha256: string | null;
+  statement_period: string | null;
   status: string | null;
   source: string | null;
 };
@@ -57,7 +59,7 @@ export async function GET(_req: NextRequest, ctx: Context) {
   const { data, error } = await sb
     .from("deal_documents")
     .select(
-      "id, original_filename, checklist_key, created_at, size_bytes, status, source, is_active, intake_status, quality_status, canonical_type, doc_year, segmented, ocr_text_length, logical_key, gatekeeper_needs_review, gatekeeper_route",
+      "id, original_filename, checklist_key, created_at, size_bytes, sha256, status, source, is_active, intake_status, quality_status, canonical_type, doc_year, statement_period, segmented, ocr_text_length, logical_key, gatekeeper_needs_review, gatekeeper_route",
     )
     .eq("deal_id", context.dealId)
     .neq("status", "withdrawn")
@@ -80,6 +82,17 @@ export async function GET(_req: NextRequest, ctx: Context) {
   if (deal.error || sealed.error) return NextResponse.json({ ok: false, error: "Document review status could not be loaded." }, { status: 503 });
   const canReview = isSelfServeOrigin(deal.data?.origin) && isBorrowerCollectionPhase(deal.data?.intake_phase) && !sealed.data?.length;
   const byDocument = new Map((artifacts.data ?? []).map((a) => [a.source_id, a]));
+  const clarificationRows = canReview
+    ? await sb.from("deal_events").select("payload").eq("deal_id", context.dealId)
+      .eq("kind", "borrower.document.clarified").order("created_at", { ascending: false }).limit(200)
+    : { data: [], error: null };
+  if (clarificationRows.error) return NextResponse.json({ ok: false, error: "Saved document details could not be loaded." }, { status: 503 });
+  const clarificationByDocument = new Map<string, any>();
+  for (const row of clarificationRows.data ?? []) {
+    const payload = row.payload as Record<string, unknown> | null;
+    const documentId = typeof payload?.document_id === "string" ? payload.document_id : null;
+    if (documentId && !clarificationByDocument.has(documentId)) clarificationByDocument.set(documentId, payload);
+  }
 
   return NextResponse.json({
     ok: true,
@@ -88,6 +101,10 @@ export async function GET(_req: NextRequest, ctx: Context) {
       const pending = ["queued", "processing"].includes(artifact?.status ?? "");
       const complete = artifact?.status === "matched" && artifact?.match_reason === "borrower_automated_processing_complete";
       const action = !canReview || pending || complete ? null : borrowerDocumentAdmission(d);
+      const savedClarification = clarificationByDocument.get(d.id);
+      const exactClarification = savedClarification?.sha256 === d.sha256 ? savedClarification : null;
+      const canDescribeQueued = canReview && artifact?.status === "queued" && d.is_active === true &&
+        ["borrower", "borrower_portal"].includes(d.source ?? "") && !d.segmented;
       return ({
       id: d.id,
       filename: d.original_filename ?? "Document",
@@ -98,10 +115,14 @@ export async function GET(_req: NextRequest, ctx: Context) {
       status: complete ? "processed" : (artifact?.status ?? d.status ?? "uploaded"),
       processingComplete: complete,
       action,
-      actionMessage: action ? DOCUMENT_ACTION_TEXT[action] : null,
-      suggestedType: d.canonical_type,
-      taxYear: d.doc_year,
-      canClarify: ["document_details", "tax_year"].includes(action ?? ""),
+      actionMessage: canDescribeQueued
+        ? (exactClarification ? "Details saved. Buddy will verify this document when processing resumes." : "Tell Buddy what this document is while it waits for verification.")
+        : action ? DOCUMENT_ACTION_TEXT[action] : null,
+      suggestedType: exactClarification?.doc_type ?? d.canonical_type,
+      taxYear: exactClarification?.tax_year ?? d.doc_year,
+      statementPeriod: exactClarification?.statement_period ?? d.statement_period ?? null,
+      clarificationSaved: !!exactClarification,
+      canClarify: canDescribeQueued || ["document_details", "tax_year"].includes(action ?? ""),
       canRetry: canReview && d.is_active === true && ["borrower", "borrower_portal"].includes(d.source ?? "") && artifact?.status === "failed",
       // Only borrower-uploaded documents may be withdrawn by the borrower.
       removable: d.source === "borrower_portal" || d.source === "borrower",

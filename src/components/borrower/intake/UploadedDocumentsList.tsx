@@ -17,6 +17,8 @@ type BorrowerDocument = {
   canRetry?: boolean;
   suggestedType?: string | null;
   taxYear?: number | null;
+  statementPeriod?: string | null;
+  clarificationSaved?: boolean;
 };
 
 function formatSize(bytes: number | null): string {
@@ -188,7 +190,7 @@ export function UploadedDocumentsList({
 function DocumentClarification({ document: doc, token, onSaved }: { document: BorrowerDocument; token: string; onSaved: () => Promise<void> }) {
   const [type, setType] = useState(BORROWER_DOCUMENT_TYPES.some(([value]) => value === doc.suggestedType) ? doc.suggestedType! : "");
   const [year, setYear] = useState(doc.taxYear ? String(doc.taxYear) : "");
-  const [period, setPeriod] = useState("");
+  const [period, setPeriod] = useState(doc.statementPeriod ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const tax = ["BUSINESS_TAX_RETURN", "PERSONAL_TAX_RETURN"].includes(type);
@@ -210,6 +212,7 @@ function DocumentClarification({ document: doc, token, onSaved }: { document: Bo
   }
   return <div className="w-full space-y-2 border-t border-slate-200 pt-2">
     {doc.canClarify && <>
+      {doc.clarificationSaved && <p className="text-sm text-emerald-800">Details saved. You can correct them while Buddy verifies the file.</p>}
       <label className="block text-sm">Document type
         <select aria-label={`Document type for ${doc.filename}`} value={type} onChange={(e) => { setType(e.target.value); setPeriod(""); }} className="mt-1 block w-full max-w-full rounded border p-2 sm:ml-2 sm:inline-block sm:w-auto" disabled={busy}>
           <option value="">Choose the type shown on your file</option>

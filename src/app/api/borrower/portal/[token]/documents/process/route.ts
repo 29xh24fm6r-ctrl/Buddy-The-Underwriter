@@ -36,7 +36,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
       return NextResponse.json({ ok: false, error: "This document is already locked or has been replaced." }, { status: 409 });
     const clarification = parsed.data.clarification;
     if (clarification) {
-      if (!doc.sha256 || doc.segmented || (doc.ocr_text_length ?? 0) < QUALITY_THRESHOLDS.MIN_TEXT_LENGTH)
+      const definitelyUnreadable = ["FAILED_OCR_ERROR", "FAILED_LOW_TEXT"].includes(doc.quality_status ?? "") ||
+        ((doc.ocr_text_length ?? 0) > 0 && (doc.ocr_text_length ?? 0) < QUALITY_THRESHOLDS.MIN_TEXT_LENGTH);
+      if (!doc.sha256 || doc.segmented || definitelyUnreadable)
         return NextResponse.json({ ok: false, error: "Please upload a complete, readable copy, with each document in a separate file." }, { status: 422 });
       if (YEAR_REQUIRED_TYPES.has(clarification.doc_type) && !clarification.tax_year)
         return NextResponse.json({ ok: false, error: "Enter the tax year printed on this return." }, { status: 422 });
@@ -46,6 +48,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
       if (typed.guardrail_applied) return NextResponse.json({ ok: false, error: "The document type does not match the form number on this file." }, { status: 422 });
       const saved = await sb.from("deal_events").insert({ deal_id: dealId, kind: "borrower.document.clarified", payload: { document_id: documentId, sha256: doc.sha256, ...clarification, source: "authenticated_borrower" } });
       if (saved.error) throw new Error("Your document details could not be saved.");
+    }
+    const artifact = await sb.from("document_artifacts").select("id,status")
+      .eq("deal_id", dealId).eq("bank_id", bankId).eq("source_table", "deal_documents").eq("source_id", documentId)
+      .maybeSingle();
+    if (artifact.error) throw new Error("Document processing status could not be loaded.");
+    if (clarification && artifact.data?.status === "queued") {
+      return NextResponse.json({ ok: true, queued: 0, processing: true, clarificationSaved: true });
     }
     const queued = await sb.from("document_artifacts").update({ status: "queued", updated_at: new Date().toISOString() })
       .eq("deal_id", dealId).eq("bank_id", bankId).eq("source_table", "deal_documents").eq("source_id", documentId)
