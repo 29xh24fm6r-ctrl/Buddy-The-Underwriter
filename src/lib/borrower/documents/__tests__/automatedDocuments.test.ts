@@ -110,6 +110,12 @@ test("borrower cannot override detected IRS form number", async () => {
   assert.equal((await request({ documentId: DOC, clarification: { doc_type: "BUSINESS_TAX_RETURN", tax_year: 2025 } })).status, 422);
   assert.equal(tables.deal_events.length, 0);
 });
+test("matching canonical borrower type is accepted for a detected IRS form number", async () => {
+  tables.deal_documents[0].ai_form_numbers = ["1040"];
+  const response = await request({ documentId: DOC, clarification: { doc_type: "PERSONAL_TAX_RETURN", tax_year: 2025, ownership_entity_id: OWNER } });
+  assert.equal(response.status, 200);
+  assert.equal(tables.deal_events[0].payload.ownership_entity_id, OWNER);
+});
 test("missing tax year and statement period stay actionable rather than inventing values", async () => {
   for (const doc_type of ["BUSINESS_TAX_RETURN", "BALANCE_SHEET"]) assert.equal((await request({ documentId: DOC, clarification: { doc_type } })).status, 422);
 });

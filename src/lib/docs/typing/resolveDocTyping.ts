@@ -61,10 +61,11 @@ function applyFormNumberGuardrails(
   const normalized = formNumbers.map((f) =>
     f.toUpperCase().replace(/[^A-Z0-9]/g, ""),
   );
+  const canonicalType = normalizeToCanonical(aiDocType);
 
   // HARD RULE: 1040 variants → PERSONAL always
   const personalForm = normalized.find((f) => PERSONAL_FORMS.has(f));
-  if (personalForm && aiDocType !== "IRS_PERSONAL") {
+  if (personalForm && canonicalType !== "PERSONAL_TAX_RETURN") {
     return {
       overrideDocType: "IRS_PERSONAL",
       reason: `form_${personalForm.toLowerCase()}_forces_personal`,
@@ -73,7 +74,7 @@ function applyFormNumberGuardrails(
 
   // HARD RULE: 1120/1120S/1065 → BUSINESS always
   const businessForm = normalized.find((f) => BUSINESS_FORMS.has(f));
-  if (businessForm && aiDocType !== "IRS_BUSINESS") {
+  if (businessForm && canonicalType !== "BUSINESS_TAX_RETURN") {
     return {
       overrideDocType: "IRS_BUSINESS",
       reason: `form_${businessForm.toLowerCase()}_forces_business`,

@@ -1,6 +1,7 @@
 import "server-only";
 import { isDocValidForChecklistKey } from "@/lib/checklist/docValidity";
 import { packageBusinessStage } from "@/lib/modelEngine/packageBusinessStage";
+import { ENTITY_SCOPED_DOC_TYPES } from "@/lib/intake/identity/entityScopedDocTypes";
 
 type Row = Record<string, any>;
 export type PackageDocumentItem = { key: string; title: string; state: "complete" | "missing" | "not_applicable" | "prepared_by_buddy"; detail: string };
@@ -12,7 +13,7 @@ export async function readPackageDocumentReadiness(dealId: string, sb: { from: (
   try {
     const [checklist, documents, interview, runs] = await Promise.all([
       sb.from("deal_checklist_items").select("checklist_key,title,required,status,required_years,satisfied_years,received_document_id").eq("deal_id", dealId),
-      sb.from("deal_documents").select("id,checklist_key,canonical_type,document_type,quality_status,is_active,finalized_at,intake_status,storage_path,doc_year,doc_years").eq("deal_id", dealId),
+      sb.from("deal_documents").select("id,checklist_key,canonical_type,document_type,quality_status,is_active,finalized_at,intake_status,storage_path,doc_year,doc_years,logical_key").eq("deal_id", dealId),
       sb.from("borrower_concierge_sessions").select("confirmed_facts").eq("deal_id", dealId).maybeSingle(),
       sb.from("sba_package_runs").select("id").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
@@ -43,6 +44,7 @@ export function evaluatePackageDocuments(checklist: Row[], documents: Row[], fac
     if (row.status === "waived") return { key, title, state: "not_applicable", detail: "An existing checklist waiver applies." };
     const matches = documents.filter(d => isDocValidForChecklistKey(d, key) && d.is_active === true && d.storage_path &&
       !String(d.quality_status ?? "").match(/FAILED|REJECTED|ERROR/i) &&
+      (!ENTITY_SCOPED_DOC_TYPES.has(String(d.canonical_type ?? d.document_type ?? "")) || !!d.logical_key) &&
       (d.finalized_at || d.intake_status === "USER_CONFIRMED"));
     const years = new Set(matches.flatMap(d => [...(Array.isArray(d.doc_years) ? d.doc_years : []), d.doc_year]).filter(y => Number.isInteger(y)));
     const requiredYears = Array.isArray(row.required_years) ? row.required_years.filter((y: unknown) => Number.isInteger(y)) : [];

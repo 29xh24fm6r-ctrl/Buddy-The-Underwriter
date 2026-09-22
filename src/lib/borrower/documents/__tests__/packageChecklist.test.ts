@@ -6,9 +6,10 @@ mockServerOnly();
 const require = createRequire(import.meta.url);
 const { evaluatePackageDocuments, readPackageDocumentReadiness } = require("../packageChecklist") as typeof import("../packageChecklist");
 const request = {checklist_key:"IRS_PERSONAL_3Y", title:"Personal returns",required:true,status:"received",required_years:[2023,2024,2025]};
-const document = {id:"doc",document_type:"PERSONAL_TAX_RETURN",is_active:true,quality_status:"PASSED",intake_status:"USER_CONFIRMED",storage_path:"private/return.pdf",doc_years:[2023,2024,2025]};
+const document = {id:"doc",canonical_type:"PERSONAL_TAX_RETURN",document_type:"PERSONAL_TAX_RETURN",logical_key:"PERSONAL_TAX_RETURN|2025|owner-1",is_active:true,quality_status:"PASSED",intake_status:"USER_CONFIRMED",storage_path:"private/return.pdf",doc_years:[2023,2024,2025]};
 test("received checklist status without real documents does not pass",()=>assert.equal(evaluatePackageDocuments([request],[],{},[]).ok,false));
 test("all requested tax years with confirmed evidence pass",()=>assert.equal(evaluatePackageDocuments([request],[document],{},[]).ok,true));
+test("entity-scoped evidence without a verified owner binding does not pass",()=>assert.equal(evaluatePackageDocuments([request],[{...document,logical_key:null}],{},[]).ok,false));
 test("missing and duplicate tax years cannot complete the request",()=>{
  const r=evaluatePackageDocuments([request],[{...document,doc_years:[2023,2023,2024]}],{},[]);
  assert.equal(r.ok,false);assert.match(r.reasons[0],/2025/);
