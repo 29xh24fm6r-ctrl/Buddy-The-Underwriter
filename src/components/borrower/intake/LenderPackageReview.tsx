@@ -509,7 +509,7 @@ export function LenderPackageReview({
             {recoveryItems.length > 0 && <div className="mt-4">
               <p className="text-sm font-medium">What the last preparation found</p>
               <ul className="mt-2 space-y-3 text-sm">{recoveryItems.map(item => <li key={item.id}>
-                {item.label}
+                <span>{item.label}</span>
                 {item.questionId && onQuestion && <button type="button" disabled={dirty || !!busy}
                   className="ml-2 text-sky-700 underline" onClick={() => onQuestion(item.questionId!)}>Review this detail</button>}
               </li>)}</ul>
