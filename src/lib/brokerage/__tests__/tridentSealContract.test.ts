@@ -213,6 +213,8 @@ function sealableDb(bundleOverrides: Record<string, unknown> = {}) {
     ],
     buddy_trident_bundles: [finalBundleAsProduced(bundleOverrides)],
     buddy_validation_reports: [{ deal_id: DEAL_ID, overall_status: "PASS" }],
+    deal_checklist_items: [{deal_id:DEAL_ID,checklist_key:"FIN_STMT_BS_YTD",title:"Balance sheet",required:true}],
+    deal_documents: [{deal_id:DEAL_ID,document_type:"BALANCE_SHEET",is_active:true,intake_status:"USER_CONFIRMED",quality_status:"PASSED",storage_path:"balance.pdf"}],
     borrower_applications: [{ deal_id: DEAL_ID, naics: "332710", industry: "Metal fabrication" }],
     buddy_sba_packages: [{ deal_id: DEAL_ID, use_of_proceeds: [], sources_and_uses: {} }],
     buddy_feasibility_studies: [{ deal_id: DEAL_ID, is_franchise: false, composite_score: 74 }],

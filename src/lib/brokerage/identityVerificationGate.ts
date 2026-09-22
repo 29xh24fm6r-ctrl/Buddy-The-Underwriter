@@ -22,11 +22,12 @@ export async function ownersNeedingIal2(
   dealId: string,
   sb: SupabaseClient,
 ): Promise<Array<{ id: string; display_name: string | null }>> {
-  const { data: owners } = await sb
+  const { data: owners, error: ownersError } = await sb
     .from("ownership_entities")
     .select("id, display_name, ownership_pct")
     .eq("deal_id", dealId);
 
+  if (ownersError) throw new Error("Owner roster could not be verified.");
   const owing = ((owners ?? []) as Array<Record<string, any>>).filter((o) =>
     requiresPersonalPackage(o.ownership_pct),
   );
@@ -37,7 +38,7 @@ export async function ownersNeedingIal2(
   // loop. seal-status is polled frequently, so the N+1 path multiplied both
   // latency and database load for every borrower page with several owners.
   const ownerIds = owing.map((owner) => String(owner.id));
-  const { data: verifications } = await sb
+  const { data: verifications, error: verificationError } = await sb
     .from("borrower_identity_verifications")
     .select("ownership_entity_id")
     .eq("deal_id", dealId)
@@ -49,6 +50,7 @@ export async function ownersNeedingIal2(
     .in("status", TERMINAL_SUCCESS_STATUSES)
     .not("completed_at", "is", null);
 
+  if (verificationError) throw new Error("Identity evidence could not be verified.");
   const verifiedOwnerIds = new Set(
     ((verifications ?? []) as Array<{ ownership_entity_id?: string | null }>)
       .map((row) => row.ownership_entity_id)

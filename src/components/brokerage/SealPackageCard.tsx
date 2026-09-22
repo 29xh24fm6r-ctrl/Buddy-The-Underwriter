@@ -56,7 +56,7 @@ const DOWNLOADABLE_KINDS = new Set([
   "complete_package",
 ]);
 
-export function SealPackageCard({ dealId }: { dealId: string }) {
+export function SealPackageCard({ dealId, onReviewDocuments }: { dealId: string; onReviewDocuments?: () => void }) {
   const [status, setStatus] = useState<SealStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [sharingConfirmed, setSharingConfirmed] = useState(false);
@@ -396,6 +396,10 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
               <li key={i}>{reason}</li>
             ))}
           </ul>
+          <div className="mt-4 flex gap-4">
+            {onReviewDocuments && <button type="button" className="text-sm underline" onClick={onReviewDocuments}>Review my documents</button>}
+            <button type="button" className="text-sm underline" onClick={() => void load()}>Refresh readiness</button>
+          </div>
         </>
       )}
     </div>

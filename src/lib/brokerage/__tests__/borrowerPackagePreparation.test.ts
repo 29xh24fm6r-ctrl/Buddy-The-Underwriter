@@ -122,7 +122,9 @@ test.beforeEach(() => {
   tables = {
     deals: [{ id: "deal", bank_id: "bank", is_test: false, entity_type: "operating_company" }],
     buddy_sba_assumptions: [{ deal_id: "deal", status: "confirmed", confirmed_at: new Date().toISOString(), revenue_streams: [{}], management_team: [{}], cost_assumptions: {}, working_capital: {}, loan_impact: {} }],
-    deal_documents: [1, 2].map(id => ({ id, deal_id: "deal", bank_id: "bank" })),
+    deal_checklist_items: [{deal_id:"deal",checklist_key:"FIN_STMT_BS_YTD",title:"Balance sheet",required:true}],
+    sba_package_runs: [],
+    deal_documents: [1, 2].map(id => ({ id, deal_id: "deal", bank_id: "bank", document_type:"BALANCE_SHEET",is_active:true,intake_status:"USER_CONFIRMED",quality_status:"PASSED",storage_path:"stored.pdf" })),
     deal_financial_facts: Object.entries(facts).map(([fact_key, fact_value_num]) => ({ deal_id: "deal", bank_id: "bank", is_superseded: false, fact_key, fact_value_num })),
     deal_loan_requests: [{ deal_id: "deal", bank_id: "bank", use_of_proceeds: [{ category: "equipment", amount: 300000 }] }],
     borrower_concierge_sessions: [{ deal_id: "deal", confirmed_facts: {} }],
@@ -266,4 +268,12 @@ test("unavailable package capacity stops before research and presents wait guida
   const row = tables.borrower_package_preparations[0];
   assert.equal(row.status, "failed");
   assert.match(row.message, /retrying immediately will not help/);
+});
+
+test("missing source documents stop before any research or generation spend", async () => {
+  tables.deal_documents = [];
+  const response = await borrowerPackageAction("build-package", "deal", "bank", {});
+  assert.equal(response.status, 409);
+  assert.equal(queued.length, 0);
+  assert.deepEqual(events, []);
 });

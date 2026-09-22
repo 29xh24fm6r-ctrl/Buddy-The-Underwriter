@@ -1,5 +1,6 @@
 import "server-only";
 
+import { readPackageDocumentReadiness } from "@/lib/borrower/documents/packageChecklist";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ownersNeedingIal2 } from "@/lib/brokerage/identityVerificationGate";
 
@@ -45,12 +46,13 @@ export async function canSeal(dealId: string, sb: SupabaseClient): Promise<Seala
   // frequently-polled path to two database waves (owner roster, then batched
   // identity evidence) instead of six serial reads plus one read per owner.
   const [
-    { data: score },
-    { data: assumptions },
-    { data: finalBundle },
-    { data: validation },
-    { data: existing },
-    ownersWithoutIal2,
+    { data: score, error: scoreError },
+    { data: assumptions, error: assumptionsError },
+    { data: finalBundle, error: bundleError },
+    { data: validation, error: validationError },
+    { data: existing, error: existingError },
+    identity,
+    documents,
   ] = await Promise.all([
     sb.from("buddy_sba_scores")
       .select("score, band, eligibility_passed").eq("deal_id", dealId)
@@ -65,10 +67,13 @@ export async function canSeal(dealId: string, sb: SupabaseClient): Promise<Seala
       .select("overall_status").eq("deal_id", dealId).order("run_at", { ascending: false }).limit(1).maybeSingle(),
     sb.from("buddy_sealed_packages")
       .select("id").eq("deal_id", dealId).is("unsealed_at", null).maybeSingle(),
-    ownersNeedingIal2(dealId, sb),
+    ownersNeedingIal2(dealId, sb).then(owners => ({ owners, error: false })).catch(() => ({ owners: [], error: true })),
+    readPackageDocumentReadiness(dealId, sb),
   ]);
 
-  const reasons: string[] = [];
+  const reasons: string[] = [...documents.reasons];
+  if ([scoreError, assumptionsError, bundleError, validationError, existingError].some(Boolean)) reasons.push("Submission checks could not be loaded. Refresh and try again.");
+  if (identity.error) reasons.push("Owner identity checks could not be verified. Refresh and try again.");
   if (!score) reasons.push("No locked Buddy SBA Score exists yet.");
   else {
     const s = score as any;
@@ -85,10 +90,10 @@ export async function canSeal(dealId: string, sb: SupabaseClient): Promise<Seala
   }
 
   reasons.push(...validateFinalTrident(finalBundle as FinalTridentEvidence | null));
-  if ((validation as any)?.overall_status === "FAIL") reasons.push("Validation report is in FAIL state.");
+  if (!["PASS", "PASS_WITH_FLAGS"].includes((validation as any)?.overall_status)) reasons.push("A completed financial validation report without blocking errors is required.");
   if (existing) reasons.push("Deal is already sealed.");
 
-  for (const owner of ownersWithoutIal2) {
+  for (const owner of identity.owners) {
     reasons.push(`${owner.display_name ?? "An owner"} has not completed identity verification yet.`);
   }
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
