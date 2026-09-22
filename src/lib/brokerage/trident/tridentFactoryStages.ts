@@ -2,6 +2,7 @@ import "server-only";
 import { preparePackageFinancialSnapshot } from "@/lib/modelEngine/packageFinancialSnapshot";
 import { classifyFactoryFailure } from "./factoryFailure";
 import { assertPackageBudgetAvailable } from "./packageBudget";
+import { assertPackageDeterministicReadiness } from "./packagePreflight";
 import { runWithAIExecutionContext } from "@/lib/ai/executionContext";
 
 import { randomUUID, createHash } from "node:crypto";
@@ -94,8 +95,11 @@ export async function prepareTridentFactory(args: TridentFactoryArgs) {
       expectedHash: String(bundle.input_hash),
       expectedManifest: bundle.snapshot_manifest_json as Record<string, unknown> | null,
     });
-    await assertPackageBudgetAvailable();
+    await assertPackageBudgetAvailable({ dealId: args.dealId, bankId: String(bundle.bank_id), bundleId: args.bundleId });
     const financial = await preparePackageFinancialSnapshot({ dealId: args.dealId, bankId: String(bundle.bank_id), inputHash: String(bundle.input_hash) });
+    if (args.mode === "final") {
+      await assertPackageDeterministicReadiness(financial);
+    }
     await persistRowWithStorageRollback(sb, {
       table: "buddy_trident_bundles", filters: { id: args.bundleId, lease_token: args.leaseToken },
       values: { financial_snapshot_id: financial.id }, expected: { financial_snapshot_id: financial.id }, uploaded: [], label: "Financial authority",

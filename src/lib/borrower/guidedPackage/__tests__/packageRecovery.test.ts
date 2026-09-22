@@ -26,7 +26,7 @@ test("release findings give safe specific recovery steps without exposing privat
   assert.equal(items[0].questionId,"loan.use_of_proceeds");
   assert.doesNotMatch(JSON.stringify(items),/private-secret/);
   assert.match(packageRecoveryItems(error,true)[1].label,/intentionally skipped/);
-  assert.match(borrowerPackageFailure(error),/final checks/);
+  assert.match(borrowerPackageFailure(error),/Package checks/);
   assert.deepEqual(packageRecoveryItems("private-secret unknown crash"),[]);
 });
 test("saved city and site corrections change research identity without certifying borrower claims", () => {
@@ -46,4 +46,10 @@ test("incomplete narratives explain recovery without exposing internal failure d
   assert.equal(items[0].id, "narrative");
   assert.match(items[0].label, /do not need to re-enter/);
   assert.doesNotMatch(JSON.stringify(items), /private-storage|FatalError/);
+});
+
+test("budget recovery never tells the borrower to retry immediately or exposes raw accounting", () => {
+  const message = borrowerPackageFailure("private-secret budget_unavailable: verifier QA daily allowance 250000");
+  assert.match(message, /wait for capacity/);
+  assert.doesNotMatch(message, /private-secret|250000|Retry once/);
 });

@@ -1,4 +1,5 @@
 import "server-only";
+import { feasibilityCompletenessBlocker } from "@/lib/feasibility/feasibilityCompleteness";
 
 export const TRIDENT_COMMITTEE_RESEARCH_GRADE = "committee_grade" as const;
 
@@ -82,18 +83,8 @@ export function evaluateTridentRelease(e: TridentReleaseEvidence): TridentReleas
   const warnings: string[] = [];
   if (e.businessPlanVerdict !== "pass") reasons.push("business_plan_review_not_passed");
   if (e.feasibilityVerdict !== "pass") reasons.push("feasibility_review_not_passed");
-  const completeness = Number(e.feasibilityCompleteness ?? 0);
-  if (!(completeness >= 0.7 || completeness >= 70)) {
-    // Keep the stable reason code as the prefix — callers match on it — and
-    // append what is actually missing so the blocker is actionable.
-    const pct = Number.isFinite(completeness)
-      ? `${(completeness > 1 ? completeness : completeness * 100).toFixed(0)}%`
-      : "unknown";
-    const gaps = e.feasibilityMissingEvidence.length > 0
-      ? ` — at ${pct}; missing evidence: ${[...e.feasibilityMissingEvidence].sort().join(", ")}`
-      : ` — at ${pct}; the study recorded no per-metric gaps`;
-    reasons.push(`feasibility_data_completeness_below_70_percent${gaps}`);
-  }
+  const completenessBlocker = feasibilityCompletenessBlocker(e.feasibilityCompleteness, e.feasibilityMissingEvidence);
+  if (completenessBlocker) reasons.push(completenessBlocker);
   if (e.feasibilityCitationCount < 3) {
     if (e.isTestDeal) warnings.push("synthetic_qa_citation_coverage_below_three_sections");
     else reasons.push("feasibility_citation_coverage_below_three_sections");

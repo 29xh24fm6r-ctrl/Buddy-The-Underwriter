@@ -35,6 +35,14 @@ begin
     raise exception 'golden_trident_qa_deal_not_found';
   end if;
 
+  -- Do not mutate evidence beneath an active immutable package snapshot.
+  perform 1 from public.deals where id = p_deal_id for update;
+  if exists (select 1 from public.buddy_trident_bundles
+    where deal_id = p_deal_id and status in ('pending', 'running')
+      and lease_expires_at > now()) then
+    raise exception 'qa_package_run_active';
+  end if;
+
   update public.deals
   set test_suite = coalesce(test_suite, 'golden-trident'),
       test_run_id = coalesce(test_run_id, p_run_key)

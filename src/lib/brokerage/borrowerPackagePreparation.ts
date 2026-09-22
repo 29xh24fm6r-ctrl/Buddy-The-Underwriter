@@ -1,4 +1,6 @@
 import "server-only";
+import { assertPackageBudgetAvailable } from "./trident/packageBudget";
+import { borrowerPackageFailure } from "@/lib/borrower/guidedPackage/completion";
 import { packageCompletionItems } from "@/lib/borrower/guidedPackage/completion";
 
 import { start } from "workflow/api";
@@ -94,6 +96,9 @@ async function checkInputs(args: PreparationArgs) {
 export async function validateBorrowerPackage(args: PreparationArgs) {
   await advance(args, { stage: "checking" });
   const readiness = await checkInputs(args);
+  // Capacity is checked before research as well as at immutable factory admission.
+  try { await assertPackageBudgetAvailable({ dealId: args.dealId, bankId: args.bankId }); }
+  catch (error) { await blocked(args, borrowerPackageFailure(error instanceof Error ? error.message : String(error))); }
   const synced = await supabaseAdmin().rpc("sync_borrower_package_proceeds", {
     p_run_id: args.id, p_deal_id: args.dealId, p_bank_id: args.bankId,
   });

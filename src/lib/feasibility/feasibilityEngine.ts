@@ -1,4 +1,6 @@
 import "server-only";
+import type { PackageFinancialSnapshot } from "@/lib/modelEngine/packageFinancialSnapshot";
+import { feasibilityCompletenessBlocker } from "./feasibilityCompleteness";
 import { loadPackageBorrowerContext } from "@/lib/sba/packageBorrowerContext";
 
 // src/lib/feasibility/feasibilityEngine.ts
@@ -103,6 +105,8 @@ export async function generateFeasibilityStudy(params: {
   bankId: string;
   onProgress?: FeasibilityProgressCallback;
   packageId?: string;
+  /** Read/compute only: never calls a model, renders, uploads, or saves a study. */
+  preflightSnapshot?: PackageFinancialSnapshot;
 }): Promise<FeasibilityResult> {
   const sb = supabaseAdmin();
   const { dealId, bankId } = params;
@@ -145,17 +149,33 @@ export async function generateFeasibilityStudy(params: {
   const bieMarket = await extractBIEMarketData(dealId).catch(() => null);
 
   // ── 4. SBA package (latest version) ────────────────────────────
-  let packageQuery = sb
-    .from("buddy_sba_packages")
-    .select("*")
-    .eq("deal_id", dealId);
-  if (params.packageId) packageQuery = packageQuery.eq("id", params.packageId);
-  const { data: sbaPackageRaw, error: packageError } = await packageQuery
-    .order("version_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (packageError || (params.packageId && !sbaPackageRaw)) throw new Error("financial_snapshot_missing: feasibility projection dependency unavailable");
-  const sbaPackage = (sbaPackageRaw ?? null) as SbaPackageRow | null;
+  let sbaPackage: SbaPackageRow | null;
+  if (params.preflightSnapshot) {
+    const snapshot = params.preflightSnapshot;
+    if (snapshot.dealId !== dealId || snapshot.bankId !== bankId)
+      throw new Error("financial_snapshot_deal_mismatch");
+    const output = snapshot.output;
+    // Adapt the SAME immutable engine output used by the SBA package writer.
+    // No financial formulas or guessed historical values belong in this adapter.
+    sbaPackage = {
+      assumptions_id: output.assumptionsId, financial_snapshot_id: snapshot.id,
+      projections_annual: output.projectionModel.annualProjections,
+      sensitivity_scenarios: output.projectionModel.sensitivityScenarios,
+      break_even: output.projectionModel.breakEven, sources_and_uses: output.sourcesAndUses,
+      use_of_proceeds: output.useOfProceeds, balance_sheet_projections: output.balanceSheetProjections,
+      global_cash_flow: output.globalCashFlow, global_dscr: output.globalCashFlow.globalDSCR,
+      dscr_year1_base: output.dscrYear1Base, dscr_year2_base: output.dscrYear2Base,
+      dscr_year3_base: output.dscrYear3Base,
+    };
+  } else {
+    let packageQuery = sb.from("buddy_sba_packages").select("*").eq("deal_id", dealId);
+    if (params.packageId) packageQuery = packageQuery.eq("id", params.packageId);
+    const { data: sbaPackageRaw, error: packageError } = await packageQuery
+      .order("version_number", { ascending: false }).limit(1).maybeSingle();
+    if (packageError || (params.packageId && !sbaPackageRaw))
+      throw new Error("financial_snapshot_missing: feasibility projection dependency unavailable");
+    sbaPackage = (sbaPackageRaw ?? null) as SbaPackageRow | null;
+  }
 
   // ── 5. SBA assumptions (latest confirmed) ──────────────────────
   let assumptionsQuery = sb.from("buddy_sba_assumptions").select("*").eq("deal_id", dealId).eq("status", "confirmed");
@@ -341,11 +361,11 @@ export async function generateFeasibilityStudy(params: {
       : null;
   // Match the projection package's authoritative startup policy, including
   // the saved preparing-to-open answer. Legacy studies retain fact fallback.
-  const financialSnapshot = sbaPackage?.financial_snapshot_id
+  const financialSnapshot = params.preflightSnapshot ?? (sbaPackage?.financial_snapshot_id
     ? await (await import("@/lib/modelEngine/packageFinancialSnapshot")).loadPackageFinancialSnapshot({
         dealId, bankId, snapshotId: sbaPackage.financial_snapshot_id,
       })
-    : null;
+    : null);
   const newBusinessAssessment = financialSnapshot?.output.newBusinessAssessment ?? assessNewBusinessRisk({
     yearsInBusiness,
     monthsInBusiness,
@@ -531,6 +551,11 @@ export async function generateFeasibilityStudy(params: {
     locationSuitability,
     isFranchise,
   });
+
+  // A known evidence failure must never be discovered through paid prose.
+  // Final release repeats the same policy after generation and review.
+  const completenessBlocker = feasibilityCompletenessBlocker(composite.overallDataCompleteness, composite.missingEvidence);
+  if (params.preflightSnapshot) return { ok: !completenessBlocker, error: completenessBlocker ?? undefined, composite };
 
   // ── 13. Franchise comparison ────────────────────────────────────
   // borrowerEquity is still 0 here — no equity-injection figure is loaded

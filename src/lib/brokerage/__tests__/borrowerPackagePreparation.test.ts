@@ -21,6 +21,7 @@ let subject: { company_name: string };
 let duringResearch: (() => void) | undefined;
 let answersComplete: boolean;
 let sequence: number;
+let budgetBlocked = false;
 
 // Stateful storage double, not a mocked readiness verdict. The SQL contract
 // (atomic admission, tenant isolation and budget writes) is separately tested
@@ -77,6 +78,9 @@ stub("@/lib/modelEngine/engineAuthority", { computeAuthoritativeEngine: async ()
 } });
 stub("@/lib/classicSpread/classicSpreadLoader", { loadClassicSpreadData: async () => ({ periods: [], incomeStatement: [], balanceSheet: [] }) });
 
+stub("../trident/packageBudget", { assertPackageBudgetAvailable: async () => {
+  if (budgetBlocked) throw new Error("budget_unavailable: verifier QA allocation");
+} });
 stub("workflow/api", { start: async (workflow: any, args: any[]) => {
   if (startFails) throw new Error("queue unavailable");
   queued.push({ workflow, args }); return { runId: "durable-run" };
@@ -111,6 +115,7 @@ const { generateBorrowerPackage } = require("../borrowerPackagePreparation") as 
 const { runBuddyValidationPass } = require("@/lib/validation/buddyValidationPass") as typeof import("@/lib/validation/buddyValidationPass");
 
 test.beforeEach(() => {
+  budgetBlocked = false;
   sequence = 0; queued = []; events = []; startFails = trackingFails = researchFails = researchNeverCompletes = false;
   subject = { company_name: "Synthetic integration fixture" }; duringResearch = undefined; answersComplete = true;
   const facts = { TOTAL_REVENUE: 500000, NET_INCOME: 80000, ANNUAL_DEBT_SERVICE: 40000, DSCR: 2, CASH_FLOW_AVAILABLE: 80000, TOTAL_ASSETS: 300000, TOTAL_LIABILITIES: 200000, NET_WORTH: 100000 };
@@ -251,4 +256,14 @@ test("unreconciled borrower budget blocks paid work, then a saved correction res
   assert.equal((await status()).readiness.readyToPrepare,true);
   await start(); await run();
   assert.equal((await status()).preparation.status,"succeeded");
+});
+
+test("unavailable package capacity stops before research and presents wait guidance", async () => {
+  budgetBlocked = true;
+  await start();
+  await assert.rejects(run(), /capacity/);
+  assert.deepEqual(events, []);
+  const row = tables.borrower_package_preparations[0];
+  assert.equal(row.status, "failed");
+  assert.match(row.message, /retrying immediately will not help/);
 });
