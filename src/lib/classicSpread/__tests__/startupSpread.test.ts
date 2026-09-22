@@ -74,20 +74,26 @@ test("package worker persists the startup PDF from the frozen model and blocks a
   const { mockServerOnly } = await import("../../../../test/utils/mockServerOnly");
   mockServerOnly();
   const require = createRequire(import.meta.url);
+  const { deterministicHash } = require("../../modelEngine/hashing");
   const input = spread();
   let persisted: any = null;
-  const sb = { from: () => {
-    const q: any = { select:()=>q, eq:()=>q, not:()=>q, maybeSingle:async()=>({data:null,error:null}),
+  const sb = { from: (table: string) => {
+    const filters: Record<string, unknown> = {};
+    const q: any = { select:()=>q, eq:(key:string,value:unknown)=>{filters[key]=value;return q;}, not:()=>q, maybeSingle:async()=>({data:null,error:null}),
+      single:async()=>{
+        assert.equal(table,"deal_model_snapshots");
+        assert.deepEqual(filters,{id:"frozen",deal_id:"qa",bank_id:"bank"});
+        const output={spreadInput:structuredClone(input)};
+        return {data:{id:"frozen",deal_id:"qa",bank_id:"bank",model_version:PACKAGE_FINANCIAL_VERSION,
+          package_input_hash:"test-input",package_output:output,outputs_hash:deterministicHash(output)},error:null};
+      },
       then:(resolve:any)=>Promise.resolve({data:[],error:null}).then(resolve),
       upsert:async(row:any)=>{persisted=row;return {error:null};} };
     return q;
   } };
   const stub=(name:string,exports:unknown)=>{require.cache[require.resolve(name)]={exports:{__esModule:true,...exports as object},loaded:true} as any;};
   stub("../../supabase/admin",{supabaseAdmin:()=>sb});
-  stub("../../modelEngine/packageFinancialSnapshot",{loadPackageFinancialSnapshot:async(args:any)=>{
-    assert.deepEqual(args,{dealId:"qa",bankId:"bank",snapshotId:"frozen"});
-    return {output:{spreadInput:input}};
-  }});
+  const { PACKAGE_FINANCIAL_VERSION } = require("../../modelEngine/packageFinancialSnapshot");
   stub("../classicSpreadLoader",{loadClassicSpreadData:async()=>{throw new Error("Must not reload mutable financials");}});
   stub("../latestCanonicalFactsTimestamp",{loadLatestCanonicalFactsTimestamp:async()=>null});
   stub("../narrativeEngine",{generateSpreadNarrative:async()=>null});
