@@ -6,6 +6,8 @@ import { borrowerDocumentAdmission, isBorrowerCollectionPhase } from "../admissi
 mockServerOnly();
 const require = createRequire(import.meta.url);
 const DOC = "00000000-0000-4000-8000-000000000001";
+const OWNER = "00000000-0000-4000-8000-000000000002";
+const OTHER_OWNER = "00000000-0000-4000-8000-000000000003";
 let authorized = true;
 let failedTable = "";
 let calls = 0;
@@ -51,6 +53,7 @@ beforeEach(() => {
   authorized = true; failedTable = ""; calls = 0;
   tables = { deals: [{ id: "deal", bank_id: "bank", origin: "brokerage_claimed", intake_phase: "CLASSIFIED_PENDING_CONFIRMATION" }],
     deal_documents: [{ ...good }], buddy_sealed_packages: [], deal_events: [],
+    ownership_entities: [{ id: OWNER, deal_id: "deal", display_name: "QA Test Owner", entity_type: "person" }, { id: OTHER_OWNER, deal_id: "other-deal", display_name: "Other Borrower", entity_type: "person" }],
     document_artifacts: [{ id: "artifact", source_id: DOC, source_table: "deal_documents", deal_id: "deal", bank_id: "bank", status: "classified" }],
   };
 });
@@ -151,13 +154,40 @@ test("borrower can save type and year while a newly uploaded document waits in q
     intake_status: null, ocr_text_length: 0, logical_key: null,
   });
   tables.document_artifacts[0].status = "queued";
-  const response = await request({ documentId: DOC, clarification: { doc_type: "PERSONAL_TAX_RETURN", tax_year: 2025 } });
+  const response = await request({ documentId: DOC, clarification: { doc_type: "PERSONAL_TAX_RETURN", tax_year: 2025, ownership_entity_id: OWNER } });
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.equal(body.clarificationSaved, true);
   assert.equal(body.processing, true);
   assert.equal(tables.document_artifacts[0].status, "queued");
   assert.equal(tables.deal_events[0].payload.tax_year, 2025);
+  assert.equal(tables.deal_events[0].payload.ownership_entity_id, OWNER);
+});
+
+test("owner-scoped documents require an owner on the same application", async () => {
+  const missing = await request({ documentId: DOC, clarification: { doc_type: "PERSONAL_TAX_RETURN", tax_year: 2025 } });
+  assert.equal(missing.status, 422);
+  const crossDeal = await request({ documentId: DOC, clarification: { doc_type: "PERSONAL_TAX_RETURN", tax_year: 2025, ownership_entity_id: OTHER_OWNER } });
+  assert.equal(crossDeal.status, 422);
+  assert.equal(tables.deal_events.length, 0);
+});
+
+test("owner lookup failures fail closed without saving a clarification", async () => {
+  failedTable = "ownership_entities";
+  const response = await request({ documentId: DOC, clarification: { doc_type: "PERSONAL_TAX_RETURN", tax_year: 2025, ownership_entity_id: OWNER } });
+  assert.equal(response.status, 503);
+  assert.equal(tables.deal_events.length, 0);
+});
+
+test("saved owner association is hash-bound and revalidated when processing consumes it", async () => {
+  tables.deal_events.push({ deal_id: "deal", kind: "borrower.document.clarified", created_at: "2026-09-22T00:00:00Z", payload: {
+    document_id: DOC, sha256: "abc", doc_type: "PERSONAL_TAX_RETURN", tax_year: 2025, statement_period: null, ownership_entity_id: OWNER,
+  } });
+  const saved = await service.readDocumentClarification("deal", "bank", DOC, sb as any);
+  assert.equal(saved?.ownership_entity_id, OWNER);
+  assert.equal(saved?.ownership_entity_name, "QA Test Owner");
+  tables.ownership_entities[0].deal_id = "other-deal";
+  await assert.rejects(service.readDocumentClarification("deal", "bank", DOC, sb as any), /no longer available/);
 });
 
 test("known unreadable queued document cannot be self-described around quality controls", async () => {
@@ -194,12 +224,14 @@ test("document list exposes saved borrower details while automated processing is
   tables.document_artifacts[0].status = "queued";
   tables.deal_events.push({
     deal_id: "deal", kind: "borrower.document.clarified", created_at: "2026-09-22T00:00:00Z",
-    payload: { document_id: DOC, sha256: "abc", doc_type: "PERSONAL_TAX_RETURN", tax_year: 2024, statement_period: null },
+    payload: { document_id: DOC, sha256: "abc", doc_type: "PERSONAL_TAX_RETURN", tax_year: 2024, statement_period: null, ownership_entity_id: OWNER },
   });
   const doc = (await list()).documents[0];
   assert.equal(doc.canClarify, true);
   assert.equal(doc.clarificationSaved, true);
   assert.equal(doc.suggestedType, "PERSONAL_TAX_RETURN");
   assert.equal(doc.taxYear, 2024);
+  assert.equal(doc.ownershipEntityId, OWNER);
+  assert.deepEqual(doc.ownerOptions.map((owner: any) => owner.id), [OWNER]);
   assert.match(doc.actionMessage, /Details saved/);
 });

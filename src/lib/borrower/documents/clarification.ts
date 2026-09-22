@@ -7,6 +7,7 @@ export const ClarificationSchema = z.object({
   doc_type: z.enum(BORROWER_DOCUMENT_TYPES.map(([type]) => type) as [string, ...string[]]),
   tax_year: z.number().int().min(1990).max(2100).nullable().default(null),
   statement_period: z.enum(["YTD", "ANNUAL", "CURRENT", "HISTORICAL"]).nullable().default(null),
+  ownership_entity_id: z.string().uuid().nullable().default(null),
 }).strict();
 
 /** Preserve detected form guardrails and keep borrower assertions distinct from AI evidence. */

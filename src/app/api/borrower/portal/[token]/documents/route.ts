@@ -79,7 +79,8 @@ export async function GET(_req: NextRequest, ctx: Context) {
   if (artifacts.error) return NextResponse.json({ ok: false, error: "Document processing status could not be loaded." }, { status: 503 });
   const deal = await sb.from("deals").select("origin,intake_phase").eq("id", context.dealId).eq("bank_id", context.bankId).maybeSingle();
   const sealed = await sb.from("buddy_sealed_packages").select("id").eq("deal_id", context.dealId).is("unsealed_at", null).limit(1);
-  if (deal.error || sealed.error) return NextResponse.json({ ok: false, error: "Document review status could not be loaded." }, { status: 503 });
+  const owners = await sb.from("ownership_entities").select("id,display_name,entity_type").eq("deal_id", context.dealId).order("display_name");
+  if (deal.error || sealed.error || owners.error) return NextResponse.json({ ok: false, error: "Document review status could not be loaded." }, { status: 503 });
   const canReview = isSelfServeOrigin(deal.data?.origin) && isBorrowerCollectionPhase(deal.data?.intake_phase) && !sealed.data?.length;
   const byDocument = new Map((artifacts.data ?? []).map((a) => [a.source_id, a]));
   const clarificationRows = canReview
@@ -121,8 +122,10 @@ export async function GET(_req: NextRequest, ctx: Context) {
       suggestedType: exactClarification?.doc_type ?? d.canonical_type,
       taxYear: exactClarification?.tax_year ?? d.doc_year,
       statementPeriod: exactClarification?.statement_period ?? d.statement_period ?? null,
+      ownershipEntityId: exactClarification?.ownership_entity_id ?? null,
+      ownerOptions: (owners.data ?? []).map((owner) => ({ id: owner.id, name: owner.display_name, type: owner.entity_type })),
       clarificationSaved: !!exactClarification,
-      canClarify: canDescribeQueued || ["document_details", "tax_year"].includes(action ?? ""),
+      canClarify: canDescribeQueued || ["document_details", "tax_year", "document_owner"].includes(action ?? ""),
       canRetry: canReview && d.is_active === true && ["borrower", "borrower_portal"].includes(d.source ?? "") && artifact?.status === "failed",
       // Only borrower-uploaded documents may be withdrawn by the borrower.
       removable: d.source === "borrower_portal" || d.source === "borrower",
