@@ -37,10 +37,11 @@ export async function computeBuddySBAScore(params: {
   dealId: string;
   sb: SupabaseClient;
   context?: ComputationContext;
+  packageEvidence?: { bankId: string; packageId: string; feasibilityId: string; bundleId: string; inputHash: string };
 }): Promise<BuddySBAScore> {
   const { dealId, sb, context = "manual" } = params;
 
-  const inputs = await loadScoreInputs({ dealId, sb });
+  const inputs = await loadScoreInputs({ dealId, sb, packageEvidence: params.packageEvidence });
   const eligibility = evaluateBuddySbaEligibility({
     naics: inputs.naics,
     industry: inputs.industry,
@@ -68,6 +69,9 @@ export async function computeBuddySBAScore(params: {
   // Build the score (skips component math for ineligible deals).
   const score = assembleScore({ inputs, eligibility, context });
 
+  if (params.packageEvidence) {
+    score.inputSnapshot = { ...score.inputSnapshot, packageEvidence: params.packageEvidence, scoreInputs: inputs };
+  }
   await persistScore(sb, score);
   return score;
 }
@@ -255,7 +259,7 @@ async function findUnchangedActiveScore(
   if (error || !active) return null;
 
   const row = active as Record<string, any>;
-  if (row.score_status === "locked") return null;
+  if (row.score_status === "locked" && !score.inputSnapshot.packageEvidence) return null;
   if (row.score_version !== payload.score_version) return null;
   if (row.score !== payload.score) return null;
   if (row.eligibility_passed !== payload.eligibility_passed) return null;

@@ -15,7 +15,7 @@ export function packageRecoveryItems(error: unknown, isTestDeal = false): Packag
     if (text.includes("accessAndVisibility")) items.push({ id: "site", questionId: "J07",
       label: "Add any known site access, visibility, zoning, or permitting information and supporting reports. Unknown details can remain unknown until verified." });
     if (text.includes("cashRunway")) items.push({ id: "cash", label:
-      "The feasibility study needs supported cash-reserve information. Review your opening cash and operating costs with the supporting financial documents; projections alone do not establish verified cash reserves." });
+      "The feasibility study needs a working-capital allocation and complete projected operating costs in a balanced project budget. Review these assumptions and your supporting documents; planned reserve coverage is not verified cash on hand." });
   }
   return items;
 }

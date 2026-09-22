@@ -194,9 +194,9 @@ export function analyzeFinancialViability(
     cashScore = {
       score,
       weight: 0.15,
-      dataSource: "Sources & Uses — working capital allocation",
+      dataSource: "Reconciled Sources & Uses and projected year-one cash operating costs",
       dataAvailable: true,
-      detail: `Working capital reserve: ${months.toFixed(1)} months of operating expenses. Recommended: 3-6 months.`,
+      detail: `Planned working capital reserve coverage: ${months.toFixed(1)} months of projected COGS and operating expenses, before debt service. This is a planning assumption, not verified cash on hand. Recommended: 3-6 months.`,
     };
   } else {
     cashScore = {

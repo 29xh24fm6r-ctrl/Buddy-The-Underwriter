@@ -292,7 +292,7 @@ export async function verifyTridentFactory(args: TridentFactoryExecutionArgs) {
     await assertFrozen(args);
     const sb = supabaseAdmin();
     const { data, error } = await sb.from("buddy_trident_bundles")
-      .select("status,bank_id,input_hash,release_gate_json,business_plan_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_credit_memo_id,source_spread_id,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path")
+      .select("status,bank_id,input_hash,release_gate_json,source_sba_package_id,source_feasibility_id,business_plan_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_credit_memo_id,source_spread_id,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path")
       .eq("id", args.bundleId)
       .eq("bank_id", args.bankId)
       .eq("input_hash", args.inputHash)
@@ -305,6 +305,16 @@ export async function verifyTridentFactory(args: TridentFactoryExecutionArgs) {
     }
     if (args.mode === "final" && (!data.credit_memo_pdf_path || !data.spreads_pdf_path || !data.sba_forms_pdf_path)) {
       throw new FatalError("The lender package is missing its memo, spreads, or SBA forms");
+    }
+    if (args.mode === "final") {
+      const { finalizePackageScore } = await import("./finalizePackageScore");
+      await finalizePackageScore(sb, {
+        dealId: args.dealId, bankId: args.bankId, bundleId: args.bundleId,
+        inputHash: args.inputHash, packageId: data.source_sba_package_id,
+        feasibilityId: data.source_feasibility_id,
+      });
+      // Scoring reads current facts. Reject edits during scoring before publication.
+      await assertFrozen(args);
     }
     await writeStage(args, "release_manifest", "succeeded", {
       businessPlan: data.business_plan_pdf_path,
