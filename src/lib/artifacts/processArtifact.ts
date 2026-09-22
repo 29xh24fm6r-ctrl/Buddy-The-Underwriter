@@ -1171,6 +1171,7 @@ export async function processArtifact(
         doc_type: borrowerClarification.doc_type,
         tax_year: borrowerClarification.tax_year,
         statement_period: borrowerClarification.statement_period,
+        ownership_entity_id: borrowerClarification.ownership_entity_id,
       });
       const { computeGatekeeperRoute } = await import("@/lib/gatekeeper/routing");
       const gatekeeperType = ["BALANCE_SHEET", "INCOME_STATEMENT"].includes(classification.docType)
@@ -1383,7 +1384,7 @@ export async function processArtifact(
         });
       } else {
         // Route entity name to schema-real columns based on canonical type.
-        const entityName = classification.entityName ?? null;
+        const entityName = borrowerClarification?.ownership_entity_name ?? classification.entityName ?? null;
         const entityPatch: Record<string, any> = {};
         if (entityName) {
           if (typingResult.document_type === "BUSINESS_TAX_RETURN") entityPatch.ai_business_name = entityName;
@@ -1535,19 +1536,28 @@ export async function processArtifact(
           // ── Identity layer resolution (v1.3 — always-on) ─────────────────
           // Independent resolution call for classification.decided event.
           // Fails open: resolution failure never blocks classification.
-          let classificationEntityResolution: EntityResolution | null = null;
+          let classificationEntityResolution: EntityResolution | null = borrowerClarification?.ownership_entity_id ? {
+            entityId: borrowerClarification.ownership_entity_id,
+            entityRole: "borrower_confirmed_owner",
+            confidence: 1,
+            ambiguous: false,
+            tier: "role_inference",
+            evidence: [{ signal: "authenticated_borrower_selection", matchedText: borrowerClarification.ownership_entity_name ?? "Selected owner", candidateId: borrowerClarification.ownership_entity_id, confidence: 1 }],
+          } : null;
           try {
             const { resolveDocumentEntityForDeal } = await import(
               "@/lib/intake/identity/resolveDocumentEntity"
             );
-            classificationEntityResolution = await resolveDocumentEntityForDeal({
-              dealId,
-              text: text ?? "",
-              filename: filename ?? "",
-              hasEin: classification.entityType !== "personal",
-              hasSsn: classification.entityType !== "business",
-              entityType: classification.entityType ?? null,
-            });
+            if (!classificationEntityResolution) {
+              classificationEntityResolution = await resolveDocumentEntityForDeal({
+                dealId,
+                text: text ?? "",
+                filename: filename ?? "",
+                hasEin: classification.entityType !== "personal",
+                hasSsn: classification.entityType !== "business",
+                entityType: classification.entityType ?? null,
+              });
+            }
           } catch {
             // Fail-open
           }

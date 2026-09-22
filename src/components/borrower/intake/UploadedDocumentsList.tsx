@@ -18,6 +18,8 @@ type BorrowerDocument = {
   suggestedType?: string | null;
   taxYear?: number | null;
   statementPeriod?: string | null;
+  ownershipEntityId?: string | null;
+  ownerOptions?: Array<{ id: string; name: string; type: string }>;
   clarificationSaved?: boolean;
 };
 
@@ -191,10 +193,12 @@ function DocumentClarification({ document: doc, token, onSaved }: { document: Bo
   const [type, setType] = useState(BORROWER_DOCUMENT_TYPES.some(([value]) => value === doc.suggestedType) ? doc.suggestedType! : "");
   const [year, setYear] = useState(doc.taxYear ? String(doc.taxYear) : "");
   const [period, setPeriod] = useState(doc.statementPeriod ?? "");
+  const [ownerId, setOwnerId] = useState(doc.ownershipEntityId ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const tax = ["BUSINESS_TAX_RETURN", "PERSONAL_TAX_RETURN"].includes(type);
   const financial = ["INCOME_STATEMENT", "BALANCE_SHEET"].includes(type);
+  const ownerRequired = ["BUSINESS_TAX_RETURN", "PERSONAL_TAX_RETURN", "PFS", "PERSONAL_FINANCIAL_STATEMENT"].includes(type);
   async function save() {
     setBusy(true); setError("");
     try {
@@ -202,6 +206,7 @@ function DocumentClarification({ document: doc, token, onSaved }: { document: Bo
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ documentId: doc.id, ...(doc.canClarify ? { clarification: {
           doc_type: type, tax_year: tax ? Number(year) : null, statement_period: financial ? period : null,
+          ownership_entity_id: ownerRequired ? ownerId : null,
         } } : {}) }),
       });
       const result = await response.json();
@@ -228,8 +233,14 @@ function DocumentClarification({ document: doc, token, onSaved }: { document: Bo
           {(type === "BALANCE_SHEET" ? [["CURRENT", "Current"], ["HISTORICAL", "Earlier period"]] : [["YTD", "Year to date"], ["ANNUAL", "Full year"]]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
       </label>}
+      {ownerRequired && <label className="block text-sm">Person or business named on this document
+        <select aria-label={`Owner for ${doc.filename}`} value={ownerId} onChange={(e) => setOwnerId(e.target.value)} className="mt-1 block w-full max-w-full rounded border p-2 sm:ml-2 sm:inline-block sm:w-auto" disabled={busy}>
+          <option value="">Choose an owner</option>
+          {(doc.ownerOptions ?? []).map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}
+        </select>
+      </label>}
     </>}
-    <button type="button" disabled={busy || (!!doc.canClarify && (!type || (tax && !/^\d{4}$/.test(year)) || (financial && !period)))} onClick={() => void save()} className="rounded bg-sky-800 px-3 py-2 text-sm text-white disabled:opacity-50">
+    <button type="button" disabled={busy || (!!doc.canClarify && (!type || (tax && !/^\d{4}$/.test(year)) || (financial && !period) || (ownerRequired && !ownerId)))} onClick={() => void save()} className="rounded bg-sky-800 px-3 py-2 text-sm text-white disabled:opacity-50">
       {busy ? "Saving…" : doc.canClarify ? "Save detail and let Buddy continue" : "Retry processing"}
     </button>
     {error && <p role="alert" className="text-sm text-amber-800">{error}</p>}

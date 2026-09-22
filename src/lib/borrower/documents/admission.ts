@@ -55,7 +55,7 @@ export const DOCUMENT_ACTION_TEXT: Record<string, string> = {
   split_document: "Please upload each separate document as its own file so Buddy can identify it correctly.",
   document_details: "Buddy needs one detail: what kind of document is this?",
   tax_year: "Which tax year does this return cover?",
-  document_owner: "Please provide a copy that clearly identifies the person or business this document belongs to.",
+  document_owner: "Choose the person or business named on this document.",
   inactive: "This document has been replaced or withdrawn.",
   not_borrower_upload: "This document was supplied separately from your uploads.",
 };

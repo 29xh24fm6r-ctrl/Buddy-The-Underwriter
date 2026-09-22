@@ -44,6 +44,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
         return NextResponse.json({ ok: false, error: "Enter the tax year printed on this return." }, { status: 422 });
       if (PERIOD_REQUIRED_TYPES.has(clarification.doc_type) && !resolveChecklistKey(clarification.doc_type, clarification.tax_year, clarification.statement_period))
         return NextResponse.json({ ok: false, error: "Choose the period this financial statement covers." }, { status: 422 });
+      const ownerRequired = ["PERSONAL_TAX_RETURN", "BUSINESS_TAX_RETURN", "PFS", "PERSONAL_FINANCIAL_STATEMENT"].includes(clarification.doc_type);
+      if (ownerRequired && !clarification.ownership_entity_id)
+        return NextResponse.json({ ok: false, error: "Choose the person or business named on this document." }, { status: 422 });
+      if (clarification.ownership_entity_id) {
+        const owner = await sb.from("ownership_entities").select("id").eq("id", clarification.ownership_entity_id)
+          .eq("deal_id", dealId).maybeSingle();
+        if (owner.error) throw new Error("Document owner could not be verified.");
+        if (!owner.data) return NextResponse.json({ ok: false, error: "Choose an owner from this application." }, { status: 422 });
+      }
       const typed = resolveDocTyping({ aiDocType: clarification.doc_type, aiTaxYear: clarification.tax_year, aiFormNumbers: doc.ai_form_numbers, aiConfidence: 1, aiEntityType: null });
       if (typed.guardrail_applied) return NextResponse.json({ ok: false, error: "The document type does not match the form number on this file." }, { status: 422 });
       const saved = await sb.from("deal_events").insert({ deal_id: dealId, kind: "borrower.document.clarified", payload: { document_id: documentId, sha256: doc.sha256, ...clarification, source: "authenticated_borrower" } });

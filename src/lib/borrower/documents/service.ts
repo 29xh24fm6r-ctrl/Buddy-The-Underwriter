@@ -28,7 +28,11 @@ export async function canAutomaticallyProcessBorrowerDocument(dealId: string, ba
   return !!context && isBorrowerCollectionPhase(context.phase) && borrowerDocumentAdmission(context.doc) === null;
 }
 
-export type DocumentClarification = { document_id: string; sha256: string; doc_type: string; tax_year: number | null; statement_period: string | null };
+export type DocumentClarification = {
+  document_id: string; sha256: string; doc_type: string; tax_year: number | null;
+  statement_period: string | null; ownership_entity_id: string | null;
+  ownership_entity_name?: string | null;
+};
 
 export async function readDocumentClarification(dealId: string, bankId: string, documentId: string, sb = supabaseAdmin()): Promise<DocumentClarification | null> {
   const context = await readBorrowerDocument(dealId, bankId, documentId, sb);
@@ -38,7 +42,13 @@ export async function readDocumentClarification(dealId: string, bankId: string, 
     .contains("payload", { document_id: documentId, sha256: context.doc.sha256 })
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (r.error) throw new Error("Saved document clarification could not be verified.");
-  return (r.data?.payload as DocumentClarification | undefined) ?? null;
+  const clarification = (r.data?.payload as DocumentClarification | undefined) ?? null;
+  if (!clarification?.ownership_entity_id) return clarification;
+  const owner = await sb.from("ownership_entities").select("id,display_name")
+    .eq("id", clarification.ownership_entity_id).eq("deal_id", dealId).maybeSingle();
+  if (owner.error) throw new Error("Saved document owner could not be verified.");
+  if (!owner.data) throw new Error("The saved document owner is no longer available.");
+  return { ...clarification, ownership_entity_name: owner.data.display_name ?? null };
 }
 
 /** Existing artifact queue owns execution; browser requests never run extraction. */
