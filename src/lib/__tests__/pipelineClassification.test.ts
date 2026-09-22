@@ -59,6 +59,9 @@ test("mapDocTypeToChecklistKeys returns correct checklist keys for tax returns",
 
   const personalKeys = mapDocTypeToChecklistKeys("IRS_PERSONAL", 2023);
   assert.ok(personalKeys.includes("IRS_PERSONAL_3Y"), "Should include IRS_PERSONAL_3Y");
+
+  assert.equal(mapDocTypeToChecklistKeys("BUSINESS_TAX_RETURN", 2024)[0], "IRS_BUSINESS_2024");
+  assert.equal(mapDocTypeToChecklistKeys("PERSONAL_TAX_RETURN", 2025)[0], "IRS_PERSONAL_2025");
 });
 
 test("mapDocTypeToChecklistKeys returns correct keys for PFS", () => {

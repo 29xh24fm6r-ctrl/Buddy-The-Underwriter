@@ -347,12 +347,13 @@ Classify this document and extract key information. Respond with JSON only.`;
  * Returns possible checklist keys this document could satisfy.
  */
 export function mapDocTypeToChecklistKeys(
-  docType: DocumentType,
+  docType: DocumentType | string,
   taxYear: number | null
 ): string[] {
   const keys: string[] = [];
 
   switch (docType) {
+    case "BUSINESS_TAX_RETURN":
     case "IRS_BUSINESS":
       // Add year-specific key first if taxYear is known (e.g., IRS_BUSINESS_2024)
       if (taxYear && taxYear >= 2000 && taxYear <= 2100) {
@@ -361,6 +362,7 @@ export function mapDocTypeToChecklistKeys(
       // Also add legacy keys for backward compatibility
       keys.push("IRS_BUSINESS_3Y", "IRS_BUSINESS_2Y", "BTR", "BTR_2Y", "TAX_RETURNS");
       break;
+    case "PERSONAL_TAX_RETURN":
     case "IRS_PERSONAL":
       // Add year-specific key first if taxYear is known (e.g., IRS_PERSONAL_2024)
       if (taxYear && taxYear >= 2000 && taxYear <= 2100) {
