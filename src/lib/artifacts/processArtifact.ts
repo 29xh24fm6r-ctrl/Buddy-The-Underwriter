@@ -1242,6 +1242,7 @@ export async function processArtifact(
       aiFormNumbers: classification.formNumbers,
       aiConfidence: classification.confidence,
       aiTaxYear: classification.taxYear,
+      aiStatementPeriod: borrowerClarification?.statement_period ?? null,
       aiEntityType: classification.entityType,
     });
 

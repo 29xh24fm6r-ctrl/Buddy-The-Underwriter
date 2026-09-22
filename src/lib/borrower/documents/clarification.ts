@@ -15,6 +15,7 @@ export function applyDocumentClarification(classification: SpineClassificationRe
   const answer = ClarificationSchema.parse(input);
   const typing = resolveDocTyping({
     aiDocType: answer.doc_type, aiTaxYear: answer.tax_year,
+    aiStatementPeriod: answer.statement_period,
     aiFormNumbers: classification.formNumbers, aiConfidence: 1,
     aiEntityType: classification.entityType,
   });

@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
         if (owner.error) throw new Error("Document owner could not be verified.");
         if (!owner.data) return NextResponse.json({ ok: false, error: "Choose an owner from this application." }, { status: 422 });
       }
-      const typed = resolveDocTyping({ aiDocType: clarification.doc_type, aiTaxYear: clarification.tax_year, aiFormNumbers: doc.ai_form_numbers, aiConfidence: 1, aiEntityType: null });
+      const typed = resolveDocTyping({ aiDocType: clarification.doc_type, aiTaxYear: clarification.tax_year, aiStatementPeriod: clarification.statement_period, aiFormNumbers: doc.ai_form_numbers, aiConfidence: 1, aiEntityType: null });
       if (typed.guardrail_applied) return NextResponse.json({ ok: false, error: "The document type does not match the form number on this file." }, { status: 422 });
       const saved = await sb.from("deal_events").insert({ deal_id: dealId, kind: "borrower.document.clarified", payload: { document_id: documentId, sha256: doc.sha256, ...clarification, source: "authenticated_borrower" } });
       if (saved.error) throw new Error("Your document details could not be saved.");

@@ -16,7 +16,7 @@ import {
   type RoutingClass,
 } from "@/lib/documents/docTypeRouting";
 import { normalizeToCanonical } from "@/lib/documents/normalizeType";
-import { mapDocTypeToChecklistKeys, type DocumentType } from "@/lib/artifacts/classifyDocument";
+import { resolveChecklistKey } from "@/lib/docTyping/resolveChecklistKey";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +25,7 @@ export type ResolveDocTypingInput = {
   aiFormNumbers: string[] | null;
   aiConfidence: number;
   aiTaxYear: number | null;
+  aiStatementPeriod?: string | null;
   aiEntityType: "business" | "personal" | null;
 };
 
@@ -87,7 +88,7 @@ function applyFormNumberGuardrails(
 // ─── Main Resolver ───────────────────────────────────────────────────────────
 
 export function resolveDocTyping(input: ResolveDocTypingInput): ResolveDocTypingResult {
-  const { aiDocType, aiFormNumbers, aiTaxYear } = input;
+  const { aiDocType, aiFormNumbers, aiTaxYear, aiStatementPeriod } = input;
 
   // 1. Apply form-number guardrails
   const { overrideDocType, reason } = applyFormNumberGuardrails(aiDocType, aiFormNumbers);
@@ -99,9 +100,15 @@ export function resolveDocTyping(input: ResolveDocTypingInput): ResolveDocTyping
   // 3. Coarser canonical for document_type column
   const document_type = normalizeToCanonical(effectiveDocType);
 
-  // 4. Compute checklist key (first match)
-  const checklist_key =
-    mapDocTypeToChecklistKeys(effectiveDocType as DocumentType, aiTaxYear)[0] ?? null;
+  // 4. Derive the canonical checklist slot from the canonical type. Do not use
+  // the legacy candidate-key mapper here: borrower confirmations already use
+  // canonical names such as PERSONAL_TAX_RETURN, and finalized documents must
+  // never lose their required year-specific checklist key.
+  const checklist_key = resolveChecklistKey(
+    canonical_type,
+    aiTaxYear,
+    aiStatementPeriod ?? null,
+  );
 
   return {
     canonical_type,
