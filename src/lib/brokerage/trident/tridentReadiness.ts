@@ -1,4 +1,5 @@
 import "server-only";
+import { readPackageDocumentReadiness } from "@/lib/borrower/documents/packageChecklist";
 import { borrowerBudgetReview, type BorrowerBudgetReview } from "@/lib/borrower/guidedPackage/budgetReview";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -47,6 +48,7 @@ export async function getTridentReadiness(args: {
     missionResult,
     interviewResult,
     loanResult,
+    documentReadiness,
   ] = await Promise.all([
     sb
       .from("buddy_sba_assumptions")
@@ -93,6 +95,7 @@ export async function getTridentReadiness(args: {
     sb.from("deal_loan_requests").select("use_of_proceeds")
       .eq("deal_id", dealId).eq("bank_id", bankId)
       .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    readPackageDocumentReadiness(dealId, sb, "prepare"),
   ]);
 
   const gateResult = missionResult.data?.id
@@ -117,7 +120,7 @@ export async function getTridentReadiness(args: {
     ? assumptions.revenue_streams.length : 0;
   const managementMembers = Array.isArray(assumptions?.management_team)
     ? assumptions.management_team.length : 0;
-  const reasons: string[] = [];
+  const reasons: string[] = [...documentReadiness.reasons];
   const warnings: string[] = [];
 
   if (dealResult.error || !dealResult.data) {

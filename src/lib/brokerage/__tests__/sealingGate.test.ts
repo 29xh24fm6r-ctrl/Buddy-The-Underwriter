@@ -89,9 +89,14 @@ function makeQB(table: string) {
 
 const sbStub = { from: (t: string) => makeQB(t) } as any;
 
+const checklistModule = require.resolve("@/lib/borrower/documents/packageChecklist");
+let documentResult = { ok: true, reasons: [] as string[], items: [] };
+require.cache[checklistModule] = { loaded: true, exports: { readPackageDocumentReadiness: async () => documentResult } } as any;
+
 const { canSeal } = require("../sealingGate") as typeof import("../sealingGate");
 
 function resetHappy() {
+  documentResult = { ok: true, reasons: [], items: [] };
   state.score = { score: 75, band: "selective_fit", eligibility_passed: true };
   state.assumptions = {
     status: "confirmed",
@@ -241,7 +246,7 @@ test("validation FAIL blocks", async () => {
   const r = await canSeal("deal-1", sbStub);
   assert.equal(r.ok, false);
   if (!r.ok)
-    assert.ok(r.reasons.some((s) => s.includes("Validation report is in FAIL")));
+    assert.ok(r.reasons.some((s) => s.includes("financial validation report")));
 });
 
 test("already sealed blocks", async () => {
@@ -300,4 +305,32 @@ test("multiple unverified majority owners each produce a blocker reason", async 
     assert.ok(r.reasons.some((s) => s.includes("Owner A")));
     assert.ok(r.reasons.some((s) => s.includes("Owner B")));
   }
+});
+
+for (const status of [null, "", "UNKNOWN", "FAIL"]) test(`missing or invalid validation blocks: ${status}`, async () => {
+  resetHappy(); state.validation = status === null ? null : { overall_status: status };
+  assert.equal((await canSeal("deal-1", sbStub)).ok, false);
+});
+test("PASS_WITH_FLAGS remains eligible for submission", async () => {
+  resetHappy(); state.validation = { overall_status: "PASS_WITH_FLAGS" };
+  assert.equal((await canSeal("deal-1", sbStub)).ok, true);
+});
+for (const table of ["buddy_sba_scores", "buddy_sba_assumptions", "buddy_trident_bundles", "buddy_validation_reports", "buddy_sealed_packages"]) test(`database errors fail closed: ${table}`, async () => {
+  resetHappy();
+  const failing = {from(t: string) { const q=makeQB(t); if(t === table) q.maybeSingle=()=>Promise.resolve({data:null,error:{message:"offline"}}); return q; }} as any;
+  assert.equal((await canSeal("deal-1", failing)).ok, false);
+});
+test("required document gaps block submission with the same borrower guidance", async () => {
+  resetHappy(); documentResult = {ok:false,reasons:["Personal Tax Returns: Upload 2025."],items:[]};
+  const result=await canSeal("deal-1",sbStub);
+  assert.equal(result.ok,false);
+  if(!result.ok) assert.ok(result.reasons.includes(documentResult.reasons[0]));
+});
+
+test("owner roster read failure never bypasses identity requirements", async () => {
+  resetHappy();
+  const failing = {from(t: string) { const q=makeQB(t); if(t === "ownership_entities") q.then=(resolve: any)=>Promise.resolve({data:null,error:{message:"offline"}}).then(resolve); return q; }} as any;
+  const result=await canSeal("deal-1", failing);
+  assert.equal(result.ok,false);
+  if(!result.ok) assert.ok(result.reasons.some(r=>r.includes("identity checks")));
 });

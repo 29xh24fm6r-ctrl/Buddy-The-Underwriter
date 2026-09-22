@@ -1,4 +1,5 @@
 "use client";
+import { RequiredDocuments } from "./RequiredDocuments";
 import { readGuidedResponse } from "@/lib/borrower/journey/response";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -488,6 +489,7 @@ export function GuidedPackageWorkspace({
           )}
           {/* Keep work panels mounted after first visit so changing chapters cannot discard drafts. */}
           <JourneyPanels
+            onReviewDocuments={() => navigate("numbers")}
             chapter={chapter}
             dealId={dealId}
             borrowerName={borrowerName}
@@ -596,6 +598,7 @@ function ProjectCard({ project }: { project: ReturnType<typeof projectCard> }) {
 }
 
 function JourneyPanels({
+  onReviewDocuments,
   chapter,
   dealId,
   borrowerName,
@@ -607,6 +610,7 @@ function JourneyPanels({
   onReviewDirty,
   onQuestion,
 }: {
+  onReviewDocuments: () => void;
   chapter: Chapter;
   dealId: string;
   borrowerName: string | null;
@@ -653,6 +657,7 @@ function JourneyPanels({
               statement, and a balance sheet if available. You can add more
               later. Uploading is separate from processing and acceptance.
             </p>
+            <RequiredDocuments refreshKey={uploadVersion} />
             <PortalUploadDropzone
               dealId={dealId}
               token={dealId}
@@ -689,7 +694,7 @@ function JourneyPanels({
           </section>
 
           <IdentityVerificationPanel token={dealId} />
-          <SealPackageCard dealId={dealId} />
+          <SealPackageCard dealId={dealId} onReviewDocuments={onReviewDocuments} />
           <SigningPanel dealId={dealId} />
         </div>
       )}
