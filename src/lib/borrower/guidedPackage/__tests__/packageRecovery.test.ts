@@ -40,3 +40,10 @@ test("saved city and site corrections change research identity without certifyin
   const changed=assembleResearchSubject({...raw,borrowerInterview:{...raw.borrowerInterview,siteContext:"Revised site access report"}}).subject;
   assert.notEqual(key(first),key(changed));
 });
+
+test("incomplete narratives explain recovery without exposing internal failure details", () => {
+  const items = packageRecoveryItems("FatalError: Feasibility narrative acceptance failed: private-storage-path");
+  assert.equal(items[0].id, "narrative");
+  assert.match(items[0].label, /do not need to re-enter/);
+  assert.doesNotMatch(JSON.stringify(items), /private-storage|FatalError/);
+});

@@ -128,7 +128,7 @@ export function analyzeOperationalReadiness(
       score,
       weight: 0.3,
       dataSource: "FDD franchise support data",
-      dataAvailable: true,
+      dataAvailable: input.franchiseTrainingWeeks != null || input.franchiseOperationsManual != null || input.franchiseOngoingSupport != null,
       detail: `Training: ${
         input.franchiseTrainingWeeks ?? "unknown"
       } weeks. Operations manual: ${

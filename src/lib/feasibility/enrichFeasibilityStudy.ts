@@ -1,4 +1,5 @@
 import "server-only";
+import { loadPackageBorrowerContext } from "@/lib/sba/packageBorrowerContext";
 
 /**
  * SPEC-M8 ARTIFACT-PIPELINE-1 — post-hoc enrichment of an already-persisted
@@ -121,16 +122,9 @@ export async function enrichFeasibilityStudy(args: {
         .maybeSingle()
     : { data: null };
 
-  const [{ data: deal }, { data: application }] = await Promise.all([
-    sb.from("deals").select("name,city,state").eq("id", dealId).eq("bank_id", bankId).maybeSingle(),
-    sb.from("borrower_applications").select("business_legal_name,industry").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-  ]);
+  const borrowerContext = await loadPackageBorrowerContext(sb, dealId, bankId);
   const facts = {
-    borrower: {
-      name: application?.business_legal_name || deal?.name || null,
-      city: deal?.city ?? null, state: deal?.state ?? null,
-      industry: application?.industry ?? null,
-    },
+    borrower: borrowerContext,
     evidencePolicy: {
       financialMetrics: "Use only supplied deterministic metrics; do not derive new thresholds, debt-inclusive break-even, residual cushions, or percentages.",
       missingMetrics: "State unavailable and recommend deterministic model support.",

@@ -31,11 +31,15 @@ function isPresentationSafe(value: unknown): boolean {
   return !/```(?:json)?|^\s*[\[{]\s*["']/im.test(value);
 }
 
+export function isSubstantiveNarrative(value: unknown): value is string {
+  return wordCount(value) >= 45 && isPresentationSafe(value);
+}
+
 export function assessBusinessPlanNarratives(
   pkg: Record<string, unknown> | null,
 ): { ok: boolean; substantive: number; total: number } {
   const substantive = BUSINESS_PLAN_FIELDS.filter(
-    (field) => wordCount(pkg?.[field]) >= 45 && isPresentationSafe(pkg?.[field]),
+    (field) => isSubstantiveNarrative(pkg?.[field]),
   ).length;
   return {
     // A lender-facing final plan is one document, not a collection where half
@@ -77,7 +81,7 @@ export function assessFeasibilityNarratives(
     // returned as a fenced JSON blob cleared the word count and shipped to
     // the committee (audit F-20).
     (field) =>
-      wordCount(narratives?.[field]) >= 45 && isPresentationSafe(narratives?.[field]),
+      isSubstantiveNarrative(narratives?.[field]),
   ).length;
   const required = FEASIBILITY_REQUIRED_NARRATIVES.length;
   // Same threshold as before — five substantive sections — but they must now

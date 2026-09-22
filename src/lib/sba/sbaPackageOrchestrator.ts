@@ -1,4 +1,5 @@
 import "server-only";
+import { loadPackageBorrowerContext } from "./packageBorrowerContext";
 import { preparePackageFinancialSnapshot, loadPackageFinancialSnapshot } from "@/lib/modelEngine/packageFinancialSnapshot";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -67,10 +68,12 @@ export async function generateSBAPackage(
     ? await loadPackageFinancialSnapshot({ dealId, snapshotId: options.financialSnapshotId })
     : await preparePackageFinancialSnapshot({ dealId });
   const { output: financialOutput } = financialSnapshot;
-  const { assumptions, deal, yearsInBusiness,
+  const { assumptions, deal: snapshotDeal, yearsInBusiness,
     projectedDscrThreshold, baseYear, projectionModel, sourcesAndUses, useOfProceeds,
     balanceSheetProjections, globalCashFlow, guarantors, dscrYear1Base, dscrYear2Base, dscrYear3Base,
     dscrYear1Downside, dscrBelowThreshold } = financialOutput;
+  const borrowerContext = await loadPackageBorrowerContext(sb, dealId, snapshotDeal.bank_id);
+  const deal = { ...snapshotDeal, name: borrowerContext.name, city: borrowerContext.city, state: borrowerContext.state };
   const assumptionsRow = { id: financialOutput.assumptionsId };
   const { annualProjections, monthlyProjections, revenueStreamProjections, breakEven, sensitivityScenarios } = projectionModel;
 
@@ -86,8 +89,8 @@ export async function generateSBAPackage(
     .limit(1)
     .maybeSingle();
 
-  const naicsCode = (app?.naics as string | null) ?? null;
-  const industryDescription = (app?.industry as string | null) ?? "";
+  const naicsCode = borrowerContext.naics;
+  const industryDescription = borrowerContext.industry ?? "";
   const businessEin = (app?.business_ein as string | null) ?? null;
 
   // Phase 2 — replace the legacy 2KB JSON.stringify dump with structured

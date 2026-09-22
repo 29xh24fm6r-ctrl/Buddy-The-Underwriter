@@ -1,4 +1,5 @@
 import "server-only";
+import { loadPackageBorrowerContext } from "@/lib/sba/packageBorrowerContext";
 
 // src/lib/feasibility/feasibilityEngine.ts
 // Phase God Tier Feasibility — Orchestrator (step 11/16).
@@ -44,6 +45,7 @@ export type FeasibilityProgressCallback = (step: string, pct: number) => void;
 type SbaPackageRow = {
   id?: string;
   assumptions_id?: string;
+  financial_snapshot_id?: string;
   global_cash_flow?: unknown;
   dscr_year1_base?: number | null;
   dscr_year2_base?: number | null;
@@ -117,16 +119,8 @@ export async function generateFeasibilityStudy(params: {
     .select("id, name, deal_type, loan_amount, city, state, bank_id, borrower_id")
     .eq("id", dealId)
     .maybeSingle();
-  if (!deal) return { ok: false, error: "Deal not found" };
-
-  // ── 2. Borrower application ────────────────────────────────────
-  const { data: app } = await sb
-    .from("borrower_applications")
-    .select("naics, industry, business_legal_name")
-    .eq("deal_id", dealId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  if (!deal || deal.bank_id !== bankId) return { ok: false, error: "Deal not found" };
+  const borrowerContext = await loadPackageBorrowerContext(sb, dealId, bankId);
 
   // ── 3. BIE research (never throws) ─────────────────────────────
   progress("Extracting research intelligence…", 15);
@@ -171,7 +165,7 @@ export async function generateFeasibilityStudy(params: {
   const assumptions = (assumptionsRaw ?? null) as SbaAssumptionsRow | null;
 
   // ── 6. NAICS benchmark ─────────────────────────────────────────
-  const naicsCode = (app?.naics ?? null) as string | null;
+  const naicsCode = borrowerContext.naics;
   const benchmark = findBenchmarkByNaics(naicsCode);
 
   // ── 7. Ownership entities (fallback management team) ───────────
@@ -200,7 +194,7 @@ export async function generateFeasibilityStudy(params: {
     .eq("deal_id", dealId)
     .maybeSingle();
   const franchiseBrandId: string | null = franchiseLink?.brand_id ?? null;
-  const isFranchise = Boolean(franchiseBrandId);
+  const isFranchise = Boolean(franchiseBrandId) || borrowerContext.franchiseDeclared;
 
   let franchiseBrandName: string | null = null;
   if (franchiseBrandId) {
@@ -258,11 +252,11 @@ export async function generateFeasibilityStudy(params: {
   }>(sbaPackage?.balance_sheet_projections);
 
   const marketDemand = analyzeMarketDemand({
-    city: deal.city,
-    state: deal.state,
+    city: borrowerContext.city,
+    state: borrowerContext.state,
     zipCode: null,
     naicsCode,
-    naicsDescription: app?.industry ?? null,
+    naicsDescription: borrowerContext.industry,
     projectedAnnualRevenue: pickNumber(projY1?.revenue),
     industryGrowthRate: bieMarket?.industryGrowthRateMentioned ?? null,
     research: {
@@ -345,7 +339,14 @@ export async function generateFeasibilityStudy(params: {
     managementTeam.length > 0
       ? Math.max(...managementTeam.map((m) => m.yearsInIndustry))
       : null;
-  const newBusinessAssessment = assessNewBusinessRisk({
+  // Match the projection package's authoritative startup policy, including
+  // the saved preparing-to-open answer. Legacy studies retain fact fallback.
+  const financialSnapshot = sbaPackage?.financial_snapshot_id
+    ? await (await import("@/lib/modelEngine/packageFinancialSnapshot")).loadPackageFinancialSnapshot({
+        dealId, bankId, snapshotId: sbaPackage.financial_snapshot_id,
+      })
+    : null;
+  const newBusinessAssessment = financialSnapshot?.output.newBusinessAssessment ?? assessNewBusinessRisk({
     yearsInBusiness,
     monthsInBusiness,
     hasBusinessPlan: Boolean(assumptions),
@@ -497,8 +498,8 @@ export async function generateFeasibilityStudy(params: {
     : null;
 
   const locationSuitability = analyzeLocationSuitability({
-    city: deal.city,
-    state: deal.state,
+    city: borrowerContext.city,
+    state: borrowerContext.state,
     zipCode: null,
     naicsCode,
     financesRealProperty,
@@ -538,7 +539,7 @@ export async function generateFeasibilityStudy(params: {
   // matching by the proposed brand's own investment range when equity is 0,
   // so this degrades gracefully rather than breaking, but a real equity
   // figure would tighten the match. Separate follow-up.
-  const franchiseComparison = isFranchise
+  const franchiseComparison = franchiseBrandId
     ? await runFranchiseComparison({
         proposedBrandId: franchiseBrandId,
         proposedBrandName: franchiseBrandName,
@@ -557,9 +558,9 @@ export async function generateFeasibilityStudy(params: {
 
   progress("Writing consultant narratives…", 65);
   const narratives = await generateFeasibilityNarratives({
-    dealName: app?.business_legal_name || deal.name || "Borrower",
-    city: deal.city,
-    state: deal.state,
+    dealName: borrowerContext.name,
+    city: borrowerContext.city,
+    state: borrowerContext.state,
     composite,
     marketDemand,
     financialViability,
@@ -570,7 +571,8 @@ export async function generateFeasibilityStudy(params: {
     isFranchise,
     brandName: franchiseBrandName,
     managementTeam,
-    industry: (app?.industry as string | null) ?? null,
+    industry: borrowerContext.industry,
+    borrowerContext,
     financialEvidence: {
       annualProjections: sbaPackage?.projections_annual ?? null,
       sensitivityScenarios: sbaPackage?.sensitivity_scenarios ?? null,
@@ -587,9 +589,9 @@ export async function generateFeasibilityStudy(params: {
   progress("Rendering feasibility report…", 85);
   let pdfUrl: string | null = null;
   const renderInput = {
-    dealName: app?.business_legal_name || deal.name || "Borrower",
-    city: deal.city,
-    state: deal.state,
+    dealName: borrowerContext.name,
+    city: borrowerContext.city,
+    state: borrowerContext.state,
     composite,
     marketDemand,
     financialViability,
@@ -758,10 +760,11 @@ export async function loadFeasibilityStudyResult(params: {
     overallDataCompleteness: Number(study.data_completeness ?? 0),
     dimensionsMissingData,
   } as CompositeFeasibilityScore;
+  const borrowerContext = await loadPackageBorrowerContext(sb, params.dealId, params.bankId);
   const renderInput = {
-    dealName: deal.name ?? "Borrower",
-    city: deal.city,
-    state: deal.state,
+    dealName: borrowerContext.name,
+    city: borrowerContext.city,
+    state: borrowerContext.state,
     composite,
     marketDemand,
     financialViability,

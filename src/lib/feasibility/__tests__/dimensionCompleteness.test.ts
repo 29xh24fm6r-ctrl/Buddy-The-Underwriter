@@ -195,3 +195,10 @@ test("composite names every missing metric so the release blocker is actionable"
     "financial_viability.cashRunway",
   ]);
 });
+
+test("declared franchise with no FDD support keeps its evidence gap", () => {
+  const { analyzeOperationalReadiness } = require("../operationalReadinessAnalysis");
+  const result = analyzeOperationalReadiness({ managementTeam: [], plannedHires: [], managementIntelligence: null, managementValidated: false, isFranchise: true, franchiseTrainingWeeks: null, franchiseOperationsManual: null, franchiseOngoingSupport: null });
+  assert.equal(result.franchiseSupport.dataAvailable, false);
+  assert.ok(result.coverage.missing.includes("franchiseSupport"));
+});

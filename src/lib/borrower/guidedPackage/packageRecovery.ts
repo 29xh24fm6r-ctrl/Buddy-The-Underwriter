@@ -4,6 +4,7 @@ export type PackageRecoveryItem = { id: string; label: string; questionId?: stri
 export function packageRecoveryItems(error: unknown, isTestDeal = false): PackageRecoveryItem[] {
   const text = typeof error === "string" ? error : "";
   const items: PackageRecoveryItem[] = [];
+  if (text.includes("Feasibility narrative acceptance failed")) items.push({ id: "narrative", label: "Buddy could not complete every section of your feasibility study. Your saved information is intact. Retry package preparation; you do not need to re-enter your answers." });
   if (text.includes("sources_and_uses_not_reconciled")) items.push({ id: "budget", questionId: "loan.use_of_proceeds",
     label: "Match your total project costs to the loan, your contribution, and any other funding. Include costs paid with your own funds, without counting any cost twice." });
   if (text.includes("feasibility_data_completeness_below_70_percent")) {
