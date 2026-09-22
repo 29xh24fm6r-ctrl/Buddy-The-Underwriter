@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { buildGuidedSnapshot } from "../../src/lib/borrower/guidedPackage/questions";
-async function setup(page: Page, preparePackage = false, testCompletion = false) {
+async function setup(page: Page, preparePackage = false, testCompletion = false, testRecovery = false) {
   const facts: Record<string, any> = { package_answers: {} };
   const rows: Record<string, any[]> = { deals: [{}], deal_loan_requests: [{}] };
   let posterAcknowledged = false;
@@ -85,6 +85,14 @@ async function setup(page: Page, preparePackage = false, testCompletion = false)
         revision: null,
         status: preparePackage ? "confirmed" : "draft",
       });
+    if (url.pathname.endsWith("/package-status") && testRecovery) {
+      const label="Your funding totals $1,200,000 and your project costs total $950,000. Review costs paid with your contribution.";
+      return respond({ok:true,bundle:{status:"failed",generation_error:"Review the final check findings."},preparation:null,
+        recoveryItems:[{id:"site",label:"Confirm the proposed operating location and trade area.",questionId:"B04"}],
+        readiness:{readyToPrepare:false,readyToGenerate:false,blockers:[label],
+          completionItems:[{id:"budget",questionId:"loan.use_of_proceeds",label}],warnings:[],packageFiles:[],
+          budget:{totalSources:1200000,totalUses:950000,difference:250000,balanced:false,message:label}}});
+    }
     if (url.pathname.endsWith("/package-status") && testCompletion) {
       const missing = snapshot().questions.filter(q => q.id === "loan.agent_used" && q.state !== "saved");
       const completionItems = missing.map(q => ({id:q.id,questionId:q.id,label:q.question}));
@@ -351,5 +359,18 @@ test("borrower clarifies a document and Buddy resumes processing without staff",
   await page.getByRole("button",{name:"I have received and reviewed this poster",exact:true}).click();
   await expect(page.getByText("Receipt acknowledged",{exact:true})).toBeVisible();
   await expect(page.getByRole("button",{name:"Prepare lender package",exact:true})).toBeEnabled();
+  expect(fixture.calls.filter(call=>call.endsWith("/build-package"))).toHaveLength(0);
+});
+
+
+test("package recovery shows the funding gap and returns to saved project costs without starting paid work", async ({page}) => {
+  const fixture=await setup(page,true,false,true);
+  await page.getByRole("button",{name:/MISSION 4 Prepare your package/}).click();
+  await expect(page.getByText("What the last preparation found",{exact:true})).toBeVisible();
+  await expect(page.getByText("Confirm the proposed operating location and trade area.",{exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Retry package preparation",exact:true})).toBeDisabled();
+  await page.getByRole("button",{name:"Answer this question",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"What will your entire project cost?",exact:true})).toBeVisible();
+  await expect(page.getByText(/Include every project cost, whether paid by the loan/)).toBeVisible();
   expect(fixture.calls.filter(call=>call.endsWith("/build-package"))).toHaveLength(0);
 });

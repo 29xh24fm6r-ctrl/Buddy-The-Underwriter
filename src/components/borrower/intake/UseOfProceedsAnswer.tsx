@@ -44,6 +44,7 @@ export function UseOfProceedsAnswer({
     );
   return (
     <div className="mt-4 space-y-3">
+      <p className="text-sm text-slate-600">Include every project cost, whether paid by the loan, your contribution, or another funding source. Buddy compares this budget with your funding before preparing the package. Do not count the same cost twice.</p>
       {rows.map((row, i) => (
         <div
           key={i}

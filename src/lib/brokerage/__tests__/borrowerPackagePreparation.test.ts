@@ -64,7 +64,7 @@ const sb = {
       return { data: { id: row.id, reused: false }, error: null };
     }
     assert.equal(name, "sync_borrower_package_proceeds");
-    tables.deal_proceeds_items = [{ deal_id: "deal", category: "equipment", amount: 300000 }];
+    tables.deal_proceeds_items = tables.deal_loan_requests[0].use_of_proceeds.map((row: any) => ({deal_id: "deal", ...row}));
     events.push("budget");
     return { data: null, error: null };
   },
@@ -229,10 +229,26 @@ test("a pre-opening borrower reaches final admission from documents and assumpti
     management_team:[{name:"QA Owner",title:"Manager",yearsInIndustry:10,bio:"Synthetic test owner with ten years of beverage management experience."}],
   });
   tables.buddy_guarantor_cashflow=[]; tables.deal_ownership_entities=[]; tables.deal_ownership_interests=[];
+  tables.deal_loan_requests[0].use_of_proceeds = [{category:"equipment",amount:1200000}];
   const originalFacts=JSON.stringify(tables.deal_financial_facts);
   await start(); await run();
   assert.equal((await status()).preparation.status,"succeeded");
   assert.deepEqual(events,["budget","budget","generation"]);
   assert.equal(tables.buddy_validation_reports.at(-1).overall_status,"PASS_WITH_FLAGS");
   assert.equal(JSON.stringify(tables.deal_financial_facts),originalFacts);
+});
+
+test("unreconciled borrower budget blocks paid work, then a saved correction resumes preparation", async () => {
+  tables.buddy_sba_assumptions[0].loan_impact={loanAmount:300000,equityInjectionAmount:50000,sellerFinancingAmount:0,otherSources:[]};
+  const blockedStatus=await status();
+  assert.equal(blockedStatus.readiness.readyToPrepare,false);
+  assert.equal(blockedStatus.readiness.budget.difference,50000);
+  assert.ok(blockedStatus.readiness.completionItems.some((item:any)=>item.questionId==="loan.use_of_proceeds"));
+  const response=await borrowerPackageAction("build-package","deal","bank");
+  assert.equal(response.status,409);
+  assert.equal(queued.length,0); assert.deepEqual(events,[]);
+  tables.deal_loan_requests[0].use_of_proceeds.push({category:"working_capital",amount:50000});
+  assert.equal((await status()).readiness.readyToPrepare,true);
+  await start(); await run();
+  assert.equal((await status()).preparation.status,"succeeded");
 });

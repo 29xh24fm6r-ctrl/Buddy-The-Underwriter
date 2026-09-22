@@ -299,3 +299,12 @@ test("failed form generation returns safe actionable instructions without raw id
   assert.match(status.bundle.generation_error, /title or role/);
   assert.doesNotMatch(status.bundle.generation_error, /private-owner-id/);
 });
+
+test("final quality failure returns specific safe recovery without releasing underwriting artifacts", async () => {
+  bundle={id:"failed-bundle",status:"failed",generation_error:"private-error sources_and_uses_not_reconciled feasibility_data_completeness_below_70_percent market_demand.populationAdequacy",business_plan_pdf_path:"private/storage/path"};
+  const response=await borrowerPackageAction("package-status","deal","bank");
+  const result=await response.json();
+  assert.ok(result.recoveryItems.some((item:any)=>item.questionId==="loan.use_of_proceeds"));
+  assert.ok(result.recoveryItems.some((item:any)=>item.id==="feasibility"));
+  assert.doesNotMatch(JSON.stringify(result),/private-error|private\/storage\/path/);
+});

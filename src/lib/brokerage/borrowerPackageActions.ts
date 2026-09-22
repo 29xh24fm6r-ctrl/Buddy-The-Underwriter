@@ -1,4 +1,5 @@
 import "server-only";
+import { packageRecoveryItems, borrowerResearchWarning } from "@/lib/borrower/guidedPackage/packageRecovery";
 import { packageCompletionItems, borrowerPackageFailure } from "@/lib/borrower/guidedPackage/completion";
 import { loadGuidedPackage } from "@/lib/borrower/guidedPackage/service";
 import { NextResponse } from "next/server";
@@ -45,6 +46,9 @@ export async function borrowerPackageAction(
           loadGuidedPackage(sb, { deal_id: dealId, bank_id: bankId }),
         ]);
     const completion = answers ? packageCompletionItems(answers) : [];
+    if (readiness?.budget && !readiness.budget.balanced) completion.push({
+      id: "project-budget", questionId: "loan.use_of_proceeds", label: readiness.budget.message,
+    });
     const packageFiles = [
       ["business_plan_pdf_path", "Business plan"],
       ["projections_xlsx_path", "Projections and assumptions"],
@@ -64,6 +68,8 @@ export async function borrowerPackageAction(
       } : null,
       release,
       preparation,
+      recoveryItems: !generating && bundle?.status === "failed"
+        ? packageRecoveryItems(bundle.generation_error, readiness?.evidence.isTestDeal === true) : [],
       readiness: {
         readyToPrepare:
           !generating && readiness?.preparationReady === true &&
@@ -73,15 +79,16 @@ export async function borrowerPackageAction(
           readiness?.ok === true &&
           completion.length === 0 &&
           !(answers?.readErrors.length ?? 0),
-        blockers: [
+        blockers: [...new Set([
           ...(answers?.readErrors.length
             ? ["Your saved answers could not be verified. Reload before continuing."]
             : []),
           ...completion.map(item => item.label),
           ...(generating ? [] : (readiness?.preparationBlockers ?? [])),
-        ],
+        ])],
         completionItems: completion,
-        warnings: readiness?.warnings ?? [],
+        budget: readiness?.budget ?? null,
+        warnings: [...new Set((readiness?.warnings ?? []).map(borrowerResearchWarning))],
         evidence: readiness?.evidence ?? {},
         packageFiles: packageFiles.map(([key, label]) => ({
           key,
