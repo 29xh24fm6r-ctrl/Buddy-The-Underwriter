@@ -1,0 +1,35 @@
+name: Borrower QA Research Fixture
+
+# Explicit operator action only; never starts generation or changes real deals.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: borrower-qa-research-fixture
+  cancel-in-progress: false
+
+jobs:
+  commission:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    env:
+      MIGRATION_DATABASE_URL: ${{ secrets.BROKERAGE_MIGRATION_DB_URL }}
+      VERIFICATION_DATABASE_URL: ${{ secrets.DRIFT_DETECT_DB_URL }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require existing production database connections
+        run: |
+          test -n "$MIGRATION_DATABASE_URL"
+          test -n "$VERIFICATION_DATABASE_URL"
+      - name: Load reviewed fixture for the exact synthetic 7 Brew application
+        # The transaction checks test status, bank, legal name and geography;
+        # an incomplete prior fixture fails closed instead of replacing evidence.
+        run: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/qa/commission-7brew-research.sql
+      - name: Verify fixture persisted without running a model
+        run: |
+          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from public.buddy_research_missions m join public.deals d on d.id=m.deal_id where d.id='e6c35197-349b-402d-be4c-49cbc87e2f7e' and d.bank_id='d8a4cf3a-7575-45df-9926-f31eaed99f3c' and d.is_test=true and m.run_key='7brew-franchise-qa-context-v1' and m.status='complete' and m.subject->>'synthetic_qa'='true' and (select count(*) from public.buddy_research_sources where mission_id=m.id)=3 and (select count(*) from public.buddy_research_facts where mission_id=m.id)=5")" = "1"

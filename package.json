@@ -13,6 +13,7 @@
     "build:mcp": "cd mcp-server && npm install && npm run build",
     "start": "next start",
     "lint": "eslint",
+    "test:token-free": "node scripts/run-token-free-regression.mjs",
     "test:unit": "node --import tsx scripts/run-unit-tests.mjs",
     "test:unit:react-server": "node --conditions=react-server --import tsx scripts/run-unit-tests.mjs --react-server",
     "audit:memo": "npx tsx src/lib/research/evals/auditMemo.ts",

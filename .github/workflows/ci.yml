@@ -69,6 +69,9 @@ jobs:
       # marked "Mandatory regression — yacht-charter memo failure must never
       # recur", which was ALSO being silently self-excluded by a placeholder-
       # detection bug (fixed alongside this). Exits 1 on any regression.
+      - name: Borrower package regression — network disabled (CI-blocking)
+        timeout-minutes: 8
+        run: pnpm -s test:token-free
       - name: Research golden-set eval (CI-blocking)
         timeout-minutes: 6
         run: pnpm -s golden:research

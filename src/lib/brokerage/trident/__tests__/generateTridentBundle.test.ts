@@ -17,6 +17,8 @@ require.cache[require.resolve("workflow")] = {
 
 // ─── Mock state (shared by the stubs below) ────────────────────────────
 type Row = Record<string, any>;
+let preflightFailure: string | null = null;
+let memoCalls = 0;
 
 const state: {
   bundles: Row[];
@@ -52,6 +54,7 @@ const state: {
 };
 
 function resetState() {
+  preflightFailure = null; memoCalls = 0;
   state.bundles = [];
   state.sbaPackages = [];
   state.feasibilityStudies = [];
@@ -129,6 +132,7 @@ function makeQueryBuilder(table: string) {
       this._limit = n;
       return this;
     },
+    range() { return this; },
     maybeSingle() {
       const rows = this._exec();
       return Promise.resolve({ data: rows[0] ?? null, error: null });
@@ -364,12 +368,12 @@ require.cache[require.resolve("@/lib/creditMemo/canonical/memoProvenance")] = {
 require.cache[require.resolve("@/lib/creditMemo/canonical/generateCanonicalMemoArtifact")] = {
   id: "canonical-memo-stub", filename: "canonical-memo-stub", loaded: true,
   exports: {
-    generateCanonicalMemoArtifact: async () => ({
+    generateCanonicalMemoArtifact: async () => { memoCalls++; return ({
       ok: true,
       narrativeId: "memo-1",
       memoId: "memo-1",
       inputHash: "memo-hash",
-    }),
+    }); },
   },
 } as any;
 require.cache[require.resolve("@/lib/classicSpread/classicPdfWorker")] = {
@@ -404,6 +408,11 @@ require.cache[require.resolve("@/lib/modelEngine/packageFinancialSnapshot")] = {
       sourcesAndUses: {}, balanceSheetProjections: {},
     } }),
   },
+} as any;
+require.cache[require.resolve("../packagePreflight")] = {
+  loaded: true, exports: { assertPackageDeterministicReadiness: async () => {
+    if (preflightFailure) throw new Error(preflightFailure);
+  } },
 } as any;
 // Numeric lineage behavior is exercised separately with real payload mutations.
 // Here the downstream renderer fixtures carry the same source version.
@@ -563,4 +572,15 @@ test("failed bundle does NOT supersede prior succeeded", async () => {
   assert.equal(succeeded.length, 1, "prior succeeded bundle remains current");
   const failed = state.bundles.filter((b) => b.status === "failed");
   assert.equal(failed.length, 1);
+});
+
+test("deterministic evidence blocker stops before credit memo or SBA generation", async () => {
+  resetState();
+  preflightFailure = "Package preflight blocked: feasibility_data_completeness_below_70_percent";
+  const result = await generateTridentBundle({dealId:"deal-1",mode:"final"});
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.error, /preflight blocked/);
+  assert.equal(memoCalls, 0);
+  assert.equal(state.enrichBusinessPlanPackageCalls.length, 0);
+  assert.equal(state.bundles[0].status, "failed");
 });
