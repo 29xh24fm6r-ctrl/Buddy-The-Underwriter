@@ -37,10 +37,11 @@ export async function computeBuddySBAScore(params: {
   dealId: string;
   sb: SupabaseClient;
   context?: ComputationContext;
+  packageEvidence?: { bankId: string; packageId: string; feasibilityId: string; bundleId: string; inputHash: string };
 }): Promise<BuddySBAScore> {
   const { dealId, sb, context = "manual" } = params;
 
-  const inputs = await loadScoreInputs({ dealId, sb });
+  const inputs = await loadScoreInputs({ dealId, sb, packageEvidence: params.packageEvidence });
   const eligibility = evaluateBuddySbaEligibility({
     naics: inputs.naics,
     industry: inputs.industry,
@@ -68,6 +69,9 @@ export async function computeBuddySBAScore(params: {
   // Build the score (skips component math for ineligible deals).
   const score = assembleScore({ inputs, eligibility, context });
 
+  if (params.packageEvidence) {
+    score.inputSnapshot = { ...score.inputSnapshot, packageEvidence: params.packageEvidence, scoreInputs: inputs };
+  }
   await persistScore(sb, score);
   return score;
 }
@@ -233,8 +237,8 @@ function buildNotEligibleScore(args: {
  *
  * Deliberately compares `input_snapshot` and not just `score`: two different
  * input sets can round to the same composite, and history should record that
- * the inputs changed. A `locked` row is never reused — locking is a state
- * transition the caller is entitled to move off.
+ * the inputs changed. General recomputes supersede locked rows; an identical
+ * package-bound retry may reuse its locked row without creating score history.
  */
 async function findUnchangedActiveScore(
   sb: SupabaseClient,
@@ -255,7 +259,7 @@ async function findUnchangedActiveScore(
   if (error || !active) return null;
 
   const row = active as Record<string, any>;
-  if (row.score_status === "locked") return null;
+  if (row.score_status === "locked" && !score.inputSnapshot.packageEvidence) return null;
   if (row.score_version !== payload.score_version) return null;
   if (row.score !== payload.score) return null;
   if (row.eligibility_passed !== payload.eligibility_passed) return null;

@@ -54,7 +54,7 @@ export async function canSeal(dealId: string, sb: SupabaseClient): Promise<Seala
   ] = await Promise.all([
     sb.from("buddy_sba_scores")
       .select("score, band, eligibility_passed").eq("deal_id", dealId)
-      .eq("score_status", "locked").order("computed_at", { ascending: false }).limit(1).maybeSingle(),
+      .eq("score_status", "locked").is("superseded_at", null).order("computed_at", { ascending: false }).limit(1).maybeSingle(),
     sb.from("buddy_sba_assumptions")
       .select("status, loan_impact").eq("deal_id", dealId).maybeSingle(),
     sb.from("buddy_trident_bundles")

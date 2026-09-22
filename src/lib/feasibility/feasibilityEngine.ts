@@ -25,7 +25,7 @@ import { generateFeasibilityNarratives } from "./feasibilityNarrative";
 import { renderFeasibilityPDF } from "./feasibilityRenderer";
 import { runFranchiseComparison } from "./franchiseComparator";
 import { extractBIEMarketData } from "./bieMarketExtractor";
-import { readCanonicalEquityInjectionPct } from "./canonicalProjectionInputs";
+import { readCanonicalEquityInjectionPct, readCanonicalReserveMonths } from "./canonicalProjectionInputs";
 import type {
   CompositeFeasibilityScore,
   FeasibilityResult,
@@ -373,7 +373,7 @@ export async function generateFeasibilityStudy(params: {
     downsideDscrYear1: downsideDscrY1,
     equityInjectionPct: readCanonicalEquityInjectionPct(sourcesAndUsesObj),
     totalProjectCost: pickNumber(sourcesAndUsesObj.totalUses),
-    workingCapitalReserveMonths: null,
+    workingCapitalReserveMonths: readCanonicalReserveMonths(sbaPackage?.sources_and_uses, sbaPackage?.projections_annual),
     globalDscr: pickNumber(sbaPackage?.global_dscr),
     guarantorsWithNegativeCF: guarantorCF
       .filter((g) => {

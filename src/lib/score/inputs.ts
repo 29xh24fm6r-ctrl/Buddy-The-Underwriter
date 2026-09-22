@@ -142,6 +142,7 @@ export function deriveCharacterFlagsFromOwners(
 export async function loadScoreInputs(params: {
   dealId: string;
   sb: SupabaseClient;
+  packageEvidence?: { bankId: string; packageId: string; feasibilityId: string };
 }): Promise<ScoreInputs> {
   const { dealId, sb } = params;
   const missing: string[] = [];
@@ -156,6 +157,8 @@ export async function loadScoreInputs(params: {
   if (dealError || !deal) {
     throw new Error(`Deal ${dealId} not found: ${dealError?.message ?? "no row"}`);
   }
+
+  if (params.packageEvidence && deal.bank_id !== params.packageEvidence.bankId) throw new Error("Package score tenant mismatch");
 
   // ─── Borrower application / applicants ────────────────────────────────
   const { data: application } = await sb
@@ -209,13 +212,15 @@ export async function loadScoreInputs(params: {
   }
 
   // ─── SBA package ──────────────────────────────────────────────────────
-  const { data: pkg } = await sb
+  let packageQuery = sb
     .from("buddy_sba_packages")
     .select(
       "dscr_year1_base, dscr_year1_downside, global_dscr, sba_guarantee_pct, sources_and_uses, use_of_proceeds, projections_annual",
     )
-    .eq("deal_id", dealId)
-    .maybeSingle();
+    .eq("deal_id", dealId);
+  if (params.packageEvidence) packageQuery = packageQuery.eq("id", params.packageEvidence.packageId);
+  const { data: pkg, error: packageError } = await packageQuery.order("version_number", { ascending: false }).limit(1).maybeSingle();
+  if (packageError || (params.packageEvidence && !pkg)) throw new Error("Package score projection evidence unavailable");
 
   if (!pkg) missing.push("buddy_sba_packages");
 
@@ -304,13 +309,15 @@ export async function loadScoreInputs(params: {
   );
 
   // ─── Feasibility ──────────────────────────────────────────────────────
-  const { data: feasibility } = await sb
+  let feasibilityQuery = sb
     .from("buddy_feasibility_studies")
     .select(
       "composite_score, market_demand_score, financial_viability_score, operational_readiness_score, location_suitability_score",
     )
-    .eq("deal_id", dealId)
-    .maybeSingle();
+    .eq("deal_id", dealId);
+  if (params.packageEvidence) feasibilityQuery = feasibilityQuery.eq("id", params.packageEvidence.feasibilityId).eq("bank_id", params.packageEvidence.bankId).eq("projections_package_id", params.packageEvidence.packageId);
+  const { data: feasibility, error: feasibilityError } = await feasibilityQuery.order("version_number", { ascending: false }).limit(1).maybeSingle();
+  if (feasibilityError || (params.packageEvidence && !feasibility)) throw new Error("Package score feasibility evidence unavailable");
 
   // ─── Franchise ────────────────────────────────────────────────────────
   const { data: franchiseLink } = await sb
@@ -371,8 +378,9 @@ export async function loadScoreInputs(params: {
   let totalProjectCost: number | null = null;
   const sau = pkg?.sources_and_uses as Record<string, unknown> | null | undefined;
   if (sau && typeof sau === "object") {
-    equityInjectionAmount = tryNumber((sau as any).equity_injection);
+    equityInjectionAmount = tryNumber((sau as any).equityInjection?.actualAmount) ?? tryNumber((sau as any).equity_injection);
     totalProjectCost =
+      tryNumber((sau as any).totalUses) ??
       tryNumber((sau as any).total_project_cost) ??
       tryNumber((sau as any).total_uses);
   }
