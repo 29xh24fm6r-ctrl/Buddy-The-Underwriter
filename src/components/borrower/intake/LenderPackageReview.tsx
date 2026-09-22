@@ -1,4 +1,6 @@
 "use client";
+import type { PackageRecoveryItem } from "@/lib/borrower/guidedPackage/packageRecovery";
+import type { BorrowerBudgetReview } from "@/lib/borrower/guidedPackage/budgetReview";
 import { useCallback, useEffect, useState } from "react";
 import {
   LENDER_PACKAGE_FILES,
@@ -238,8 +240,10 @@ export function LenderPackageReview({
   const [error, setError] = useState("");
   const [bundle, setBundle] = useState<Record<string, any> | null>(null);
   const [preparation, setPreparation] = useState<PackagePreparationStatus | null>(null);
+  const [recoveryItems, setRecoveryItems] = useState<PackageRecoveryItem[]>([]);
   const [released, setReleased] = useState(false);
   const [readiness, setReadiness] = useState<{
+    budget?: BorrowerBudgetReview | null;
     readyToGenerate: boolean;
     readyToPrepare: boolean;
     blockers: string[];
@@ -283,6 +287,7 @@ export function LenderPackageReview({
   const refresh = useCallback(async () => {
     const r = await call("package-status");
     setBundle(r.bundle);
+    setRecoveryItems(r.recoveryItems ?? []);
     setReleased(r.release?.released === true);
     setPreparation(r.preparation ?? null);
     setReadiness(r.readiness ?? null);
@@ -496,6 +501,20 @@ export function LenderPackageReview({
                 ? "Your information is ready for package preparation"
                 : "Here’s what Buddy still needs"}
             </h4>
+            {readiness.budget && <p className="mt-3 text-sm">
+              Funding: {readiness.budget.totalSources.toLocaleString("en-US", { style: "currency", currency: "USD" })}
+              {" · Project costs: "}{readiness.budget.totalUses.toLocaleString("en-US", { style: "currency", currency: "USD" })}
+              {readiness.budget.balanced && " · Matched"}
+            </p>}
+            {recoveryItems.length > 0 && <div className="mt-4">
+              <p className="text-sm font-medium">What the last preparation found</p>
+              <ul className="mt-2 space-y-3 text-sm">{recoveryItems.map(item => <li key={item.id}>
+                <span>{item.label}</span>
+                {item.questionId && onQuestion && <button type="button" disabled={dirty || !!busy}
+                  className="ml-2 text-sky-700 underline" onClick={() => onQuestion(item.questionId!)}>Review this detail</button>}
+              </li>)}</ul>
+              <p className="mt-3 text-xs text-slate-600">Previous findings stay here until the next check. Your saved answers and documents remain available.</p>
+            </div>}
             {readiness.blockers.length > 0 && (
               <ul className="mt-3 space-y-2 text-sm text-slate-700">
                 {readiness.blockers.map((blocker) => (

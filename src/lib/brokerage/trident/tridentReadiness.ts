@@ -1,10 +1,12 @@
 import "server-only";
+import { borrowerBudgetReview, type BorrowerBudgetReview } from "@/lib/borrower/guidedPackage/budgetReview";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { evaluateTridentResearchTrust } from "./tridentReleaseGate";
 import { hasSavedProceeds } from "../borrowerPackagePreparationState";
 
 export type TridentReadiness = {
+  budget?: BorrowerBudgetReview | null;
   ok: boolean;
   reasons: string[];
   warnings: string[];
@@ -63,7 +65,7 @@ export async function getTridentReadiness(args: {
       .eq("bank_id", bankId),
     sb
       .from("deal_proceeds_items")
-      .select("id", { count: "exact", head: true })
+      .select("id,category,description,amount", { count: "exact" })
       .eq("deal_id", dealId),
     sb
       .from("buddy_validation_reports")
@@ -141,6 +143,12 @@ export async function getTridentReadiness(args: {
   else if (useOfProceedsCount < 1 && !hasSavedProceeds(loanResult.data?.use_of_proceeds))
     reasons.push("Add your financing purposes and amounts to the project budget.");
 
+  // Saved borrower costs are what the preparation transaction will synchronize.
+  // Fall back to canonical costs only when no borrower budget was supplied.
+  const savedProceeds = loanResult.data?.use_of_proceeds;
+  const budget = borrowerBudgetReview(assumptions?.loan_impact,
+    Array.isArray(savedProceeds) && savedProceeds.length ? savedProceeds : proceedsResult.data);
+  if (budget && !budget.balanced) reasons.push(budget.message);
   const preparationBlockers = [...reasons];
   if (!proceedsResult.error && useOfProceedsCount < 1)
     reasons.push("At least one canonical use-of-proceeds line is required.");
@@ -169,6 +177,7 @@ export async function getTridentReadiness(args: {
     preparationBlockers.push("Your preparation checks could not be loaded. Please retry.");
 
   return {
+    budget,
     ok: reasons.length === 0,
     reasons,
     warnings,

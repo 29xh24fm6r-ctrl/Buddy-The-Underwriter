@@ -46,13 +46,14 @@ export function isPlaceholderEntityName(name: string | null | undefined): boolea
 
 export type ResearchSubjectRaw = {
   /** Borrower-confirmed interview context, never banker certification. */
-  borrowerInterview?: { productsServices?: string; industry?: string; project?: string };
+  borrowerInterview?: { productsServices?: string; industry?: string; project?: string; siteContext?: string };
   borrowerId?: string | null;
   // deals
   dealBorrowerName?: string | null;
   dealDisplayName?: string | null;
   dealName?: string | null;
   dealState?: string | null;
+  dealCity?: string | null;
   // borrowers row — null when no borrower_id or not found
   borrower?: {
     legal_name?: string | null;
@@ -223,8 +224,8 @@ export function assembleResearchSubject(raw: ResearchSubjectRaw): AssembledResea
   );
 
   // 6. Geography — borrower city/state → deal state → national default.
-  const city = firstNonEmpty(raw.borrower?.city);
-  const state = firstNonEmpty(raw.borrower?.state, raw.dealState);
+  const city = firstNonEmpty(raw.borrower?.city, raw.story?.hq_city, raw.dealCity);
+  const state = firstNonEmpty(raw.borrower?.state, raw.story?.hq_state, raw.dealState);
   const geography = state ?? "US";
 
   const subject: MissionSubject = {
@@ -235,7 +236,9 @@ export function assembleResearchSubject(raw: ResearchSubjectRaw): AssembledResea
     city: city ?? undefined,
     state: state ?? undefined,
     company_name: companyName ?? undefined,
-    business_description: businessDescription,
+    business_description: raw.borrowerInterview?.siteContext && businessDescription
+      ? `${businessDescription}\nBorrower-provided site context (unverified; research must substantiate claims): ${raw.borrowerInterview.siteContext}`
+      : businessDescription,
     banker_summary: bankerSummary,
     principals,
     annual_revenue: raw.annualRevenue ?? null,
@@ -293,7 +296,7 @@ export function assembleResearchEntityProfile(raw: ResearchSubjectRaw): Research
   const display_name = firstNonEmpty(raw.dealBorrowerName, raw.dealDisplayName, raw.dealName);
   const banker_identity_summary = firstNonEmpty(story?.banker_identity_summary);
   const customer_anchors = firstNonEmpty(story?.customers);
-  const hq_city = firstNonEmpty(raw.borrower?.city, story?.hq_city);
+  const hq_city = firstNonEmpty(raw.borrower?.city, story?.hq_city, raw.dealCity);
   const hq_state = firstNonEmpty(raw.borrower?.state, story?.hq_state, raw.dealState);
 
   // company_search_name: a real legal/DBA name, or a non-placeholder display name.
@@ -376,7 +379,9 @@ export function borrowerResearchInterview(facts: Record<string, any> | null | un
     const value = facts?.package_answers?.[id]?.value;
     return typeof value === "string" && value.trim() ? value.trim() : undefined;
   };
-  return { productsServices: answer("B05"), industry: answer("B06"), project: answer("A01") };
+  const siteContext = [answer("B04"), answer("K01"), answer("J07")].filter(Boolean).join("\n");
+  return { productsServices: answer("B05"), industry: answer("B06"), project: answer("A01"),
+    ...(siteContext ? { siteContext } : {}) };
 }
 
 /**
@@ -388,7 +393,7 @@ export function borrowerResearchInterview(facts: Record<string, any> | null | un
 async function loadResearchRaw(sb: MinimalSb, dealId: string): Promise<ResearchSubjectRaw> {
   const { data: deal } = await sb
     .from("deals")
-    .select("id, borrower_id, borrower_name, display_name, name, state")
+    .select("id, borrower_id, borrower_name, display_name, name, city, state")
     .eq("id", dealId)
     .maybeSingle();
 
@@ -490,6 +495,7 @@ async function loadResearchRaw(sb: MinimalSb, dealId: string): Promise<ResearchS
     dealDisplayName: (deal as any)?.display_name ?? null,
     dealName: (deal as any)?.name ?? null,
     dealState: (deal as any)?.state ?? null,
+    dealCity: (deal as any)?.city ?? null,
     borrower,
     borrowerInterview: borrowerResearchInterview(interviewRes.data?.confirmed_facts),
     story: storyRes?.data ?? null,

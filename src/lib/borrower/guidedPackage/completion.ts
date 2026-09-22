@@ -1,3 +1,4 @@
+import { packageRecoveryItems } from "./packageRecovery";
 import type { GuidedSnapshot } from "./questions";
 
 export type PackageCompletionItem = { id: string; label: string; questionId?: string };
@@ -21,6 +22,8 @@ export function packageCompletionItems(snapshot: Pick<GuidedSnapshot, "questions
 /** Only allowlisted explanations leave the server; raw renderer errors may contain private data. */
 export function borrowerPackageFailure(error: unknown): string {
   const text = typeof error === "string" ? error : "";
+  const recovery = packageRecoveryItems(text);
+  if (recovery.length) return "Your documents were prepared, but final checks found items to resolve. Review the guidance below before preparing again.";
   const items: string[] = [];
   if (text.includes("SBA_1919") && text.includes("position")) items.push("Add each owner’s title or role in Tell your story.");
   if (text.includes("SBA_159")) items.push(text.includes("agent_used")

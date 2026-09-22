@@ -223,7 +223,7 @@ export function buildGuidedSnapshot(input: {
         );
       questions.push({
         id,
-        question: field.question,
+        question: id === "loan.use_of_proceeds" ? "What will your entire project cost?" : field.question,
         storedValue,
         section:
           e.entityScope === "pfs"
