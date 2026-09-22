@@ -25,6 +25,7 @@ const state: {
   feasibilityStudies: Row[];
   memoNarratives: Row[];
   spreads: Row[];
+  scores: Row[];
   nextBundleId: () => string;
   sbaResult: any;
   feasResult: any;
@@ -38,6 +39,7 @@ const state: {
   feasibilityStudies: [],
   memoNarratives: [],
   spreads: [],
+  scores: [],
   nextBundleId: (() => {
     let n = 0;
     return () => `bundle-${++n}`;
@@ -53,6 +55,7 @@ function resetState() {
   state.bundles = [];
   state.sbaPackages = [];
   state.feasibilityStudies = [];
+  state.scores = [];
   state.memoNarratives = [{ id: "memo-1", deal_id: "deal-1", bank_id: "bank-1", input_hash: "memo-hash", research_trust_grade: "committee_grade" }];
   state.spreads = [{ id: "spread-1", deal_id: "deal-1", bank_id: "bank-1", spread_type: "CLASSIC_PDF", status: "ready", rendered_json: { pdf_sha256: createHash("sha256").update("%PDF-spread").digest("hex"), pdf_base64: Buffer.from("%PDF-spread").toString("base64"), canonicalFactsTimestamp: "2026-08-18T00:00:00Z", certificationAudit: { spreadAccuracy: { status: "clean", summary: { blockers: 0 } } } } }];
   state.enrichBusinessPlanPackageCalls = [];
@@ -148,6 +151,7 @@ function makeQueryBuilder(table: string) {
         buddy_sba_packages: state.sbaPackages,
         buddy_sba_assumptions: [{ deal_id: "deal-1", status: "confirmed" }],
         buddy_feasibility_studies: state.feasibilityStudies,
+        buddy_sba_scores: state.scores,
         canonical_memo_narratives: state.memoNarratives,
         deal_spreads: state.spreads,
       } as Record<string, Row[]>)[this._table];
@@ -301,6 +305,17 @@ require.cache[require.resolve("@/lib/sba/enrichBusinessPlanPackage")] = {
   },
 } as any;
 
+require.cache[require.resolve("@/lib/score/buddySbaScore")] = {
+  id: "score-stub", filename: "score-stub", loaded: true,
+  exports: { computeBuddySBAScore: async (args: any) => {
+    assert.equal(args.packageEvidence.packageId, "pkg-1");
+    assert.equal(args.packageEvidence.feasibilityId, "study-1");
+    assert.equal(args.packageEvidence.bundleId, state.bundles[0].id);
+    state.scores.push({ id: "score-1", deal_id: args.dealId, bank_id: "bank-1", score_status: "draft", score: 72 });
+    return { id: "score-1", bankId: "bank-1", score: 72 };
+  } },
+} as any;
+
 require.cache[require.resolve("@/lib/feasibility/feasibilityEngine")] = {
   id: "feas-eng-stub",
   filename: "feas-eng-stub",
@@ -409,7 +424,7 @@ test("preview happy path: pending → running → succeeded with redactor_versio
   state.feasibilityStudies.push({ id: "study-1", composite_score: 73, narratives: { market_demand: "x" } });
 
   const r = await generateTridentBundle({ dealId: "deal-1", mode: "preview" });
-  assert.equal(r.ok, true);
+  assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(state.bundles.length, 1);
   const row = state.bundles[0];
   assert.equal(row.status, "succeeded");
@@ -462,12 +477,13 @@ test("final happy path: redactor_version null, projections XLSX populated", asyn
   });
 
   const r = await generateTridentBundle({ dealId: "deal-1", mode: "final" });
-  assert.equal(r.ok, true);
+  assert.equal(r.ok, true, JSON.stringify(r));
   const row = state.bundles[0];
   assert.equal(row.status, "succeeded");
   assert.equal(row.redactor_version, null);
   assert.ok(row.projections_xlsx_path);
   assert.ok(row.projections_xlsx_path.endsWith("_projections.xlsx"));
+  assert.equal(state.scores[0].score_status, "locked", "final publication must include the deterministic score");
 
   // Audit fix regression: business-plan verification must run on this path
   // (marketplace-pick final-mode generation) — previously it never did.
@@ -514,7 +530,7 @@ test("feasibility failure is non-fatal; bundle still succeeded, feasibility path
   state.feasResult = { ok: false, error: "BIE unavailable" };
 
   const r = await generateTridentBundle({ dealId: "deal-1", mode: "preview" });
-  assert.equal(r.ok, true);
+  assert.equal(r.ok, true, JSON.stringify(r));
   const row = state.bundles[0];
   assert.equal(row.status, "succeeded");
   assert.equal(row.feasibility_pdf_path, null);

@@ -237,8 +237,8 @@ function buildNotEligibleScore(args: {
  *
  * Deliberately compares `input_snapshot` and not just `score`: two different
  * input sets can round to the same composite, and history should record that
- * the inputs changed. A `locked` row is never reused — locking is a state
- * transition the caller is entitled to move off.
+ * the inputs changed. General recomputes supersede locked rows; an identical
+ * package-bound retry may reuse its locked row without creating score history.
  */
 async function findUnchangedActiveScore(
   sb: SupabaseClient,
