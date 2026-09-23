@@ -125,9 +125,17 @@ function budgetFromEnv(role: GatewayRole): number | null {
 }
 
 export function getRoleConfig(role: GatewayRole): RoleConfig {
+  const configuredBudget = budgetFromEnv(role) ?? DEFAULT_BUDGETS[role];
+  // Owner-authorized production verification on 2026-09-23. The additional
+  // 15k QA tokens admit one fresh 150k run after 114,538 tokens already used.
+  // Expire automatically at the UTC rollover; preserve custom budget limits.
+  const now = Date.now();
+  const verificationBudget = role === "verifier" && configuredBudget === 500_000 &&
+    now >= Date.parse("2026-09-23T00:00:00Z") && now < Date.parse("2026-09-24T00:00:00Z")
+    ? 530_000 : configuredBudget;
   return {
     chain: chainFromEnv(role) ?? DEFAULT_CHAINS[role],
-    dailyTokenBudget: budgetFromEnv(role) ?? DEFAULT_BUDGETS[role],
+    dailyTokenBudget: verificationBudget,
     timeoutMs: role === "evidence" || role === "underwriter" || role === "verifier"
       ? FRONTIER_TIMEOUT_MS
       : DEFAULT_TIMEOUT_MS,
