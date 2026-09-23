@@ -249,6 +249,8 @@ export async function buildCanonicalCreditMemo(args: {
   financialSnapshotId?: string;
   /** Internal deterministic preparation; never supplied from a request body. */
   financialOutput?: PackageFinancialOutput;
+  /** Internal diagnostics compute derived drafts without writing them. */
+  persistDerived?: boolean;
 }): Promise<
   | {
       ok: true;
@@ -1283,7 +1285,7 @@ export async function buildCanonicalCreditMemo(args: {
           actualOccupancy: metricValueFromSnapshot({ snapshot, metric: "occupancy_pct", label: "Occupancy %" }).value,
           actualGlobalCashFlow: bindings.global.globalCashFlow,
           loanAmount: loanAmount.value,
-        });
+        }, { persist: args.persistDerived !== false });
       }
     } catch (err) {
       console.warn("[buildCanonicalCreditMemo] buildCovenantPackage failed:", err);

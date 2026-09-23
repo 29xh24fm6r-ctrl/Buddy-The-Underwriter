@@ -6,7 +6,7 @@ import { packageBudgetBlockers } from "../packageBudgetPolicy";
 mockServerOnly();
 const require = createRequire(import.meta.url);
 require.cache[require.resolve("@/lib/supabase/admin")] = { exports: { supabaseAdmin: () => { throw new Error("Use isolated client"); } }, loaded: true } as any;
-const { assertPackageBudgetAvailable } = require("../packageBudget") as typeof import("../packageBudget");
+const { assertPackageBudgetAvailable, readPackageCapacity } = require("../packageBudget") as typeof import("../packageBudget");
 const base = { role: "verifier", dailyLimit: 500000, consumed: 218170, reserved: 0, qaUsed: 218170, runUsed: 0, isTest: true, required: 150000 };
 test("QA allowance blocks the observed failure even when global daily budget has room", () => {
   const failures = packageBudgetBlockers(base);
@@ -46,4 +46,11 @@ test("tenancy and ledger errors fail closed without making a reservation", async
   await assert.rejects(assertPackageBudgetAvailable({dealId:"deal",bankId:"wrong"},client([]) as any), /tenancy/);
   await assert.rejects(assertPackageBudgetAvailable({dealId:"deal",bankId:"bank"},client([],"ai_gateway_budget_reservations") as any), /ledger/);
   await assertPackageBudgetAvailable({dealId:"deal",bankId:"bank"}, client([]) as any);
+});
+test("capacity status is current, fails closed and never exposes ledger or tenant errors", async () => {
+  assert.deepEqual(await readPackageCapacity({dealId:"deal",bankId:"bank"},client([]) as any),{available:true,message:null});
+  const blocked = await readPackageCapacity({dealId:"deal",bankId:"bank"},client([],"ai_gateway_daily_budgets") as any);
+  assert.equal(blocked.available,false);
+  assert.doesNotMatch(blocked.message!,/offline|ai_gateway|tokens|bank/);
+  assert.equal((await readPackageCapacity({dealId:"deal",bankId:"wrong"},client([]) as any)).available,false);
 });

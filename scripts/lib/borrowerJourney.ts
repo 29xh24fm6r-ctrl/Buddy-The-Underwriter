@@ -5,7 +5,7 @@ import JSZip from "jszip";
 import ExcelJS from "exceljs";
 import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
-import { BORROWER_PACKAGE_FILES, LENDER_PACKAGE_FILES } from "../../src/lib/brokerage/lenderPackageFiles";
+import { BORROWER_PACKAGE_FILES, hasCompletePackageFiles } from "../../src/lib/brokerage/lenderPackageFiles";
 
 // Inputs must be deliberately supplied synthetic QA data. Never manufacture
 // answers, financial facts, identities, signatures, or readiness in the DB.
@@ -283,6 +283,7 @@ export async function runBorrowerJourney(options: Options): Promise<JourneyRepor
     const generation = await step("Request final-package generation once", () => http.json(actions + "build-package", {}));
     require(typeof generation.bundleId === "string" || typeof generation.preparationId === "string", "Preparation did not return a run ID.");
     let expectedBundleId: string | undefined = generation.bundleId;
+    let release: { released?: boolean; reason?: string } | undefined;
     report.bundleId = expectedBundleId;
     if (generation.completed === true) report.notVerified.push("Fresh generation (an existing completed run was reused)");
     await step("Wait for all six artifacts from this run", async () => {
@@ -305,7 +306,8 @@ export async function runBorrowerJourney(options: Options): Promise<JourneyRepor
         require(bundle?.id === expectedBundleId, "Status is not for the generation started by this test.");
         require(!["failed", "cancelled"].includes(bundle.status), "Package generation failed. Inspect its stage and error in the package screen.");
         if (bundle.status === "succeeded") {
-          require(LENDER_PACKAGE_FILES.every(file => bundle[file.column]), "Final run succeeded but is missing required artifacts.");
+          require(hasCompletePackageFiles(state.readiness?.packageFiles), "Final run succeeded but is missing required artifacts.");
+          release = state.release;
           return;
         }
         require(["pending", "running"].includes(bundle.status), "Unknown package generation state.");
@@ -313,14 +315,24 @@ export async function runBorrowerJourney(options: Options): Promise<JourneyRepor
       }
       throw new JourneyStop("Timed out waiting for the package. The existing job may still run; do not start a duplicate.", true);
     });
+    await step("Internal credit memo remains lender-only", async () => {
+      const response = await http.raw(`/api/brokerage/deals/${dealId}/trident/download/credit_memo`);
+      require(response.status === 404, "Borrower must not receive the internal credit memo.");
+    });
+    if (release?.released !== true) {
+      report.notVerified.push("Borrower package download and file contents before authorized bank selection");
+      if (release?.reason === "bank_selection_required") await step("Prepared documents remain locked before bank selection", async () => {
+        const response = await http.raw(`/api/brokerage/deals/${dealId}/trident/download/complete_package`);
+        require(response.status === 403 && (await response.json()).error === "bank_selection_required", "Unreleased borrower documents must remain locked.");
+      });
+      throw new JourneyStop(release?.reason === "bank_selection_required"
+        ? "All six artifacts are prepared and the release lock is verified. Bank acceptance and borrower bank selection are still required; document contents have not been verified."
+        : "All six artifacts are prepared, but release authorization could not be verified. No download success is claimed.", true);
+    }
     await step("Download and inspect the borrower package", async () => {
       const response = await http.raw(`/api/brokerage/deals/${dealId}/trident/download/complete_package`);
       require(response.ok && response.headers.get("content-type")?.includes("application/zip"), `Package download returned HTTP ${response.status}, not a ZIP.`);
       await verifyBorrowerZip(new Uint8Array(await response.arrayBuffer()), expectedBundleId!);
-    });
-    await step("Internal credit memo remains lender-only", async () => {
-      const response = await http.raw(`/api/brokerage/deals/${dealId}/trident/download/credit_memo`);
-      require(response.status === 404, "Borrower must not receive the internal credit memo.");
     });
     report.status = "package_verified"; report.exitCode = 0;
     // Deliberately no seal/submit/kyc/esign mutations: QA must never deliver a

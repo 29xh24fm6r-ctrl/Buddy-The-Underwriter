@@ -14,6 +14,9 @@ let posterAcknowledged = true;
 let bundle: any = null;
 let tridentReadiness: any = { ok: true, preparationReady: true, preparationBlockers: [], reasons: [], warnings: [], evidence: {} };
 let readinessCalls = 0;
+let capacityAvailable = true;
+let capacityCalls = 0;
+let evidenceChecks = 0;
 const input = () => ({
   revenueStreams: [
     {
@@ -120,6 +123,14 @@ function stub(module: string, exports: object) {
   } as any;
 }
 stub("@/lib/supabase/admin", { supabaseAdmin: () => sb });
+stub("../trident/packageBudget", { readPackageCapacity: async () => {
+  capacityCalls++;
+  return { available: capacityAvailable, message: capacityAvailable ? null : "Processing capacity is unavailable." };
+} });
+stub("../borrowerPackagePreflight", { checkBorrowerPackageEvidence: async () => {
+  evidenceChecks++;
+  return { status: "passed", checkedAt: new Date().toISOString(), recoveryItems: [], message: "Saved evidence passed." };
+} });
 stub("@/lib/sba/sbaAssumptionDrafter", {
   draftAssumptionsFromContext: async () => ({
     assumptions: input(),
@@ -154,6 +165,7 @@ test.beforeEach(() => {
   bundle = null;
   tridentReadiness = { ok: true, preparationReady: true, preparationBlockers: [], reasons: [], warnings: [], evidence: {} };
   readinessCalls = 0;
+  capacityAvailable = true; capacityCalls = 0; evidenceChecks = 0;
 });
 
 test("drafting never silently confirms or persists model estimates", async () => {
@@ -282,6 +294,29 @@ test("active generation status does not rerun expensive readiness checks", async
   assert.equal(payload.readiness.readyToGenerate, false);
   assert.deepEqual(payload.readiness.blockers, []);
   assert.equal(readinessCalls, 0);
+  assert.equal(capacityCalls, 0);
+});
+
+test("capacity blocks status and POST admission before creating a preparation job", async () => {
+  capacityAvailable = false;
+  const status = await (await borrowerPackageAction("package-status", "d", "b")).json();
+  assert.equal(status.readiness.readyToPrepare, false);
+  assert.equal(status.readiness.capacity.available, false);
+  const response = await borrowerPackageAction("build-package", "d", "b", {});
+  assert.equal(response.status, 503); assert.equal(started, 0);
+  capacityAvailable = true;
+  assert.equal((await borrowerPackageAction("build-package", "d", "b", {})).status, 202);
+});
+test("the explicit evidence check works while capacity is unavailable and never starts preparation", async () => {
+  capacityAvailable = false;
+  const result = await (await borrowerPackageAction("check-package", "d", "b", {})).json();
+  assert.equal(result.check.status, "passed"); assert.equal(evidenceChecks, 1);
+  assert.equal(started, 0); assert.equal(capacityCalls, 0);
+});
+test("missing validation or research is unchecked, not a false evidence pass", async () => {
+  tridentReadiness.ok = false;
+  const result = await (await borrowerPackageAction("check-package", "d", "b", {})).json();
+  assert.equal(result.check.status, "not_checked"); assert.equal(evidenceChecks, 0); assert.equal(started, 0);
 });
 
 test("poster acknowledgment blocks both status and POST before any workflow starts", async () => {
