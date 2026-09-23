@@ -18,7 +18,8 @@ if (!process.argv.includes('--suite')) {
 } else {
   const server = process.argv.includes('--react-server');
   const relevant = p => /src\/lib\/(borrower\/|brokerage\/|sba\/|feasibility\/|modelEngine\/.*package|creditMemo\/canonical\/|ai\/|score\/|documents\/|documentTruth\/|intake\/|storage\/|qaIdentity\/)|scripts\/__tests__\/borrowerJourney|src\/components\/borrower\/|src\/app\/api\/(borrower|brokerage)\//.test(p);
-  const files = discoverTestFiles({ reactServer: server }).filter(relevant);
+  const files = discoverTestFiles({ reactServer: server }).filter(p =>
+    relevant(p) || p === 'src/lib/financialSpreads/__tests__/documentOwner.test.ts');
   console.log(`Token-free: ${files.length} files (${server ? 'react-server' : 'standard'}); network disabled`);
   let failures = 0;
   const stream = run({ files, concurrency: 4 });

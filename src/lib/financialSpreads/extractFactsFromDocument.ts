@@ -5,6 +5,7 @@ import { extractSourcesUsesFactsFromText } from "@/lib/intel/extractors/sourcesU
 import { extractCollateralFactsFromText } from "@/lib/intel/extractors/collateral";
 import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
 import { writeSystemEvent } from "@/lib/aegis/writeSystemEvent";
+import { extractTaxpayerName, ensureOwnerEntity } from "./documentOwner";
 
 // ── Legacy Claude-based extractors (deprecated — kept for rollback) ──────────
 import { extractIncomeStatement } from "@/lib/financialSpreads/extractors/incomeStatementExtractor";
@@ -48,55 +49,6 @@ async function resolveOwnerForDocument(sb: any, documentId: string): Promise<str
     .eq("id", documentId)
     .maybeSingle();
   return data?.assigned_owner_id ? String(data.assigned_owner_id) : null;
-}
-
-/**
- * Extract the taxpayer name from a 1040 OCR text.
- * Looks for the name field at the top of Form 1040 (line: "Your first name and middle initial / Last name").
- * Returns null if not found.
- */
-function extractTaxpayerName(ocrText: string): string | null {
-  const patterns = [
-    /your\s+first\s+name.*?last\s+name[^\n]*\n([A-Z][a-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-z]+)/i,
-    /^([A-Z][A-Za-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][A-Za-z]+)\s+\d{3}-\d{2}-\d{4}/m,
-    /taxpayer\s+name[:\s]+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)/i,
-  ];
-  for (const p of patterns) {
-    const m = ocrText.match(p);
-    if (m?.[1]?.trim()) return m[1].trim();
-  }
-  return null;
-}
-
-/**
- * Ensure an ownership_entities row exists for this deal and name.
- * Uses display_name as the conflict target — idempotent.
- * Returns the entity id.
- */
-async function ensureOwnerEntity(
-  sb: any,
-  dealId: string,
-  displayName: string,
-  entityType: "individual" | "entity" = "individual",
-): Promise<string | null> {
-  try {
-    const { data: existing } = await sb
-      .from("ownership_entities")
-      .select("id")
-      .eq("deal_id", dealId)
-      .eq("display_name", displayName)
-      .maybeSingle();
-    if (existing?.id) return String(existing.id);
-
-    const { data: created } = await sb
-      .from("ownership_entities")
-      .insert({ deal_id: dealId, display_name: displayName, entity_type: entityType })
-      .select("id")
-      .maybeSingle();
-    return created?.id ? String(created.id) : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

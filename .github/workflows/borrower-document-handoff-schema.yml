@@ -7,6 +7,7 @@ on:
       - supabase/migrations/20260923010000_ensure_borrower_doc_extraction_handoff.sql
       - supabase/migrations/20260923132024_restrict_borrower_doc_extraction_handoff.sql
       - .github/workflows/borrower-document-handoff-schema.yml
+      - scripts/check-borrower-handoff-schema.mjs
   workflow_dispatch:
 
 permissions:
@@ -27,19 +28,23 @@ jobs:
       VERIFICATION_DATABASE_URL: ${{ secrets.DRIFT_DETECT_DB_URL }}
     steps:
       - uses: actions/checkout@v6
-      - name: Require production schema connections and ownership
+      - name: Check exact deployed handoff contract before changing it
+        id: deployed
+        run: node scripts/check-borrower-handoff-schema.mjs
+      - name: Require migration connection and function ownership when a change is needed
+        if: steps.deployed.outputs.current != 'true'
         shell: bash
         run: |
           test -n "$MIGRATION_DATABASE_URL"
-          test -n "$VERIFICATION_DATABASE_URL"
-          test "$(psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select bool_and(pg_has_role(current_user,c.relowner,'USAGE')) and count(*)=2 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('document_artifacts','buddy_outbox_events')")" = "t"
+          if [ "$(psql "$MIGRATION_DATABASE_URL" -X -v ON_ERROR_STOP=1 -Atqc "select has_schema_privilege(current_user,'public','CREATE') and coalesce((select pg_has_role(current_user,proowner,'USAGE') from pg_proc where oid=to_regprocedure('public.ensure_borrower_doc_extraction_handoff(uuid,uuid,uuid)')),true)")" != "t" ]; then
+            echo "::error::The handoff differs from the reviewed contract, but the migration connection cannot manage this function. Apply the reviewed migrations using an authorized owner connection."
+            exit 1
+          fi
       - name: Apply reviewed handoff and permissions in one transaction
+        if: steps.deployed.outputs.current != 'true'
         run: >-
           psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction
           -f supabase/migrations/20260923010000_ensure_borrower_doc_extraction_handoff.sql
           -f supabase/migrations/20260923132024_restrict_borrower_doc_extraction_handoff.sql
-      - name: Verify handoff contract and access boundaries
-        shell: bash
-        run: |
-          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select count(*) from pg_proc where oid=to_regprocedure('public.ensure_borrower_doc_extraction_handoff(uuid,uuid,uuid)') and not prosecdef and prorettype='jsonb'::regtype and proconfig @> ARRAY['search_path=public']")" = "1"
-          test "$(psql "$VERIFICATION_DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc "select has_function_privilege('service_role','public.ensure_borrower_doc_extraction_handoff(uuid,uuid,uuid)','EXECUTE') and not has_function_privilege('anon','public.ensure_borrower_doc_extraction_handoff(uuid,uuid,uuid)','EXECUTE') and not has_function_privilege('authenticated','public.ensure_borrower_doc_extraction_handoff(uuid,uuid,uuid)','EXECUTE')")" = "t"
+      - name: Verify exact handoff contract and access boundaries
+        run: node scripts/check-borrower-handoff-schema.mjs --require-current
