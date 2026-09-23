@@ -8,16 +8,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { buildBaseYear } from "@/lib/sba/sbaForwardModelBuilder";
-import { computeSBAProjectionModel } from "@/lib/sba/sbaProjectionAuthority";
+import { computePackageFinancialOutput } from "@/lib/modelEngine/packageFinancialComputation";
 import { renderBorrowerProjectionPDF } from "@/lib/sba/sbaBorrowerPDFRenderer";
 import { generateActionableRoadmap } from "@/lib/sba/sbaActionableRoadmap";
 import { loadBorrowerStoryWithEvidence } from "@/lib/sba/sbaBorrowerStory";
-import {
-  detectNewBusinessFromFacts,
-  assessNewBusinessRisk,
-} from "@/lib/sba/newBusinessProtocol";
-import type { SBAAssumptions } from "@/lib/sba/sbaReadinessTypes";
 import type {
   Milestone,
   KPITarget,
@@ -27,12 +21,6 @@ import type {
 export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
-
-type FactRow = {
-  fact_key: string;
-  fact_value_num: number | string | null;
-  fact_value_text?: string | null;
-};
 
 const NO_STORE_HEADERS = {
   "cache-control": "private, no-store, max-age=0",
@@ -129,153 +117,13 @@ export async function POST(
   if (assumptionsResult.data.status !== "confirmed") {
     return json({ ok: false, error: "assumptions_not_confirmed" }, 409);
   }
-  const row = assumptionsResult.data;
-
-  const factsResult = await withProjectionPdfTimeout(
-    sb
-      .from("deal_financial_facts")
-      .select("fact_key, fact_value_num, fact_value_text")
-      .eq("deal_id", ctx.dealId)
-      .in("fact_key", [
-      "TOTAL_REVENUE_IS",
-      "TOTAL_REVENUE",
-      "TOTAL_COGS_IS",
-      "COST_OF_GOODS_SOLD",
-      "COGS",
-      "TOTAL_OPERATING_EXPENSES_IS",
-      "TOTAL_OPERATING_EXPENSES",
-      "NET_INCOME",
-      "EBITDA",
-      "DEPRECIATION_IS",
-      "DEPRECIATION",
-      "INTEREST_EXPENSE",
-      "TOTAL_TAX",
-      "ADS",
-      "YEARS_IN_BUSINESS",
-      "MONTHS_IN_BUSINESS",
-      "BUSINESS_DATE_FORMED",
-      "DATE_FORMED",
-      "SL_CASH",
-      "CASH",
-      ])
-      .order("created_at", { ascending: false }),
-    8_000,
+  // Use the same reconciled, read-only financial output as the lender package.
+  // This completes all deterministic checks before the roadmap's model call.
+  const computed = await withProjectionPdfTimeout(
+    computePackageFinancialOutput(ctx.dealId, ctx.bankId), 20_000,
   ).catch(() => null);
-  if (!factsResult || factsResult.error) {
-    return json({ ok: false, error: "financial_facts_unavailable" }, 503);
-  }
-
-  const factRows: FactRow[] = (factsResult.data as FactRow[] | null) ?? [];
-  const getFact = (...keys: string[]): number => {
-    for (const key of keys) {
-      const f = factRows.find((r) => r.fact_key === key);
-      if (f?.fact_value_num != null) return Number(f.fact_value_num);
-    }
-    return 0;
-  };
-
-  const revenue = getFact("TOTAL_REVENUE_IS", "TOTAL_REVENUE");
-  const cogs = getFact("TOTAL_COGS_IS", "COST_OF_GOODS_SOLD", "COGS");
-  const opex = getFact(
-    "TOTAL_OPERATING_EXPENSES_IS",
-    "TOTAL_OPERATING_EXPENSES",
-  );
-  const depreciation = getFact("DEPRECIATION_IS", "DEPRECIATION");
-  const netIncome = getFact("NET_INCOME");
-  const interestExpense = getFact("INTEREST_EXPENSE");
-  const totalTax = getFact("TOTAL_TAX");
-  let ebitda = getFact("EBITDA");
-  if (ebitda === 0 && netIncome !== 0) {
-    ebitda = netIncome + interestExpense + depreciation + totalTax;
-  }
-  const ads = getFact("ADS");
-
-  // Single source of truth for the DSCR floor this PDF renders pass/fail
-  // coloring against — same detector + finengine-backed resolution used by
-  // sbaPackageOrchestrator.ts (SPEC-BROKERAGE-SBA-READY-V1 /
-  // SPEC-BUDDY-FINANCIAL-ENGINE-ELITE-1 directive 2026-07-14).
-  const { yearsInBusiness: nbYears, monthsInBusiness: nbMonths } =
-    detectNewBusinessFromFacts(
-      factRows.map((f) => ({
-        fact_key: f.fact_key,
-        value_numeric:
-          typeof f.fact_value_num === "number"
-            ? f.fact_value_num
-            : f.fact_value_num != null
-              ? Number(f.fact_value_num)
-              : null,
-        value_text: f.fact_value_text ?? null,
-      })),
-    );
-  const newBusinessAssessment = assessNewBusinessRisk({
-    yearsInBusiness: nbYears,
-    monthsInBusiness: nbMonths,
-    hasBusinessPlan: true,
-    managementYearsInIndustry: null,
-    loanType: deal?.deal_type ?? "SBA",
-    loanAmount: deal?.loan_amount ?? null,
-  });
-  const projectedDscrThreshold = newBusinessAssessment.flags.projectedDscrThreshold;
-
-  const loanImpactRaw = (row.loan_impact ?? {}) as Partial<
-    SBAAssumptions["loanImpact"]
-  >;
-  const assumptions: SBAAssumptions = {
-    dealId: ctx.dealId,
-    status: (row.status as SBAAssumptions["status"]) ?? "draft",
-    revenueStreams: (row.revenue_streams ?? []) as SBAAssumptions["revenueStreams"],
-    costAssumptions: (row.cost_assumptions ?? {
-      cogsPercentYear1: 0.5,
-      cogsPercentYear2: 0.5,
-      cogsPercentYear3: 0.5,
-      fixedCostCategories: [],
-      plannedHires: [],
-      plannedCapex: [],
-    }) as SBAAssumptions["costAssumptions"],
-    workingCapital: (row.working_capital ?? {
-      targetDSO: 45,
-      targetDPO: 30,
-      inventoryTurns: null,
-    }) as SBAAssumptions["workingCapital"],
-    loanImpact: {
-      loanAmount: loanImpactRaw.loanAmount ?? 0,
-      termMonths: loanImpactRaw.termMonths ?? 120,
-      interestRate: loanImpactRaw.interestRate ?? 0.0725,
-      existingDebt: loanImpactRaw.existingDebt ?? [],
-      equityInjectionAmount: loanImpactRaw.equityInjectionAmount ?? 0,
-      equityInjectionSource: loanImpactRaw.equityInjectionSource ?? "cash_savings",
-      sellerFinancingAmount: loanImpactRaw.sellerFinancingAmount ?? 0,
-      sellerFinancingTermMonths: loanImpactRaw.sellerFinancingTermMonths ?? 0,
-      sellerFinancingRate: loanImpactRaw.sellerFinancingRate ?? 0,
-      otherSources: loanImpactRaw.otherSources ?? [],
-    },
-    managementTeam: (row.management_team ?? []) as SBAAssumptions["managementTeam"],
-  };
-
-  let baseYear: ReturnType<typeof buildBaseYear>;
-  let projectionModel: ReturnType<typeof computeSBAProjectionModel>;
-  try {
-    baseYear = buildBaseYear({
-      revenue,
-      cogs,
-      operatingExpenses: opex,
-      ebitda,
-      depreciation,
-      netIncome,
-      existingDebtServiceAnnual: ads,
-    });
-    projectionModel = computeSBAProjectionModel({
-      assumptions,
-      baseYear,
-      projectedDscrThreshold,
-      // Same governed fact the package orchestrator uses. Omitting it here would
-      // make this surface render a cash line that disagrees with the business
-      // plan for the same deal.
-      openingCash: getFact("SL_CASH", "CASH"),
-    });
-  } catch {
-    return json({ ok: false, error: "projection_unavailable" }, 503);
-  }
+  if (!computed?.ok) return json({ ok: false, error: "financial_facts_unavailable" }, 503);
+  const { assumptions, baseYear, projectionModel, projectedDscrThreshold } = computed.output;
   const {
     annualProjections: annual,
     monthlyProjections: monthly,

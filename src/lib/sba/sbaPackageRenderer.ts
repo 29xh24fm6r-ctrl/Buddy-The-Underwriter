@@ -1,4 +1,5 @@
 import "server-only";
+import { displayProjectionDscr } from "./projectionDisplay";
 
 import PDFDocument from "pdfkit";
 import { resolvePolicy } from "@/lib/finengine/policyRegistry";
@@ -116,6 +117,7 @@ export interface SBAPackageRenderInput {
   franchiseSection?: string;
   sourcesAndUses?: SourcesAndUsesResult;
   balanceSheetProjections?: BalanceSheetYear[];
+  projectionAccountingBasis?: string[];
   globalCashFlow?: GlobalCashFlowResult;
   /** Sprint 3: when true, stamps a cosmetic preview watermark on every page. */
   previewWatermark?: boolean;
@@ -986,6 +988,7 @@ function renderBalanceSheetTable(s: DocState) {
     { label: "Inventory", get: (b) => b.inventory },
     { label: "Total Current Assets", get: (b) => b.totalCurrentAssets, bold: true },
     { label: "Fixed Assets", get: (b) => b.fixedAssets },
+    { label: "Intangible Assets", get: (b) => b.intangibleAssets ?? 0 },
     { label: "Total Assets", get: (b) => b.totalAssets, bold: true },
     { label: "Accounts Payable", get: (b) => b.accountsPayable },
     { label: "Short-Term Debt", get: (b) => b.shortTermDebt },
@@ -1102,8 +1105,9 @@ function renderSection2_Projections(s: DocState) {
     { label: "Gross Margin", values: allYears.map((y) => y.grossMarginPct), pct: true },
     { label: "Operating Expenses", values: allYears.map((y) => y.operatingExpenses) },
     { label: "EBITDA", values: allYears.map((y) => y.ebitda), bold: true },
-    { label: "Depreciation", values: allYears.map((y) => y.depreciation) },
+    { label: "Depreciation / Amort.", values: allYears.map((y) => y.depreciation) },
     { label: "EBIT", values: allYears.map((y) => y.ebit) },
+    { label: "Interest Expense", values: allYears.map((y) => y.interestExpense) },
     { label: "Tax Estimate", values: allYears.map((y) => y.taxEstimate) },
     { label: "Net Income", values: allYears.map((y) => y.netIncome), bold: true },
     { label: "Total Debt Service", values: allYears.map((y) => y.totalDebtService) },
@@ -1131,8 +1135,8 @@ function renderSection2_Projections(s: DocState) {
       if (row.pct) {
         display = fmtPct(val);
       } else if (row.label === "DSCR") {
-        display = fmtDscr(val);
-        if (i > 0 && val < 99) {
+        display = displayProjectionDscr(allYears[i]);
+        if (i > 0 && allYears[i].totalDebtService > 0) {
           if (val < dscrThreshold) {
             cellBg = "#fef2f2";
             doc.fillColor(DSCR_RED);
@@ -1184,11 +1188,13 @@ function renderSection3_MonthlyCF(s: DocState) {
 
   const monthlyRows: Array<{ label: string; getter: (m: MonthlyProjection) => number; bold?: boolean }> = [
     { label: "Revenue", getter: (m) => m.revenue },
-    { label: "Operating Costs", getter: (m) => m.operatingDisbursements },
+    { label: "Operating Costs", getter: (m) => m.operatingDisbursements - (m.taxPayments ?? 0) },
+    { label: "Cash Taxes", getter: (m) => m.taxPayments ?? 0 },
+    { label: "Working Capital Change", getter: (m) => -(m.workingCapitalChange ?? 0) },
     { label: "Net Operating CF", getter: (m) => m.netOperatingCF, bold: true },
     { label: "Debt Service", getter: (m) => m.debtService },
     { label: "Financing Inflows", getter: (m) => m.financingInflows ?? 0 },
-    { label: "Capital Expenditures", getter: (m) => -(m.capitalExpenditures ?? 0) },
+    { label: "Closing / Capital Uses", getter: (m) => -(m.capitalExpenditures ?? 0) },
     { label: "Net Cash", getter: (m) => m.netCash },
     { label: "Cumulative Cash", getter: (m) => m.cumulativeCash, bold: true },
   ];
@@ -1521,6 +1527,9 @@ export function renderSBAPackagePDF(input: SBAPackageRenderInput): Promise<Buffe
     newPage(s, "8. Projected Balance Sheet");
     tocEntries[7].page = s.pageNum;
     renderBalanceSheetTable(s);
+    if (input.projectionAccountingBasis?.length) {
+      renderNarrativeBody(s, `Projection accounting basis\n\n${input.projectionAccountingBasis.join("\n\n")}`, "8. Projected Balance Sheet (cont.)");
+    }
 
     // === Page 11: Monthly Cash Flow ===
     newPage(s, "9. Monthly Cash Flow — Year 1");

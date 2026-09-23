@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { PDFDocument } from "pdf-lib";
+import { inflateSync } from "node:zlib";
+import { reconciledStartup } from "./projectionLedger.fixture";
 import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
 
 mockServerOnly();
@@ -98,4 +100,24 @@ test("renders one physical page per logical page without footer-created blanks",
 
   const parsed = await PDFDocument.load(pdf);
   assert.equal(parsed.getPageCount(), 16);
+});
+
+test("rendered startup PDF contains unavailable opening coverage and the reconciled debt, tax and asset rows", async () => {
+  const model = reconciledStartup();
+  const pdf = await renderSBAPackagePDF({
+    ...model, dealName: "QA Startup", loanType: "SBA", loanAmount: 950000,
+    businessOverviewNarrative: "", sensitivityNarrative: "", useOfProceeds: [], managementTeam: [],
+    projectionAccountingBasis: model.accountingBasis,
+  });
+  let text = "";
+  for (const match of pdf.toString("binary").matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+    let body: string;
+    try { body = inflateSync(Buffer.from(match[1], "binary")).toString("binary"); } catch { continue; }
+    for (const literal of body.matchAll(/<([0-9a-fA-F]+)>/g)) text += Buffer.from(literal[1], "hex").toString("utf8");
+  }
+  assert.match(text, /Pre-opening/);
+  assert.match(text, /N\/A/);
+  assert.doesNotMatch(text, /99\.00x/);
+  for (const label of ["Interest Expense", "Intangible Assets", "Cash Taxes", "Projection accounting basis"]) assert.ok(text.includes(label), label);
+  for (const amount of ["1,245,936", "910,218", "335,717"]) assert.ok(text.includes(amount), amount);
 });

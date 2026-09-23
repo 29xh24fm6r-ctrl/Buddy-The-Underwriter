@@ -120,6 +120,8 @@ export interface AnnualProjectionYear {
   existingDebtService?: number;
   proposedLoanDebtService?: number;
   sellerDebtService?: number;
+  principalRepayment?: number;
+  endingDebtBalance?: number;
   dscr: number;
   revenueGrowthPct?: number; // undefined for year 0
 }
@@ -150,6 +152,11 @@ export interface MonthlyProjection {
   month: number; // 1–12
   revenue: number;
   operatingDisbursements: number;
+  /** Included in operatingDisbursements; shared with annual tax estimate. */
+  taxPayments?: number;
+  accountsReceivable?: number;
+  inventory?: number;
+  accountsPayable?: number;
   netOperatingCF: number;
   debtService: number;
   /** Transaction funding received in the period (legacy rows may omit). */

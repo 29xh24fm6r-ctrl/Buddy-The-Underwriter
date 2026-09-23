@@ -1,11 +1,11 @@
 "use client";
 
+import { useState } from "react";
+
 // src/components/borrower/intake/ProjectionDashboard.tsx
 // Phase 85-BPG-B — Live projection dashboard for the SBA assumption interview.
-// Runs the forward model client-side on every assumption change (no server
-// round-trips) and renders 4 visualization cards.
+// Renders the same memoized model that the assumption interview uses for its roadmap.
 
-import { useEffect, useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -17,11 +17,9 @@ import {
   ResponsiveContainer,
   ComposedChart,
 } from "recharts";
-import { buildBaseYear } from "@/lib/sba/sbaForwardModelBuilder";
-import { computeSBAProjectionModel } from "@/lib/sba/sbaProjectionAuthority";
+import type { SBAProjectionModel } from "@/lib/sba/sbaProjectionAuthority";
 import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 import type {
-  SBAAssumptions,
   AnnualProjectionYear,
   MonthlyProjection,
   BreakEvenResult,
@@ -38,19 +36,10 @@ const DEFAULT_DSCR_THRESHOLD = resolvePolicy("dscr_floor").effective ?? 1.25;
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
-type BaseYearFacts = {
-  revenue: number;
-  cogs: number;
-  operatingExpenses: number;
-  ebitda: number;
-  depreciation: number;
-  netIncome: number;
-  existingDebtServiceAnnual: number;
-};
 
 interface Props {
-  token: string;
-  assumptions: SBAAssumptions;
+  model: SBAProjectionModel | null;
+  dscrThreshold?: number;
 }
 
 // Intentionally `unused-var`-exempt: BarChart/Bar are re-imported by Recharts'
@@ -361,66 +350,21 @@ function ScenarioDscrCell({ label, value }: { label: string; value: number }) {
 
 // ─── Main component ──────────────────────────────────────────────────────
 
-export function ProjectionDashboard({ token, assumptions }: Props) {
-  const [baseYearFacts, setBaseYearFacts] = useState<BaseYearFacts | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch(`/api/borrower/portal/${token}/base-year`);
-        const json = await res.json();
-        if (cancelled) return;
-        if (json.ok && json.baseYear) setBaseYearFacts(json.baseYear);
-      } catch {
-        // Non-fatal: dashboard just won't render without base-year data
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  const projections = useMemo(() => {
-    if (!baseYearFacts) return null;
-    if (!assumptions.revenueStreams?.length) return null;
-    if (assumptions.revenueStreams.every((s) => s.baseAnnualRevenue === 0))
-      return null;
-
-    try {
-      const baseYear = buildBaseYear(baseYearFacts);
-      const model = computeSBAProjectionModel({ assumptions, baseYear });
-      return {
-        baseYear,
-        annual: model.annualProjections,
-        monthly: model.monthlyProjections,
-        breakEven: model.breakEven,
-        scenarios: model.sensitivityScenarios,
-      };
-    } catch {
-      return null;
-    }
-  }, [assumptions, baseYearFacts]);
-
-  if (loading) return null;
-  if (!projections) return null;
+export function ProjectionDashboard({ model, dscrThreshold }: Props) {
+  if (!model) return null;
 
   return (
     <div className="space-y-3 mt-4 pt-4 border-t border-slate-200">
-      <h3 className="text-sm font-medium text-slate-500">Live Projections</h3>
-      <DSCRGauge dscr={projections.annual[0]?.dscr ?? 0} />
+      <h3 className="text-sm font-medium text-slate-500">Draft Projections</h3>
+      <DSCRGauge dscr={model.annualProjections[0]?.dscr ?? 0} threshold={dscrThreshold} />
       <IncomeTable
-        baseYear={projections.baseYear}
-        projections={projections.annual}
+        baseYear={model.baseYear}
+        projections={model.annualProjections}
       />
-      <CashFlowChart monthly={projections.monthly} />
+      <CashFlowChart monthly={model.monthlyProjections} />
       <BreakEvenAndScenarios
-        breakEven={projections.breakEven}
-        scenarios={projections.scenarios}
+        breakEven={model.breakEven}
+        scenarios={model.sensitivityScenarios}
       />
     </div>
   );

@@ -6,7 +6,7 @@ import { deterministicHash } from "./hashing";
 import { computePackageFinancialOutput, type PackageFinancialOutput } from "./packageFinancialComputation";
 import { computeTridentInputSnapshot } from "@/lib/brokerage/trident/tridentInputSnapshot";
 
-export const PACKAGE_FINANCIAL_VERSION = "model_v2_package_4";
+export const PACKAGE_FINANCIAL_VERSION = "model_v2_package_5";
 export type PackageFinancialSnapshot = { id: string; dealId: string; bankId: string; inputHash: string; outputHash: string; output: PackageFinancialOutput & { canonicalMemo: CanonicalCreditMemoV1; memoContractBlockers: string[] } };
 
 function decode(row: any): PackageFinancialSnapshot {

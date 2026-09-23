@@ -513,6 +513,7 @@ export async function generateTridentBundle(args: {
         const xlsxBuf = await renderProjectionsXlsx({
           assumptions,
           assumptionsNarrative: pkgRow.projections_assumptions_narrative ?? "",
+          accountingBasis: sbaResult.renderInput?.projectionAccountingBasis,
           dealName: "Deal",
           baseYear: (pkgRow.base_year_data as any) ?? {},
           annualProjections: (pkgRow.projections_annual as any) ?? [],

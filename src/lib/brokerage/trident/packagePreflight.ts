@@ -3,9 +3,11 @@ import type { PackageFinancialSnapshot } from "@/lib/modelEngine/packageFinancia
 import { runMemoPreflight, formatPreflightFindings } from "@/lib/creditMemo/canonical/memoPreflight";
 import { buildPreflightInput } from "@/lib/creditMemo/canonical/buildPreflightInput";
 import { generateFeasibilityStudy } from "@/lib/feasibility/feasibilityEngine";
+import { assertProjectionReconciliation } from "@/lib/sba/projectionReconciliation";
 
 /** All deterministic artifact checks run before the canonical memo's first model call. */
 export async function assertPackageDeterministicReadiness(snapshot: PackageFinancialSnapshot) {
+  assertProjectionReconciliation(snapshot.output.projectionModel);
   const blockers: string[] = [];
   const memo = runMemoPreflight(buildPreflightInput(snapshot.output.canonicalMemo, snapshot.output.memoContractBlockers));
   if (!memo.ok) blockers.push(`Credit memo preflight blocked: ${formatPreflightFindings(memo.findings)}`);
