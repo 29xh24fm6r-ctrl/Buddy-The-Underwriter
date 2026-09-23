@@ -1,4 +1,5 @@
 import "server-only";
+import { GatewayBudgetExceededError, GatewayBudgetPersistenceError } from "@/lib/ai/budget";
 import { isSubstantiveNarrative } from "@/lib/brokerage/trident/narrativeAcceptance";
 
 // src/lib/feasibility/feasibilityNarrative.ts
@@ -95,15 +96,23 @@ export async function generateFeasibilityNarratives(
   const prompts = buildFeasibilityNarrativePrompts(params);
   const run = async (prompt: string, key: string) => {
     try { return extractNarrativeResult({ status: "fulfilled", value: await generate(prompt) }, key); }
-    catch { return `${key} not available.`; }
+    catch (error) {
+      if (error instanceof GatewayBudgetExceededError || error instanceof GatewayBudgetPersistenceError) throw error;
+      return `${key} not available.`;
+    }
   };
-  const entries = await Promise.all(prompts.map(async ({ prompt, key }) => {
+  const outcomes = await Promise.allSettled(prompts.map(async ({ prompt, key }) => {
     let value = await run(prompt, key);
     if (!isSubstantiveNarrative(value)) value = await run(
       prompt + "\nThe previous attempt was missing, malformed or incomplete. Return the requested JSON field with substantive evidence-grounded prose. Do not invent facts to fill gaps.", key,
     );
     return [key, value];
   }));
+  // Drain already-started calls before reporting a hard budget failure. Do not
+  // turn it into placeholder prose and spend verifier/repair tokens on it.
+  const failure = outcomes.find(outcome => outcome.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
+  const entries = outcomes.flatMap(outcome => outcome.status === "fulfilled" ? [outcome.value] : []);
   return {
     ...Object.fromEntries(entries),
     ...(!params.franchiseComparison ? { franchiseComparisonNarrative: null } : {}),

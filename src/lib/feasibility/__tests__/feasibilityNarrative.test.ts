@@ -55,3 +55,13 @@ test("persistent placeholder or malformed JSON never clears final acceptance; re
   assert.equal(calls, 14);
   assert.equal(assessFeasibilityNarratives(result).ok, false);
 });
+
+test("budget exhaustion remains a hard stop rather than placeholder prose or repeated repair attempts", async () => {
+  const { GatewayBudgetExceededError } = require("../../ai/budget");
+  let calls = 0;
+  await assert.rejects(generateFeasibilityNarratives(input, async () => {
+    calls++;
+    throw new GatewayBudgetExceededError("Package token budget exceeded");
+  }), GatewayBudgetExceededError);
+  assert.equal(calls, 7, "one attempted call per section and no unchanged retry");
+});

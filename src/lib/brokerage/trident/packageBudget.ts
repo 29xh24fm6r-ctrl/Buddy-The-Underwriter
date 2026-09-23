@@ -11,7 +11,11 @@ export async function readPackageCapacity(args: { dealId: string; bankId: string
   try {
     await assertPackageBudgetAvailable(args, sb);
     return { available: true, message: null };
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/budget_unavailable: .* (QA )?daily allowance/.test(message)) {
+      return { available: false, message: "Today's package preparation capacity cannot cover another complete package yet. Your information is saved. Capacity renews at midnight UTC; refresh status before preparing again." };
+    }
     return { available: false, message: "Package preparation is paused because processing capacity is unavailable or could not be verified. Your information is saved. You can check saved package evidence without AI, then refresh status before preparing." };
   }
 }

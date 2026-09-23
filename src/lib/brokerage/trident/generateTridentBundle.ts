@@ -145,7 +145,7 @@ export async function generateTridentSbaCheckpoint(args: {
   const sb = supabaseAdmin();
   const { data: bundle, error: bundleError } = await sb
     .from("buddy_trident_bundles")
-    .select("id")
+    .select("id,snapshot_manifest_json")
     .eq("id", args.bundleId)
     .eq("deal_id", args.dealId)
     .eq("bank_id", args.bankId)
@@ -156,7 +156,7 @@ export async function generateTridentSbaCheckpoint(args: {
   if (bundleError || !bundle) {
     throw new Error(bundleError?.message ?? "Trident lease lost before SBA generation");
   }
-  await assertTridentInputSnapshot({ sb, dealId: args.dealId, expectedHash: args.inputHash });
+  await assertTridentInputSnapshot({ sb, dealId: args.dealId, expectedHash: args.inputHash, expectedManifest: bundle.snapshot_manifest_json });
 
   // A retry with the same saved financial version reuses generation, then resumes review.
   if (args.financialSnapshotId) {
@@ -272,7 +272,7 @@ export async function generateTridentBundle(args: {
   const admittedLeaseToken = args.leaseToken!;
   const { data: existing, error: existingError } = await sb
     .from("buddy_trident_bundles")
-    .select("id,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_sba_package_id,source_feasibility_id")
+    .select("id,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_sba_package_id,source_feasibility_id,snapshot_manifest_json")
     .eq("id", bundleId)
     .eq("deal_id", dealId)
     .eq("bank_id", admittedBankId)
@@ -308,7 +308,7 @@ export async function generateTridentBundle(args: {
     current: existing as Record<string, unknown>,
   });
 
-  await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
+  await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash, expectedManifest: existing.snapshot_manifest_json });
 
   return runWithAIExecutionContext(
     {
@@ -803,7 +803,7 @@ export async function generateTridentBundle(args: {
     let releaseManifest: Record<string, unknown> | null = null;
     let canonicalMemoInputHash: string | null = null;
     if (mode === "final") {
-      await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
+      await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash, expectedManifest: existing.snapshot_manifest_json });
 
       const { data: boundSources, error: boundSourcesError } = await sb
         .from("buddy_trident_bundles")
@@ -917,7 +917,7 @@ export async function generateTridentBundle(args: {
 
     // Publication is performed by verifyTridentFactory only after the
     // release-manifest stage is durably recorded.
-    await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
+    await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash, expectedManifest: existing.snapshot_manifest_json });
 
     return {
       ok: true,

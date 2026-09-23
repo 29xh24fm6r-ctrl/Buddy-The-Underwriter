@@ -29,6 +29,7 @@ import { callAnthropic } from "./providers/anthropic";
 import { callOpenAI } from "./providers/openai";
 import type { ProviderCallRequest, ProviderCallResult } from "./providers/types";
 import { getAIExecutionContext } from "./executionContext";
+import { withPackageRoleSlot } from "./packageRoleScheduler";
 import {
   estimateGatewayReservation,
   estimateTextTokenUpperBound,
@@ -271,6 +272,10 @@ export async function runRole(
   role: GatewayRole,
   request: RunRoleRequest,
 ): Promise<RunRoleResult> {
+  return withPackageRoleSlot(role, () => runRoleWithBudget(role, request));
+}
+
+async function runRoleWithBudget(role: GatewayRole, request: RunRoleRequest): Promise<RunRoleResult> {
   if (request.responseSchema && request.responseJsonObject) {
     throw new Error("runRole: responseSchema and responseJsonObject are mutually exclusive");
   }
