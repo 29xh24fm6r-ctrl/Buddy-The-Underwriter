@@ -10,7 +10,7 @@
 
 const LABEL_SUFFIX_PATTERNS = [
   /\s+(taxpayer|spouse|filer|name|address|ssn|date)\b.*$/i,
-  /\s+(date of birth|dob|tax id)\b.*$/i,
+  /\s+(date of birth|dob|tax id|tax year)\b.*$/i,
 ];
 
 export function sanitizeEntityName(
