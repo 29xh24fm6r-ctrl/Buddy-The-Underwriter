@@ -103,14 +103,21 @@ function canonicalize(value: unknown): unknown {
  * Five production runs failed exactly this way, and none of them carried a
  * `changed_sources` list, because there was no source drift to report.
  */
-export const TRIDENT_SNAPSHOT_VERSION = 10;
+export const TRIDENT_SNAPSHOT_VERSION = 11;
 
 /** Keep evidence dates, but ignore the aggregator's wall-clock persistence date.
  * runCashFlowAggregator stamps this specific provenance on every recomputation,
  * including reads through the spread renderer. It is not the reporting period.
  * Keep the full original provenance in the stored manifest for audit purposes.
  */
-function comparableSources(sources: JsonRecord): JsonRecord {
+function comparableSources(sources: JsonRecord, version: number): JsonRecord {
+  // V11 excludes only this deal-level scheduler cursor. Preserve the original
+  // manifest and historical hash semantics; do not drop similarly named
+  // borrower/document fields or lifecycle decisions that affect release.
+  if (version >= 11 && sources.deal && typeof sources.deal === "object") {
+    sources = { ...sources, deal: Object.fromEntries(Object.entries(sources.deal)
+      .filter(([key]) => key !== "brokerage_comms_last_run_at")) };
+  }
   if (!Array.isArray(sources.financialFacts)) return sources;
   return {
     ...sources,
@@ -149,13 +156,13 @@ export function hashTridentManifest(manifest: Record<string, unknown>): string {
   // manifest and is enforced by readiness/release, but its lifecycle workers
   // may not invalidate the factory's own frozen borrower snapshot.
   const hashDomain =
-    (manifest.version === 5 || manifest.version === 6 || manifest.version === 7 || manifest.version === 8 || manifest.version === 9 || manifest.version === 10) &&
+    (manifest.version === 5 || manifest.version === 6 || manifest.version === 7 || manifest.version === 8 || manifest.version === 9 || manifest.version === 10 || manifest.version === 11) &&
       manifest.sources && typeof manifest.sources === "object"
       ? manifest.sources
       : manifest;
   return createHash("sha256")
     .update(JSON.stringify(canonicalize(semanticTridentSnapshot(
-      Number(manifest.version) >= 9 ? comparableSources(hashDomain as JsonRecord) : hashDomain,
+      Number(manifest.version) >= 9 ? comparableSources(hashDomain as JsonRecord, Number(manifest.version)) : hashDomain,
     ))))
     .digest("hex");
 }
@@ -265,7 +272,7 @@ export async function computeTridentInputSnapshot(
     // readiness/release, while asynchronous lifecycle convergence cannot make
     // an admitted factory invalidate itself.
     sources: {
-      packageFormat: "complete-lender-package-v2",
+      packageFormat: "complete-lender-package-v3",
       financialDependencies,
       formInputs,
       deal: dealResult.data,
@@ -309,14 +316,16 @@ export function summarizeTridentSourceDrift(
   admittedManifest: Record<string, unknown> | null | undefined,
   currentManifest: Record<string, unknown>,
 ): string[] {
+  // Missing evidence cannot establish that every category changed.
+  if (!admittedManifest?.sources) return [];
   const admittedSources = comparableSources(
     admittedManifest?.sources && typeof admittedManifest.sources === "object"
       ? admittedManifest.sources as JsonRecord
-      : {});
+      : {}, Number(admittedManifest.version));
   const currentSources = comparableSources(
     currentManifest.sources && typeof currentManifest.sources === "object"
       ? currentManifest.sources as JsonRecord
-      : {});
+      : {}, Number(currentManifest.version));
   return [...new Set([...Object.keys(admittedSources), ...Object.keys(currentSources)])]
     .sort()
     .filter((key) =>
@@ -329,7 +338,7 @@ export async function assertTridentInputSnapshot(args: {
   sb: SupabaseClient;
   dealId: string;
   expectedHash: string;
-  expectedManifest?: Record<string, unknown> | null;
+  expectedManifest: Record<string, unknown> | null;
 }): Promise<void> {
   // Schema generation first. A hash mismatch across schema versions says
   // nothing about the borrower's data, and reporting it as input drift sends
@@ -339,6 +348,9 @@ export async function assertTridentInputSnapshot(args: {
     if (admittedVersion !== TRIDENT_SNAPSHOT_VERSION) {
       throw new TridentSnapshotSchemaChanged(admittedVersion);
     }
+  }
+  if (!args.expectedManifest?.sources) {
+    throw new Error("snapshot_manifest_unavailable: the admitted input evidence could not be verified");
   }
 
   const current = await computeTridentInputSnapshot(args.sb, args.dealId);

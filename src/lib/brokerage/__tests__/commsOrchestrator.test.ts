@@ -362,3 +362,22 @@ test("batch drains twice the deal limit from the outbox by default", async () =>
   assert.equal(await drainLimitFor({ limit: 4 }), 8, "default drain should be twice the deal limit");
   assert.equal(await drainLimitFor({ limit: 4, outboxLimit: 3 }), 3, "explicit outboxLimit should win");
 });
+
+test("a real communications scheduler tick cannot invalidate an admitted package, but a loan edit does", async () => {
+  const { hashTridentManifest, summarizeTridentSourceDrift, TRIDENT_SNAPSHOT_VERSION } = require("../trident/tridentInputSnapshot");
+  const db = activeDealDb();
+  const admitted = { version: TRIDENT_SNAPSHOT_VERSION, sources: { deal: structuredClone(db.tables.deals[0]), assumptions: [{ revenue: 1500000 }] } };
+  const result = await m.runBrokerageCommsForDeal("d1", db as any, {
+    purposes: { borrowerNudges: false, bankerAlerts: false }, processOutbox: false,
+  });
+  const current = { ...admitted, sources: { ...admitted.sources, deal: structuredClone(db.tables.deals[0]) } };
+  assert.ok(current.sources.deal.brokerage_comms_last_run_at);
+  assert.notEqual(current.sources.deal.brokerage_comms_last_run_at, admitted.sources.deal.brokerage_comms_last_run_at);
+  assert.equal(result.outbox.sent, 0);
+  assert.equal(hashTridentManifest(admitted), hashTridentManifest(current));
+  assert.deepEqual(summarizeTridentSourceDrift(admitted, current), []);
+  assert.notEqual(hashTridentManifest({ ...admitted, version: 10 }), hashTridentManifest({ ...current, version: 10 }), "historical schema semantics remain reproducible");
+  current.sources.deal.loan_amount = 950001;
+  assert.notEqual(hashTridentManifest(admitted), hashTridentManifest(current));
+  assert.deepEqual(summarizeTridentSourceDrift(admitted, current), ["deal"]);
+});

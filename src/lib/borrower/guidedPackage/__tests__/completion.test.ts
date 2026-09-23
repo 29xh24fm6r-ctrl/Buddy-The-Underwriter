@@ -42,3 +42,11 @@ test("paid-agent answers require real fee disclosure evidence and never default 
   snapshot.form159 = {complete:true};
   assert.deepEqual(packageCompletionItems(snapshot),[]);
 });
+
+test("snapshot failures explain the recovery without exposing private diagnostics or blaming the borrower", () => {
+  for (const code of ["input_snapshot_changed", "snapshot_schema_superseded", "snapshot_manifest_unavailable"]) {
+    const message = borrowerPackageFailure(`${code}: admitted=secret-hash changed_sources=private-input`);
+    assert.doesNotMatch(message, /secret|private|Retry once/);
+    assert.match(message, /saved/);
+  }
+});

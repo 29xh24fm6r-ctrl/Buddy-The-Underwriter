@@ -26,6 +26,7 @@ test.afterEach(() => {
 type Row = Record<string, any>;
 
 function makeDb(tables: Record<string, Row[]>) {
+  tables.deals ??= [{ id: "deal-1", bank_id: "bank-1", name: "QA Borrower" }];
   function builder(tableName: string) {
     const stored = tables[tableName] ?? (tables[tableName] = []);
     let rows = [...stored];
@@ -34,6 +35,8 @@ function makeDb(tables: Record<string, Row[]>) {
     let payload: any = null;
 
     const q: any = {
+      order() { return q; },
+      limit(n: number) { rows = rows.slice(0, n); return q; },
       select() {
         return q;
       },
@@ -233,4 +236,56 @@ test("opens a banker task when a critical claim is flagged, via the shared deal_
   const updated = tables.buddy_sba_packages[0];
   assert.equal(updated.verification_verdict, "flagged");
   assert.equal(tables.deal_conditions?.length, 1);
+});
+
+test("saved interview reaches review, repair and cache identity without becoming verified financial evidence", async () => {
+  __setVendorApprovalForTests("openai", "APPROVED");
+  let reviews = 0, repairs = 0;
+  const seen: string[] = [];
+  __setProviderImplForTests("anthropic", async request => {
+    reviews++;
+    seen.push(request.prompt);
+    assert.match(request.prompt, /250,000 annual transactions/);
+    assert.match(request.prompt, /3 to 6 months/);
+    assert.match(request.prompt, /30,000 marketing/);
+    assert.match(request.prompt, /not independently verified/);
+    return { text: JSON.stringify({ issues: reviews === 1 ? [{ sectionKey: "operations_plan", claim: "No opening target was supplied", reason: "Interview supplies a target", severity: "critical", category: "cross_artifact_conflict", repairInstruction: "Preserve the qualified borrower target" }] : [] }), tokensIn: 20, tokensOut: 10 };
+  });
+  __setProviderImplForTests("openai", async request => {
+    repairs++; seen.push(request.prompt);
+    assert.match(request.prompt, /250,000 annual transactions/);
+    assert.match(request.prompt, /3 to 6 months/);
+    assert.match(request.prompt, /not independently verified/);
+    return { text: JSON.stringify({ sections: [{ key: "operations_plan", text: "The borrower targets 3 to 6 months; this is not independently verified or contractually committed." }] }), tokensIn: 20, tokensOut: 10 };
+  });
+  const tables: Record<string, Row[]> = {
+    buddy_sba_packages: [basePkgRow({ operations_plan: "No opening target was supplied." })],
+    borrower_concierge_sessions: [{ deal_id: "deal-1", confirmed_facts: { package_answers: {
+      A07: { value: "3 to 6 months", saved_at: "2026-09-23" },
+      D04: { value: "Synthetic $4-$8 beverages, $6 average ticket, not independently verified" },
+      L03: { value: "Synthetic 250,000 annual transactions; demand unverified" },
+      L07: { value: "Synthetic $30,000 marketing and $90,000 royalty provision" },
+    } } }],
+  };
+  const args = { dealId: "deal-1", bankId: "bank-1", packageId: "pkg-1", sb: makeDb(tables) };
+  const first = await enrichBusinessPlanPackage(args);
+  assert.equal(first.verdict, "pass"); assert.equal(repairs, 1); assert.equal(reviews, 2);
+  const savedHash = tables.buddy_sba_packages[0].verification_input_hash;
+  const answers = tables.borrower_concierge_sessions[0].confirmed_facts.package_answers;
+  answers.A07.saved_at = "2026-09-24";
+  assert.equal((await enrichBusinessPlanPackage(args)).reusedVerdict, true);
+  assert.equal(reviews, 2, "metadata alone must not spend on a new review");
+  tables.buddy_sba_packages[0].verification_flagged_claims = [{ claim: "Site pending", reason: "Obtain approval", severity: "warning" }];
+  assert.equal((await enrichBusinessPlanPackage(args)).advisoryCount, 1, "reuse must retain advisory disclosure");
+  answers.A07.value = "3 to 6 months, subject to lender approval";
+  assert.equal((await enrichBusinessPlanPackage(args)).reusedVerdict, false);
+  assert.notEqual(tables.buddy_sba_packages[0].verification_input_hash, savedHash);
+  assert.equal(reviews, 3, "changed borrower evidence invalidates the old pass");
+});
+
+test("business-plan review refuses a deal from another bank before any provider call", async () => {
+  let calls = 0;
+  __setProviderImplForTests("anthropic", async () => { calls++; throw new Error("must not call"); });
+  await assert.rejects(enrichBusinessPlanPackage({ dealId: "deal-1", bankId: "bank-1", packageId: "pkg-1", sb: makeDb({ deals: [{ id: "deal-1", bank_id: "another-bank" }], buddy_sba_packages: [basePkgRow({ executive_summary: "Synthetic" })] }) }), /package_borrower_context_deal_mismatch/);
+  assert.equal(calls, 0);
 });

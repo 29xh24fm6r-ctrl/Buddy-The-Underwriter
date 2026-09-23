@@ -1,4 +1,5 @@
 import "server-only";
+import { loadPackageBorrowerContext } from "./packageBorrowerContext";
 
 /**
  * SPEC-M8 ARTIFACT-PIPELINE-1 (audit fix) — post-hoc verifier pass for an
@@ -95,6 +96,7 @@ export async function enrichBusinessPlanPackage(args: {
   const savedFinancial = typeof financialSnapshotId === "string"
     ? await (await import("@/lib/modelEngine/packageFinancialSnapshot")).loadPackageFinancialSnapshot({ dealId, bankId, snapshotId: financialSnapshotId }) : null;
   const facts = {
+    borrowerContext: await loadPackageBorrowerContext(sb, dealId, bankId),
     financialSnapshotId: savedFinancial?.id ?? null,
     authoritativeFinancials: savedFinancial ? { projectionModel: savedFinancial.output.projectionModel, sourcesAndUses: savedFinancial.output.sourcesAndUses, assumptions: savedFinancial.output.assumptions } : null,
     dscr_year1_base: typed.dscr_year1_base,
@@ -126,11 +128,13 @@ export async function enrichBusinessPlanPackage(args: {
     typeof typed.verification_input_hash === "string" &&
     typed.verification_input_hash === contentHash
   ) {
+    const flaggedClaims = Array.isArray(typed.verification_flagged_claims)
+      ? typed.verification_flagged_claims as FlaggedClaim[] : [];
     return {
       verdict: "pass" as const,
       repaired: false,
-      flaggedClaims: [],
-      advisoryCount: 0,
+      flaggedClaims,
+      advisoryCount: flaggedClaims.filter(claim => claim.severity === "warning").length,
       reusedVerdict: true,
     };
   }

@@ -127,7 +127,11 @@ export async function reserveGatewayBudget(
   }
   if (!data?.allowed || !data.reservation_id) {
     throw new GatewayBudgetExceededError(
-      `${runId ? "Package run, QA allocation, or daily" : "daily"} token budget exceeded for role "${role}" (${Number(
+      runId
+        ? `Package token budget exceeded for role "${role}": admission counted ${Number(data?.tokens_consumed ?? 0) + Number(data?.tokens_reserved ?? 0)} settled or reserved tokens + ${requestedTokens} requested. ` +
+          `Limits: ${Math.min(dailyBudget, 150000)} per run; ${Math.floor(dailyBudget / 2)} QA tokens per UTC day (test deals only); ${dailyBudget} total per UTC day. ` +
+          "The admission counter can include active reservations; it is not billed usage."
+        : `daily token budget exceeded for role "${role}" (${Number(
         data?.tokens_consumed ?? 0,
       )} consumed + ${Number(data?.tokens_reserved ?? 0)} reserved + ${requestedTokens} requested / ${dailyBudget})`,
     );

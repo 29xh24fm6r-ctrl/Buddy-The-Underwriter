@@ -163,3 +163,15 @@ for (const marker of ["source_type", "source_ref", "extractor"] as const) {
     assert.deepEqual(summarizeTridentSourceDrift(before, after), ["financialFacts"]);
   });
 }
+
+test("scheduler exclusion is scoped to deals; actual input categories and historical hashes retain their meaning", () => {
+  const before = { version: TRIDENT_SNAPSHOT_VERSION, sources: { deal: { brokerage_comms_last_run_at: "old", stage: "application", ready_at: null }, documents: [{ brokerage_comms_last_run_at: "document-evidence" }] } };
+  const after = structuredClone(before);
+  after.sources.documents[0].brokerage_comms_last_run_at = "changed-evidence";
+  assert.notEqual(hashTridentManifest(before), hashTridentManifest(after));
+  assert.deepEqual(summarizeTridentSourceDrift(before, after), ["documents"]);
+  after.sources = structuredClone(before.sources);
+  after.sources.deal.stage = "closed";
+  assert.notEqual(hashTridentManifest(before), hashTridentManifest(after));
+  assert.deepEqual(summarizeTridentSourceDrift(undefined, after), [], "missing evidence must not blame every input category");
+});

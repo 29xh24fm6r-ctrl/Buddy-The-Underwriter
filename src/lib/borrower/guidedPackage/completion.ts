@@ -38,6 +38,12 @@ export function borrowerPackageFailure(error: unknown): string {
   const text = typeof error === "string" ? error : "";
   if (/budget exceeded|budget_unavailable|run_allowance_exceeded/i.test(text))
     return CAPACITY_FAILURE;
+  if (text.includes("snapshot_schema_superseded"))
+    return "Buddy was updated while your package was being prepared. Your answers are saved. Refresh the package checks before preparing a new package.";
+  if (text.includes("snapshot_manifest_unavailable"))
+    return "Buddy could not verify the saved information for this preparation attempt. Your answers are saved. Contact Buddy support before preparing again.";
+  if (text.includes("input_snapshot_changed"))
+    return "The saved package inputs changed during preparation. Your answers are saved. Refresh the package checks before preparing again.";
   const recovery = packageRecoveryItems(text);
   if (recovery.length) return "Package checks found items to resolve. Review the guidance below before preparing again.";
   const items: string[] = [];

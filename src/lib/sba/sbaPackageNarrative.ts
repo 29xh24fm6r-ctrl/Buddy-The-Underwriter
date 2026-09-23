@@ -1,5 +1,6 @@
 import "server-only";
 import { formatPackageInterview } from "@/lib/borrower/guidedPackage/interviewContext";
+import { PACKAGE_BORROWER_EVIDENCE_POLICY } from "./packageBorrowerContext";
 
 import type {
   SensitivityScenario,
@@ -66,6 +67,7 @@ function formatStoryForPrompt(story: BorrowerStory | null | undefined): string {
   const s = story as BorrowerStory;
   const lines: string[] = [
     "THE BORROWER'S STORY (their own words, captured in discovery interview):",
+    PACKAGE_BORROWER_EVIDENCE_POLICY,
   ];
   lines.push(formatPackageInterview(s.packageInterview));
   if (s.originStory?.trim()) {

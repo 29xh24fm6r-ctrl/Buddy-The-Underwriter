@@ -118,7 +118,7 @@ test("[schema] a current-generation manifest still proceeds to the hash comparis
       sb: exploding,
       dealId: "deal-1",
       expectedHash: "h",
-      expectedManifest: { version: TRIDENT_SNAPSHOT_VERSION },
+      expectedManifest: { version: TRIDENT_SNAPSHOT_VERSION, sources: {} },
     }),
     /reached the database/,
     "a matching schema version must fall through to the real snapshot read",
@@ -155,4 +155,8 @@ test("[schema] the emitted manifest carries the version the verifier expects", (
     "the current version must digest only `sources`; if it digests the whole " +
       "manifest, asynchronously-governed evidence invalidates admitted runs",
   );
+});
+
+test("missing admitted evidence fails closed before querying current inputs", async () => {
+  await assert.rejects(snapshot.assertTridentInputSnapshot({ sb: {} as never, dealId: "d", expectedHash: "h", expectedManifest: null }), /snapshot_manifest_unavailable/);
 });
