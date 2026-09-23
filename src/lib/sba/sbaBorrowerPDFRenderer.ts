@@ -1,4 +1,5 @@
 import "server-only";
+import { displayProjectionDscr } from "./projectionDisplay";
 
 // src/lib/sba/sbaBorrowerPDFRenderer.ts
 // Phase 85-BPG-EXPERIENCE — Borrower-facing projection PDF.
@@ -433,7 +434,7 @@ function renderProjectionsTable(s: DocState) {
   const { doc, input } = s;
   const dscrThreshold = resolveDscrThreshold(input);
   const allYears = [input.baseYear, ...input.annualProjections];
-  const colLabels = ["", "Base Year", "Year 1", "Year 2", "Year 3"];
+  const colLabels = ["", input.baseYear.label === "Pre-opening" ? "Pre-opening" : "Base Year", "Year 1", "Year 2", "Year 3"];
   const colWidths = [140, 95, 95, 95, 95];
   const startX = PAGE_MARGIN;
 
@@ -501,8 +502,8 @@ function renderProjectionsTable(s: DocState) {
       if (row.pct) {
         display = fmtPct(val);
       } else if (row.label === "Coverage Ratio") {
-        display = val >= 99 ? "—" : fmtDscr(val);
-        if (val < dscrThreshold && val < 99 && i > 0) {
+        display = displayProjectionDscr(allYears[i]);
+        if (val < dscrThreshold && allYears[i].totalDebtService > 0 && i > 0) {
           doc.fillColor(DSCR_RED);
         }
       } else {

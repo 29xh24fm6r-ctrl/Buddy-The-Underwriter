@@ -18,8 +18,7 @@ import type {
   BreakEvenResult,
   SensitivityScenario,
 } from "@/lib/sba/sbaReadinessTypes";
-import { buildBaseYear } from "@/lib/sba/sbaForwardModelBuilder";
-import { computeSBAProjectionModel } from "@/lib/sba/sbaProjectionAuthority";
+import { computeSBAProjectionModel, type SBAProjectionBasis, type SBAProjectionModel } from "@/lib/sba/sbaProjectionAuthority";
 import { ProjectionDashboard } from "./ProjectionDashboard";
 
 // Local mirror of ResearchContext shape from sbaResearchProjectionGenerator.ts
@@ -44,17 +43,8 @@ type ResearchContextLike = {
   cogsMedian?: number | null;
 };
 
-type BaseYearFactsLike = {
-  revenue: number;
-  cogs: number;
-  operatingExpenses: number;
-  ebitda: number;
-  depreciation: number;
-  netIncome: number;
-  existingDebtServiceAnnual: number;
-};
-
 type Projections = {
+  model: SBAProjectionModel;
   annual: AnnualProjectionYear[];
   monthly: MonthlyProjection[];
   breakEven: BreakEvenResult;
@@ -122,7 +112,7 @@ export function AssumptionInterview({
   // below already has sensible prefilled defaults — the borrower just
   // didn't get the auto-generated dashboard first.
   const [researchNote, setResearchNote] = useState<string | null>(null);
-  const [baseYearFacts, setBaseYearFacts] = useState<BaseYearFactsLike | null>(
+  const [projectionBasis, setProjectionBasis] = useState<SBAProjectionBasis | null>(
     null,
   );
 
@@ -267,17 +257,15 @@ export function AssumptionInterview({
     };
   }, [token]);
 
-  // Load base-year facts once so we can compute projections for the roadmap
-  // card. ProjectionDashboard fetches the same endpoint independently; HTTP
-  // caching plus a tiny payload keep the cost negligible.
+  // Load the accepted financial basis once for both the dashboard and roadmap.
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
         const res = await fetch(`/api/borrower/portal/${token}/base-year`);
         const json = await res.json();
-        if (!cancelled && json.ok && json.baseYear) {
-          setBaseYearFacts(json.baseYear);
+        if (!cancelled && json.ok && json.projectionBasis) {
+          setProjectionBasis(json.projectionBasis);
         }
       } catch {
         // Non-fatal; roadmap card will simply not render.
@@ -477,21 +465,17 @@ export function AssumptionInterview({
     ],
   );
 
-  // Compute projections at the parent level so the roadmap card can use them
-  // alongside the dashboard. Mirrors ProjectionDashboard's own logic; that
-  // component keeps its independent compute to stay self-contained.
+  // One model supplies both the roadmap and dashboard on each assumption change.
   const projections = useMemo<Projections | null>(() => {
-    if (!baseYearFacts) return null;
+    if (!projectionBasis) return null;
     if (!assembledAssumptions.revenueStreams.length) return null;
     if (assembledAssumptions.revenueStreams.every((s) => s.baseAnnualRevenue === 0))
       return null;
     try {
-      const bY = buildBaseYear(baseYearFacts);
-      const model = computeSBAProjectionModel({
-        assumptions: assembledAssumptions,
-        baseYear: bY,
-      });
+      const model = computeSBAProjectionModel({ ...projectionBasis, assumptions: assembledAssumptions });
+      if (model.accountingBlockers.length) return null;
       return {
+        model,
         annual: model.annualProjections,
         monthly: model.monthlyProjections,
         breakEven: model.breakEven,
@@ -500,7 +484,7 @@ export function AssumptionInterview({
     } catch {
       return null;
     }
-  }, [assembledAssumptions, baseYearFacts]);
+  }, [assembledAssumptions, projectionBasis]);
 
   const subStepIdx = SUB_STEPS.findIndex((s) => s.key === subStep);
   const canGoBack = subStepIdx > 0;
@@ -564,7 +548,7 @@ export function AssumptionInterview({
           <ResearchDataGrid context={researchBriefing.context} />
         )}
 
-        <ProjectionDashboard token={token} assumptions={assembledAssumptions} />
+        <ProjectionDashboard model={projections?.model ?? null} dscrThreshold={projectionBasis?.projectedDscrThreshold} />
 
         {projections && <RoadmapCard projections={projections} />}
 
@@ -1314,7 +1298,7 @@ export function AssumptionInterview({
       )}
 
       {/* Live projection dashboard — recalculates client-side on every edit */}
-      <ProjectionDashboard token={token} assumptions={assembledAssumptions} />
+      <ProjectionDashboard model={projections?.model ?? null} dscrThreshold={projectionBasis?.projectedDscrThreshold} />
 
       {/* Sub-step navigation */}
       {/* SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — "editing" previously had

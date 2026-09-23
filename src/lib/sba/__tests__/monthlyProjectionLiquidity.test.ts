@@ -97,7 +97,7 @@ test("monthly liquidity honors canonical uses, exact hire timing, working capita
     loanImpact: {
       ...assumptions.loanImpact,
       existingDebt: [
-        { description: "Retained note", currentBalance: 10_000, monthlyPayment: 1_000, remainingTermMonths: 3, treatment: "retain" },
+        { description: "Retained note", currentBalance: 3_000, monthlyPayment: 1_000, remainingTermMonths: 3, treatment: "retain" },
         { description: "Refinanced note", currentBalance: 100_000, monthlyPayment: 5_000, remainingTermMonths: 24, treatment: "refinance" },
       ],
     },
@@ -107,7 +107,9 @@ test("monthly liquidity honors canonical uses, exact hire timing, working capita
     { category: "working_capital", description: "Working capital", amount: 300_000, pctOfTotal: 0.3 },
   ];
   const months = buildMonthlyProjections(exact, year1, uses);
-  assert.equal(months[0].capitalExpenditures, 1_000_000);
+  // $300k reserves stay in cash; $700k funded equipment is within the
+  // $750k reviewed year-one capex plan, leaving $50k additional spending.
+  assert.equal(months[0].capitalExpenditures, 750_000);
   assert.equal(months[0].debtService - months[3].debtService, 1_000);
   assert.equal(months[0].operatingDisbursements + 10_000, months[6].operatingDisbursements);
   assert.ok((months[0].workingCapitalChange ?? 0) > 0);

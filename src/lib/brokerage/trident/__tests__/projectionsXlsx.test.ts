@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import { renderProjectionsXlsx } from "../projectionsXlsx";
 import type { SourcesAndUsesResult } from "@/lib/sba/sbaSourcesAndUses";
 import type { BalanceSheetYear } from "@/lib/sba/sbaBalanceSheetProjector";
+import { reconciledStartup } from "@/lib/sba/__tests__/projectionLedger.fixture";
 
 const SOURCES_AND_USES: SourcesAndUsesResult = {
   sources: [
@@ -184,4 +185,23 @@ test("renderProjectionsXlsx: does not crash on legacy `{}` placeholder shapes (n
   assert.equal(su.getCell(1, 1).value, "Sources & Uses not yet available for this deal.");
   const bs = wb.getWorksheet("Balance Sheet")!;
   assert.equal(bs.getCell(1, 1).value, "Balance sheet projections not yet available for this deal.");
+});
+
+test("startup workbook preserves reconciled amounts and formula caches for readers that cannot recalculate", async () => {
+  const model = reconciledStartup();
+  const buffer = await renderProjectionsXlsx({ ...model, dealName: "QA Startup", sourcesAndUses: SOURCES_AND_USES, accountingBasis: model.accountingBasis });
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+  const pnl = wb.getWorksheet("Annual P&L")!;
+  assert.equal(pnl.getCell("K4").value, "N/A");
+  assert.equal(pnl.getCell("G5").value, model.annualProjections[0].interestExpense);
+  assert.equal(pnl.getCell("I5").value, model.annualProjections[0].netIncome);
+  const bs = wb.getWorksheet("Balance Sheet")!;
+  const rowFor = (label: string) => bs.getColumn(1).values.findIndex(v => v === label);
+  for (const [label, key] of [["Total Assets", "totalAssets"], ["Total Liabilities", "totalLiabilities"], ["Total Equity", "totalEquity"]] as const) {
+    for (let i = 0; i < 4; i++) assert.equal(bs.getCell(rowFor(label), i + 2).result, model.balanceSheetProjections[i][key]);
+  }
+  assert.equal(bs.getCell(rowFor("Intangible Assets"), 3).value, model.balanceSheetProjections[1].intangibleAssets);
+  for (let i = 0; i < 4; i++) assert.ok(Math.abs(bs.getCell(rowFor("Assets − Liabilities − Equity"), i + 2).result as number) < .01);
+  assert.ok(wb.getWorksheet("Assumptions")!.getColumn(2).values.some(v => typeof v === "string" && v.includes("already on the opening balance sheet")));
 });

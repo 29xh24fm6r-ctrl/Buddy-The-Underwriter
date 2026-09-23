@@ -23,7 +23,9 @@ const assumptions = {
 };
 const client = { from(table: string) {
   reads++;
-  const values: Record<string,unknown> = { buddy_validation_reports:savedReports.at(-1) ?? {overall_status:reportStatus}, deal_financial_facts:facts, borrower_concierge_sessions:{confirmed_facts:{package_answers:{B07:{value:stage}}}}, buddy_sba_assumptions:assumptions,
+  const debtBalance = facts.filter((f:any)=>["TOTAL_LONG_TERM_DEBT", "SHORT_TERM_DEBT"].includes(f.fact_key)).reduce((sum:number,f:any)=>sum+f.fact_value_num,0);
+  const reviewedAssumptions = {...assumptions,loan_impact:{...assumptions.loan_impact,existingDebt:debtBalance ? [{description:"Retained equipment notes",currentBalance:debtBalance,monthlyPayment:10000,remainingTermMonths:72}] : []}};
+  const values: Record<string,unknown> = { buddy_validation_reports:savedReports.at(-1) ?? {overall_status:reportStatus}, deal_financial_facts:facts, borrower_concierge_sessions:{confirmed_facts:{package_answers:{B07:{value:stage}}}}, buddy_sba_assumptions:reviewedAssumptions,
     deals:{name:"Synthetic Manufacturer",bank_id:"bank-1",deal_type:"SBA",loan_amount:1000000},
     deal_proceeds_items:[{category:"equipment",description:"Equipment",amount:1000000}],buddy_guarantor_cashflow:[],deal_ownership_entities:[],deal_ownership_interests:[] };
   const result = { data: values[table] ?? null,error:null };

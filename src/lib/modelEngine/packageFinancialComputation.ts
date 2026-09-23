@@ -3,15 +3,13 @@ import { assertPackageHistoricalConsistency } from "./packageHistoricalConsisten
 import { loadClassicSpreadData } from "@/lib/classicSpread/classicSpreadLoader";
 import type { DebtCoverageRow } from "@/lib/creditMemo/canonical/types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { computeAuthoritativeEngine } from "./engineAuthority";
+import { loadPackageProjectionBasis } from "./packageProjectionBasis";
 import { validateSBAAssumptions } from "@/lib/sba/sbaAssumptionsValidator";
-import { buildBaseYear, buildUseOfProceeds } from "@/lib/sba/sbaForwardModelBuilder";
 import { computeSBAProjectionModel } from "@/lib/sba/sbaProjectionAuthority";
+import { assertProjectionReconciliation } from "@/lib/sba/projectionReconciliation";
 import { detectNewBusinessFromFacts, assessNewBusinessRisk } from "@/lib/sba/newBusinessProtocol";
 import { buildSourcesAndUses } from "@/lib/sba/sbaSourcesAndUses";
-import { buildBalanceSheetProjections } from "@/lib/sba/sbaBalanceSheetProjector";
 import { computeGlobalCashFlow, type GuarantorCashFlow } from "@/lib/sba/sbaGlobalCashFlow";
-import { loadPackageBusinessStage } from "./packageBusinessStage";
 import type { SBAAssumptions } from "@/lib/sba/sbaReadinessTypes";
 
 /** The package extension of Model Engine V2. All existing calculators execute here, once. */
@@ -78,39 +76,7 @@ export async function computePackageFinancialModel(dealId: string, bankId: strin
     };
   }
 
-  const { data: deal, error: dealError } = await sb.from("deals")
-    .select("name, deal_type, loan_amount, city, state, bank_id").eq("id", dealId).eq("bank_id", bankId).single();
-  if (dealError || !deal) throw new Error("Financial snapshot deal/bank mismatch");
-  const authority = await computeAuthoritativeEngine(dealId, bankId, { persist: false });
-  const periods = authority.financialModel.periods;
-  const businessStage = await loadPackageBusinessStage(sb, dealId, bankId);
-  const preOpening = businessStage === "pre_opening";
-  const latest = [...periods].filter(p => p.type === "FYE").sort((a,b) => b.periodEnd.localeCompare(a.periodEnd))[0];
-  const revenue = latest?.income.revenue ?? 0;
-  const cogs = latest?.income.cogs ?? 0;
-  const opex = latest?.income.operatingExpenses ?? 0;
-  const depreciation = latest?.income.depreciation ?? 0;
-  const netIncome = latest?.income.netIncome ?? 0;
-  const ebitda = latest?.cashflow.ebitda ?? 0;
-  const ads = latest?.cashflow.annualDebtService ?? 0;
-  // A startup's opening statement is usually interim, not a December FYE.
-  const opening = preOpening
-    ? [...periods].filter(p => p.balance.cash != null).sort((a,b) => b.periodEnd.localeCompare(a.periodEnd))[0]
-    : latest;
-  if (preOpening && periods.some(p => Object.values(p.income).some(v => typeof v === "number" && v !== 0))) {
-    throw new Error("financial_input_required: your preparing-to-open answer conflicts with operating history. Review the business stage and financial documents.");
-  }
-  if (preOpening && (!opening || [opening.balance.cash, opening.balance.totalAssets,
-    opening.balance.totalLiabilities, opening.balance.equity].some(v => v == null || !Number.isFinite(v)))) {
-    throw new Error("financial_input_required: add an opening balance sheet with cash, total assets, total liabilities and equity before preparing a startup package.");
-  }
-  const bsBase = {
-    cash: opening?.balance.cash ?? 0, accountsReceivable: opening?.balance.accountsReceivable ?? 0,
-    inventory: opening?.balance.inventory ?? 0, fixedAssets: opening?.balance.netFixedAssets ?? 0,
-    accountsPayable: opening?.balance.accountsPayable ?? 0, shortTermDebt: opening?.balance.shortTermDebt ?? 0,
-    longTermDebt: opening?.balance.longTermDebt ?? 0, paidInCapital: (opening?.balance.paidInCapital ?? 0) + (opening?.balance.commonStock ?? 0),
-    retainedEarnings: opening?.balance.retainedEarnings ?? ((opening?.balance.equity ?? 0) - (opening?.balance.paidInCapital ?? 0) - (opening?.balance.commonStock ?? 0)),
-  };
+  const { deal, authority, periods, businessStage, preOpening, latest, opening, bsBase, baseYear, useOfProceeds } = await loadPackageProjectionBasis(dealId, bankId);
   const bsFacts = authority.facts;
   const yearsInBusiness = preOpening ? 0 : Number(bsFacts.find(f => f.fact_key === "YEARS_IN_BUSINESS")?.fact_value_num ?? 0);
   // New-business detection + risk assessment — single source of truth
@@ -148,34 +114,11 @@ export async function computePackageFinancialModel(dealId: string, bankId: strin
     throw new Error("financial_input_required: established business needs an accepted annual period, revenue, EBITDA basis, and opening cash; missing history cannot be replaced with zero");
   }
 
-  const baseYear = buildBaseYear({
-    revenue,
-    cogs,
-    operatingExpenses: opex,
-    ebitda,
-    depreciation,
-    netIncome,
-    existingDebtServiceAnnual: ads,
-  });
-  if (preOpening) baseYear.label = "Pre-opening";
-
   // One versioned authority computes every borrower-facing SBA projection.
   // Artifacts consume this immutable model; they do not invoke individual
   // calculators or recompute financial values.
   // Freeze the canonical transaction uses before computing liquidity so
   // the monthly cash schedule and the Sources & Uses exhibit share one input.
-  const { data: proceedsItems, error: proceedsError } = await sb
-    .from("deal_proceeds_items")
-    .select("category, description, amount")
-    .eq("deal_id", dealId);
-  if (proceedsError) {
-    return { ok: false as const, error: `Use-of-proceeds load failed: ${proceedsError.message}` };
-  }
-  const useOfProceeds = buildUseOfProceeds(
-    proceedsItems ?? [],
-    assumptions.loanImpact.loanAmount,
-  );
-
   const projectionModel = computeSBAProjectionModel({
     assumptions,
     baseYear,
@@ -184,10 +127,10 @@ export async function computePackageFinancialModel(dealId: string, bankId: strin
     // Cash on hand at the start of the projection period. Without it the
     // monthly series is a net change that the renderer prints as a balance.
     openingCash: bsBase.cash,
+    openingBalance: bsBase,
   });
   const {
     annualProjections,
-    monthlyProjections,
     sensitivityScenarios,
   } = projectionModel;
 
@@ -220,20 +163,7 @@ export async function computePackageFinancialModel(dealId: string, bankId: strin
     dscrYear3Base < projectedDscrThreshold ||
     dscrYear1Downside < projectedDscrThreshold;
 
-  // ── Phase BPG — Balance sheet projections
-  // cumulativeCash is now seeded with bsBase.cash inside the projection
-  // engine, so it IS the ending balance. Adding bsBase.cash again here would
-  // double-count opening cash — which is the mirror image of the bug this
-  // fixes, and the reason both readings had to move together.
-  const year1EndingCash = monthlyProjections.at(-1)?.cumulativeCash;
-  const balanceSheetProjections = buildBalanceSheetProjections(
-    assumptions,
-    annualProjections,
-    bsBase,
-    {
-      year1EndingCash: typeof year1EndingCash === "number" ? year1EndingCash : undefined,
-    },
-  );
+  const balanceSheetProjections = projectionModel.balanceSheetProjections;
 
   if (preOpening && opening) {
     const renderedOpening = balanceSheetProjections[0];
@@ -245,6 +175,8 @@ export async function computePackageFinancialModel(dealId: string, bankId: strin
       throw new Error("financial_input_required: the opening balance sheet needs asset, liability and equity details that reconcile to its totals. Missing amounts cannot be treated as zero.");
     }
   }
+
+  assertProjectionReconciliation(projectionModel);
 
   // ── Phase BPG — Global cash flow (query per-deal guarantor cashflow rows)
   const { data: guarantorRows, error: guarantorError } = await sb

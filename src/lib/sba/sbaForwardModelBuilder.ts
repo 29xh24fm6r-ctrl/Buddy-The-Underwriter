@@ -10,23 +10,8 @@ import type {
 } from "./sbaReadinessTypes";
 import { dscr as finengineDscr } from "@/lib/finengine/metrics/ratios";
 import { resolvePolicy } from "@/lib/finengine/policyRegistry";
+import { buildProjectionLedger, debtYear, PROJECTION_TAX_RATE, type ProjectionLedger } from "./sbaProjectionLedger";
 
-const DEFAULT_TAX_RATE = 0.25;
-const CAPEX_DEPRECIATION_RATE = 0.2; // straight-line 5yr
-
-/** Standard amortizing monthly payment */
-function monthlyPayment(
-  principal: number,
-  annualRate: number,
-  termMonths: number,
-): number {
-  if (annualRate <= 0) return principal / termMonths;
-  const r = annualRate / 12;
-  return (
-    principal *
-    ((r * Math.pow(1 + r, termMonths)) / (Math.pow(1 + r, termMonths) - 1))
-  );
-}
 
 /** Pass 1: base year anchor from extracted facts */
 export function buildBaseYear(params: {
@@ -58,7 +43,7 @@ export function buildBaseYear(params: {
     depreciation: params.depreciation,
     ebit: params.ebitda - params.depreciation,
     interestExpense: 0,
-    taxEstimate: Math.max(0, params.netIncome * DEFAULT_TAX_RATE),
+    taxEstimate: Math.max(0, params.netIncome * PROJECTION_TAX_RATE),
     netIncome: params.netIncome,
     totalDebtService: params.existingDebtServiceAnnual,
     dscr,
@@ -141,21 +126,8 @@ export function buildRevenueStreamProjections(
 export function buildAnnualProjections(
   assumptions: SBAAssumptions,
   baseYear: AnnualProjectionYear,
+  ledger: ProjectionLedger = buildProjectionLedger({ assumptions, baseYear }),
 ): AnnualProjectionYear[] {
-  const sbaMonthly = monthlyPayment(
-    assumptions.loanImpact.loanAmount,
-    assumptions.loanImpact.interestRate,
-    assumptions.loanImpact.termMonths,
-  );
-  const sbaAnnual = sbaMonthly * 12;
-
-  // Capex additions by year
-  const newCapexByYear = [0, 0, 0, 0]; // index 1,2,3 used
-  for (const cx of assumptions.costAssumptions.plannedCapex) {
-    newCapexByYear[cx.year] += cx.amount;
-  }
-
-  let cumulativeNewDepreciation = 0;
   const years: AnnualProjectionYear[] = [];
 
   for (let y = 1; y <= 3; y++) {
@@ -208,36 +180,14 @@ export function buildAnnualProjections(
     const operatingExpenses = fixedCosts + hireCost;
     const ebitda = grossProfit - operatingExpenses;
 
-    // Depreciation: base + cumulative from new capex
-    cumulativeNewDepreciation += newCapexByYear[y] * CAPEX_DEPRECIATION_RATE;
-    const depreciation =
-      (baseYear.depreciation ?? 0) + cumulativeNewDepreciation;
+    const assetYear = ledger.assets[y - 1];
+    const depreciation = assetYear.depreciation + assetYear.amortization;
     const ebit = ebitda - depreciation;
-
-    // Existing debt service (checks if paid off by this year)
-    const monthsElapsed = (y - 1) * 12;
-    const existingDS = assumptions.loanImpact.existingDebt.reduce((sum, d) => {
-      if ((d.treatment ?? "retain") !== "retain") return sum;
-      const monthsPaid = Math.min(12, Math.max(0, d.remainingTermMonths - monthsElapsed));
-      return sum + d.monthlyPayment * monthsPaid;
-    }, 0);
-    const sbaMonthsPaid = Math.min(12, Math.max(0, assumptions.loanImpact.termMonths - monthsElapsed));
-    const sellerMonthly = assumptions.loanImpact.sellerFinancingAmount > 0 &&
-      assumptions.loanImpact.sellerFinancingTermMonths > 0
-      ? monthlyPayment(
-          assumptions.loanImpact.sellerFinancingAmount,
-          assumptions.loanImpact.sellerFinancingRate,
-          assumptions.loanImpact.sellerFinancingTermMonths,
-        )
-      : 0;
-    const sellerMonthsPaid = Math.min(
-      12,
-      Math.max(0, assumptions.loanImpact.sellerFinancingTermMonths - monthsElapsed),
-    );
-    const totalDebtService =
-      existingDS + sbaMonthly * sbaMonthsPaid + sellerMonthly * sellerMonthsPaid;
-    const taxEstimate = Math.max(0, ebit * DEFAULT_TAX_RATE);
-    const netIncome = ebit - taxEstimate;
+    const debt = debtYear(ledger, y);
+    const totalDebtService = debt.payment;
+    const interestExpense = debt.interest;
+    const taxEstimate = Math.max(0, (ebit - interestExpense) * PROJECTION_TAX_RATE);
+    const netIncome = ebit - interestExpense - taxEstimate;
     const dscr = finengineDscr(ebitda, totalDebtService).value ?? 99;
 
     years.push({
@@ -251,15 +201,15 @@ export function buildAnnualProjections(
       ebitda,
       depreciation,
       ebit,
-      interestExpense:
-        assumptions.loanImpact.interestRate *
-        assumptions.loanImpact.loanAmount,
+      interestExpense,
       taxEstimate,
       netIncome,
       totalDebtService,
-      existingDebtService: existingDS,
-      proposedLoanDebtService: sbaMonthly * sbaMonthsPaid,
-      sellerDebtService: sellerMonthly * sellerMonthsPaid,
+      existingDebtService: debt.existingPayment,
+      proposedLoanDebtService: debt.proposedPayment,
+      sellerDebtService: debt.sellerPayment,
+      principalRepayment: debt.principal,
+      endingDebtBalance: debt.balance,
       dscr,
       revenueGrowthPct:
         prev.revenue > 0 ? (revenue - prev.revenue) / prev.revenue : 0,
@@ -295,81 +245,45 @@ export function buildMonthlyProjections(
   year1: AnnualProjectionYear,
   useOfProceeds: UseOfProceedsLine[] = [],
   openingCash = 0,
+  ledger: ProjectionLedger = buildProjectionLedger({ assumptions, useOfProceeds }),
 ): MonthlyProjection[] {
-  const sbaMonthly = monthlyPayment(
-    assumptions.loanImpact.loanAmount,
-    assumptions.loanImpact.interestRate,
-    assumptions.loanImpact.termMonths,
-  );
-  const sellerMonthly = assumptions.loanImpact.sellerFinancingAmount > 0
-    ? monthlyPayment(
-        assumptions.loanImpact.sellerFinancingAmount,
-        assumptions.loanImpact.sellerFinancingRate,
-        assumptions.loanImpact.sellerFinancingTermMonths,
-      )
-    : 0;
-  const baseMonthlyRevenue = year1.revenue / 12;
   const fixedMonthly = assumptions.costAssumptions.fixedCostCategories.reduce(
     (sum, item) => sum + item.annualAmount / 12,
     0,
   );
-  // Sources and uses close at the beginning of the projection period. Keep
-  // them in the monthly liquidity schedule instead of presenting operating
-  // cash flow as total cash flow. This is the same canonical assumption set
-  // used by buildSourcesAndUses; no narrative model may invent timing.
-  const closingSources =
-    assumptions.loanImpact.loanAmount +
-    assumptions.loanImpact.equityInjectionAmount +
-    assumptions.loanImpact.sellerFinancingAmount +
-    assumptions.loanImpact.otherSources.reduce((sum, source) => sum + source.amount, 0);
-  const canonicalClosingUses = useOfProceeds.reduce((sum, item) => sum + item.amount, 0);
-  const fallbackClosingUses = assumptions.costAssumptions.plannedCapex
-    .filter((item) => item.year === 1)
-    .reduce((sum, item) => sum + item.amount, 0);
-  const closingUses = canonicalClosingUses > 0 ? canonicalClosingUses : fallbackClosingUses;
+  const closingUses = ledger.closing.outflows + ledger.assets[0].capex - ledger.closing.fixedAssets;
 
   // A balance, seeded from cash on hand — see the contract above.
   let cumulativeCash = Number.isFinite(openingCash) ? openingCash : 0;
-  let priorReceivables = 0;
-  let priorPayables = 0;
-  let priorInventory = 0;
+  let priorReceivables = ledger.opening?.accountsReceivable ?? 0;
+  let priorPayables = ledger.opening?.accountsPayable ?? 0;
+  // The closing inventory purchase is already a closing cash use.
+  let priorInventory = (ledger.opening?.inventory ?? 0) + ledger.closing.inventory;
   return Array.from({ length: 12 }, (_, i) => {
     const m = i + 1;
-    // Apply seasonality from first stream if defined
-    const firstStream = assumptions.revenueStreams[0];
-    const seasonal = firstStream?.seasonalityProfile;
-    const multiplier = seasonal ? seasonal[i] / 1 : 1;
-    const revenue = baseMonthlyRevenue * multiplier;
+    const revenue = assumptions.revenueStreams.reduce((sum, stream) => sum +
+      computeStreamRevenueForYear(stream, 1, assumptions.loanImpact) / 12 * (stream.seasonalityProfile?.[i] ?? 1), 0);
     const cogs = revenue * assumptions.costAssumptions.cogsPercentYear1;
     const hireCost = assumptions.costAssumptions.plannedHires.reduce(
       (sum, hire) => sum + (m >= hire.startMonth ? hire.annualSalary / 12 : 0),
       0,
     );
-    const operatingDisbursements = cogs + fixedMonthly + hireCost;
-    const receivables = revenue * Math.max(0, assumptions.workingCapital.targetDSO) / 30;
-    const payables = cogs * Math.max(0, assumptions.workingCapital.targetDPO) / 30;
+    const taxPayments = year1.taxEstimate / 12;
+    const operatingDisbursements = cogs + fixedMonthly + hireCost + taxPayments;
+    // Use one day-count convention in both monthly and annual balances.
+    const receivables = revenue * 12 / 365 * Math.max(0, assumptions.workingCapital.targetDSO);
+    const payables = cogs * 12 / 365 * Math.max(0, assumptions.workingCapital.targetDPO);
     const inventory = assumptions.workingCapital.inventoryTurns && assumptions.workingCapital.inventoryTurns > 0
       ? (year1.cogs / assumptions.workingCapital.inventoryTurns)
-      : 0;
+      : (ledger.opening?.inventory ?? 0) + ledger.closing.inventory;
     const workingCapitalChange =
       (receivables - priorReceivables) + (inventory - priorInventory) - (payables - priorPayables);
     priorReceivables = receivables;
     priorPayables = payables;
     priorInventory = inventory;
     const netOperatingCF = revenue - operatingDisbursements - workingCapitalChange;
-    const existingMonthly = assumptions.loanImpact.existingDebt.reduce(
-      (sum, debt) => sum + (
-        (debt.treatment ?? "retain") === "retain" && m <= debt.remainingTermMonths
-          ? debt.monthlyPayment
-          : 0
-      ),
-      0,
-    );
-    const debtService =
-      (m <= assumptions.loanImpact.termMonths ? sbaMonthly : 0) +
-      (m <= assumptions.loanImpact.sellerFinancingTermMonths ? sellerMonthly : 0) +
-      existingMonthly;
-    const financingInflows = m === 1 ? closingSources : 0;
+    const debtService = ledger.debt[i].payment;
+    const financingInflows = m === 1 ? ledger.closing.inflows : 0;
     const capitalExpenditures = m === 1 ? closingUses : 0;
     const netCash =
       netOperatingCF - debtService + financingInflows - capitalExpenditures;
@@ -378,6 +292,10 @@ export function buildMonthlyProjections(
       month: m,
       revenue,
       operatingDisbursements,
+      taxPayments,
+      accountsReceivable: receivables,
+      inventory,
+      accountsPayable: payables,
       netOperatingCF,
       debtService,
       financingInflows,
@@ -428,6 +346,7 @@ export function buildSensitivityScenarios(
   assumptions: SBAAssumptions,
   baseProjections: AnnualProjectionYear[],
   dscrThreshold: number = resolvePolicy("dscr_floor").effective ?? 1.25,
+  ledger?: ProjectionLedger,
 ): SensitivityScenario[] {
   const configs = [
     {
@@ -482,7 +401,7 @@ export function buildSensitivityScenarios(
       year: 0,
       label: "Actual",
     };
-    const adjYears = buildAnnualProjections(adj, anchor);
+    const adjYears = buildAnnualProjections(adj, anchor, ledger);
 
     return {
       name: cfg.name,

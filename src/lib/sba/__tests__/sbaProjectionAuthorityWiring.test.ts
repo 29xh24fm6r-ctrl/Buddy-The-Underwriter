@@ -26,7 +26,7 @@ test("borrower-facing projection consumers use the versioned authority", () => {
     const source = readFileSync(resolve(ROOT, relativePath), "utf8");
     assert.match(
       source,
-      /computeSBAProjectionModel|preparePackageFinancialSnapshot/,
+      /computeSBAProjectionModel|preparePackageFinancialSnapshot|computePackageFinancialOutput|SBAProjectionModel/,
       `${relativePath} must consume the authoritative SBA projection model`,
     );
     for (const calculator of FORBIDDEN_DIRECT_CALCULATORS) {

@@ -22,6 +22,7 @@ import type { BalanceSheetYear } from "@/lib/sba/sbaBalanceSheetProjector";
 export type ProjectionsXlsxInputs = {
   assumptions?: Record<string, unknown>;
   assumptionsNarrative?: string;
+  accountingBasis?: string[];
   dealName: string;
   baseYear: {
     label?: "Actual" | "Projected" | "Pre-opening";
@@ -30,6 +31,11 @@ export type ProjectionsXlsxInputs = {
     operatingExpenses: number;
     ebitda: number;
     netIncome: number;
+    depreciation?: number;
+    interestExpense?: number;
+    taxEstimate?: number;
+    totalDebtService?: number;
+    dscr?: number;
   };
   annualProjections: Array<{
     year: number;
@@ -37,13 +43,18 @@ export type ProjectionsXlsxInputs = {
     ebitda: number;
     dscr: number;
     totalDebtService: number;
+    cogs?: number;
+    operatingExpenses?: number;
+    depreciation?: number;
+    interestExpense?: number;
+    taxEstimate?: number;
+    netIncome?: number;
   }>;
   monthlyProjections: unknown[];
   sensitivityScenarios: Array<{
     name: string;
     revenueYear1?: number;
     dscrYear1?: number;
-    [key: string]: unknown;
   }>;
   sourcesAndUses: SourcesAndUsesResult | null | undefined;
   balanceSheetProjections: BalanceSheetYear[] | null | undefined;
@@ -73,28 +84,24 @@ export async function renderProjectionsXlsx(
   const wb = new ExcelJS.Workbook();
   wb.creator = "Buddy";
   wb.created = new Date();
+  wb.calcProperties.fullCalcOnLoad = true;
 
   // Sheet 1 — Annual P&L.
   const pnl = wb.addWorksheet("Annual P&L");
   pnl.addRow(["Buddy SBA Package — Annual Projections", inputs.dealName]);
   pnl.addRow([]);
-  const pnlHeader = pnl.addRow(["Year", "Revenue", "EBITDA", "Total Debt Service", "DSCR"]);
+  const pnlHeader = pnl.addRow(["Year", "Revenue", "COGS", "Operating Expenses", "EBITDA", "Depreciation / Amort.", "Interest Expense", "Tax Estimate", "Net Income", "Total Debt Service", "DSCR"]);
   styleHeaderRow(pnlHeader);
-  pnl.addRow([
-    inputs.baseYear.label === "Pre-opening" ? "Pre-opening (no operating history)" : "Base",
-    inputs.baseYear.revenue,
-    inputs.baseYear.ebitda,
-    0,
-    null,
-  ]);
-  for (const row of inputs.annualProjections) {
-    pnl.addRow([row.year, row.revenue, row.ebitda, row.totalDebtService, row.dscr]);
+  const base = inputs.baseYear;
+  const rows = [{ ...base, year: base.label === "Pre-opening" ? "Pre-opening" : "Base" }, ...inputs.annualProjections];
+  for (const row of rows) {
+    const dscr = (row.totalDebtService ?? 0) > 0 && row.year !== "Pre-opening" ? row.dscr ?? null : "N/A";
+    pnl.addRow([row.year, row.revenue, row.cogs ?? null, row.operatingExpenses ?? null, row.ebitda,
+      row.depreciation ?? null, row.interestExpense ?? null, row.taxEstimate ?? null, row.netIncome ?? null, row.totalDebtService ?? null, dscr]);
   }
-  pnl.getColumn(2).numFmt = CURRENCY_FMT;
-  pnl.getColumn(3).numFmt = CURRENCY_FMT;
-  pnl.getColumn(4).numFmt = CURRENCY_FMT;
-  pnl.getColumn(5).numFmt = RATIO_FMT;
-  pnl.columns.forEach((c) => (c.width = 20));
+  for (let i = 2; i <= 10; i++) pnl.getColumn(i).numFmt = CURRENCY_FMT;
+  pnl.getColumn(11).numFmt = RATIO_FMT;
+  pnl.columns.forEach((c) => (c.width = 21));
 
   // Sheet 2 — Year 1 monthly (shape-flexible).
   const monthly = wb.addWorksheet("Year 1 Monthly");
@@ -135,7 +142,7 @@ export async function renderProjectionsXlsx(
   // with SUM formulas for subtotals and formula-computed ratio checks.
   renderBalanceSheetSheet(wb.addWorksheet("Balance Sheet"), inputs.balanceSheetProjections ?? null);
 
-  if (inputs.assumptions) {
+  if (inputs.assumptions || inputs.accountingBasis?.length) {
     const ws = wb.addWorksheet("Assumptions");
     ws.columns = [{ width: 58 }, { width: 70 }];
     styleHeaderRow(ws.addRow(["Assumption", "Reviewed input"]));
@@ -148,7 +155,8 @@ export async function renderProjectionsXlsx(
       }
     };
     ws.addRow(["Rates and percentages", "Decimals: 0.05 means 5%. Currency amounts are USD. Projection periods are relative to funding."]);
-    add(inputs.assumptions, "");
+    if (inputs.assumptions) add(inputs.assumptions, "");
+    for (const note of inputs.accountingBasis ?? []) ws.addRow(["Projection accounting basis", note]).getCell(2).alignment = { wrapText: true };
     if (inputs.assumptionsNarrative) ws.addRow(["Basis and supporting assumptions", inputs.assumptionsNarrative]).getCell(2).alignment = { wrapText: true };
   }
   const buf = await wb.xlsx.writeBuffer();
@@ -187,7 +195,6 @@ function renderSourcesAndUsesSheet(
   ws.addRow([]);
 
   // ── Sources ──────────────────────────────────────────────────────────
-  const sourcesHeaderRow = ws.rowCount + 1;
   const sourcesHeader = ws.addRow(["Sources", "Amount", "% of Total"]);
   styleHeaderRow(sourcesHeader);
   const sourcesFirstDataRow = ws.rowCount + 1;
@@ -198,13 +205,13 @@ function renderSourcesAndUsesSheet(
   const totalSourcesRow = ws.rowCount + 1;
   const totalSourcesRowObj = ws.addRow([
     "Total Sources",
-    { formula: `SUM(B${sourcesFirstDataRow}:B${sourcesLastDataRow})` } as ExcelJS.CellFormulaValue,
+    { formula: `SUM(B${sourcesFirstDataRow}:B${sourcesLastDataRow})`, result: su.totalSources } as ExcelJS.CellFormulaValue,
     null,
   ]);
   totalSourcesRowObj.font = SUBTOTAL_FONT;
   // % of total for each source row, computed against the Total Sources cell.
   for (let r = sourcesFirstDataRow; r <= sourcesLastDataRow; r++) {
-    ws.getCell(`C${r}`).value = { formula: `B${r}/$B$${totalSourcesRow}` } as ExcelJS.CellFormulaValue;
+    ws.getCell(`C${r}`).value = { formula: `IFERROR(B${r}/$B$${totalSourcesRow},0)`, result: su.totalSources ? su.sources[r-sourcesFirstDataRow].amount / su.totalSources : 0 } as ExcelJS.CellFormulaValue;
   }
 
   ws.addRow([]);
@@ -220,12 +227,12 @@ function renderSourcesAndUsesSheet(
   const totalUsesRow = ws.rowCount + 1;
   const totalUsesRowObj = ws.addRow([
     "Total Uses",
-    { formula: `SUM(B${usesFirstDataRow}:B${usesLastDataRow})` } as ExcelJS.CellFormulaValue,
+    { formula: `SUM(B${usesFirstDataRow}:B${usesLastDataRow})`, result: su.totalUses } as ExcelJS.CellFormulaValue,
     null,
   ]);
   totalUsesRowObj.font = SUBTOTAL_FONT;
   for (let r = usesFirstDataRow; r <= usesLastDataRow; r++) {
-    ws.getCell(`C${r}`).value = { formula: `B${r}/$B$${totalUsesRow}` } as ExcelJS.CellFormulaValue;
+    ws.getCell(`C${r}`).value = { formula: `IFERROR(B${r}/$B$${totalUsesRow},0)`, result: su.totalUses ? su.uses[r-usesFirstDataRow].amount / su.totalUses : 0 } as ExcelJS.CellFormulaValue;
   }
 
   ws.addRow([]);
@@ -233,7 +240,7 @@ function renderSourcesAndUsesSheet(
   // ── Balance check ────────────────────────────────────────────────────
   const balanceRow = ws.addRow([
     "Sources − Uses (should be $0)",
-    { formula: `B${totalSourcesRow}-B${totalUsesRow}` } as ExcelJS.CellFormulaValue,
+    { formula: `B${totalSourcesRow}-B${totalUsesRow}`, result: su.totalSources-su.totalUses } as ExcelJS.CellFormulaValue,
     null,
   ]);
   balanceRow.font = SUBTOTAL_FONT;
@@ -248,14 +255,14 @@ function renderSourcesAndUsesSheet(
   const eqPctRow = ws.rowCount;
   ws.addRow([
     "Equity Injection % of Total Sources",
-    { formula: `B${eqAmountRow.number}/B${totalSourcesRow}` } as ExcelJS.CellFormulaValue,
+    { formula: `IFERROR(B${eqAmountRow.number}/B${totalSourcesRow},0)`, result: su.totalSources ? eq.actualAmount/su.totalSources : 0 } as ExcelJS.CellFormulaValue,
     null,
   ]);
   ws.addRow(["SOP Minimum Required %", eq.minimumPct, null]);
   const minPctRow = ws.rowCount;
   const passRow = ws.addRow([
     "Passes SOP Minimum?",
-    { formula: `IF(B${eqPctRow + 1}>=B${minPctRow},"PASS","FAIL")` } as ExcelJS.CellFormulaValue,
+    { formula: `IF(B${eqPctRow + 1}>=B${minPctRow},"PASS","FAIL")`, result: (su.totalSources ? eq.actualAmount/su.totalSources : 0) >= eq.minimumPct ? "PASS" : "FAIL" } as ExcelJS.CellFormulaValue,
     null,
   ]);
   passRow.font = SUBTOTAL_FONT;
@@ -291,6 +298,7 @@ const BS_ROWS: Array<{ label: string; key: keyof BalanceSheetYear; kind: "line" 
   { label: "Inventory", key: "inventory", kind: "line" },
   { label: "Total Current Assets", key: "totalCurrentAssets", kind: "subtotal" },
   { label: "Fixed Assets", key: "fixedAssets", kind: "line" },
+  { label: "Intangible Assets", key: "intangibleAssets", kind: "line" },
   { label: "Total Assets", key: "totalAssets", kind: "subtotal" },
   { label: "Accounts Payable", key: "accountsPayable", kind: "line" },
   { label: "Short-Term Debt", key: "shortTermDebt", kind: "line" },
@@ -334,10 +342,10 @@ function renderBalanceSheetSheet(
     rowIndexByKey.set(spec.key, rowNum);
 
     const values: Array<number | ExcelJS.CellFormulaValue | string> = sorted.map((y) => {
-      if (spec.kind !== "subtotal" && spec.kind !== "ratio") return y[spec.key] as number;
+      if (spec.kind !== "subtotal" && spec.kind !== "ratio") return (y[spec.key] ?? 0) as number;
       // Placeholder — filled below once every line-item row number is known
       // (subtotal formulas reference earlier rows in the same column).
-      return y[spec.key] as number;
+      return (y[spec.key] ?? 0) as number;
     });
 
     const row = ws.addRow([spec.label, ...values]);
@@ -362,34 +370,49 @@ function renderBalanceSheetSheet(
 
     ws.getCell(`${col}${r("totalCurrentAssets")}`).value = {
       formula: `${col}${r("cash")}+${col}${r("accountsReceivable")}+${col}${r("inventory")}`,
+      result: sorted[i].totalCurrentAssets,
     } as ExcelJS.CellFormulaValue;
 
     ws.getCell(`${col}${r("totalAssets")}`).value = {
-      formula: `${col}${r("totalCurrentAssets")}+${col}${r("fixedAssets")}`,
+      formula: `${col}${r("totalCurrentAssets")}+${col}${r("fixedAssets")}+${col}${r("intangibleAssets")}`,
+      result: sorted[i].totalAssets,
     } as ExcelJS.CellFormulaValue;
 
     ws.getCell(`${col}${r("totalCurrentLiabilities")}`).value = {
       formula: `${col}${r("accountsPayable")}+${col}${r("shortTermDebt")}`,
+      result: sorted[i].totalCurrentLiabilities,
     } as ExcelJS.CellFormulaValue;
 
     ws.getCell(`${col}${r("totalLiabilities")}`).value = {
       formula: `${col}${r("totalCurrentLiabilities")}+${col}${r("longTermDebt")}`,
+      result: sorted[i].totalLiabilities,
     } as ExcelJS.CellFormulaValue;
 
     ws.getCell(`${col}${r("totalEquity")}`).value = {
       formula: `${col}${r("retainedEarnings")}+${col}${r("paidInCapital")}`,
+      result: sorted[i].totalEquity,
     } as ExcelJS.CellFormulaValue;
 
     ws.getCell(`${col}${r("currentRatio")}`).value = {
       formula: `IF(${col}${r("totalCurrentLiabilities")}=0,0,${col}${r("totalCurrentAssets")}/${col}${r("totalCurrentLiabilities")})`,
+      result: sorted[i].currentRatio,
     } as ExcelJS.CellFormulaValue;
 
     ws.getCell(`${col}${r("debtToEquity")}`).value = {
       formula: `IF(${col}${r("totalEquity")}=0,0,${col}${r("totalLiabilities")}/${col}${r("totalEquity")})`,
+      result: sorted[i].debtToEquity,
     } as ExcelJS.CellFormulaValue;
 
     ws.getCell(`${col}${r("workingCapital")}`).value = {
       formula: `${col}${r("totalCurrentAssets")}-${col}${r("totalCurrentLiabilities")}`,
+      result: sorted[i].workingCapital,
     } as ExcelJS.CellFormulaValue;
+    const checkRow = BS_ROWS.length + 2;
+    ws.getCell(checkRow, 1).value = "Assets − Liabilities − Equity";
+    ws.getCell(checkRow, i + 2).value = {
+      formula: `${col}${r("totalAssets")}-${col}${r("totalLiabilities")}-${col}${r("totalEquity")}`,
+      result: sorted[i].totalAssets - sorted[i].totalLiabilities - sorted[i].totalEquity,
+    };
+    ws.getCell(checkRow, i + 2).numFmt = CURRENCY_FMT;
   }
 }

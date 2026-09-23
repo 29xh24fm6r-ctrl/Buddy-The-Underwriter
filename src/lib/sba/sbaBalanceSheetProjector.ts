@@ -7,7 +7,9 @@
 import type {
   AnnualProjectionYear,
   SBAAssumptions,
+  MonthlyProjection,
 } from "./sbaReadinessTypes";
+import { buildProjectionLedger, debtYear, type ProjectionLedger } from "./sbaProjectionLedger";
 
 export interface BalanceSheetYear {
   year: 0 | 1 | 2 | 3;
@@ -19,6 +21,7 @@ export interface BalanceSheetYear {
   totalCurrentAssets: number;
   // Non-current
   fixedAssets: number;
+  intangibleAssets?: number;
   totalAssets: number;
   // Current liabilities
   accountsPayable: number;
@@ -54,47 +57,16 @@ function safeDiv(num: number, den: number): number {
   return num / den;
 }
 
-function annualPrincipalAmortization(
-  loanAmount: number,
-  termMonths: number,
-  interestRate: number,
-  year: 1 | 2 | 3,
-): number {
-  // True amortization schedule for a single year's principal reduction.
-  // annual rate -> monthly; PMT formula.
-  if (loanAmount <= 0 || termMonths <= 0) return 0;
-  const i = interestRate / 12;
-  const n = termMonths;
-  if (i === 0) {
-    const monthly = loanAmount / n;
-    const monthsInYear = Math.min(12, Math.max(0, n - (year - 1) * 12));
-    return monthly * monthsInYear;
-  }
-  const pmt = (loanAmount * i) / (1 - Math.pow(1 + i, -n));
-  // Simulate principal paid in the target year
-  let balance = loanAmount;
-  let principalPaid = 0;
-  const startMonth = (year - 1) * 12 + 1;
-  const endMonth = Math.min(year * 12, n);
-  for (let m = 1; m <= n; m++) {
-    const interest = balance * i;
-    const principal = pmt - interest;
-    if (m >= startMonth && m <= endMonth) {
-      principalPaid += principal;
-    }
-    balance -= principal;
-    if (balance < 0) balance = 0;
-  }
-  return Math.max(0, principalPaid);
-}
-
 export function buildBalanceSheetProjections(
   assumptions: SBAAssumptions,
   annualProjections: AnnualProjectionYear[],
   baseYear: BalanceSheetBaseYearInputs,
-  options: { year1EndingCash?: number } = {},
+  options: { year1EndingCash?: number; year1EndingWorkingCapital?: MonthlyProjection; ledger?: ProjectionLedger } = {},
 ): BalanceSheetYear[] {
-  const { workingCapital, costAssumptions, loanImpact } = assumptions;
+  const { workingCapital } = assumptions;
+  const ledger = options.ledger ?? buildProjectionLedger({ assumptions, opening: baseYear });
+  const unscheduledDebt = baseYear.shortTermDebt + baseYear.longTermDebt -
+    (assumptions.loanImpact.existingDebt ?? []).reduce((sum, debt) => sum + debt.currentBalance, 0);
   const dso = workingCapital.targetDSO || 0;
   const dpo = workingCapital.targetDPO || 0;
   const invTurns = workingCapital.inventoryTurns;
@@ -114,6 +86,7 @@ export function buildBalanceSheetProjections(
     inventory: baseYear.inventory,
     totalCurrentAssets: baseCurrent,
     fixedAssets: baseYear.fixedAssets,
+    intangibleAssets: 0,
     totalAssets: baseCurrent + baseYear.fixedAssets,
     accountsPayable: baseYear.accountsPayable,
     shortTermDebt: baseYear.shortTermDebt,
@@ -135,22 +108,15 @@ export function buildBalanceSheetProjections(
     const y = annualProjections[i];
     const prev = rows[i];
 
-    const ar = dso > 0 ? (y.revenue / 365) * dso : 0;
-    const inventory = invTurns && invTurns > 0 ? y.cogs / invTurns : 0;
-    const ap = dpo > 0 ? (y.cogs / 365) * dpo : 0;
-
-    // Capex for the year
     const yearIdx = (i + 1) as 1 | 2 | 3;
-    const capexThisYear = (costAssumptions.plannedCapex ?? [])
-      .filter((c) => c.year === yearIdx)
-      .reduce((s, c) => s + (c.amount || 0), 0);
-
-    const principalPayments = annualPrincipalAmortization(
-      loanImpact.loanAmount,
-      loanImpact.termMonths,
-      loanImpact.interestRate,
-      yearIdx,
-    );
+    const monthlyEnd = yearIdx === 1 ? options.year1EndingWorkingCapital : undefined;
+    const ar = monthlyEnd?.accountsReceivable ?? (dso > 0 ? (y.revenue / 365) * dso : 0);
+    const inventory = monthlyEnd?.inventory ?? (invTurns && invTurns > 0 ? y.cogs / invTurns : prev.inventory + (yearIdx === 1 ? ledger.closing.inventory : 0));
+    const ap = monthlyEnd?.accountsPayable ?? (dpo > 0 ? (y.cogs / 365) * dpo : 0);
+    const assets = ledger.assets[i];
+    const debt = debtYear(ledger, yearIdx);
+    const principalPayments = debt.principal;
+    const capexThisYear = assets.capex;
 
     // Change in working capital (excluding cash): AR + inventory - AP vs prev
     const prevNonCashWC =
@@ -159,7 +125,8 @@ export function buildBalanceSheetProjections(
     const changeInWC = currNonCashWC - prevNonCashWC;
 
     const rolledCash =
-      prev.cash + y.netIncome + y.depreciation - changeInWC - principalPayments - capexThisYear;
+      prev.cash + y.netIncome + y.depreciation - changeInWC - principalPayments - capexThisYear +
+      (yearIdx === 1 ? ledger.closing.inflows - ledger.closing.intangibleAssets - ledger.closing.debtRetired : 0);
     // Year 1 has a detailed monthly liquidity schedule that already includes
     // closing sources, closing uses, debt service, and working-capital timing.
     // When supplied, it is the authoritative Year-1 cash balance; recomputing
@@ -168,19 +135,20 @@ export function buildBalanceSheetProjections(
       ? options.year1EndingCash!
       : rolledCash;
 
-    const fixedAssets = prev.fixedAssets + capexThisYear - y.depreciation;
+    const fixedAssets = assets.fixedAssets;
+    const intangibleAssets = assets.intangibleAssets;
 
     const totalCurrent = cash + ar + inventory;
-    const totalAssets = totalCurrent + Math.max(0, fixedAssets);
+    const totalAssets = totalCurrent + fixedAssets + intangibleAssets;
 
-    const shortTermDebt = prev.shortTermDebt; // assume steady
+    const shortTermDebt = debt.currentPortion;
     const totalCurrentLiab = ap + shortTermDebt;
 
-    const longTermDebt = Math.max(0, prev.longTermDebt - principalPayments);
+    const longTermDebt = Math.max(0, debt.balance - shortTermDebt) + unscheduledDebt;
     const totalLiab = totalCurrentLiab + longTermDebt;
 
     const retainedEarnings = prev.retainedEarnings + y.netIncome;
-    const paidInCapital = prev.paidInCapital;
+    const paidInCapital = prev.paidInCapital + (yearIdx === 1 ? ledger.closing.equityAdded : 0);
     const totalEquity = retainedEarnings + paidInCapital;
 
     rows.push({
@@ -190,7 +158,8 @@ export function buildBalanceSheetProjections(
       accountsReceivable: ar,
       inventory,
       totalCurrentAssets: totalCurrent,
-      fixedAssets: Math.max(0, fixedAssets),
+      fixedAssets,
+      intangibleAssets,
       totalAssets,
       accountsPayable: ap,
       shortTermDebt,

@@ -20,9 +20,11 @@ test("projection inputs are tenant-bound, authoritative, and fail closed", () =>
   assert.doesNotMatch(story, /loadBorrowerStory error:/);
 });
 
-test("the projection model receives the governed opening-cash facts", () => {
-  assert.match(route, /"SL_CASH",\s*"CASH"/);
-  assert.match(route, /openingCash: getFact\("SL_CASH", "CASH"\)/);
+test("the projection PDF consumes the reconciled package model before its first AI call", () => {
+  assert.match(route, /computePackageFinancialOutput\(ctx.dealId, ctx.bankId\)/);
+  assert.match(route, /const \{ assumptions, baseYear, projectionModel, projectedDscrThreshold \} = computed.output/);
+  assert.ok(route.indexOf("computePackageFinancialOutput(ctx.dealId") < route.indexOf("await generateActionableRoadmap"));
+  assert.doesNotMatch(route, /getFact\(|buildBaseYear\(/);
 });
 
 test("stored PDF bytes and durable audit evidence gate successful delivery", () => {

@@ -1,4 +1,6 @@
 import type { SBAAssumptions, AnnualProjectionYear, UseOfProceedsLine } from "./sbaReadinessTypes";
+import { buildProjectionLedger } from "./sbaProjectionLedger";
+import { buildBalanceSheetProjections, type BalanceSheetBaseYearInputs } from "./sbaBalanceSheetProjector";
 import {
   buildAnnualProjections,
   buildMonthlyProjections,
@@ -15,11 +17,8 @@ import {
  * calculators. The lower-level builders remain pure implementation details;
  * artifact and UI code must consume this model.
  */
-// v4: monthlyProjections[].cumulativeCash is now a CASH BALANCE seeded from
-// the borrower's opening cash, not a cumulative net change from zero. The
-// version is part of artifact provenance, so a semantic change to a published
-// series has to move it.
-export const SBA_PROJECTION_ENGINE_VERSION = "sba_projection_v4" as const;
+// v5: one closing/debt/asset ledger reconciles P&L, liquidity and balances.
+export const SBA_PROJECTION_ENGINE_VERSION = "sba_projection_v5" as const;
 
 export type SBAProjectionModel = {
   engineVersion: typeof SBA_PROJECTION_ENGINE_VERSION;
@@ -30,6 +29,16 @@ export type SBAProjectionModel = {
   revenueStreamProjections: ReturnType<typeof buildRevenueStreamProjections>;
   breakEven: ReturnType<typeof computeBreakEven>;
   sensitivityScenarios: ReturnType<typeof buildSensitivityScenarios>;
+  balanceSheetProjections: ReturnType<typeof buildBalanceSheetProjections>;
+  accountingBasis: string[];
+  accountingBlockers: string[];
+};
+
+export type SBAProjectionBasis = {
+  baseYear: AnnualProjectionYear;
+  openingBalance: BalanceSheetBaseYearInputs;
+  useOfProceeds: UseOfProceedsLine[];
+  projectedDscrThreshold?: number;
 };
 
 export function computeSBAProjectionModel(args: {
@@ -39,27 +48,37 @@ export function computeSBAProjectionModel(args: {
   useOfProceeds?: UseOfProceedsLine[];
   /** Governed CASH fact. Seeds the monthly cash balance; see buildMonthlyProjections. */
   openingCash?: number;
+  openingBalance?: BalanceSheetBaseYearInputs;
 }): SBAProjectionModel {
-  const { assumptions, baseYear, projectedDscrThreshold, useOfProceeds = [], openingCash = 0 } = args;
-  const annualProjections = buildAnnualProjections(assumptions, baseYear);
+  const { assumptions, baseYear, projectedDscrThreshold, useOfProceeds = [], openingCash = 0, openingBalance } = args;
+  const ledger = buildProjectionLedger({ assumptions, baseYear, useOfProceeds, opening: openingBalance });
+  const annualProjections = buildAnnualProjections(assumptions, baseYear, ledger);
   const year1 = annualProjections[0];
 
   if (!year1) {
     throw new Error("SBA projection engine produced no Year 1 projection");
   }
 
+  const monthlyProjections = buildMonthlyProjections(assumptions, year1, useOfProceeds, openingBalance?.cash ?? openingCash, ledger);
+  const balanceSheetProjections = openingBalance ? buildBalanceSheetProjections(assumptions, annualProjections, openingBalance, {
+    ledger, year1EndingCash: monthlyProjections.at(-1)?.cumulativeCash, year1EndingWorkingCapital: monthlyProjections.at(-1),
+  }) : [];
   return Object.freeze({
     engineVersion: SBA_PROJECTION_ENGINE_VERSION,
     generatedFrom: "borrower_confirmed_assumptions",
     baseYear,
     annualProjections,
-    monthlyProjections: buildMonthlyProjections(assumptions, year1, useOfProceeds, openingCash),
+    monthlyProjections,
+    balanceSheetProjections,
+    accountingBasis: ledger.basis,
+    accountingBlockers: ledger.blockers,
     revenueStreamProjections: buildRevenueStreamProjections(assumptions),
     breakEven: computeBreakEven(assumptions, year1),
     sensitivityScenarios: buildSensitivityScenarios(
       assumptions,
       [baseYear, ...annualProjections],
       projectedDscrThreshold,
+      ledger,
     ),
   });
 }

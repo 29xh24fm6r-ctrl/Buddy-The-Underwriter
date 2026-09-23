@@ -591,6 +591,7 @@ export async function generateSBAPackage(
       franchiseSection: franchiseSection ?? undefined,
       sourcesAndUses: mode === "preview" ? undefined : sourcesAndUses,
       balanceSheetProjections: mode === "preview" ? undefined : balanceSheetProjections,
+      projectionAccountingBasis: mode === "preview" ? undefined : projectionModel.accountingBasis,
       globalCashFlow: mode === "preview" ? undefined : globalCashFlow,
       previewWatermark: mode === "preview",
     };
