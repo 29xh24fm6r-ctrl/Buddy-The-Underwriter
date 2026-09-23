@@ -288,7 +288,7 @@ export async function GET(
       const archivePath = `${dealId}/final/${bundle.id}/archives/${actorInfo.actorScope}/${kind}/${archive.sha256}.zip`;
       const bucket = sb.storage.from("trident-bundles");
       const uploaded = await bucket.upload(archivePath, archive.bytes, {
-        contentType: "application/zip", cacheControl: "private, no-store", upsert: false,
+        contentType: "application/zip", cacheControl: "0", upsert: false,
       });
       if (uploaded.error) {
         // A simultaneous identical download may win the create-once write.

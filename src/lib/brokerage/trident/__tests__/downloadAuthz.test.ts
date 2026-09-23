@@ -115,7 +115,9 @@ require.cache[require.resolve("@/lib/supabase/admin")] = {
                 ? { data: new Blob([new Uint8Array(bytes)]), error: null }
                 : { data: null, error: { message: "missing object" } };
             },
-            async upload(filePath: string, bytes: Uint8Array) {
+            async upload(filePath: string, bytes: Uint8Array, options: any) {
+              assert.equal(options.cacheControl, "0");
+              assert.equal(options.upsert, false);
               onUpload?.();
               if (uploadError) return { data: null, error: { message: "write unavailable" } };
               if (storedFiles.has(filePath)) return { data: null, error: { message: "duplicate" } };
@@ -124,6 +126,7 @@ require.cache[require.resolve("@/lib/supabase/admin")] = {
             },
             async createSignedUrl(_p: string, _ttl: number) {
               signedPaths.push(_p);
+              if (_p.includes("/archives/")) assert.equal(_ttl, 60);
               if (state.signedUrlReturns.error) {
                 return { data: null, error: state.signedUrlReturns.error };
               }
