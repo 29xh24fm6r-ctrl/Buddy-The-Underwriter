@@ -236,6 +236,7 @@ const supabaseStub = {
     },
   },
   rpc(name: string, params: any) {
+    if (name === "trident_package_budget_policy") return Promise.resolve({ data: { generator: 150000, underwriter: 300000, verifier: 300000 }, error: null });
     if (name === "acquire_trident_bundle_run") {
       const id = state.nextBundleId();
       const lease = `lease-${id}`;

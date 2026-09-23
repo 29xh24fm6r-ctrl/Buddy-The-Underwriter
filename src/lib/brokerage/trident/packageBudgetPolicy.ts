@@ -1,13 +1,11 @@
-/** Mirrors reserve_trident_gateway_tokens. This is admission, not a reservation. */
-export const PACKAGE_ROLE_HEADROOM = { generator: 150000, underwriter: 150000, verifier: 150000 } as const;
 export function packageBudgetBlockers(input: {
   role: string; dailyLimit: number; consumed: number; reserved: number;
-  qaUsed: number; runUsed: number; isTest: boolean; required: number;
+  qaUsed: number; runUsed: number; isTest: boolean; required: number; runAllowance: number;
 }): string[] {
-  const { role, dailyLimit, consumed, reserved, qaUsed, runUsed, isTest, required } = input;
-  if (![dailyLimit, consumed, reserved, qaUsed, runUsed, required].every(n => Number.isSafeInteger(n) && n >= 0) || dailyLimit === 0)
+  const { role, dailyLimit, consumed, reserved, qaUsed, runUsed, isTest, required, runAllowance } = input;
+  if (![dailyLimit, consumed, reserved, qaUsed, runUsed, required, runAllowance].every(n => Number.isSafeInteger(n) && n >= 0) || (dailyLimit === 0 || runAllowance === 0))
     return [`budget_unavailable: ${role} budget accounting is invalid`];
-  const runLimit = Math.min(dailyLimit, 150000);
+  const runLimit = Math.min(dailyLimit, runAllowance);
   const needed = Math.max(0, required - runUsed);
   const blockers: string[] = [];
   if (runUsed >= runLimit || needed > runLimit - runUsed)

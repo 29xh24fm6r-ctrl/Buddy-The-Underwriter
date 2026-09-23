@@ -7,7 +7,7 @@ mockServerOnly();
 const require = createRequire(import.meta.url);
 require.cache[require.resolve("@/lib/supabase/admin")] = { exports: { supabaseAdmin: () => { throw new Error("Use isolated client"); } }, loaded: true } as any;
 const { assertPackageBudgetAvailable, readPackageCapacity } = require("../packageBudget") as typeof import("../packageBudget");
-const base = { role: "verifier", dailyLimit: 500000, consumed: 218170, reserved: 0, qaUsed: 218170, runUsed: 0, isTest: true, required: 150000 };
+const base = { role: "verifier", dailyLimit: 500000, consumed: 218170, reserved: 0, qaUsed: 218170, runUsed: 0, isTest: true, required: 150000, runAllowance: 150000 };
 test("QA allowance blocks the observed failure even when global daily budget has room", () => {
   const failures = packageBudgetBlockers(base);
   assert.equal(failures.length, 1);
@@ -23,7 +23,7 @@ test("unsettled reservations, run exhaustion, malformed accounting and equality 
 function client(rows: any[], failTable?: string, isTest = true) {
   const reads: string[] = [];
   const day = new Date().toISOString().slice(0, 10);
-  return { reads, from(table: string) {
+  return { reads, rpc: async () => ({ data: { generator: 150000, underwriter: 300000, verifier: 300000 }, error: null }), from(table: string) {
     reads.push(table);
     let filtered = table === "deals" ? [{ id: "deal", bank_id: "bank", is_test: isTest }] : table === "ai_gateway_daily_budgets" ? [] : rows;
     let start = 0, end = Infinity, single = false;
@@ -37,7 +37,7 @@ function client(rows: any[], failTable?: string, isTest = true) {
 }
 test("ledger reads page beyond 1000 rows and count actual zero instead of reserved tokens", async () => {
   const c = client([]);
-  const rows = Array.from({length:1001}, (_,id) => ({ id, role:"verifier", is_qa:true, usage_day:c.day, actual_tokens:id < 1000 ? 0 : null, reserved_tokens:id < 1000 ? 999 : 218170 }));
+  const rows = Array.from({length:1001}, (_,id) => ({ id, role:"verifier", is_qa:true, usage_day:c.day, actual_tokens:id < 1000 ? 0 : null, reserved_tokens:id < 1000 ? 999 : 318170 }));
   const db = client(rows);
   await assert.rejects(assertPackageBudgetAvailable({dealId:"deal",bankId:"bank"}, db as any), /QA daily allowance/);
   assert.equal(db.reads.filter(t => t === "ai_gateway_budget_reservations").length, 2);

@@ -90,7 +90,7 @@ test("package rejection diagnostics distinguish reservation accounting from all 
   const client: any = { rpc: () => ({ single: async () => ({ data: { allowed: false, tokens_consumed: 144038, tokens_reserved: 0 }, error: null }) }) };
   await assert.rejects(runWithAIExecutionContext(context(), () => reserveGatewayBudget("generator", 2000000, 21485, client)), (error: any) => {
     assert.match(error.message, /144038 settled or reserved/);
-    assert.match(error.message, /150000 per run/);
+    assert.match(error.message, /trident_package_budget_policy/);
     assert.match(error.message, /1000000 QA/);
     assert.match(error.message, /2000000 total/);
     assert.doesNotMatch(error.message, /144038 consumed/);

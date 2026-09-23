@@ -1,3 +1,4 @@
+import { reviewCheckpointRpc } from "../../../../test/utils/reviewCheckpointClient";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -92,7 +93,7 @@ function makeDb(tables: Record<string, Row[]>) {
 
     return q;
   }
-  return { from: builder };
+  return { from: builder, rpc: reviewCheckpointRpc() };
 }
 
 function baseComposite(): any {

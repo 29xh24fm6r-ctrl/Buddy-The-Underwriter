@@ -87,7 +87,8 @@ const DEFAULT_BUDGETS: Record<GatewayRole, number> = {
   generator: 2_000_000,
   extractor: 1_000_000,
   research: 500_000,
-  verifier: 500_000,
+  // A 300k review/repair run must fit inside the 50% QA allocation.
+  verifier: 1_000_000,
   structurer: 500_000,
   interviewer: 1_000_000,
   translator: 500_000,

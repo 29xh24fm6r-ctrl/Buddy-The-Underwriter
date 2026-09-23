@@ -6,6 +6,8 @@ import { runRole } from "./gateway";
 import type { ArtifactType } from "./artifactVerification";
 import type { FlaggedClaim } from "./verify";
 
+import type { ReviewCheckpoint, ReviewCheckpointStore } from "./reviewCheckpoint";
+
 export type ArtifactSection = { key: string; text: string };
 
 export type FrontierArtifactResult = {
@@ -275,32 +277,36 @@ export async function finishInstitutionalArtifact(input: {
   sections: ArtifactSection[];
   dealId: string;
   npiTagged?: boolean;
+  checkpoint?: ReviewCheckpointStore;
   /** Recompute narrative-derived findings after every repair; never change source facts. */
   auditSections?: (sections: ArtifactSection[]) => Record<string, unknown>;
 }): Promise<FrontierArtifactResult> {
   const npiTagged = input.npiTagged ?? true;
   const finalContentHash = () => reviewContentHash({ ...input, sections, sectionAudit: input.auditSections?.(sections) });
-  let sections = input.sections;
-  let repaired = false;
-  let reviewPasses = 0;
-  let remaining: ReviewIssue[] = [];
+  const saved = input.checkpoint?.state;
+  let sections = saved?.sections ?? input.sections;
+  let repaired = saved?.repaired ?? false;
+  let reviewPasses = saved?.reviewPasses ?? 0;
+  let remaining: ReviewIssue[] = saved?.remaining ?? [];
+  let phase: ReviewCheckpoint["phase"] = saved?.phase ?? "review";
+  let completedBatches = saved?.completedBatches ?? {};
+  const save = async (cycle: number) => {
+    await input.checkpoint?.save({ version: 1, cycle, phase, sections, repaired,
+      reviewPasses, remaining, completedBatches });
+  };
 
-  // Bound the lane while allowing the reviewer to verify each targeted repair.
-  // Three repair cycles prevent a single imperfect rewrite from discarding an
-  // otherwise recoverable institutional package.
-  for (let cycle = 0; cycle <= 3; cycle += 1) {
+  // Each completed review and repair batch is durable before moving forward.
+  // Unchanged retries retain the original three-repair limit.
+  for (let cycle = saved?.cycle ?? 0; cycle <= 3; cycle += 1) {
     const sectionAudit = input.auditSections?.(sections);
-    const issues = await review({ ...input, sections, npiTagged, sectionAudit });
-    reviewPasses += 1;
-    // Preserve advisories, but spend repair calls only when critical findings remain.
-    remaining = issues.filter((issue) => issue.severity !== "info");
-    if (remaining.length === 0) {
-      return {
-        sections, verdict: "pass", flaggedClaims: [], repaired, reviewPasses,
-        reviewIssues: [], advisoryIssues: [], contentHash: finalContentHash(),
-      };
+    if (phase === "review") {
+      const issues = await review({ ...input, sections, npiTagged, sectionAudit });
+      reviewPasses += 1;
+      remaining = issues.filter((issue) => issue.severity !== "info");
+      phase = cycle === 3 || remaining.every(issue => issue.severity !== "critical") ? "done" : "repair";
+      await save(cycle);
     }
-    if (cycle === 3 || remaining.every(issue => issue.severity !== "critical")) break;
+    if (phase === "done") break;
 
     const sectionKeys = new Set(sections.map((section) => section.key));
     // Legacy/artifact-wide findings require the whole set. Otherwise preserve
@@ -314,7 +320,15 @@ export async function finishInstitutionalArtifact(input: {
     const batches: ArtifactSection[][] = input.artifactType === "feasibility"
       ? Array.from({ length: Math.ceil(targets.length / 2) }, (_, i) => targets.slice(i * 2, i * 2 + 2))
       : [targets];
+    // Serialize checkpoint writes, while allowing independent model batches to
+    // run concurrently. A failed write stops the lane before another review.
+    let writes = Promise.resolve();
     const repairs = await Promise.allSettled(batches.map(async (batch, batchIndex) => {
+      const cached = completedBatches[String(batchIndex)];
+      if (cached) {
+        if (!parseSections(JSON.stringify({ sections: cached }), batch)) throw new Error("review_checkpoint_invalid_batch");
+        return cached;
+      }
       const request = {
         systemInstruction: REPAIR_SYSTEM,
         prompt: [
@@ -349,10 +363,20 @@ export async function finishInstitutionalArtifact(input: {
       }
       const parsed = parseSections(repair.text, batch);
       if (!parsed) throw new Error("invalid_repair_contract");
+      if (input.checkpoint) {
+        writes = writes.then(async () => {
+          completedBatches = { ...completedBatches, [String(batchIndex)]: parsed };
+          await save(cycle);
+        });
+        await writes;
+      }
       return parsed;
     }));
     const failed = repairs.find((result) => result.status === "rejected");
     if (failed?.status === "rejected") {
+      // Keep the saved findings and successful batches resumable. Do not turn
+      // a budget, provider or persistence error into a terminal review verdict.
+      if (input.checkpoint) throw failed.reason;
       // Never publish a partial batch or hide the infrastructure failure behind
       // a content finding. Keep the last reviewed prose and its findings.
       const timeout = failed.reason instanceof Error && /aborted|aborterror|timed?\s*out|timeout/i.test(failed.reason.message);
@@ -369,6 +393,9 @@ export async function finishInstitutionalArtifact(input: {
     const replacements = new Map(repairedSections.map((section) => [section.key, section]));
     sections = sections.map((section) => replacements.get(section.key) ?? section);
     repaired = true;
+    phase = "review";
+    completedBatches = {};
+    await save(cycle + 1);
   }
 
   // The repair budget is spent. Split what survived: criticals block, warnings
