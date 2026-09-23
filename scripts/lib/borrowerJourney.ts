@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import ExcelJS from "exceljs";
 import { PDFDocument } from "pdf-lib";
@@ -92,6 +93,22 @@ export class BorrowerHttp {
     }
     return result;
   }
+  async downloadPackage(path: string, bundleId: string): Promise<Uint8Array> {
+    const response = await this.raw(path);
+    if (!response.ok) throw new JourneyStop(`Package download returned HTTP ${response.status}.`);
+    const result = await response.json();
+    if (result?.ok !== true || result.bundleId !== bundleId || typeof result.url !== "string" || !/^[a-f0-9]{64}$/.test(result.sha256))
+      throw new JourneyStop("Package download identity is missing or belongs to a different run.");
+    const url = new URL(result.url);
+    if (url.protocol !== "https:" || url.username || url.password) throw new JourneyStop("Package download requires a secure storage URL.");
+    // Never forward application cookies or credentials to the signed storage host.
+    const stored = await this.fetcher(url, { credentials: "omit", redirect: "error", signal: AbortSignal.timeout(60_000) });
+    if (!stored.ok) throw new JourneyStop(`Package storage download returned HTTP ${stored.status}.`);
+    const bytes = new Uint8Array(await stored.arrayBuffer());
+    if (createHash("sha256").update(bytes).digest("hex") !== result.sha256)
+      throw new JourneyStop("Downloaded package failed its integrity check.");
+    return bytes;
+  }
   async upload(document: SourceDocument, dealId: string) {
     const signed = await this.json(`/api/borrower/portal/${dealId}/files/sign`, {
       filename: document.filename, mime_type: "application/pdf", size_bytes: document.bytes.byteLength, checklist_key: document.checklistKey,
@@ -123,7 +140,24 @@ export class BorrowerHttp {
 
 export async function verifyBorrowerZip(bytes: Uint8Array, bundleId: string): Promise<void> {
   const zip = await JSZip.loadAsync(bytes, { checkCRC32: true });
-  const expected = [...BORROWER_PACKAGE_FILES.map(f => f.filename), "Read-me.txt"].sort();
+  const inventoryFile = zip.file("Package-inventory.json");
+  if (!inventoryFile) throw new JourneyStop("Package file inventory is missing.");
+  const inventory = JSON.parse(await inventoryFile.async("string"));
+  if (inventory.version !== 1 || inventory.bundleId !== bundleId || inventory.actor !== "borrower" || !Array.isArray(inventory.files))
+    throw new JourneyStop("Package inventory does not match this borrower and generation run.");
+  const generated = inventory.files.filter((file: any) => file.category === "generated").map((file: any) => file.filename).sort();
+  if (!isDeepStrictEqual(generated, BORROWER_PACKAGE_FILES.map(file => file.filename).sort()))
+    throw new JourneyStop("Download contains missing, unexpected, or lender-only generated files.");
+  for (const file of inventory.files) {
+    if (file.category !== "generated" && (file.category !== "source" || !/^Source-documents\/\d{3}-[a-zA-Z0-9._-]+$/.test(file.filename) || file.filename.includes("..")))
+      throw new JourneyStop("Package inventory contains an unexpected source file.");
+    const entry = zip.file(file.filename);
+    if (!entry) throw new JourneyStop("Package inventory references a missing file.");
+    const content = await entry.async("uint8array");
+    if (content.byteLength !== file.sizeBytes || createHash("sha256").update(content).digest("hex") !== file.sha256)
+      throw new JourneyStop("A package file failed its inventory integrity check.");
+  }
+  const expected = [...inventory.files.map((file: any) => file.filename), "Read-me.txt", "Package-inventory.json"].sort();
   const actual = Object.keys(zip.files).filter(key => !zip.files[key].dir).sort();
   if (!isDeepStrictEqual(actual, expected)) throw new JourneyStop("Download contains missing, unexpected, or lender-only files.");
   const readme = await zip.file("Read-me.txt")!.async("string");
@@ -330,9 +364,8 @@ export async function runBorrowerJourney(options: Options): Promise<JourneyRepor
         : "All six artifacts are prepared, but release authorization could not be verified. No download success is claimed.", true);
     }
     await step("Download and inspect the borrower package", async () => {
-      const response = await http.raw(`/api/brokerage/deals/${dealId}/trident/download/complete_package`);
-      require(response.ok && response.headers.get("content-type")?.includes("application/zip"), `Package download returned HTTP ${response.status}, not a ZIP.`);
-      await verifyBorrowerZip(new Uint8Array(await response.arrayBuffer()), expectedBundleId!);
+      const bytes = await http.downloadPackage(`/api/brokerage/deals/${dealId}/trident/download/complete_package`, expectedBundleId!);
+      await verifyBorrowerZip(bytes, expectedBundleId!);
     });
     report.status = "package_verified"; report.exitCode = 0;
     // Deliberately no seal/submit/kyc/esign mutations: QA must never deliver a

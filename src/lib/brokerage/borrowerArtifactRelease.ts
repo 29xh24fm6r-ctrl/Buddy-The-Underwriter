@@ -3,6 +3,7 @@ import "server-only";
 /** Release is separate from preparation: never call this from generation admission. */
 export type BorrowerArtifactRelease = {
   released: boolean;
+  sealedPackageId?: string;
   reason: "bank_selection_required" | "released" | "state_unavailable";
 };
 type DB = { from: (table: string) => any };
@@ -33,7 +34,7 @@ export async function getBorrowerArtifactRelease(dealId: string, sb: DB): Promis
     const sealed = await sb.from("buddy_sealed_packages").select("id")
       .eq("id", listing.data.sealed_package_id).eq("deal_id", dealId).is("unsealed_at", null).maybeSingle();
     if (sealed.error) throw sealed.error;
-    return sealed.data ? { released: true, reason: "released" } : locked;
+    return sealed.data ? { released: true, reason: "released", sealedPackageId: sealed.data.id } : locked;
   } catch {
     // Uncertain authorization never releases content, but preparation/status still work.
     return { released: false, reason: "state_unavailable" };

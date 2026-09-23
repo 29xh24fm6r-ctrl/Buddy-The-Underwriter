@@ -146,7 +146,11 @@ for (const released of [false,true]) test(`completed package uses safe file stat
   await setup(page,true,false,false,{complete:true,released});
   await page.getByRole("button",{name:/MISSION 4 Prepare your package/}).click();
   const download = page.getByRole("link",{name:"Download your application documents"});
-  if (released) await expect(download).toBeVisible();
+  if (released) {
+    await expect(download).toBeVisible();
+    await expect(download).toHaveAttribute("href", /\/trident\/download\/complete_package\?redirect=1$/);
+    await expect(page.getByText(/your uploaded source documents from this preparation run/)).toBeVisible();
+  }
   else {
     await expect(page.getByText(/Your documents are prepared for lender review/)).toBeVisible();
     await expect(download).toHaveCount(0);

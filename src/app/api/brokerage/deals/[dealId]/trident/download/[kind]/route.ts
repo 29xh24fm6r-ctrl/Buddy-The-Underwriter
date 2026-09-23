@@ -1,12 +1,10 @@
 import "server-only";
 
 /** Download the immutable files from one completed package run. */
-import JSZip from "jszip";
+import { buildPackageArchive, PackageArchiveError } from "@/lib/brokerage/packageArchive";
 import { getBorrowerArtifactRelease } from "@/lib/brokerage/borrowerArtifactRelease";
 import {
-  LENDER_PACKAGE_FILES,
   canBorrowerDownload,
-  packageFilesForActor,
 } from "@/lib/brokerage/lenderPackageFiles";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -52,6 +50,7 @@ class PackageStateUnavailable extends Error {}
 
 type ResolvedActor = {
   bankId: string;
+  sealedPackageId?: string;
   actor: string;
   actorScope: "borrower" | "lender";
   /**
@@ -91,7 +90,7 @@ async function resolveActor(
   const sb = supabaseAdmin();
   const { data: access, error: accessError } = await sb
     .from("marketplace_package_access")
-    .select("id, lender_bank_id, deal_id, revoked_at, access_level")
+    .select("id, lender_bank_id, deal_id, revoked_at, access_level, sealed_package_id")
     .eq("id", accessId)
     .maybeSingle();
   if (accessError)
@@ -118,6 +117,7 @@ async function resolveActor(
   return {
     bankId: String(deal.bank_id),
     actor: lender.userId,
+    sealedPackageId: access.sealed_package_id ?? undefined,
     actorScope: "lender",
     accessLevel: (access as any).access_level === "full" ? "full" : "preview",
   };
@@ -167,7 +167,7 @@ export async function GET(
   const { dealId, kind } = await params;
 
   if (
-    kind !== "complete_package" &&
+    kind !== "complete_package" && kind !== "source_docs" &&
     !VALID_TRIDENT_KINDS.includes(kind as TridentKind)
   ) {
     return NextResponse.json({ ok: false }, { status: 404 });
@@ -200,6 +200,7 @@ export async function GET(
       "sba_forms",
       "spreads",
       "complete_package",
+      "source_docs",
       "projections_xlsx",
     ].includes(kind)
   ) {
@@ -210,26 +211,31 @@ export async function GET(
 
   if (actorInfo.actorScope === "borrower" && kind !== "sba_forms") {
     const release = await getBorrowerArtifactRelease(dealId, sb);
+    actorInfo.sealedPackageId = release.sealedPackageId;
     if (!release.released) return NextResponse.json(
       { ok: false, error: release.reason },
       { status: release.reason === "state_unavailable" ? 503 : 403 },
     );
   }
 
+  const archiveRequest = kind === "complete_package" || kind === "source_docs";
+  let boundBundleId: string | null = null;
+  if (archiveRequest) {
+    if (!actorInfo.sealedPackageId) return NextResponse.json({ ok: false, error: "Package release binding is unavailable." }, { status: 409 });
+    const sealed = await sb.from("buddy_sealed_packages").select("sealed_snapshot")
+      .eq("id", actorInfo.sealedPackageId).eq("deal_id", dealId).eq("bank_id", actorInfo.bankId)
+      .is("unsealed_at", null).maybeSingle();
+    if (sealed.error) return NextResponse.json({ ok: false, error: "package_state_unavailable" }, { status: 503 });
+    boundBundleId = sealed.data?.sealed_snapshot?.tridentFinal?.bundleId ?? null;
+    if (!boundBundleId) return NextResponse.json({ ok: false, error: "Package release binding is unavailable." }, { status: 409 });
+  }
   // Prefer final, fall back to preview. Two small queries are clearer than a
   // clever ORDER BY. A preview-tier grant skips the final lookup entirely so
   // it can only ever be served the redacted preview bundle.
-  const finalResult =
-    actorInfo.accessLevel === "full"
-      ? await sb
-          .from("buddy_trident_bundles")
-          .select("*")
-          .eq("deal_id", dealId)
-          .eq("mode", "final")
-          .eq("status", "succeeded")
-          .is("superseded_at", null)
-          .maybeSingle()
-      : { data: null, error: null };
+  let finalQuery = sb.from("buddy_trident_bundles").select("*")
+    .eq("deal_id", dealId).eq("mode", "final").eq("status", "succeeded").is("superseded_at", null);
+  if (boundBundleId) finalQuery = finalQuery.eq("id", boundBundleId).eq("bank_id", actorInfo.bankId);
+  const finalResult = actorInfo.accessLevel === "full" ? await finalQuery.maybeSingle() : { data: null, error: null };
   if (finalResult.error) {
     return NextResponse.json(
       { ok: false, error: "package_state_unavailable" },
@@ -244,6 +250,7 @@ export async function GET(
       "credit_memo",
       "spreads",
       "complete_package",
+      "source_docs",
       "sba_forms",
       "projections_xlsx",
     ].includes(kind)
@@ -272,73 +279,54 @@ export async function GET(
       { status: 404 },
     );
   }
-  if (kind === "complete_package") {
-    if (
-      bundle.mode !== "final" ||
-      !LENDER_PACKAGE_FILES.every((file) => bundle[file.column])
-    ) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "The package is missing required documents. Rebuild it before downloading.",
-        },
-        { status: 409 },
-      );
+  if (kind === "complete_package" || kind === "source_docs") {
+    try {
+      const archive = await buildPackageArchive({ sb, bundle, dealId, bankId: actorInfo.bankId,
+        actor: actorInfo.actorScope, sourcesOnly: kind === "source_docs" });
+      const filename = kind === "source_docs" ? "source-documents.zip" : "lender-package.zip";
+      // Content-addressed, actor-specific objects prevent borrower/lender cache mixing.
+      const archivePath = `${dealId}/final/${bundle.id}/archives/${actorInfo.actorScope}/${kind}/${archive.sha256}.zip`;
+      const bucket = sb.storage.from("trident-bundles");
+      const uploaded = await bucket.upload(archivePath, archive.bytes, {
+        contentType: "application/zip", cacheControl: "0", upsert: false,
+      });
+      if (uploaded.error) {
+        // A simultaneous identical download may win the create-once write.
+        // Prove the existing object before issuing a URL; never ignore write failures.
+        const existing = await bucket.download(archivePath);
+        if (existing.error || !existing.data || !Buffer.from(await existing.data.arrayBuffer()).equals(archive.bytes))
+          throw new PackageArchiveError("The package could not be saved for download. Please retry.");
+      }
+      // Recheck release after storage work: revocation while assembling must withhold the URL.
+      const currentActor = await resolveActor(req, dealId);
+      const currentRelease = actorInfo.actorScope === "borrower" ? await getBorrowerArtifactRelease(dealId, sb) : null;
+      if (!currentActor || currentActor.actor !== actorInfo.actor || currentActor.bankId !== actorInfo.bankId ||
+          currentActor.accessLevel !== "full" ||
+          (actorInfo.actorScope === "lender" && currentActor.sealedPackageId !== actorInfo.sealedPackageId) ||
+          (currentRelease && (!currentRelease.released || currentRelease.sealedPackageId !== actorInfo.sealedPackageId)))
+        return NextResponse.json({ ok: false, error: "Package access changed. Refresh before downloading." }, { status: 403 });
+      const currentSeal = await sb.from("buddy_sealed_packages").select("sealed_snapshot")
+        .eq("id", actorInfo.sealedPackageId).eq("deal_id", dealId).eq("bank_id", actorInfo.bankId)
+        .is("unsealed_at", null).maybeSingle();
+      if (currentSeal.error || currentSeal.data?.sealed_snapshot?.tridentFinal?.bundleId !== bundle.id)
+        return NextResponse.json({ ok: false, error: "Package release changed. Refresh before downloading." }, { status: 409 });
+      const audit = await auditPackageDownload({ actor: actorInfo.actor, actorScope: actorInfo.actorScope,
+        dealId, action: "package_download", resourceType: kind,
+        metadata: { bundleId: bundle.id, sealedPackageId: actorInfo.sealedPackageId,
+          fileCount: archive.inventory.files.length, archiveSha256: archive.sha256 },
+      }, sb);
+      if (!audit.ok) return NextResponse.json({ ok: false, error: "download_audit_persistence_failed" }, { status: 503 });
+      const signed = await bucket.createSignedUrl(archivePath, 60, { download: filename });
+      if (signed.error || !signed.data?.signedUrl) throw new PackageArchiveError("The download link could not be created. Please retry.");
+      // Browser anchors use a redirect; fetch clients receive the same signed URL as other artifacts.
+      if (req.nextUrl.searchParams.get("redirect") === "1")
+        return new NextResponse(null, { status: 303, headers: { location: signed.data.signedUrl, "cache-control": "private, no-store" } });
+      return NextResponse.json({ ok: true, url: signed.data.signedUrl, bundleId: bundle.id,
+        fileCount: archive.inventory.files.length, sha256: archive.sha256 }, { headers: { "cache-control": "private, no-store" } });
+    } catch (error) {
+      return NextResponse.json({ ok: false, error: error instanceof PackageArchiveError
+        ? error.message : "The complete package could not be verified. Please retry." }, { status: 503 });
     }
-    const zip = new JSZip();
-    for (const file of packageFilesForActor(actorInfo.actorScope)) {
-      const { data, error } = await sb.storage
-        .from("trident-bundles")
-        .download(bundle[file.column]);
-      if (error || !data)
-        return NextResponse.json(
-          { ok: false, error: `${file.label} could not be downloaded.` },
-          { status: 503 },
-        );
-      const bytes = Buffer.from(await data.arrayBuffer());
-      const valid = file.filename.endsWith(".pdf")
-        ? bytes.subarray(0, 5).toString() === "%PDF-"
-        : bytes.subarray(0, 2).toString() === "PK";
-      if (!valid)
-        return NextResponse.json(
-          { ok: false, error: `${file.label} is not a valid document.` },
-          { status: 503 },
-        );
-      zip.file(file.filename, bytes);
-    }
-    zip.file(
-      "Read-me.txt",
-      `Prepared loan package\nRun: ${bundle.id}\nGenerated: ${bundle.generation_completed_at}\n\nPrepared for lender review, not credit approval. The lender confirms applicable requirements, signatures, business tax transcript requests and closing documents.\n`,
-    );
-    const audit = await auditPackageDownload(
-      {
-        actor: actorInfo.actor,
-        actorScope: actorInfo.actorScope,
-        dealId,
-        action: "package_download",
-        resourceType: kind,
-        metadata: { bundleId: bundle.id },
-      },
-      sb,
-    );
-    if (!audit.ok)
-      return NextResponse.json(
-        { ok: false, error: "download_audit_persistence_failed" },
-        { status: 503 },
-      );
-    return new NextResponse(
-      new Uint8Array(
-        await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }),
-      ),
-      {
-        headers: {
-          "content-type": "application/zip",
-          "content-disposition": 'attachment; filename="lender-package.zip"',
-          "cache-control": "private, no-store",
-        },
-      },
-    );
   }
 
   const pathColumn = KIND_TO_PATH_COLUMN[kind as TridentKind];
