@@ -165,7 +165,7 @@ export async function computePackageFinancialModel(dealId: string, bankId: strin
 
   const balanceSheetProjections = projectionModel.balanceSheetProjections;
 
-  if (preOpening && opening) {
+  if (opening) {
     const renderedOpening = balanceSheetProjections[0];
     if ([
       [renderedOpening.totalAssets, opening.balance.totalAssets],

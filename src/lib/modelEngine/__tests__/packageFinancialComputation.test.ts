@@ -64,6 +64,13 @@ test("historical presentation cannot contradict the authoritative period",async(
   assert.throws(()=>assertPackageHistoricalConsistency(model,input),/source conflict/);
 });
 
+test("balanced omitted assets and liabilities cannot disappear from the opening source totals", async () => {
+  // These two omissions cancel in A=L+E, so arithmetic alone would pass.
+  facts = facts.map((fact:any) => ["TOTAL_ASSETS", "SL_TOTAL_ASSETS", "TOTAL_LIABILITIES", "SL_TOTAL_LIABILITIES"].includes(fact.fact_key)
+    ? { ...fact, fact_value_num: fact.fact_value_num + 50000 } : fact);
+  await assert.rejects(computePackageFinancialOutput("deal-1", "bank-1"), /opening balance sheet needs asset, liability and equity details/);
+});
+
 const historicalFixture = JSON.parse(JSON.stringify(facts));
 function openingFacts() {
   return Object.entries({ CASH_AND_EQUIVALENTS:250000, TOTAL_ASSETS:250000, TOTAL_LIABILITIES:0, TOTAL_EQUITY:250000, COMMON_STOCK:250000 }).map(([fact_key,fact_value_num])=>({
