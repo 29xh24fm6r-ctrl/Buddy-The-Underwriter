@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
+import { deterministicHash } from "../hashing";
 mockServerOnly();
 const require = createRequire(import.meta.url);
 let saved: any = null;
@@ -58,4 +59,15 @@ test("preview recomputes current canonical output without saving or reusing a pe
   assert.deepEqual(saved,previous);
   await assert.rejects(previewPackageFinancialSnapshot({dealId:"deal-1",bankId:"other-bank"}),/deal_mismatch/);
   assert.equal(computations,count+1);
+});
+
+test("snapshots from before the business-fact scope repair cannot be loaded or reused",async()=>{
+  await preparePackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",inputHash});
+  saved.model_version="model_v2_package_3";
+  saved.package_input_hash=deterministicHash({inputHash,version:"model_v2_package_3"});
+  await assert.rejects(loadPackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",snapshotId:saved.id}),/financial_snapshot_invalid/);
+  const count=computations;
+  await preparePackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",inputHash});
+  assert.equal(computations,count+1,"same source evidence must recompute under the corrected model");
+  assert.equal(saved.model_version,"model_v2_package_4");
 });

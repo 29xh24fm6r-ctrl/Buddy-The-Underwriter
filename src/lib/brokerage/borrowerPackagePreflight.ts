@@ -49,6 +49,9 @@ export async function checkBorrowerPackageEvidence(dealId: string, bankId: strin
   } catch (error) {
     const text = error instanceof Error ? error.message : "";
     if (text.includes("input_snapshot_changed")) return result("not_checked", "Your saved information changed during the check. Refresh and check again.");
+    if (text.includes("preparing-to-open answer conflicts with operating history")) return result("blocked",
+      "Your preparing-to-open answer conflicts with business financial history. Review the business stage and source documents. Personal tax returns do not establish business operating history.",
+      [{ id: "business-stage", questionId: "B07", label: "Review whether this business is already operating or preparing to open." }]);
     const recovery = packageRecoveryItems(text, isTest);
     return result("blocked", recovery.length
       ? "Saved package evidence needs attention. Review the findings below."

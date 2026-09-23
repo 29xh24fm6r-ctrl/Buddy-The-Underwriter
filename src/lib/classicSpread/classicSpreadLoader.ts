@@ -38,6 +38,7 @@ import { buildRationale } from "@/lib/methodology/rationaleTemplates";
 // ---------------------------------------------------------------------------
 
 type RawFact = {
+  fact_type?: string | null;
   fact_key: string;
   fact_period_end: string | null;
   fact_value_num: number | null;
@@ -973,7 +974,7 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
   const [factsRes, dealRes] = await Promise.all([
     sb
       .from("deal_financial_facts")
-      .select("id, fact_key, fact_period_end, fact_value_num, confidence, created_at, source_document_id, owner_type, source_canonical_type, provenance")
+      .select("id, fact_type, fact_key, fact_period_end, fact_value_num, confidence, created_at, source_document_id, owner_type, source_canonical_type, provenance")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .eq("is_superseded", false)
