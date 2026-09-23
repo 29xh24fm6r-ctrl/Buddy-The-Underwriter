@@ -61,13 +61,15 @@ test("preview recomputes current canonical output without saving or reusing a pe
   assert.equal(computations,count+1);
 });
 
-test("snapshots from before projection reconciliation cannot be loaded or reused",async()=>{
-  await preparePackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",inputHash});
-  saved.model_version="model_v2_package_4";
-  saved.package_input_hash=deterministicHash({inputHash,version:"model_v2_package_4"});
-  await assert.rejects(loadPackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",snapshotId:saved.id}),/financial_snapshot_invalid/);
-  const count=computations;
-  await preparePackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",inputHash});
-  assert.equal(computations,count+1,"same source evidence must recompute under the corrected model");
-  assert.equal(saved.model_version,"model_v2_package_5");
+test("snapshots from before universal opening-source reconciliation cannot be loaded or reused",async()=>{
+  for (const version of ["model_v2_package_4", "model_v2_package_5"]) {
+    await preparePackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",inputHash});
+    saved.model_version=version;
+    saved.package_input_hash=deterministicHash({inputHash,version});
+    await assert.rejects(loadPackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",snapshotId:saved.id}),/financial_snapshot_invalid/);
+    const count=computations;
+    await preparePackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",inputHash});
+    assert.equal(computations,count+1,"same source evidence must recompute under the corrected model");
+    assert.equal(saved.model_version,"model_v2_package_6");
+  }
 });
