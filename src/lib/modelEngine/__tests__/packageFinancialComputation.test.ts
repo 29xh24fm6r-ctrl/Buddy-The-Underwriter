@@ -4,7 +4,6 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
 import { buildFinancialModel } from "../buildFinancialModel";
-import { renderFromFinancialModel } from "../renderer/v2Adapter";
 mockServerOnly();
 const require = createRequire(import.meta.url);
 let facts = JSON.parse(readFileSync("src/lib/modelEngine/__tests__/packageFinancialFacts.fixture.json", "utf8"));
@@ -12,6 +11,7 @@ let reads = 0;
 let stage: string | null = null;
 let reportStatus = "PASS";
 let savedReports: any[] = [];
+let writeTables: string[] = [];
 const assumptions = {
   id: "assumptions-1", status: "confirmed", confirmed_at: "2026-09-17T00:00:00Z",
   revenue_streams: [{ id: "r1", name: "Manufacturing", pricingModel: "flat", baseAnnualRevenue: 2400000, growthRateYear1: .1, growthRateYear2: .1, growthRateYear3: .1, seasonalityProfile: null }],
@@ -27,14 +27,10 @@ const client = { from(table: string) {
     deals:{name:"Synthetic Manufacturer",bank_id:"bank-1",deal_type:"SBA",loan_amount:1000000},
     deal_proceeds_items:[{category:"equipment",description:"Equipment",amount:1000000}],buddy_guarantor_cashflow:[],deal_ownership_entities:[],deal_ownership_interests:[] };
   const result = { data: values[table] ?? null,error:null };
-  const q:any = { insert:(row:any)=>{savedReports.push(row);return q;}, select:()=>q,eq:()=>q,order:()=>q,limit:()=>q,maybeSingle:async()=>result,single:async()=>result,
+  const q:any = { insert:(row:any)=>{writeTables.push(table);if(table==="buddy_validation_reports")savedReports.push(row);return q;}, select:()=>q,eq:()=>q,neq:()=>q,order:()=>q,limit:()=>q,maybeSingle:async()=>result,single:async()=>result,
     then:(resolve:any)=>Promise.resolve(result).then(resolve) }; return q;
 } };
 require.cache[require.resolve("../../supabase/admin")] = { exports:{supabaseAdmin:()=>client},loaded:true } as any;
-require.cache[require.resolve("../engineAuthority")] = { exports:{computeAuthoritativeEngine:async()=>{
-  const financialModel=buildFinancialModel("deal-1",facts);
-  return {financialModel,viewModel:renderFromFinancialModel(financialModel,"deal-1"),computedMetrics:{},riskFlags:[],facts};
-}},loaded:true } as any;
 require.cache[require.resolve("../../classicSpread/classicSpreadLoader")] = {exports:{loadClassicSpreadData:async()=>({dealId:"deal-1",periods:[],incomeStatement:[],balanceSheet:[]})},loaded:true} as any;
 const {computePackageFinancialOutput,computePackageFinancialModel}=require("../packageFinancialComputation") as typeof import("../packageFinancialComputation");
 
@@ -72,7 +68,10 @@ function openingFacts() {
     fact_type:"BALANCE_SHEET", fact_key, fact_value_num, fact_period_end:"2026-09-21", is_superseded:false, resolution_status:"inferred", owner_type:"DEAL", confidence:1,
   }));
 }
-test.afterEach(()=>{ facts=structuredClone(historicalFixture); stage=null; reportStatus="PASS"; savedReports=[]; assumptions.status="confirmed"; });
+test.afterEach(()=>{
+  assert.deepEqual(writeTables.filter(table=>table!=="buddy_validation_reports"),[],"read-only engine computation cannot insert snapshots or telemetry");
+  facts=structuredClone(historicalFixture); stage=null; reportStatus="PASS"; savedReports=[]; writeTables=[]; assumptions.status="confirmed";
+});
 
 test("startup uses an interim opening statement and the real calculator without inventing historical earnings",async()=>{
   facts=openingFacts(); stage="The business is preparing to open";
@@ -94,6 +93,37 @@ test("startup uses an interim opening statement and the real calculator without 
   assert.equal(result.output.debtCoverageRows[0].revenue,null);
   assert.ok(result.output.projectionModel.annualProjections[0].revenue>0);
   assert.equal(facts.some((f:any)=>f.fact_key==="TOTAL_REVENUE"),false);
+});
+
+test("owner tax income never becomes operating history for an unopened business",async()=>{
+  stage="The business is preparing to open";
+  const personal=[2023,2024,2025].flatMap(year=>[
+    {fact_key:"TAXABLE_INCOME",fact_value_num:58275+(year-2023)*3000},
+    {fact_key:"ADJUSTED_GROSS_INCOME",fact_value_num:72000+(year-2023)*3000},
+  ].map(row=>({...row,fact_type:"PERSONAL_INCOME",fact_period_end:`${year}-12-31`,owner_type:"PERSONAL",source_canonical_type:"PERSONAL_TAX_RETURN",confidence:1,is_superseded:false,resolution_status:"inferred"})));
+  facts=[...openingFacts(),...personal];
+  const before=structuredClone(facts);
+  const result=await computePackageFinancialOutput("deal-1","bank-1");
+  assert.equal(result.ok,true);if(!result.ok)return;
+  assert.deepEqual(result.output.historicalModel.periods.map(p=>p.periodEnd),["2026-09-21"]);
+  assert.equal(result.output.baseYear.revenue,0);
+  assert.equal(result.output.openingBalance?.cash,250000);
+  assert.ok(result.output.projectionModel.annualProjections[0].revenue>0);
+  assert.deepEqual(facts,before,"personal evidence must stay intact for guarantor review");
+});
+
+test("personal returns cannot override an established business's income or balance sheet",async()=>{
+  const baseline=await computePackageFinancialOutput("deal-1","bank-1");
+  assert.equal(baseline.ok,true);if(!baseline.ok)return;
+  facts=[...facts,
+    {fact_type:"TAX_RETURN",fact_key:"NET_INCOME",fact_value_num:9000000,fact_period_end:"2025-12-31",owner_type:"DEAL",source_canonical_type:"FORM_1040",confidence:1},
+    {fact_type:"BALANCE_SHEET",fact_key:"TOTAL_ASSETS",fact_value_num:8000000,fact_period_end:"2025-12-31",owner_type:"PERSONAL",confidence:1},
+    {fact_type:"PERSONAL_INCOME",fact_key:"TAXABLE_INCOME",fact_value_num:7000000,fact_period_end:"2026-12-31",confidence:1},
+  ];
+  const result=await computePackageFinancialOutput("deal-1","bank-1");
+  assert.equal(result.ok,true);if(!result.ok)return;
+  assert.deepEqual(result.output.historicalModel,baseline.output.historicalModel);
+  assert.deepEqual(result.output.computedMetrics,baseline.output.computedMetrics);
 });
 test("model computation can precede validation, but artifact-facing admission still rejects FAIL",async()=>{
   facts=openingFacts(); stage="The business is preparing to open"; reportStatus="FAIL";

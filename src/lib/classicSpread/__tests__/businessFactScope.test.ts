@@ -17,6 +17,11 @@ describe("isBusinessStatementFact", () => {
     assert.equal(isBusinessStatementFact({ owner_type: "PERSONAL", source_canonical_type: "INCOME_STATEMENT" }), false);
   });
 
+  it("excludes personal-income facts with missing or incorrect ownership metadata", () => {
+    assert.equal(isBusinessStatementFact({ fact_type: "PERSONAL_INCOME" }), false);
+    assert.equal(isBusinessStatementFact({ fact_type: "PERSONAL_INCOME", owner_type: "DEAL" }), false);
+  });
+
   it("excludes personal-return facts even when written under owner_type=DEAL (OmniCare case)", () => {
     assert.equal(isBusinessStatementFact({ owner_type: "DEAL", source_canonical_type: "PERSONAL_TAX_RETURN" }), false);
     assert.equal(isBusinessStatementFact({ owner_type: "DEAL", source_canonical_type: "PERSONAL_FINANCIAL_STATEMENT" }), false);

@@ -16,11 +16,13 @@ export const PERSONAL_CANONICAL_TYPES = new Set([
 ]);
 
 export type ScopableFact = {
+  fact_type?: string | null;
   owner_type?: string | null;
   source_canonical_type?: string | null;
 };
 
 export function isBusinessStatementFact(f: ScopableFact): boolean {
+  if (f.fact_type === "PERSONAL_INCOME") return false;
   if (f.owner_type === "PERSONAL") return false;
   if (f.source_canonical_type && PERSONAL_CANONICAL_TYPES.has(f.source_canonical_type)) return false;
   return true;

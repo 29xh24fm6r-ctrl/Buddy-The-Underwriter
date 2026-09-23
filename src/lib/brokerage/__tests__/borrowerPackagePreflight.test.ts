@@ -63,6 +63,14 @@ test("known evidence failure returns allowlisted recovery without raw underwriti
   assert.equal(result.status,"blocked");assert.ok(result.recoveryItems.length);
   assert.doesNotMatch(JSON.stringify(result),/private-memo-data/);
 });
+test("genuine business-stage conflict explains the correction without exposing financial data",async()=>{
+  failure="financial_input_required: your preparing-to-open answer conflicts with operating history private-financial-details";
+  const result=await checkBorrowerPackageEvidence("deal","bank",true);
+  assert.equal(result.status,"blocked");
+  assert.match(result.message,/Personal tax returns do not establish business operating history/);
+  assert.equal(result.recoveryItems[0].questionId,"B07");
+  assert.doesNotMatch(JSON.stringify(result),/private-financial-details/);
+});
 test("proceeds comparison handles ordering and numeric database values but checks every line",()=>{
   assert.equal(samePackageProceeds(costs,[{...costs[0],amount:"300000"}]),true);
   assert.equal(samePackageProceeds(null,costs),true);

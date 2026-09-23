@@ -12,6 +12,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildFinancialModel } from "./buildFinancialModel";
+import { isBusinessStatementFact } from "@/lib/classicSpread/businessFactScope";
 import { evaluateMetricGraphWithAudit } from "./metricGraph";
 import { loadMetricRegistry } from "./metricRegistryLoader";
 import { renderFromFinancialModel } from "./renderer/v2Adapter";
@@ -115,7 +116,9 @@ export async function computeAuthoritativeEngine(
   const dealMode: string = (dealModeRes.data as any)?.deal_mode ?? "full_underwrite";
 
   // 2. Build financial model
-  const financialModel = buildFinancialModel(dealId, facts);
+  // This model is the DEAL business statement. Guarantor facts stay available
+  // in the source set and personal/GCF readers, but cannot become its history.
+  const financialModel = buildFinancialModel(dealId, facts.filter(isBusinessStatementFact));
 
   // 3. Evaluate metric graph (audit mode — captures dependency graph)
   const metricDefs = await loadMetricRegistry(sb, "v1");
@@ -217,9 +220,8 @@ export async function computeAuthoritativeEngine(
       console.warn("[engineAuthority] deal_spreads persist failed (non-fatal)", err?.message);
     });
 
-  }
-
-  // 8. Emit authoritative served event
+  // 8. Emit authoritative served event only for persisted computation.
+  // Read-only package previews must not write telemetry rows either.
   emitV2Event({
     code: V2_EVENT_CODES.MODEL_V2_PRIMARY_SERVED,
     dealId,
@@ -231,6 +233,7 @@ export async function computeAuthoritativeEngine(
       metricsComputed: Object.keys(computedMetrics).length,
     },
   });
+  }
 
   return {
     financialModel,
