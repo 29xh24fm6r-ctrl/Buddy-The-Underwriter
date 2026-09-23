@@ -135,7 +135,7 @@ export async function POST(req: NextRequest, { params }: Ctx): Promise<NextRespo
     return NextResponse.json({ ok: false }, { status: 404 });
   }
 
-  if (["assumptions", "draft-assumptions", "build-package"].includes(action)) {
+  if (["assumptions", "draft-assumptions", "build-package", "check-package"].includes(action)) {
     const rate = await checkConciergeRateLimit({ tokenHash: session.tokenHash });
     if (!rate.allowed) return NextResponse.json({ ok: false, error: "Please wait a moment before retrying." }, { status: 429 });
     try { return await borrowerPackageAction(action, dealId, session.bank_id, await req.json()); }

@@ -48,3 +48,9 @@ export function canBorrowerDownload(kind: string) {
 export function packageFilesForActor(actor: "borrower" | "lender") {
   return actor === "borrower" ? BORROWER_PACKAGE_FILES : LENDER_PACKAGE_FILES;
 }
+
+/** The public status contract contains booleans, never private storage paths. */
+export function hasCompletePackageFiles(files: unknown): boolean {
+  return Array.isArray(files) && LENDER_PACKAGE_FILES.every(file =>
+    files.some(item => item?.key === file.column && item.ready === true));
+}

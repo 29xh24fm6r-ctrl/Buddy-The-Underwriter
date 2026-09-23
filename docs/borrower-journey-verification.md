@@ -14,6 +14,7 @@ This checks file structure, not the accuracy or adequacy of financial content.
 | Result | Exit code | Meaning |
 | --- | --- | --- |
 | `package_verified` | 0 | The HTTP journey produced and downloaded a structurally valid final borrower package. |
+| `blocked` (prepared, release locked) | 2 | All six artifact-status flags passed and the borrower download correctly returned `403 bank_selection_required`. Bank acceptance/selection and downloaded file contents remain unverified. |
 | `failed` | 1 | A request, persistence check, isolation check or package-content check failed. |
 | `blocked` | 2 | Prerequisites, authentication, readiness or a bounded generation wait prevented completion. |
 

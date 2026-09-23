@@ -78,7 +78,7 @@ stub("@/lib/modelEngine/engineAuthority", { computeAuthoritativeEngine: async ()
 } });
 stub("@/lib/classicSpread/classicSpreadLoader", { loadClassicSpreadData: async () => ({ periods: [], incomeStatement: [], balanceSheet: [] }) });
 
-stub("../trident/packageBudget", { assertPackageBudgetAvailable: async () => {
+stub("../trident/packageBudget", { readPackageCapacity: async () => ({ available: !budgetBlocked, message: budgetBlocked ? "Processing capacity unavailable" : null }), assertPackageBudgetAvailable: async () => {
   if (budgetBlocked) throw new Error("budget_unavailable: verifier QA allocation");
 } });
 stub("workflow/api", { start: async (workflow: any, args: any[]) => {
@@ -260,14 +260,21 @@ test("unreconciled borrower budget blocks paid work, then a saved correction res
   assert.equal((await status()).preparation.status,"succeeded");
 });
 
-test("unavailable package capacity stops before research and presents wait guidance", async () => {
-  budgetBlocked = true;
+test("capacity lost after admission still stops before research and presents wait guidance", async () => {
   await start();
+  budgetBlocked = true;
   await assert.rejects(run(), /capacity/);
   assert.deepEqual(events, []);
   const row = tables.borrower_package_preparations[0];
   assert.equal(row.status, "failed");
   assert.match(row.message, /retrying immediately will not help/);
+});
+
+test("unavailable capacity rejects admission without creating a workflow or failed row", async () => {
+  budgetBlocked = true;
+  assert.equal((await borrowerPackageAction("build-package", "deal", "bank", {})).status, 503);
+  assert.equal(queued.length, 0); assert.equal(tables.borrower_package_preparations.length, 0);
+  assert.deepEqual(events, []);
 });
 
 test("missing source documents stop before any research or generation spend", async () => {

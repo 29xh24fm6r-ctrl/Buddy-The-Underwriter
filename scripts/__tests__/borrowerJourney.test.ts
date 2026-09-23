@@ -37,6 +37,9 @@ type Changes = {
   generationState?: string; wrongBundle?: boolean; leakMemo?: boolean;
   zip?: Uint8Array; persistenceLost?: boolean;
   prepared?: boolean;
+  releaseLocked?: boolean;
+  releaseUnavailable?: boolean;
+  leakPackage?: boolean;
   preparation?: "succeeded" | "failed" | "running" | "wrong-run";
 };
 async function harness(changes: Changes = {}) {
@@ -76,11 +79,12 @@ async function harness(changes: Changes = {}) {
       const preparing = generationStarted && changes.preparation;
       const preparationStatus = preparationPolls++ === 0 ? "running" : changes.preparation;
       return json({ ok: true,
+        release: { released: !changes.releaseLocked && !changes.releaseUnavailable, reason: changes.releaseUnavailable ? "state_unavailable" : changes.releaseLocked ? "bank_selection_required" : "released" },
         preparation: preparing ? { id: changes.preparation === "wrong-run" ? "other-preparation" : "prep", status: preparationStatus, bundleId: preparationStatus === "succeeded" ? bundleId : null } : null,
-        readiness: { evidence: { isTestDeal: !changes.realDeal }, readyToPrepare: !changes.readinessBlocked, readyToGenerate: !changes.readinessBlocked, blockers: changes.readinessBlocked ? ["Validation is missing"] : [] },
+        readiness: { evidence: { isTestDeal: !changes.realDeal }, readyToPrepare: !changes.readinessBlocked, readyToGenerate: !changes.readinessBlocked, blockers: changes.readinessBlocked ? ["Validation is missing"] : [],
+          packageFiles: LENDER_PACKAGE_FILES.map((file, i) => ({key:file.column, ready: !(changes.missingArtifact && i === 0)})) },
         bundle: generationStarted ? {
           id: changes.wrongBundle ? "another-run" : bundleId, status: changes.generationState ?? "succeeded",
-          ...Object.fromEntries(LENDER_PACKAGE_FILES.map((f, i) => [f.column, changes.missingArtifact && i === 0 ? null : `artifacts/${f.filename}`])),
         } : null,
       });
     }
@@ -110,7 +114,9 @@ async function harness(changes: Changes = {}) {
       return json({ ok: true, assumptions: assumption, revision: assumptionsRevision, status: assumption ? "confirmed" : "draft" });
     }
     if (path.endsWith("/build-package")) { generationStarted = true; preparationPolls = 0; return json({ ok: true, ...(changes.preparation ? { preparationId: "prep" } : { bundleId }) }, 202); }
-    if (path.endsWith("/download/complete_package")) return new Response(Buffer.from(zip), { headers: { "content-type": "application/zip" } });
+    if (path.endsWith("/download/complete_package")) return changes.releaseLocked && !changes.leakPackage
+      ? json({ok:false,error:"bank_selection_required"},403)
+      : new Response(Buffer.from(zip), { headers: { "content-type": "application/zip" } });
     if (path.endsWith("/download/credit_memo")) return json({ ok: changes.leakMemo === true }, changes.leakMemo ? 200 : 404);
     throw new Error(`Unexpected request ${method} ${path}`);
   };
@@ -144,6 +150,23 @@ test("HTTP journey follows preparation into its exact final bundle", async () =>
   assert.equal(result.status, "package_verified", JSON.stringify(result));
   assert.equal(result.bundleId, bundleId);
   assert.equal(h.calls.filter(call => call.path.endsWith("/build-package")).length, 1);
+});
+test("prepared but unreleased package verifies the lock and reports an incomplete journey", async () => {
+  const h = await harness({releaseLocked:true});
+  const report = await runBorrowerJourney(h.options);
+  assert.equal(report.status,"blocked"); assert.equal(report.exitCode,2);
+  assert.ok(report.steps.some(step=>step.name.includes("remain locked") && step.status === "passed"));
+  assert.match(report.steps.at(-1)!.detail,/All six artifacts are prepared/);
+  assert.ok(report.notVerified.some(item=>item.includes("file contents")));
+});
+test("the journey fails if unreleased documents leak", async () => {
+  const h = await harness({releaseLocked:true,leakPackage:true});
+  assert.equal((await runBorrowerJourney(h.options)).status,"failed");
+});
+test("unknown release state cannot produce a passing download", async () => {
+  const h = await harness({releaseUnavailable:true});
+  assert.equal((await runBorrowerJourney(h.options)).status,"blocked");
+  assert.equal(h.calls.some(call=>call.path.endsWith("/download/complete_package")),false);
 });
 for (const preparation of ["failed", "running", "wrong-run"] as const) {
   test(`HTTP journey cannot pass with ${preparation} preparation`, async () => {

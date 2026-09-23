@@ -31,6 +31,7 @@ export type BuildPackageInput = {
 
 export async function buildCovenantPackage(
   input: BuildPackageInput,
+  options: { persist?: boolean } = {},
 ): Promise<CovenantPackage> {
   // Pass 1: Deterministic rule engine
   const rawSet = runCovenantRuleEngine({
@@ -71,6 +72,7 @@ export async function buildCovenantPackage(
     ruleEngineVersion: COVENANT_RULE_CONFIG.version,
   };
 
+  if (options.persist === false) return pkg;
   // Persist
   const sb = supabaseAdmin();
   const { error } = await sb.from("buddy_covenant_packages").insert({

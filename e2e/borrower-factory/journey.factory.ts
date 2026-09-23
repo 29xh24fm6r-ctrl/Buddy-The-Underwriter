@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { buildGuidedSnapshot } from "../../src/lib/borrower/guidedPackage/questions";
-async function setup(page: Page, preparePackage = false, testCompletion = false, testRecovery = false) {
+import { LENDER_PACKAGE_FILES } from "../../src/lib/brokerage/lenderPackageFiles";
+async function setup(page: Page, preparePackage = false, testCompletion = false, testRecovery = false, packageState?: { released?: boolean; complete?: boolean; missingFile?: boolean; capacity?: boolean; check?: string; stale?: boolean }) {
   const facts: Record<string, any> = { package_answers: {} };
   const rows: Record<string, any[]> = { deals: [{}], deal_loan_requests: [{}] };
   let posterAcknowledged = false;
@@ -82,7 +83,7 @@ async function setup(page: Page, preparePackage = false, testCompletion = false,
       return respond({
         ok: true,
         assumptions: preparePackage ? { revenueStreams: [] } : null,
-        revision: null,
+        revision: packageState?.stale ? "2026-09-23T12:00:00Z" : null,
         status: preparePackage ? "confirmed" : "draft",
       });
     if (url.pathname.endsWith("/package-status") && testRecovery) {
@@ -99,10 +100,16 @@ async function setup(page: Page, preparePackage = false, testCompletion = false,
       if (!posterAcknowledged) completionItems.push({id:"form722",questionId:"",label:"Review the SBA equal opportunity poster below and acknowledge receipt."});
       return respond({ok:true,bundle:null,preparation,readiness:{readyToPrepare:completionItems.length===0,readyToGenerate:false,blockers:completionItems.map(i=>i.label),completionItems,warnings:[],packageFiles:[]}});
     }
+    if (url.pathname.endsWith("/check-package")) return respond({ok:true,check:{
+      status:packageState?.check ?? "passed",checkedAt:"2026-09-23T12:00:00Z",recoveryItems:[],
+      message: packageState?.check === "not_checked" ? "Financial validation and business research must finish first." : "Saved calculations passed. Generated documents have not been verified.",
+    }});
     if (url.pathname.endsWith("/package-status"))
-      return respond({ ok: true, bundle: null, preparation, readiness: {
-        readyToPrepare: preparePackage && preparation?.status !== "running",
-        readyToGenerate: false, blockers: [], warnings: [], packageFiles: [],
+      return respond({ ok: true, bundle: packageState?.complete ? {id:"bundle",status:"succeeded",generation_completed_at:"2026-09-23T11:00:00Z"} : null,
+        release:{released:packageState?.released === true},preparation, readiness: {
+        capacity: {available:packageState?.capacity !== false,message:packageState?.capacity === false ? "Processing capacity is unavailable. You can check saved evidence without AI." : null},
+        readyToPrepare: preparePackage && preparation?.status !== "running" && packageState?.capacity !== false,
+        readyToGenerate: false, blockers: [], warnings: [], packageFiles: packageState?.complete ? LENDER_PACKAGE_FILES.map((f,i)=>({key:f.column,label:f.label,ready:!(packageState.missingFile && i===0)})) : [],
       } });
     if (url.pathname.endsWith("/build-package")) {
       preparation = { id: "preparation", status: "running", stage: "research" };
@@ -132,6 +139,41 @@ async function setup(page: Page, preparePackage = false, testCompletion = false,
     },
   };
 }
+for (const released of [false,true]) test(`completed package uses safe file status with release ${released}`, async ({page}) => {
+  await setup(page,true,false,false,{complete:true,released});
+  await page.getByRole("button",{name:/MISSION 4 Prepare your package/}).click();
+  const download = page.getByRole("link",{name:"Download your application documents"});
+  if (released) await expect(download).toBeVisible();
+  else {
+    await expect(page.getByText(/Your documents are prepared for lender review/)).toBeVisible();
+    await expect(download).toHaveCount(0);
+  }
+});
+for (const state of [{missingFile:true},{stale:true}]) test(`incomplete or stale package never offers download ${JSON.stringify(state)}`,async({page})=>{
+  await setup(page,true,false,false,{complete:true,released:true,...state});
+  await page.getByRole("button",{name:/MISSION 4 Prepare your package/}).click();
+  await expect(page.getByText("Assumptions confirmed",{exact:true})).toBeVisible();
+  await expect(page.getByRole("link",{name:"Download your application documents"})).toHaveCount(0);
+});
+test("paused capacity allows explicit no-AI checks and editing clears the result",async({page})=>{
+  const fixture=await setup(page,true,false,false,{capacity:false});
+  await page.getByRole("button",{name:/MISSION 4 Prepare your package/}).click();
+  await expect(page.getByRole("button",{name:"Prepare lender package",exact:true})).toBeDisabled();
+  await page.getByRole("button",{name:"Check saved package evidence — no AI",exact:true}).click();
+  await expect(page.getByText("Saved evidence check passed",{exact:true})).toBeVisible();
+  await page.getByText("Revenue",{exact:true}).click();
+  await page.getByRole("button",{name:"Add item",exact:true}).first().click();
+  await expect(page.getByText("Saved evidence check passed",{exact:true})).toHaveCount(0);
+  expect(fixture.calls.filter(call=>call.endsWith("/check-package"))).toHaveLength(1);
+  expect(fixture.calls.filter(call=>/\/(build-package|draft-assumptions)$/.test(call))).toHaveLength(0);
+});
+test("pending validation and research never appear as a passed check",async({page})=>{
+  await setup(page,true,false,false,{capacity:false,check:"not_checked"});
+  await page.getByRole("button",{name:/MISSION 4 Prepare your package/}).click();
+  await page.getByRole("button",{name:"Check saved package evidence — no AI",exact:true}).click();
+  await expect(page.getByText("Saved evidence check is incomplete",{exact:true})).toBeVisible();
+  await expect(page.getByText("Saved evidence check passed",{exact:true})).toHaveCount(0);
+});
 test("completed inputs start preparation while research is missing, resume progress, and allow retry", async ({ page }) => {
   const fixture = await setup(page, true);
   await page.getByRole("button", { name: /MISSION 4 Prepare your package/ }).click();

@@ -29,6 +29,15 @@ export async function loadPackageFinancialSnapshot(args: { dealId: string; bankI
 
 /** Compute once, persist before any writer runs, then read the persisted row back. */
 export async function preparePackageFinancialSnapshot(args: { dealId: string; bankId?: string; inputHash?: string }): Promise<PackageFinancialSnapshot> {
+  return computeSnapshot(args, true);
+}
+
+/** Diagnostic only: no snapshot, artifact, score, or validation verdict is saved. */
+export async function previewPackageFinancialSnapshot(args: { dealId: string; bankId: string }): Promise<PackageFinancialSnapshot> {
+  return computeSnapshot(args, false);
+}
+
+async function computeSnapshot(args: { dealId: string; bankId?: string; inputHash?: string }, persist: boolean): Promise<PackageFinancialSnapshot> {
   const sb = supabaseAdmin();
   const { data: deal, error: dealError } = await sb.from("deals").select("bank_id").eq("id", args.dealId).single();
   if (dealError || !deal?.bank_id || (args.bankId && args.bankId !== deal.bank_id)) throw new Error("financial_snapshot_deal_mismatch");
@@ -38,18 +47,21 @@ export async function preparePackageFinancialSnapshot(args: { dealId: string; ba
   const inputHash = deterministicHash({ inputHash: before.inputHash, version: PACKAGE_FINANCIAL_VERSION });
   const find = () => sb.from("deal_model_snapshots").select("*").eq("deal_id", args.dealId)
     .eq("bank_id", bankId).eq("package_input_hash", inputHash).maybeSingle();
-  const existing = await find();
-  if (existing.error) throw existing.error;
-  if (existing.data) return decode(existing.data);
+  if (persist) {
+    const existing = await find();
+    if (existing.error) throw existing.error;
+    if (existing.data) return decode(existing.data);
+  }
   const computed = await computePackageFinancialOutput(args.dealId, bankId);
   if (!computed.ok) throw new Error(`financial_input_required: ${computed.error}`);
-  const memo = await buildCanonicalCreditMemo({ dealId: args.dealId, bankId, executionContext: "system", financialOutput: computed.output });
+  const memo = await buildCanonicalCreditMemo({ dealId: args.dealId, bankId, executionContext: "system", financialOutput: computed.output, persistDerived: persist });
   if (!memo.ok) throw new Error(`financial_input_required: ${memo.error}`);
   const after = await computeTridentInputSnapshot(sb, args.dealId);
   if (after.inputHash !== before.inputHash) throw new Error("input_snapshot_changed");
   // JSON normalization is part of persistence; integrity hashes exactly those bytes/values.
   const output = JSON.parse(JSON.stringify({ ...computed.output, canonicalMemo: memo.memo, memoContractBlockers: memo.contractBlockers })) as PackageFinancialSnapshot["output"];
   const outputHash = deterministicHash(output);
+  if (!persist) return { id: `preview:${inputHash}`, dealId: args.dealId, bankId, inputHash, outputHash, output };
   const { data, error } = await sb.from("deal_model_snapshots").insert({
     deal_id: args.dealId, bank_id: bankId, model_version: PACKAGE_FINANCIAL_VERSION,
     metric_registry_hash: deterministicHash(output.computedMetrics),

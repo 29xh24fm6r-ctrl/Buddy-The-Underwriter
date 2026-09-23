@@ -3,7 +3,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getRoleConfig, type GatewayRole } from "@/lib/ai/roleConfig";
 import { PACKAGE_ROLE_HEADROOM, packageBudgetBlockers } from "./packageBudgetPolicy";
+import type { PackageCapacity } from "../borrowerPackageCheckState";
 export { PACKAGE_ROLE_HEADROOM } from "./packageBudgetPolicy";
+
+/** Borrower-safe, current availability. This does not reserve or reset capacity. */
+export async function readPackageCapacity(args: { dealId: string; bankId: string }, sb: SupabaseClient = supabaseAdmin()): Promise<PackageCapacity> {
+  try {
+    await assertPackageBudgetAvailable(args, sb);
+    return { available: true, message: null };
+  } catch {
+    return { available: false, message: "Package preparation is paused because processing capacity is unavailable or could not be verified. Your information is saved. You can check saved package evidence without AI, then refresh status before preparing." };
+  }
+}
 
 // Read-only admission. Atomic gateway reservations remain the hard enforcement
 // under concurrent work. No budget caps or usage ledgers are changed here.

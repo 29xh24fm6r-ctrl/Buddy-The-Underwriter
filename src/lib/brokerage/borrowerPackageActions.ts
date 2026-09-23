@@ -10,6 +10,8 @@ import { draftAssumptionsFromContext } from "@/lib/sba/sbaAssumptionDrafter";
 import { getTridentReadiness } from "./trident/tridentReadiness";
 import { getBorrowerArtifactRelease } from "./borrowerArtifactRelease";
 import { readBorrowerPackagePreparation, startBorrowerPackagePreparation } from "./borrowerPackagePreparation";
+import { readPackageCapacity } from "./trident/packageBudget";
+import { checkBorrowerPackageEvidence } from "./borrowerPackagePreflight";
 
 export async function borrowerPackageAction(
   action: string,
@@ -39,11 +41,12 @@ export async function borrowerPackageAction(
       bundle.generation_error = "Package preparation stopped before completion. Please retry.";
     }
     const generating = preparation?.status === "running" || ["pending", "running"].includes(bundle?.status ?? "");
-    const [readiness, answers] = generating
-      ? [null, null]
+    const [readiness, answers, capacity] = generating
+      ? [null, null, null]
       : await Promise.all([
           getTridentReadiness({ sb, dealId, bankId }),
           loadGuidedPackage(sb, { deal_id: dealId, bank_id: bankId }),
+          readPackageCapacity({ dealId, bankId }, sb),
         ]);
     const completion = answers ? packageCompletionItems(answers) : [];
     if (readiness?.budget && !readiness.budget.balanced) completion.push({
@@ -71,11 +74,12 @@ export async function borrowerPackageAction(
       recoveryItems: !generating && bundle?.status === "failed"
         ? packageRecoveryItems(bundle.generation_error, readiness?.evidence.isTestDeal === true) : [],
       readiness: {
+        capacity,
         readyToPrepare:
-          !generating && readiness?.preparationReady === true &&
+          !generating && capacity?.available === true && readiness?.preparationReady === true &&
           completion.length === 0 && !(answers?.readErrors.length ?? 0),
         readyToGenerate:
-          !generating &&
+          !generating && capacity?.available === true &&
           readiness?.ok === true &&
           completion.length === 0 &&
           !(answers?.readErrors.length ?? 0),
@@ -98,7 +102,7 @@ export async function borrowerPackageAction(
       },
     });
   }
-  if (action === "build-package") {
+  if (action === "build-package" || action === "check-package") {
     const readiness = await getTridentReadiness({ sb, dealId, bankId });
     const answers = await loadGuidedPackage(sb, {
       deal_id: dealId,
@@ -131,6 +135,16 @@ export async function borrowerPackageAction(
         },
         { status: 409 },
       );
+    if (action === "check-package") {
+      // The check never queues research/generation or changes persisted verdicts.
+      if (!readiness.ok) return NextResponse.json({ ok: true, check: {
+        checkedAt: new Date().toISOString(), status: "not_checked", recoveryItems: [],
+        message: "Package preparation still needs to complete financial validation and business research before saved package evidence can be checked. No AI work was started.",
+      } });
+      return NextResponse.json({ ok: true, check: await checkBorrowerPackageEvidence(dealId, bankId, readiness.evidence.isTestDeal === true) });
+    }
+    const capacity = await readPackageCapacity({ dealId, bankId }, sb);
+    if (!capacity.available) return NextResponse.json({ ok: false, error: capacity.message }, { status: 503 });
     const started = await startBorrowerPackagePreparation(dealId, bankId);
     return NextResponse.json(started, { status: started.ok ? 202 : 503 });
   }

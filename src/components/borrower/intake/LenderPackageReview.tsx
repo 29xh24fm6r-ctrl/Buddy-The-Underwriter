@@ -1,12 +1,13 @@
 "use client";
 import type { PackageRecoveryItem } from "@/lib/borrower/guidedPackage/packageRecovery";
 import type { BorrowerBudgetReview } from "@/lib/borrower/guidedPackage/budgetReview";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  LENDER_PACKAGE_FILES,
+  hasCompletePackageFiles,
   BORROWER_PACKAGE_FILES,
 } from "@/lib/brokerage/lenderPackageFiles";
 import { PACKAGE_PREPARATION_LABELS, type PackagePreparationStatus } from "@/lib/brokerage/borrowerPackagePreparationState";
+import type { BorrowerPackageCheck, PackageCapacity } from "@/lib/brokerage/borrowerPackageCheckState";
 
 type Value = string | number | null | Value[] | { [key: string]: Value };
 const groups = {
@@ -242,7 +243,10 @@ export function LenderPackageReview({
   const [preparation, setPreparation] = useState<PackagePreparationStatus | null>(null);
   const [recoveryItems, setRecoveryItems] = useState<PackageRecoveryItem[]>([]);
   const [released, setReleased] = useState(false);
+  const [packageCheck, setPackageCheck] = useState<BorrowerPackageCheck | null>(null);
+  const checkContext = useRef(0);
   const [readiness, setReadiness] = useState<{
+    capacity?: PackageCapacity | null;
     budget?: BorrowerBudgetReview | null;
     readyToGenerate: boolean;
     readyToPrepare: boolean;
@@ -293,6 +297,8 @@ export function LenderPackageReview({
     setReadiness(r.readiness ?? null);
   }, [call]);
   useEffect(() => {
+    checkContext.current++;
+    setPackageCheck(null);
     void refresh().catch((e) => setError(e.message));
   }, [refresh, snapshotRevision, posterAcknowledged]);
   useEffect(() => {
@@ -340,8 +346,10 @@ export function LenderPackageReview({
     }
   }
   async function perform(action: string) {
+    const requestContext = ++checkContext.current;
     setBusy(action);
     setError("");
+    setPackageCheck(null);
     try {
       const data = await call(
         action === "confirm" || action === "save" ? "assumptions" : action,
@@ -355,6 +363,7 @@ export function LenderPackageReview({
         setStatus(data.status);
         setDirty(action === "draft-assumptions");
       }
+      if (data.check && checkContext.current === requestContext) setPackageCheck(data.check);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Please retry.");
@@ -371,7 +380,7 @@ export function LenderPackageReview({
       Date.parse(bundle?.generation_completed_at ?? "") >=
         Date.parse(revision)) &&
     bundle?.status === "succeeded" &&
-    LENDER_PACKAGE_FILES.every((file) => bundle[file.column]);
+    hasCompletePackageFiles(readiness?.packageFiles);
   return (
     <section className="rounded-2xl border bg-white p-5 text-slate-900">
       <h3 id="package-preparation-heading" tabIndex={-1} className="text-lg font-semibold">
@@ -457,6 +466,7 @@ export function LenderPackageReview({
                   change={(value) => {
                     setAssumptions({ ...assumptions, [key]: value });
                     setDirty(true);
+                    setPackageCheck(null);
                   }}
                 />
               </div>
@@ -539,12 +549,33 @@ export function LenderPackageReview({
         )}
         <button
           type="button"
+          disabled={!!busy || !!running || dirty || status !== "confirmed"}
+          className="mr-3 mb-3 rounded-lg border px-4 py-3 text-sm disabled:opacity-50"
+          onClick={() => void perform("check-package")}
+        >
+          {busy === "check-package" ? "Checking saved evidence…" : "Check saved package evidence — no AI"}
+        </button>
+        {readiness?.capacity?.available === false && !running && (
+          <p role="status" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm">{readiness.capacity.message}</p>
+        )}
+        {packageCheck && !dirty && !running && (
+          <div role="status" className="mb-3 rounded-lg border p-3 text-sm">
+            <p className="font-medium">{packageCheck.status === "passed" ? "Saved evidence check passed" : packageCheck.status === "not_checked" ? "Saved evidence check is incomplete" : "Saved evidence needs attention"}</p>
+            <p className="mt-1">{packageCheck.message}</p>
+            {packageCheck.recoveryItems.length > 0 && <ul className="mt-2 space-y-2">{packageCheck.recoveryItems.map(item => <li key={item.id}>
+              {item.label}{item.questionId && onQuestion && <button type="button" className="ml-2 underline" onClick={() => onQuestion(item.questionId!)}>Review this detail</button>}
+            </li>)}</ul>}
+            <p className="mt-2 text-xs text-slate-600">This check uses saved evidence without AI. It does not prepare documents, verify identity, sign forms or release the package. Changes require another check.</p>
+          </div>
+        )}
+        <button
+          type="button"
           disabled={
             !!busy ||
             !!running ||
             dirty ||
             status !== "confirmed" ||
-            readiness?.readyToPrepare !== true
+            readiness?.readyToPrepare !== true || readiness.capacity?.available === false
           }
           className="rounded-lg bg-sky-700 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
           onClick={() => void perform("build-package")}
