@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import JSZip from "jszip";
+import { createHash } from "node:crypto";
 import ExcelJS from "exceljs";
 import { PDFDocument } from "pdf-lib";
 import { readFile } from "node:fs/promises";
@@ -27,6 +28,11 @@ async function packageZip(options: { missing?: string; memo?: boolean; run?: str
     if (file.filename !== options.missing) zip.file(file.filename, file.filename === options.corrupt ? new Uint8Array([1, 2, 3]) : file.filename.endsWith(".pdf") ? pdfBytes : xlsxBytes);
   }
   if (options.memo) zip.file("05-credit-memo.pdf", pdfBytes);
+  const files = await Promise.all(Object.keys(zip.files).map(async filename => {
+    const bytes = await zip.file(filename)!.async("uint8array");
+    return { filename, category: "generated", sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+  }));
+  zip.file("Package-inventory.json", JSON.stringify({ version: 1, actor: "borrower", bundleId: options.run ?? bundleId, files }));
   zip.file("Read-me.txt", `Prepared loan package\nRun: ${options.run ?? bundleId}\n`);
   return zip.generateAsync({ type: "uint8array" });
 }
@@ -61,7 +67,7 @@ async function harness(changes: Changes = {}) {
     calls.push({ path, method, body, cookie: headers.get("cookie") });
     if (url.hostname === "storage.example.test") {
       assert.equal(headers.get("cookie"), null, "borrower cookies must not reach storage");
-      return new Response(null, { status: changes.uploadFails ? 500 : 200 });
+      return path === "/download" ? new Response(Buffer.from(zip)) : new Response(null, { status: changes.uploadFails ? 500 : 200 });
     }
     if (path === "/start") return new Response("<html>Start</html>");
     if (path === "/api/brokerage/session") {
@@ -116,7 +122,7 @@ async function harness(changes: Changes = {}) {
     if (path.endsWith("/build-package")) { generationStarted = true; preparationPolls = 0; return json({ ok: true, ...(changes.preparation ? { preparationId: "prep" } : { bundleId }) }, 202); }
     if (path.endsWith("/download/complete_package")) return changes.releaseLocked && !changes.leakPackage
       ? json({ok:false,error:"bank_selection_required"},403)
-      : new Response(Buffer.from(zip), { headers: { "content-type": "application/zip" } });
+      : json({ ok: true, url: "https://storage.example.test/download", bundleId, sha256: createHash("sha256").update(zip).digest("hex") });
     if (path.endsWith("/download/credit_memo")) return json({ ok: changes.leakMemo === true }, changes.leakMemo ? 200 : 404);
     throw new Error(`Unexpected request ${method} ${path}`);
   };
@@ -244,4 +250,41 @@ test("runner stays wired to the actual guided-answer and QA creation contracts",
   const qa = await readFile("src/app/api/qa/borrower/applications/route.ts", "utf8");
   assert.match(concierge, /action === "guided_answer"/);
   assert.match(qa, /isNew: true }, 201/);
+});
+
+test("ZIP verification detects source evidence tampering and undisclosed files", async () => {
+  const original = await packageZip();
+  const zip = await JSZip.loadAsync(original);
+  const inventory = JSON.parse(await zip.file("Package-inventory.json")!.async("string"));
+  const bytes = Buffer.from("synthetic tax return");
+  const filename = "Source-documents/001-tax.pdf";
+  inventory.files.push({ filename, category: "source", sizeBytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
+  zip.file(filename, bytes); zip.file("Package-inventory.json", JSON.stringify(inventory));
+  await verifyBorrowerZip(await zip.generateAsync({ type: "uint8array" }), bundleId);
+  zip.file(filename, Buffer.from("changed tax return!"));
+  await assert.rejects(verifyBorrowerZip(await zip.generateAsync({ type: "uint8array" }), bundleId), /integrity/);
+  zip.file(filename, bytes); zip.file("Source-documents/002-hidden-memo.pdf", bytes);
+  await assert.rejects(verifyBorrowerZip(await zip.generateAsync({ type: "uint8array" }), bundleId), /unexpected/);
+});
+
+test("signed package download checks run, transport, and archive digest without forwarding credentials", async () => {
+  const zip = await packageZip();
+  let patch: Record<string, unknown> = {};
+  let corrupt = false;
+  const http = new BorrowerHttp("https://www.buddysba.com", async (input, init) => {
+    if (String(input).startsWith("https://storage.test/")) {
+      assert.equal(new Headers(init?.headers).get("cookie"), null);
+      assert.equal(init?.credentials, "omit"); assert.equal(init?.redirect, "error");
+      return new Response(corrupt ? Buffer.from("corrupt") : Buffer.from(zip));
+    }
+    return Response.json({ ok: true, url: "https://storage.test/archive", bundleId,
+      sha256: createHash("sha256").update(zip).digest("hex"), ...patch });
+  });
+  http.jar.set("buddy_borrower_session", "private-cookie");
+  await verifyBorrowerZip(await http.downloadPackage("/download", bundleId), bundleId);
+  for (const invalid of [{ bundleId: "other" }, { url: "http://storage.test/archive" }, { sha256: "bad" }]) {
+    patch = invalid; await assert.rejects(http.downloadPackage("/download", bundleId));
+  }
+  patch = {}; corrupt = true;
+  await assert.rejects(http.downloadPackage("/download", bundleId), /integrity/);
 });

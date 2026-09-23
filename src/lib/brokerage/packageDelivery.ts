@@ -1,6 +1,7 @@
 /**
  * BRK-10G Package Delivery — controlled delivery for borrowers and lenders.
  */
+import { packageSourceDocuments } from "./packageEvidence";
 import { LENDER_PACKAGE_FILES } from "./lenderPackageFiles";
 import { getBorrowerArtifactRelease } from "./borrowerArtifactRelease";
 import { getLatestAssembledPackageRun } from "@/lib/sba/package/getLatestAssembledPackageRun";
@@ -15,7 +16,7 @@ function str(v: unknown): string | null { return typeof v === "string" && v.trim
 function num(v: unknown): number | null { return typeof v === "number" && Number.isFinite(v) ? v : null; }
 function res(type: string, label: string, path: string | null): PackageResource { return { type, label, available: path != null && path.length > 0, downloadKey: path ? type : null }; }
 
-async function latestSucceededBundle(dealId: string, sb: SB): Promise<Record<string, unknown> | null> {
+async function latestSucceededBundle(dealId: string, sb: SB, bundleId?: string): Promise<Record<string, unknown> | null> {
   // Prefer the frozen-at-pick final bundle; fall back to the live preview
   // bundle for deals that haven't been picked yet. Two queries (not one
   // mode-less query + .maybeSingle()) because a deal can legitimately have
@@ -24,16 +25,14 @@ async function latestSucceededBundle(dealId: string, sb: SB): Promise<Record<str
   // a single unscoped query would either throw on >1 row or return an
   // arbitrary one. Mirrors the selection logic in
   // src/app/api/brokerage/deals/[dealId]/trident/download/[kind]/route.ts.
-  const { data: finalBundle, error: finalBundleError } = await sb
-    .from("buddy_trident_bundles")
-    .select("business_plan_pdf_path, projections_pdf_path, projections_xlsx_path, feasibility_pdf_path,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path")
-    .eq("deal_id", dealId)
-    .eq("mode", "final")
-    .eq("status", "succeeded")
-    .is("superseded_at", null)
-    .maybeSingle();
+  let query = sb.from("buddy_trident_bundles")
+    .select("id,bank_id,deal_id,mode,status,snapshot_manifest_json,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path")
+    .eq("deal_id", dealId).eq("mode", "final").eq("status", "succeeded").is("superseded_at", null);
+  if (bundleId) query = query.eq("id", bundleId);
+  const { data: finalBundle, error: finalBundleError } = await query.maybeSingle();
   if (finalBundleError) throw new Error(`package_state_unavailable:final_bundle:${finalBundleError.message}`);
   if (finalBundle) return finalBundle;
+  if (bundleId) return null;
   const { data: previewBundle, error: previewBundleError } = await sb
     .from("buddy_trident_bundles")
     .select("business_plan_pdf_path, projections_pdf_path, projections_xlsx_path, feasibility_pdf_path,credit_memo_pdf_path,spreads_pdf_path,sba_forms_pdf_path")
@@ -46,16 +45,18 @@ async function latestSucceededBundle(dealId: string, sb: SB): Promise<Record<str
   return previewBundle ?? null;
 }
 
-export async function buildPackageManifest(dealId: string, accessLevel: "full"|"preview"|"none", sb: SB): Promise<PackageManifest> {
+export async function buildPackageManifest(dealId: string, accessLevel: "full"|"preview"|"none", sb: SB, actor: "borrower" | "lender" = "lender", sealedPackageId?: string): Promise<PackageManifest> {
   if (accessLevel === "none") return { dealId, sealedAt: null, accessLevel, resources: [] };
-  const { data: sp, error: sealedPackageError } = await sb.from("buddy_sealed_packages").select("id, sealed_at, final_business_plan_path, final_projections_path, final_feasibility_path, final_credit_memo_path, final_forms_path, final_source_docs_zip_path").eq("deal_id", dealId).is("unsealed_at", null).limit(1).maybeSingle();
+  let sealedQuery = sb.from("buddy_sealed_packages").select("id, bank_id, sealed_snapshot, sealed_at, final_business_plan_path, final_projections_path, final_feasibility_path, final_credit_memo_path, final_forms_path, final_source_docs_zip_path").eq("deal_id", dealId).is("unsealed_at", null);
+  if (sealedPackageId) sealedQuery = sealedQuery.eq("id", sealedPackageId);
+  const { data: sp, error: sealedPackageError } = await sealedQuery.limit(1).maybeSingle();
   if (sealedPackageError) throw new Error(`package_state_unavailable:sealed_package:${sealedPackageError.message}`);
   if (!sp) return { dealId, sealedAt: null, accessLevel, resources: [] };
   // These resources are independent after the sealed package is known.
   // Resolve them concurrently because this manifest is part of the frequently
   // polled seal-status response for picked listings.
   const [b, form159Result, assembledRun] = await Promise.all([
-    latestSucceededBundle(dealId, sb),
+    latestSucceededBundle(dealId, sb, sp.sealed_snapshot?.tridentFinal?.bundleId),
     sb.from("sba_form_159_records").select("generated_pdf_path, status").eq("deal_id", dealId).in("status", ["generated","borrower_acknowledged","fully_acknowledged","locked"]).limit(1).maybeSingle(),
     // final_forms_path is not populated for every historical package. Fall
     // back to the latest assembled 10-tab package when necessary.
@@ -77,8 +78,16 @@ export async function buildPackageManifest(dealId: string, accessLevel: "full"|"
     res("sba_forms", "SBA Forms", str(b?.sba_forms_pdf_path) ?? str(sp.final_forms_path) ?? assembledRun?.storagePath ?? null),
     res("form_159", "Form 159", str(f?.generated_pdf_path)),
   ];
-  if (accessLevel === "full" && LENDER_PACKAGE_FILES.every(file => str(b?.[file.column]))) r.push(res("complete_package", "Download complete lender package", "complete_package"));
-  if (accessLevel === "full") r.push(res("source_docs","Source Documents (ZIP)",str(sp.final_source_docs_zip_path)));
+  if (accessLevel === "full") {
+    let sourceCount: number | null = null;
+    try {
+      if (sp.sealed_snapshot?.tridentFinal?.bundleId === b?.id && b?.bank_id === sp.bank_id)
+        sourceCount = packageSourceDocuments(b?.snapshot_manifest_json, dealId, String(sp.bank_id), actor).length;
+    } catch { /* Missing legacy evidence must not advertise a complete archive. */ }
+    const complete = sourceCount !== null && LENDER_PACKAGE_FILES.every(file => str(b?.[file.column]));
+    r.push(res("complete_package", "Download complete lender package", complete ? "complete_package" : null));
+    r.push(res("source_docs", "Source Documents (ZIP)", complete && sourceCount! > 0 ? "source_docs" : null));
+  }
   return { dealId, sealedAt: str(sp.sealed_at), accessLevel, resources: accessLevel === "preview" ? r.filter(item => ["business_plan", "projections_pdf", "feasibility"].includes(item.type)) : r };
 }
 
@@ -99,21 +108,22 @@ export async function getBorrowerPackageStatus(session: { deal_id: string }, sb:
 /** Borrower projection: keep forms available, never advertise lender-only memo downloads. */
 export async function buildBorrowerPackageManifest(dealId: string, accessLevel: "full" | "none", sb: SB) {
   const [manifest, release] = await Promise.all([
-    buildPackageManifest(dealId, accessLevel, sb), getBorrowerArtifactRelease(dealId, sb),
+    buildPackageManifest(dealId, accessLevel, sb, "borrower"), getBorrowerArtifactRelease(dealId, sb),
   ]);
   return { ...manifest, resources: manifest.resources.filter(resource => resource.type !== "credit_memo")
-    .map(resource => release.released || ["sba_forms", "form_159", "source_docs"].includes(resource.type)
+    .map(resource => release.released || ["sba_forms", "form_159"].includes(resource.type)
       ? resource : { ...resource, available: false, downloadKey: null }) };
 }
 
 export async function getLenderPackageAccess(accessId: string, lenderBankId: string, sb: SB): Promise<{ ok: true; access: LenderPackageAccess } | { ok: false; error: string }> {
-  const { data: a, error: accessError } = await sb.from("marketplace_package_access").select("id, listing_id, claim_id, deal_id, lender_bank_id, access_level, granted_at, revoked_at").eq("id", accessId).maybeSingle();
+  const { data: a, error: accessError } = await sb.from("marketplace_package_access").select("id, listing_id, claim_id, deal_id, lender_bank_id, access_level, granted_at, revoked_at, sealed_package_id").eq("id", accessId).maybeSingle();
   if (accessError) return { ok: false, error: "package_state_unavailable" };
   if (!a) return { ok: false, error: "access_not_found" }; if (String(a.lender_bank_id) !== lenderBankId) return { ok: false, error: "access_lender_mismatch" }; if (a.revoked_at) return { ok: false, error: "access_revoked" };
   const dealId = String(a.deal_id); const level = str(a.access_level) === "full" ? "full" as const : "preview" as const;
   const { data: l, error: listingError } = await sb.from("marketplace_listings").select("loan_amount, sba_program, term_months, score, band, kfs").eq("deal_id", dealId).limit(1).maybeSingle();
   if (listingError) return { ok: false, error: "package_state_unavailable" };
-  const manifest = await buildPackageManifest(dealId, level, sb);
+  if (level === "full" && !a.sealed_package_id) return { ok: false, error: "package_state_unavailable" };
+  const manifest = await buildPackageManifest(dealId, level, sb, "lender", a.sealed_package_id);
   return { ok: true, access: { accessId: String(a.id), dealId, listingId: String(a.listing_id), claimId: String(a.claim_id), lenderBankId: String(a.lender_bank_id), accessLevel: str(a.access_level) ?? "full", grantedAt: str(a.granted_at), dealSummary: { loanAmount: num(l?.loan_amount), program: str(l?.sba_program), termMonths: num(l?.term_months), score: num(l?.score), band: str(l?.band), state: str(l?.kfs?.state) }, manifest } };
 }
 

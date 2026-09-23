@@ -43,8 +43,8 @@ type SealStatus = {
 };
 
 // The trident download dispatcher (/trident/download/[kind]) only knows how
-// to serve these six kinds today. form_159 and source_docs exist as
-// manifest resource types but have no working download endpoint yet —
+// to serve these kinds today. form_159 exists as
+// a manifest resource type but has no download endpoint yet —
 // filtered out here rather than rendering a button that 404s.
 const DOWNLOADABLE_KINDS = new Set([
   "business_plan",
@@ -54,6 +54,7 @@ const DOWNLOADABLE_KINDS = new Set([
   "sba_forms",
   "spreads",
   "complete_package",
+  "source_docs",
 ]);
 
 export function SealPackageCard({ dealId, onReviewDocuments }: { dealId: string; onReviewDocuments?: () => void }) {

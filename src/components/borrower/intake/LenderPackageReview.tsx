@@ -657,13 +657,14 @@ export function LenderPackageReview({
           <div className="mt-4">
             <a
               className="inline-block rounded-lg bg-emerald-700 px-4 py-3 text-sm text-white"
-              href={`/api/brokerage/deals/${dealId}/trident/download/complete_package`}
+              href={`/api/brokerage/deals/${dealId}/trident/download/complete_package?redirect=1`}
             >
               Download your application documents
             </a>
             <p className="mt-2 text-sm text-slate-600">
               Includes the business plan, projections with assumptions,
-              feasibility study, spreads and applicable SBA forms. The internal
+              feasibility study, spreads, applicable SBA forms, and your uploaded
+              source documents from this preparation run. The internal
               credit memo is reserved for authorized lenders. Prepared for
               lender review; signatures and closing requirements remain subject
               to lender confirmation.

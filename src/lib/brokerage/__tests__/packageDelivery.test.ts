@@ -8,7 +8,7 @@ const m = require("../packageDelivery") as typeof import("../packageDelivery");
 type Row = Record<string, any>;
 class S { tables:Record<string,Row[]>; constructor(i?:Partial<Record<string,Row[]>>){this.tables={buddy_sealed_packages:[],buddy_trident_bundles:[],sba_form_159_records:[],marketplace_package_access:[],marketplace_listings:[],marketplace_picks:[],marketplace_audit_log:[],banks:[],credit_memo_snapshots:[],sba_package_runs:[],...i};} from(t:string){return new Q(this,t);} }
 class Q { db:S;table:string;filters:Array<{t:string;k:string;v:any}>;_i:Row[]|null;_l:number|null; constructor(db:S,t:string){this.db=db;this.table=t;this.filters=[];this._i=null;this._l=null;} select(_?:string){return this;} order(_k:string,_o?:any){return this;} limit(n:number){this._l=n;return this;} eq(k:string,v:any){this.filters.push({t:"eq",k,v});return this;} in(k:string,v:any[]){this.filters.push({t:"in",k,v});return this;} is(k:string,v:any){this.filters.push({t:"is",k,v});return this;} not(k:string,op:string,v:any){if(op!=="is")throw new Error(`mock .not() only supports op="is", got "${op}"`);this.filters.push({t:"not_is",k,v});return this;} insert(p:Row|Row[]){const rows=Array.isArray(p)?p:[p];const wi=rows.map(r=>({id:r.id??`id-${Math.random().toString(36).slice(2,8)}`,...r}));this.db.tables[this.table]??=[];this.db.tables[this.table].push(...wi);this._i=wi;return this;} single():Promise<{data:any;error:any}>{if(this._i)return Promise.resolve({data:this._i[0],error:null});return Promise.resolve({data:this.rows()[0]??null,error:null});} maybeSingle():Promise<{data:any;error:any}>{return Promise.resolve({data:this.rows()[0]??null,error:null});} then(f:any,r?:any){if(this._i)return Promise.resolve({data:this._i,error:null}).then(f,r);return Promise.resolve({data:this.rows(),error:null}).then(f,r);} private rows(){let rows=[...(this.db.tables[this.table]??[])];for(const f of this.filters){if(f.t==="eq")rows=rows.filter(r=>r[f.k]===f.v);else if(f.t==="in")rows=rows.filter(r=>(f.v as any[]).includes(r[f.k]));else if(f.t==="is")rows=rows.filter(r=>{const v=r[f.k];return f.v===null?v==null:v===f.v;});else if(f.t==="not_is")rows=rows.filter(r=>{const v=r[f.k];return f.v===null?v!=null:v!==f.v;});}if(this._l!=null)rows=rows.slice(0,this._l);return rows;} }
-function sealedDb(extras?:Partial<Record<string,Row[]>>){return new S({buddy_sealed_packages:[{id:"sp1",deal_id:"d1",sealed_at:"2026-06-01",unsealed_at:null,final_business_plan_path:"/gcs/bp-final.pdf",final_projections_path:"/gcs/proj-final.xlsx",final_feasibility_path:"/gcs/feas-final.pdf",final_credit_memo_path:null,final_forms_path:null,final_source_docs_zip_path:"/gcs/src.zip"}],buddy_trident_bundles:[{deal_id:"d1",mode:"preview",status:"succeeded",superseded_at:null,business_plan_pdf_path:"/gcs/bp-preview.pdf",projections_pdf_path:"/gcs/proj-preview.pdf",projections_xlsx_path:null,feasibility_pdf_path:"/gcs/feas-preview.pdf"}],credit_memo_snapshots:[{id:"cm1",deal_id:"d1",status:"banker_submitted"}],sba_form_159_records:[{deal_id:"d1",status:"generated",generated_pdf_path:"/gcs/f159.pdf"}],marketplace_picks:[{deal_id:"d1",picked_lender_bank_id:"b1",status:"picked"}],marketplace_package_access:[{id:"acc1",listing_id:"l1",claim_id:"c1",deal_id:"d1",lender_bank_id:"b1",access_level:"full",granted_at:"2026-06-02",revoked_at:null}],marketplace_listings:[{deal_id:"d1",loan_amount:850000,sba_program:"7a",term_months:120,score:78,band:"strong_fit",kfs:{state:"TX"}}],banks:[{id:"b1",name:"First National"}],...extras});}
+function sealedDb(extras?:Partial<Record<string,Row[]>>){return new S({buddy_sealed_packages:[{id:"sp1",deal_id:"d1",sealed_at:"2026-06-01",unsealed_at:null,final_business_plan_path:"/gcs/bp-final.pdf",final_projections_path:"/gcs/proj-final.xlsx",final_feasibility_path:"/gcs/feas-final.pdf",final_credit_memo_path:null,final_forms_path:null,final_source_docs_zip_path:"/gcs/src.zip"}],buddy_trident_bundles:[{deal_id:"d1",mode:"preview",status:"succeeded",superseded_at:null,business_plan_pdf_path:"/gcs/bp-preview.pdf",projections_pdf_path:"/gcs/proj-preview.pdf",projections_xlsx_path:null,feasibility_pdf_path:"/gcs/feas-preview.pdf"}],credit_memo_snapshots:[{id:"cm1",deal_id:"d1",status:"banker_submitted"}],sba_form_159_records:[{deal_id:"d1",status:"generated",generated_pdf_path:"/gcs/f159.pdf"}],marketplace_picks:[{deal_id:"d1",picked_lender_bank_id:"b1",status:"picked"}],marketplace_package_access:[{id:"acc1",sealed_package_id:"sp1",listing_id:"l1",claim_id:"c1",deal_id:"d1",lender_bank_id:"b1",access_level:"full",granted_at:"2026-06-02",revoked_at:null}],marketplace_listings:[{deal_id:"d1",loan_amount:850000,sba_program:"7a",term_months:120,score:78,band:"strong_fit",kfs:{state:"TX"}}],banks:[{id:"b1",name:"First National"}],...extras});}
 test("borrower sees own package",async()=>{const s=await m.getBorrowerPackageStatus({deal_id:"d1"},sealedDb() as any);assert.equal(s.sealed,true);assert.ok(s.manifest.resources.length>=3);assert.equal(s.pickedLenderName,"First National");});
 test("borrower other deal empty",async()=>{const s=await m.getBorrowerPackageStatus({deal_id:"dX"},sealedDb() as any);assert.equal(s.sealed,false);assert.equal(s.manifest.resources.length,0);});
 test("borrower manifest locks generated documents without hiding required forms", async () => {
@@ -20,7 +20,7 @@ test("borrower manifest locks generated documents without hiding required forms"
 });
 test("picked lender sees",async()=>{const r=await m.getLenderPackageAccess("acc1","b1",sealedDb() as any);assert.equal(r.ok,true);if(r.ok)assert.equal(r.access.accessLevel,"full");});
 test("wrong lender denied",async()=>{const r=await m.getLenderPackageAccess("acc1","bX",sealedDb() as any);assert.equal(r.ok,false);});
-test("revoked denied",async()=>{const r=await m.getLenderPackageAccess("acc1","b1",sealedDb({marketplace_package_access:[{id:"acc1",listing_id:"l1",claim_id:"c1",deal_id:"d1",lender_bank_id:"b1",access_level:"full",granted_at:"2026-06-02",revoked_at:"2026-06-03"}]}) as any);assert.equal(r.ok,false);});
+test("revoked denied",async()=>{const r=await m.getLenderPackageAccess("acc1","b1",sealedDb({marketplace_package_access:[{id:"acc1",sealed_package_id:"sp1",listing_id:"l1",claim_id:"c1",deal_id:"d1",lender_bank_id:"b1",access_level:"full",granted_at:"2026-06-02",revoked_at:"2026-06-03"}]}) as any);assert.equal(r.ok,false);});
 test("missing files graceful",async()=>{const mf=await m.buildPackageManifest("d1","full",new S({buddy_sealed_packages:[{id:"sp1",deal_id:"d1",sealed_at:"2026-06-01",unsealed_at:null,final_business_plan_path:"/gcs/bp.pdf",final_projections_path:null,final_feasibility_path:null,final_credit_memo_path:null,final_forms_path:null,final_source_docs_zip_path:null}]}) as any);assert.ok(mf.resources.some(r=>r.available));assert.ok(mf.resources.some(r=>!r.available));});
 
 test("picked deal: both preview and final bundles coexisting does not throw, and final wins",async()=>{
@@ -100,4 +100,32 @@ test("audit persistence failure is returned to delivery callers",async()=>{
     failingDb as any,
   );
   assert.deepEqual(result,{ok:false,error:"database unavailable"});
+});
+
+test("archive availability follows the sealed bundle's source evidence and actor visibility", async () => {
+  const source = { id: "doc", deal_id: "d1", bank_id: "bank", source: "borrower", is_active: true, storage_path: "private/tax.pdf", size_bytes: 100 };
+  const db = sealedDb({
+    buddy_sealed_packages: [{ id: "sp1", deal_id: "d1", bank_id: "bank", unsealed_at: null,
+      sealed_snapshot: { tridentFinal: { bundleId: "bound" } } }],
+    buddy_trident_bundles: [{ id: "bound", deal_id: "d1", bank_id: "bank", mode: "final", status: "succeeded", superseded_at: null,
+      business_plan_pdf_path: "plan", projections_xlsx_path: "projections", feasibility_pdf_path: "feasibility",
+      spreads_pdf_path: "spreads", credit_memo_pdf_path: "memo", sba_forms_pdf_path: "forms",
+      snapshot_manifest_json: { sources: { documents: [source] } } }],
+  });
+  const manifest = await m.buildPackageManifest("d1", "full", db as any);
+  assert.equal(manifest.resources.find(r => r.type === "complete_package")?.available, true);
+  assert.equal(manifest.resources.find(r => r.type === "source_docs")?.available, true);
+  assert.ok(!JSON.stringify(manifest).includes("private/tax.pdf"));
+  db.tables.buddy_trident_bundles[0].snapshot_manifest_json = null;
+  const missing = await m.buildPackageManifest("d1", "full", db as any);
+  assert.equal(missing.resources.find(r => r.type === "complete_package")?.available, false);
+  assert.equal(missing.resources.find(r => r.type === "source_docs")?.available, false);
+});
+
+test("lender manifest cannot switch from the authorized seal to a newer seal", async () => {
+  const db = sealedDb();
+  db.tables.marketplace_package_access[0].sealed_package_id = "old-seal";
+  const result = await m.getLenderPackageAccess("acc1", "b1", db as any);
+  assert.equal(result.ok, true);
+  if (result.ok) assert.deepEqual(result.access.manifest.resources, []);
 });
