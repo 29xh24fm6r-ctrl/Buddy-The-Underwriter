@@ -758,5 +758,10 @@
     "name": "deal_documents.ocr_text_length",
     "type": "column",
     "migration": "20260921194522_borrower_document_review_columns.sql"
+  },
+  {
+    "name": "ensure_borrower_doc_extraction_handoff",
+    "type": "function",
+    "migration": "20260923010000_ensure_borrower_doc_extraction_handoff.sql"
   }
 ]
