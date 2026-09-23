@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
+import { borrowerPackageFailure, packageFailureForCurrentCapacity } from "@/lib/borrower/guidedPackage/completion";
 
 mockServerOnly();
 const require = createRequire(import.meta.url);
@@ -12,6 +13,7 @@ let started = 0;
 let questions: any[] = [];
 let posterAcknowledged = true;
 let bundle: any = null;
+let preparation: any = null;
 let tridentReadiness: any = { ok: true, preparationReady: true, preparationBlockers: [], reasons: [], warnings: [], evidence: {} };
 let readinessCalls = 0;
 let capacityAvailable = true;
@@ -144,7 +146,7 @@ stub("../trident/tridentReadiness", {
   },
 });
 stub("../borrowerPackagePreparation", {
-  readBorrowerPackagePreparation: async () => null,
+  readBorrowerPackagePreparation: async () => preparation,
   startBorrowerPackagePreparation: async () => {
     started++;
     return { ok: true };
@@ -163,6 +165,7 @@ test.beforeEach(() => {
   started = 0;
   questions = [];
   bundle = null;
+  preparation = null;
   tridentReadiness = { ok: true, preparationReady: true, preparationBlockers: [], reasons: [], warnings: [], evidence: {} };
   readinessCalls = 0;
   capacityAvailable = true; capacityCalls = 0; evidenceChecks = 0;
@@ -306,6 +309,45 @@ test("capacity blocks status and POST admission before creating a preparation jo
   assert.equal(response.status, 503); assert.equal(started, 0);
   capacityAvailable = true;
   assert.equal((await borrowerPackageAction("build-package", "d", "b", {})).status, 202);
+});
+for (const source of ["preparation", "bundle"]) test(`${source} capacity failure follows current availability without changing the saved attempt`, async () => {
+  if (source === "preparation") preparation = { id: "p", status: "failed", stage: "checking", message: borrowerPackageFailure("budget_unavailable"), bundleId: null };
+  else bundle = { id: "b", status: "failed", generation_error: "budget_unavailable: private accounting details" };
+  const before = structuredClone({ preparation, bundle });
+  for (const available of [false, true, false]) {
+    capacityAvailable = available;
+    const result = await (await borrowerPackageAction("package-status", "d", "b")).json();
+    const attempt = source === "preparation" ? result.preparation : result.bundle;
+    const message = source === "preparation" ? attempt.message : attempt.generation_error;
+    assert.equal(attempt.status, "failed", "recovery does not turn an unsuccessful attempt into success");
+    assert.match(message, /previous preparation attempt stopped/);
+    assert.doesNotMatch(message, /private accounting|is paused|wait for capacity to reset/i);
+    assert.equal(message.includes("Capacity is available now"), available);
+    assert.equal(result.readiness.readyToPrepare, available);
+    assert.equal(result.readiness.capacity.available, available);
+    assert.equal(result.readiness.packageFiles.every((file: any) => !file.ready), true);
+    assert.deepEqual({ preparation, bundle }, before);
+    assert.equal(started, 0);
+    assert.equal(saved, null);
+  }
+});
+test("capacity recovery preserves other blockers and does not admit preparation", async () => {
+  preparation = { id: "p", status: "failed", stage: "checking", message: borrowerPackageFailure("budget_unavailable"), bundleId: null };
+  tridentReadiness.preparationReady = false;
+  tridentReadiness.preparationBlockers = ["Upload accepted financial documents."];
+  const result = await (await borrowerPackageAction("package-status", "d", "b")).json();
+  assert.match(result.preparation.message, /Capacity is available now/);
+  assert.equal(result.readiness.readyToPrepare, false);
+  assert.deepEqual(result.readiness.blockers, tridentReadiness.preparationBlockers);
+  assert.equal((await borrowerPackageAction("build-package", "d", "b", {})).status, 409);
+  assert.equal(started, 0);
+});
+test("unverified capacity never claims recovery, and unrelated failures remain actionable", () => {
+  const message = borrowerPackageFailure("budget_unavailable");
+  assert.doesNotMatch(packageFailureForCurrentCapacity(message, null)!, /available now|is paused/);
+  const otherFailure = "Business research could not be completed. Review your business details and retry preparation.";
+  assert.equal(packageFailureForCurrentCapacity(otherFailure, { available: true, message: null }), otherFailure);
+  assert.equal(packageFailureForCurrentCapacity(null, { available: true, message: null }), null);
 });
 test("the explicit evidence check works while capacity is unavailable and never starts preparation", async () => {
   capacityAvailable = false;

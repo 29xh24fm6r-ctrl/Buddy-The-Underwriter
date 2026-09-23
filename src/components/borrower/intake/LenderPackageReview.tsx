@@ -502,12 +502,10 @@ export function LenderPackageReview({
       <div className="mt-6 border-t pt-4">
         {readiness && !running && (
           <section
-            className={`mb-5 rounded-xl border p-4 ${readiness.readyToPrepare && preparation?.status !== "failed" && bundle?.status !== "failed" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}
+            className={`mb-5 rounded-xl border p-4 ${readiness.readyToPrepare ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}
           >
             <h4 className="font-semibold">
-              {preparation?.status === "failed" || bundle?.status === "failed"
-                ? "Package preparation needs attention"
-                : readiness.readyToPrepare
+              {readiness.readyToPrepare
                 ? "Your information is ready for package preparation"
                 : "Here’s what Buddy still needs"}
             </h4>
@@ -603,6 +601,7 @@ export function LenderPackageReview({
         )}
         {preparation?.status === "failed" && !running && (
           <p role="alert" className="mt-3 whitespace-pre-wrap rounded-lg bg-amber-50 p-3 text-sm">
+            <span className="block font-medium">Previous preparation attempt</span>
             {preparation.message || "Preparation could not be completed. Please retry."}
           </p>
         )}
@@ -611,6 +610,7 @@ export function LenderPackageReview({
             role="alert"
             className="mt-3 whitespace-pre-wrap rounded-lg bg-amber-50 p-3 text-sm"
           >
+            <span className="block font-medium">Previous document generation attempt</span>
             {bundle.generation_error ||
               "The package could not be completed. Review your inputs and retry."}
           </p>

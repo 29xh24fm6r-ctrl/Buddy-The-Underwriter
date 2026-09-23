@@ -1,6 +1,6 @@
 import "server-only";
 import { packageRecoveryItems, borrowerResearchWarning } from "@/lib/borrower/guidedPackage/packageRecovery";
-import { packageCompletionItems, borrowerPackageFailure } from "@/lib/borrower/guidedPackage/completion";
+import { packageCompletionItems, borrowerPackageFailure, packageFailureForCurrentCapacity } from "@/lib/borrower/guidedPackage/completion";
 import { loadGuidedPackage } from "@/lib/borrower/guidedPackage/service";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -66,11 +66,13 @@ export async function borrowerPackageAction(
       // Status is useful before release. Storage paths and underwriting output are not.
       bundle: bundle ? {
         id: bundle.id, status: bundle.status, current_stage: bundle.current_stage,
-        generation_error: bundle.status === "failed" ? borrowerPackageFailure(bundle.generation_error) : null,
+        generation_error: bundle.status === "failed" ? packageFailureForCurrentCapacity(borrowerPackageFailure(bundle.generation_error), capacity) : null,
         generation_completed_at: bundle.generation_completed_at,
       } : null,
       release,
-      preparation,
+      preparation: preparation?.status === "failed"
+        ? { ...preparation, message: packageFailureForCurrentCapacity(preparation.message, capacity) }
+        : preparation,
       recoveryItems: !generating && bundle?.status === "failed"
         ? packageRecoveryItems(bundle.generation_error, readiness?.evidence.isTestDeal === true) : [],
       readiness: {

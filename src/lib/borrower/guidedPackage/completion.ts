@@ -1,7 +1,21 @@
 import { packageRecoveryItems } from "./packageRecovery";
 import type { GuidedSnapshot } from "./questions";
+import type { PackageCapacity } from "@/lib/brokerage/borrowerPackageCheckState";
 
 export type PackageCompletionItem = { id: string; label: string; questionId?: string };
+
+const CAPACITY_FAILURE = "Package preparation is paused because processing capacity is unavailable. Your answers and documents are saved. Please wait for capacity to reset; retrying immediately will not help.";
+
+/** Reconcile a saved, borrower-safe failure with a fresh read. Never alter the saved attempt. */
+export function packageFailureForCurrentCapacity(message: string | null, capacity: PackageCapacity | null): string | null {
+  if (message !== CAPACITY_FAILURE) return message;
+  const history = "The previous preparation attempt stopped because processing capacity was unavailable. Your answers and documents are saved.";
+  if (capacity?.available === true)
+    return `${history} Capacity is available now. Review the current requirements before choosing Retry package preparation.`;
+  // The separate current-capacity status explains any active restriction. A missing
+  // read cannot establish recovery, and an old failure cannot establish a current outage.
+  return history;
+}
 
 /** Shared by the status UI, POST admission and durable workflow. Never infer consent. */
 export function packageCompletionItems(snapshot: Pick<GuidedSnapshot, "questions" | "form722" | "form159">): PackageCompletionItem[] {
@@ -23,7 +37,7 @@ export function packageCompletionItems(snapshot: Pick<GuidedSnapshot, "questions
 export function borrowerPackageFailure(error: unknown): string {
   const text = typeof error === "string" ? error : "";
   if (/budget exceeded|budget_unavailable|run_allowance_exceeded/i.test(text))
-    return "Package preparation is paused because processing capacity is unavailable. Your answers and documents are saved. Please wait for capacity to reset; retrying immediately will not help.";
+    return CAPACITY_FAILURE;
   const recovery = packageRecoveryItems(text);
   if (recovery.length) return "Package checks found items to resolve. Review the guidance below before preparing again.";
   const items: string[] = [];

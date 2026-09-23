@@ -1,7 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { buildGuidedSnapshot } from "../../src/lib/borrower/guidedPackage/questions";
 import { LENDER_PACKAGE_FILES } from "../../src/lib/brokerage/lenderPackageFiles";
-async function setup(page: Page, preparePackage = false, testCompletion = false, testRecovery = false, packageState?: { released?: boolean; complete?: boolean; missingFile?: boolean; capacity?: boolean; check?: string; stale?: boolean }) {
+import { borrowerPackageFailure, packageFailureForCurrentCapacity } from "../../src/lib/borrower/guidedPackage/completion";
+async function setup(page: Page, preparePackage = false, testCompletion = false, testRecovery = false, packageState?: { released?: boolean; complete?: boolean; missingFile?: boolean; capacity?: boolean; check?: string; stale?: boolean; capacityFailure?: "preparation" | "bundle" }) {
   const facts: Record<string, any> = { package_answers: {} };
   const rows: Record<string, any[]> = { deals: [{}], deal_loan_requests: [{}] };
   let posterAcknowledged = false;
@@ -104,13 +105,15 @@ async function setup(page: Page, preparePackage = false, testCompletion = false,
       status:packageState?.check ?? "passed",checkedAt:"2026-09-23T12:00:00Z",recoveryItems:[],
       message: packageState?.check === "not_checked" ? "Financial validation and business research must finish first." : "Saved calculations passed. Generated documents have not been verified.",
     }});
-    if (url.pathname.endsWith("/package-status"))
-      return respond({ ok: true, bundle: packageState?.complete ? {id:"bundle",status:"succeeded",generation_completed_at:"2026-09-23T11:00:00Z"} : null,
-        release:{released:packageState?.released === true},preparation, readiness: {
+    if (url.pathname.endsWith("/package-status")) {
+      const failureMessage = packageFailureForCurrentCapacity(borrowerPackageFailure("budget_unavailable"), {available:packageState?.capacity !== false,message:null});
+      return respond({ ok: true, bundle: packageState?.capacityFailure === "bundle" ? {id:"bundle",status:"failed",generation_error:failureMessage} : packageState?.complete ? {id:"bundle",status:"succeeded",generation_completed_at:"2026-09-23T11:00:00Z"} : null,
+        release:{released:packageState?.released === true},preparation:packageState?.capacityFailure === "preparation" ? {id:"preparation",status:"failed",stage:"checking",message:failureMessage} : preparation, readiness: {
         capacity: {available:packageState?.capacity !== false,message:packageState?.capacity === false ? "Processing capacity is unavailable. You can check saved evidence without AI." : null},
         readyToPrepare: preparePackage && preparation?.status !== "running" && packageState?.capacity !== false,
         readyToGenerate: false, blockers: [], warnings: [], packageFiles: packageState?.complete ? LENDER_PACKAGE_FILES.map((f,i)=>({key:f.column,label:f.label,ready:!(packageState.missingFile && i===0)})) : [],
       } });
+    }
     if (url.pathname.endsWith("/build-package")) {
       preparation = { id: "preparation", status: "running", stage: "research" };
       return respond({ ok: true, preparationId: preparation.id }, 202);
@@ -148,6 +151,26 @@ for (const released of [false,true]) test(`completed package uses safe file stat
     await expect(page.getByText(/Your documents are prepared for lender review/)).toBeVisible();
     await expect(download).toHaveCount(0);
   }
+});
+for (const source of ["preparation", "bundle"] as const) test(`capacity recovery reconciles ${source} history and current controls without starting work`, async ({page}) => {
+  const state = {capacity:false,capacityFailure:source};
+  const fixture = await setup(page,true,false,false,state);
+  await page.getByRole("button",{name:/MISSION 4 Prepare your package/}).click();
+  const retry = page.getByRole("button",{name:"Retry package preparation",exact:true});
+  await expect(retry).toBeDisabled();
+  await expect(page.getByRole("alert")).toContainText("previous preparation attempt stopped");
+  state.capacity = true;
+  await page.getByRole("button",{name:"Refresh status",exact:true}).click();
+  await expect(retry).toBeEnabled();
+  await expect(page.getByRole("heading",{name:"Your information is ready for package preparation",exact:true})).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("Capacity is available now");
+  await expect(page.getByText(/wait for capacity to reset/i)).toHaveCount(0);
+  await expect(page.getByRole("link",{name:"Download your application documents"})).toHaveCount(0);
+  state.capacity = false;
+  await page.getByRole("button",{name:"Refresh status",exact:true}).click();
+  await expect(retry).toBeDisabled();
+  await expect(page.getByText(/Capacity is available now/)).toHaveCount(0);
+  expect(fixture.calls.filter(call=>/\/(build-package|draft-assumptions)$/.test(call))).toHaveLength(0);
 });
 for (const state of [{missingFile:true},{stale:true}]) test(`incomplete or stale package never offers download ${JSON.stringify(state)}`,async({page})=>{
   await setup(page,true,false,false,{complete:true,released:true,...state});
