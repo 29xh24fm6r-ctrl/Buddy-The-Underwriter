@@ -38,7 +38,12 @@ Two completed reviews and two repairs existed only in process memory.
 
 ## Rollout and limits
 
-Apply `20260923223818_durable_package_review.sql` before deploying the application.
+`20260923224841_durable_package_review.sql` was applied to Buddy Supabase before
+application deployment. The repository filename matches the recorded database
+migration version. Live catalog checks confirmed the intended budget policy,
+RLS, service-role execution, and no anonymous/authenticated access.
+The advisor reports the expected no-client-policies notice for this service-only
+table; all checkpoint access goes through the server.
 The migration is additive apart from replacing the existing reservation
 function with policy-based enforcement; its signature stays compatible.
 

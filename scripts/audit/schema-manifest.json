@@ -767,21 +767,21 @@
   {
     "name": "trident_package_budget_policy",
     "type": "function",
-    "migration": "20260923223818_durable_package_review.sql"
+    "migration": "20260923224841_durable_package_review.sql"
   },
   {
     "name": "institutional_review_checkpoints",
     "type": "table",
-    "migration": "20260923223818_durable_package_review.sql"
+    "migration": "20260923224841_durable_package_review.sql"
   },
   {
     "name": "institutional_review_checkpoint",
     "type": "function",
-    "migration": "20260923223818_durable_package_review.sql"
+    "migration": "20260923224841_durable_package_review.sql"
   },
   {
     "name": "reserve_trident_gateway_tokens",
     "type": "function",
-    "migration": "20260923223818_durable_package_review.sql"
+    "migration": "20260923224841_durable_package_review.sql"
   }
 ]

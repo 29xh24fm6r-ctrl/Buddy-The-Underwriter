@@ -14,7 +14,7 @@ test("database policy admits the observed review, enforces run/QA caps and check
       create table buddy_sba_packages(id uuid primary key,deal_id uuid);
       create table buddy_feasibility_studies(id uuid primary key,deal_id uuid,bank_id uuid);
       create table deal_model_snapshots(id uuid primary key default gen_random_uuid(),deal_id uuid,bank_id uuid,outputs_hash text);`);
-    for (const file of ['20260827060000_ai_gateway_durable_governance.sql', '20260827200000_fix_ai_gateway_reserve_ambiguity.sql', '20260917162449_package_financial_authority.sql', '20260923223818_durable_package_review.sql'])
+    for (const file of ['20260827060000_ai_gateway_durable_governance.sql', '20260827200000_fix_ai_gateway_reserve_ambiguity.sql', '20260917162449_package_financial_authority.sql', '20260923224841_durable_package_review.sql'])
       await db.exec(readFileSync(`supabase/migrations/${file}`, 'utf8'));
     await db.query('insert into deals values ($1,true,$2)', [id(1), id(2)]);
     await db.query("insert into buddy_trident_bundles values ($1,$2,'running'),($3,$2,'running')", [id(3), id(1), id(4)]);
