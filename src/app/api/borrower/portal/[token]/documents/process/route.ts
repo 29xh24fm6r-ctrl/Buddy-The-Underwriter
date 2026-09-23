@@ -62,15 +62,26 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
       .eq("deal_id", dealId).eq("bank_id", bankId).eq("source_table", "deal_documents").eq("source_id", documentId)
       .maybeSingle();
     if (artifact.error) throw new Error("Document processing status could not be loaded.");
-    if (clarification && artifact.data?.status === "queued") {
-      return NextResponse.json({ ok: true, queued: 0, processing: true, clarificationSaved: true });
-    }
-    const queued = await sb.from("document_artifacts").update({ status: "queued", updated_at: new Date().toISOString() })
-      .eq("deal_id", dealId).eq("bank_id", bankId).eq("source_table", "deal_documents").eq("source_id", documentId)
-      .in("status", ["classified", "routed_to_review", "failed"]).select("id");
-    if (queued.error) throw new Error("Processing could not restart. Please retry.");
-    if (!queued.data?.length) return NextResponse.json({ ok: false, error: "This file is already processing or no longer available for retry. Refresh the document list before trying again." }, { status: 409 });
-    return NextResponse.json({ ok: true, queued: queued.data?.length ?? 0 });
+    if (!["queued", "classified", "routed_to_review", "failed"].includes(artifact.data?.status ?? ""))
+      return NextResponse.json({ ok: false, error: "This file is already processing or no longer available for retry. Refresh the document list before trying again." }, { status: 409 });
+
+    // Artifact state is not the worker's queue.  Ensure both the queued state
+    // and a live doc.extract outbox event in one database transaction so an
+    // orphaned `queued` artifact cannot return a false-success response.
+    const handoff = await sb.rpc("ensure_borrower_doc_extraction_handoff", {
+      p_deal_id: dealId,
+      p_bank_id: bankId,
+      p_document_id: documentId,
+    });
+    if (handoff.error || !handoff.data?.ok)
+      throw new Error("Processing could not restart. Please retry.");
+
+    return NextResponse.json({
+      ok: true,
+      queued: handoff.data.outbox_created ? 1 : 0,
+      processing: true,
+      clarificationSaved: !!clarification,
+    });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "Document processing is temporarily unavailable." }, { status: 503 });
   }

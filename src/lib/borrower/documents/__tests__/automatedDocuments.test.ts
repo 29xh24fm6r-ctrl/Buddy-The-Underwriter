@@ -1,5 +1,6 @@
 import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { mockServerOnly } from "../../../../../test/utils/mockServerOnly";
 import { borrowerDocumentAdmission, isBorrowerCollectionPhase } from "../admission";
@@ -42,6 +43,28 @@ const sb = { from(table: string) {
     },
   };
   return q;
+}, rpc(name: string, args: any) {
+  if (name !== "ensure_borrower_doc_extraction_handoff") return Promise.resolve({ data: null, error: new Error("Unknown RPC") });
+  if (failedTable === "ensure_borrower_doc_extraction_handoff") return Promise.resolve({ data: null, error: new Error("DB unavailable") });
+  const artifact = tables.document_artifacts.find(row =>
+    row.deal_id === args.p_deal_id && row.bank_id === args.p_bank_id &&
+    row.source_table === "deal_documents" && row.source_id === args.p_document_id
+  );
+  if (!artifact || !["queued", "classified", "routed_to_review", "failed"].includes(artifact.status))
+    return Promise.resolve({ data: null, error: new Error("Artifact unavailable") });
+  artifact.status = "queued";
+  let outbox = tables.buddy_outbox_events.find(row =>
+    row.kind === "doc.extract" && row.deal_id === args.p_deal_id && row.bank_id === args.p_bank_id &&
+    row.payload?.doc_id === args.p_document_id && row.delivered_at == null && row.dead_lettered_at == null
+  );
+  const created = !outbox;
+  if (!outbox) {
+    outbox = { id: `outbox-${tables.buddy_outbox_events.length + 1}`, kind: "doc.extract", deal_id: args.p_deal_id,
+      bank_id: args.p_bank_id, source: "borrower_retry", payload: { doc_id: args.p_document_id, force_refresh: false },
+      delivered_at: null, dead_lettered_at: null };
+    tables.buddy_outbox_events.push(outbox);
+  }
+  return Promise.resolve({ data: { ok: true, artifact_id: artifact.id, outbox_id: outbox.id, outbox_created: created }, error: null });
 } };
 require.cache[require.resolve("@/lib/supabase/admin")] = { id: "sb", filename: "sb", loaded: true, exports: { supabaseAdmin: () => sb } } as any;
 require.cache[require.resolve("@/lib/borrower/resolvePortalContext")] = { id: "ctx", filename: "ctx", loaded: true, exports: { resolvePortalContext: async () => { if (!authorized) throw new Error("unauthorized"); return { dealId: "deal", bankId: "bank" }; } } } as any;
@@ -55,6 +78,7 @@ beforeEach(() => {
     deal_documents: [{ ...good }], buddy_sealed_packages: [], deal_events: [],
     ownership_entities: [{ id: OWNER, deal_id: "deal", display_name: "QA Test Owner", entity_type: "person" }, { id: OTHER_OWNER, deal_id: "other-deal", display_name: "Other Borrower", entity_type: "person" }],
     document_artifacts: [{ id: "artifact", source_id: DOC, source_table: "deal_documents", deal_id: "deal", bank_id: "bank", status: "classified" }],
+    buddy_outbox_events: [],
   };
 });
 const request = (body: any) => POST({ json: async () => body } as any, { params: Promise.resolve({ token: "session-bound-deal" }) });
@@ -101,6 +125,8 @@ test("document clarification is tied to the exact file hash and queued through t
   assert.equal(response.status, 200);
   assert.equal(tables.deal_events[0].payload.sha256, "abc");
   assert.equal(tables.document_artifacts[0].status, "queued");
+  assert.equal(tables.buddy_outbox_events.length, 1);
+  assert.equal(tables.buddy_outbox_events[0].payload.doc_id, DOC);
   assert.equal((await service.readDocumentClarification("deal", "bank", DOC, sb as any))?.doc_type, "BALANCE_SHEET");
   tables.deal_documents[0].sha256 = "changed";
   assert.equal(await service.readDocumentClarification("deal", "bank", DOC, sb as any), null);
@@ -134,6 +160,43 @@ test("queue failure after a saved clarification remains retryable and is reporte
   failedTable = "document_artifacts";
   assert.equal((await request({ documentId: DOC, clarification: { doc_type: "OTHER" } })).status, 503);
   assert.equal(tables.deal_events.length, 1);
+});
+test("an orphaned queued artifact receives one durable extraction event and retries stay idempotent", async () => {
+  tables.document_artifacts[0].status = "queued";
+  const first = await request({ documentId: DOC, clarification: { doc_type: "OTHER" } });
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).queued, 1);
+  assert.equal(tables.buddy_outbox_events.length, 1);
+
+  const second = await request({ documentId: DOC, clarification: { doc_type: "OTHER" } });
+  assert.equal(second.status, 200);
+  assert.equal((await second.json()).queued, 0);
+  assert.equal(tables.buddy_outbox_events.length, 1);
+});
+test("a dead-lettered extraction does not suppress a fresh borrower retry", async () => {
+  tables.document_artifacts[0].status = "queued";
+  tables.buddy_outbox_events.push({ id: "dead", kind: "doc.extract", deal_id: "deal", bank_id: "bank",
+    payload: { doc_id: DOC }, delivered_at: null, dead_lettered_at: "2026-09-22T00:00:00Z" });
+  const response = await request({ documentId: DOC, clarification: { doc_type: "OTHER" } });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).queued, 1);
+  assert.equal(tables.buddy_outbox_events.length, 2);
+});
+test("handoff RPC failure never reports that processing restarted", async () => {
+  failedTable = "ensure_borrower_doc_extraction_handoff";
+  const response = await request({ documentId: DOC, clarification: { doc_type: "OTHER" } });
+  assert.equal(response.status, 503);
+  assert.equal(tables.buddy_outbox_events.length, 0);
+});
+test("borrower extraction handoff is transactional, serialized, and service-role only", () => {
+  const migration = readFileSync("supabase/migrations/20260923010000_ensure_borrower_doc_extraction_handoff.sql", "utf8");
+  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.ensure_borrower_doc_extraction_handoff/);
+  assert.match(migration, /FROM public\.document_artifacts[\s\S]*FOR UPDATE/);
+  assert.match(migration, /kind = 'doc\.extract'[\s\S]*delivered_at IS NULL[\s\S]*dead_lettered_at IS NULL/);
+  assert.match(migration, /INSERT INTO public\.buddy_outbox_events/);
+  assert.match(migration, /REVOKE ALL[\s\S]*FROM PUBLIC/);
+  assert.match(migration, /GRANT EXECUTE[\s\S]*TO service_role/);
+  assert.doesNotMatch(migration, /SECURITY DEFINER/);
 });
 test("borrower clarification preserves AI evidence and identifies its human source", () => {
   const classified: any = { docType: "OTHER", confidence: .7, taxYear: null, formNumbers: [], entityType: "business", rawExtraction: { original: true } };
