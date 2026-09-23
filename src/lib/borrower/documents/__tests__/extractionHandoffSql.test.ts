@@ -2,6 +2,7 @@ import test, { before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
+import { handoffVerificationQuery } from "../../../../../scripts/check-borrower-handoff-schema.mjs";
 
 const deal = "00000000-0000-0000-0000-000000000001";
 const bank = "00000000-0000-0000-0000-000000000002";
@@ -122,4 +123,33 @@ test("real SQL rolls back artifact changes if durable enqueue fails", async () =
   } finally {
     await db.exec("ALTER TABLE buddy_outbox_events DROP CONSTRAINT reject_test_enqueue");
   }
+});
+
+test("rollout verifier accepts the exact reviewed SQL and denies a missing function", async () => {
+  assert.deepEqual((await db.query(handoffVerificationQuery())).rows, [{ current: true }]);
+  await db.exec("BEGIN; DROP FUNCTION ensure_borrower_doc_extraction_handoff(uuid,uuid,uuid)");
+  try {
+    assert.deepEqual((await db.query(handoffVerificationQuery())).rows, [{ current: false }]);
+  } finally { await db.exec("ROLLBACK"); }
+});
+
+test("rollout verifier rejects body drift even when signature and grants still match", async () => {
+  const migration = readFileSync("supabase/migrations/20260923010000_ensure_borrower_doc_extraction_handoff.sql", "utf8");
+  await db.exec("BEGIN");
+  try {
+    await db.exec(migration.replace("WHERE deal_id = p_deal_id", "WHERE true"));
+    assert.deepEqual((await db.query(handoffVerificationQuery())).rows, [{ current: false }]);
+  } finally { await db.exec("ROLLBACK"); }
+});
+
+test("rollout verifier rejects broad execution grants and missing service table access", async () => {
+  await db.exec("BEGIN");
+  try {
+    await db.exec(`GRANT EXECUTE ON FUNCTION ${signature} TO authenticated`);
+    assert.deepEqual((await db.query(handoffVerificationQuery())).rows, [{ current: false }]);
+    await db.exec(`REVOKE EXECUTE ON FUNCTION ${signature} FROM authenticated`);
+    assert.deepEqual((await db.query(handoffVerificationQuery())).rows, [{ current: true }]);
+    await db.exec("REVOKE INSERT ON buddy_outbox_events FROM service_role");
+    assert.deepEqual((await db.query(handoffVerificationQuery())).rows, [{ current: false }]);
+  } finally { await db.exec("ROLLBACK"); }
 });
