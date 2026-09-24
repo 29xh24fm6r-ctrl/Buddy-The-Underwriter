@@ -253,6 +253,8 @@ export async function generateSBAPackage(
       totalDebtService: annualProjections[0]?.totalDebtService ?? 0,
       sellerFinancingAmount: assumptions.loanImpact.sellerFinancingAmount ?? 0,
       dscrYear1: dscrYear1Base,
+      sourcesAndUses,
+      sensitivityScenarios,
       // Phase 2
       city: dealCity,
       state: dealState,
@@ -269,6 +271,7 @@ export async function generateSBAPackage(
       revenueStreamNames: assumptions.revenueStreams.map((r) => r.name),
       dscrYear1: dscrYear1Base,
       marginOfSafetyPct: breakEven.marginOfSafetyPct,
+      sensitivityScenarios,
       // Phase 2
       managementBios,
       borrowerProfile: research.borrowerProfile,
@@ -592,6 +595,7 @@ export async function generateSBAPackage(
       sourcesAndUses: mode === "preview" ? undefined : sourcesAndUses,
       balanceSheetProjections: mode === "preview" ? undefined : balanceSheetProjections,
       projectionAccountingBasis: mode === "preview" ? undefined : projectionModel.accountingBasis,
+      projectionsAssumptionsNarrative: mode === "preview" ? undefined : projectionsAssumptionsNarrative ?? undefined,
       globalCashFlow: mode === "preview" ? undefined : globalCashFlow,
       previewWatermark: mode === "preview",
     };

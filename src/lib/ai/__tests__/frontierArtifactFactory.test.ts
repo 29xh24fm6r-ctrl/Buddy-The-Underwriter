@@ -23,6 +23,31 @@ test.afterEach(() => {
   __resetVendorApprovalForTests();
 });
 
+test("numeric and cross-artifact warnings trigger repair rather than advisory publication", async () => {
+  for (const category of ["numeric_inconsistency", "cross_artifact_conflict"]) {
+    let reviews = 0;
+    __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify({ issues: ++reviews === 1 ? [{
+      sectionKey: "repayment", claim: "4.00x coverage", reason: "Saved coverage is 1.42x", severity: "warning", category,
+      repairInstruction: "Correct coverage to 1.42x",
+    }] : [] }), tokensIn: 10, tokensOut: 10 }));
+    __setProviderImplForTests("openai", async () => ({ text: JSON.stringify({ sections: [{ key: "repayment", text: "Coverage is 1.42x." }] }), tokensIn: 10, tokensOut: 10 }));
+    const result = await finishInstitutionalArtifact({ artifactType: "credit_memo", dealId: "qa", facts: { dscr: 1.42 }, sections: [{ key: "repayment", text: "Coverage is 4.00x." }] });
+    assert.equal(result.verdict, "pass");
+    assert.equal(result.repaired, true);
+    assert.equal(reviews, 2);
+    assert.equal(result.sections[0].text, "Coverage is 1.42x.");
+  }
+});
+
+test("terminal checkpoints cannot preserve warning severity for numeric contradictions", async () => {
+  const sections = [{ key: "repayment", text: "Coverage is 4.00x." }];
+  const result = await finishInstitutionalArtifact({ artifactType: "credit_memo", dealId: "qa", facts: { dscr: 1.42 }, sections,
+    checkpoint: { state: { version: 1, cycle: 0, phase: "done", sections, repaired: false, reviewPasses: 1, completedBatches: {},
+      remaining: [{ sectionKey: "repayment", claim: "4.00x", reason: "Saved 1.42x", severity: "warning", category: "numeric_inconsistency", repairInstruction: "Correct" }] }, save: async () => {} } });
+  assert.equal(result.verdict, "flagged");
+  assert.equal(result.advisoryIssues.length, 0);
+});
+
 test("releases a strong artifact without paying for an unnecessary repair", async () => {
   let repairs = 0;
   __setProviderImplForTests("anthropic", async () => ({

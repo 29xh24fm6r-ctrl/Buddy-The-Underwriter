@@ -17,7 +17,7 @@ function fixture(): Parameters<typeof assertPackageFinancialLineage>[0] {
     assumptions: {status:"confirmed"}, globalCashFlow: {globalDSCR:null,evidenceStatus:"needs_information"} } as any;
   return {
     snapshot: { id: "financial-1", output } as any,
-    packageId: "package-1", pkg: { financial_snapshot_id: "financial-1", projections_annual: structuredClone(annual), projections_monthly: monthly, base_year_data: base, sources_and_uses: uses, balance_sheet_projections: balance },
+    packageId: "package-1", pkg: { financial_snapshot_id: "financial-1", projections_annual: structuredClone(annual), projections_monthly: monthly, sensitivity_scenarios: structuredClone(output.projectionModel.sensitivityScenarios), base_year_data: base, sources_and_uses: uses, balance_sheet_projections: balance },
     feasibility: { projections_package_id: "package-1" }, memo: { metadata_json: { financial_snapshot_id: "financial-1", financial_payload: structuredClone(packageMemoFinancialPayload(output)) } }, spread: { rendered_json: { financialSnapshotId: "financial-1", financialRenderInputHash: deterministicHash({}) } },
   };
 }
@@ -25,6 +25,10 @@ test("one saved numeric version passes the complete package lineage check", () =
 test("a matching ID cannot conceal changed financial values", () => {
   const input = fixture(); input.pkg.projections_annual[0].ebitda += 80000;
   assert.throws(() => assertPackageFinancialLineage(input), /figures differ/);
+});
+test("business-plan sensitivity results cannot diverge from the frozen model", () => {
+  const input = fixture(); input.pkg.sensitivity_scenarios[0].dscrYear3 = 9.99;
+  assert.throws(() => assertPackageFinancialLineage(input), /package\.sensitivity_scenarios/);
 });
 test("feasibility attached to another projection version blocks release", () => {
   const input = fixture(); input.feasibility.projections_package_id = "old-package";
