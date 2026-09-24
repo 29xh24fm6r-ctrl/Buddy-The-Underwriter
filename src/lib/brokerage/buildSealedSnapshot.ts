@@ -8,6 +8,7 @@ import type { PiiScanContext } from "./piiScanner";
 import { loadPackageFinancialSnapshot, PACKAGE_FINANCIAL_VERSION } from "@/lib/modelEngine/packageFinancialSnapshot";
 import { deterministicHash } from "@/lib/modelEngine/hashing";
 import { assertTridentInputSnapshot } from "./trident/tridentInputSnapshot";
+import { LENDER_PACKAGE_FILES } from "./lenderPackageFiles";
 import { forecastCoverage } from "@/lib/sba/forecastCoverage";
 
 export type TridentDistributionBinding = {
@@ -21,6 +22,9 @@ export type TridentDistributionBinding = {
     businessPlan: string;
     projectionsXlsx: string;
     feasibility: string;
+    creditMemo: string;
+    spreads: string;
+    sbaForms: string;
   };
 };
 
@@ -156,7 +160,7 @@ export async function buildSealedSnapshot(args: {
     !trident.source_spread_id ||
     !trident.business_plan_pdf_path ||
     !trident.projections_xlsx_path ||
-    !trident.feasibility_pdf_path
+    !LENDER_PACKAGE_FILES.every(file => trident[file.column])
   ) {
     throw new SealSnapshotError("final_trident_not_release_ready");
   }
@@ -195,6 +199,9 @@ export async function buildSealedSnapshot(args: {
       businessPlan: String(trident.business_plan_pdf_path),
       projectionsXlsx: String(trident.projections_xlsx_path),
       feasibility: String(trident.feasibility_pdf_path),
+      creditMemo: String(trident.credit_memo_pdf_path),
+      spreads: String(trident.spreads_pdf_path),
+      sbaForms: String(trident.sba_forms_pdf_path),
     },
   };
 
@@ -225,13 +232,14 @@ export async function buildSealedSnapshot(args: {
 
   // Round-5: franchise resolution via feasibility.is_franchise.
   const isFranchise = feasibility?.is_franchise === true;
+  const brandEvidence = trident.snapshot_manifest_json?.sources?.franchiseEvidence;
   const franchise = isFranchise
     ? {
-        brand_id: null,
+        brand_id: brandEvidence?.brandId ?? null,
         brand_name: null,
         brand_category: "Franchise (brand pending)",
-        brand_unit_count: null,
-        brand_founding_year: null,
+        brand_unit_count: brandEvidence?.unitCount ?? null,
+        brand_founding_year: brandEvidence?.foundingYear ?? null,
       }
     : null;
 
@@ -315,7 +323,7 @@ export async function buildSealedSnapshot(args: {
       businessPlanPages: 0,
       projectionsPages: 0,
       feasibilityPages: 0,
-      formsIncluded: ["1919", "413", "159"],
+      formsIncluded: [], // Populated from the verified combined forms artifact before publication.
       sourceDocumentsCount: 0,
     },
   };

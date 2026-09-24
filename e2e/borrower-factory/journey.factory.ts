@@ -515,3 +515,33 @@ test("evidence recovery opens the actual staffing and management inputs without 
   expect(app.calls).not.toContain("confirm_assumptions");
   expect(app.calls).not.toContain("guided_answer");
 });
+
+
+for (const matchedLenderCount of [0, 2]) test(`submission recovers its complete-package receipt after a lost response with ${matchedLenderCount} lender matches`, async ({ page }) => {
+  await setup(page, true, false, false, { complete: true });
+  let sealed = false;
+  let submissions = 0;
+  await page.route("**/seal-status", route => route.fulfill({ json: {
+    ok: true, sealed, canSeal: !sealed, gateReasons: [],
+    packageCompletion: sealed ? { verified: true, generatedDocumentCount: 6, sourceDocumentCount: 8, verifiedAt: "2026-09-24T12:00:00Z" } : null,
+    listing: sealed ? { id: "listing-1", status: "pending_preview", score: 80, band: "strong_fit", publishedRateBps: 250,
+      previewOpensAt: "2026-09-25T12:00:00Z", claimOpensAt: "2026-09-26T12:00:00Z", claimClosesAt: "2026-09-29T12:00:00Z", matchedLenderCount } : null,
+  } }));
+  await page.route("**/seal", route => {
+    expect(route.request().postDataJSON()).toEqual({ sharingConfirmed: true, sharingConfirmationVersion: "1.0.0" });
+    submissions++; sealed = true;
+    return route.abort("connectionreset"); // The transaction committed; only its response was lost.
+  });
+  await page.getByRole("button", { name: /MISSION 5 Make it ready/ }).click();
+  await page.getByRole("checkbox", { name: /submit it for lender matching/ }).check();
+  await page.getByRole("button", { name: "Submit for lender matching", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Complete package saved for lender matching" })).toBeVisible();
+  await expect(page.getByText("6 prepared documents and 8 borrower source documents verified and saved.")).toBeVisible();
+  await expect(page.getByText(matchedLenderCount ? "Your complete package is awaiting lender pickup and your lender selection." : "Your complete package is saved. No lender match is available yet.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Submit for lender matching", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Download", exact: true })).toHaveCount(0);
+  await page.reload();
+  await page.getByRole("button", { name: /MISSION 5 Make it ready/ }).click();
+  await expect(page.getByRole("heading", { name: "Complete package saved for lender matching" })).toBeVisible();
+  expect(submissions).toBe(1);
+});

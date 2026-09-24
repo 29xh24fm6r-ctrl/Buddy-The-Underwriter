@@ -14,6 +14,7 @@ const ZIP_DATE = new Date("2000-01-01T00:00:00.000Z");
 export type PackageArchiveInventory = {
   version: 1; bundleId: string; actor: "borrower" | "lender";
   files: Array<{ filename: string; category: "generated" | "source"; sizeBytes: number; sha256: string;
+    kind?: string; pageCount?: number; borrowerVisible?: boolean;
     documentId?: string; documentType?: string | null; years?: number[]; reviewStatus?: string; identityStrength?: "sha256" | "size" }>;
 };
 export class PackageArchiveError extends Error {}
@@ -47,15 +48,17 @@ export async function buildPackageArchive(args: {
       if (error || !data) throw new Error("missing");
       if (data.size + total > PACKAGE_ARCHIVE_MAX_BYTES) throw new PackageArchiveError("This package exceeds the download size limit. Contact Buddy support for secure delivery.");
       const bytes = new Uint8Array(await data.arrayBuffer());
+      let pageCount: number | undefined;
       if (file.filename.endsWith(".pdf")) {
         const pdf = await PDFDocument.load(bytes);
         if (!pdf.getPageCount()) throw new Error("empty PDF");
+        pageCount = pdf.getPageCount();
       } else {
         const workbook = await JSZip.loadAsync(bytes, { checkCRC32: true });
         if (!workbook.file("[Content_Types].xml") || !workbook.file("xl/workbook.xml") ||
             !Object.keys(workbook.files).some(name => /^xl\/worksheets\/sheet\d+\.xml$/.test(name))) throw new Error("invalid workbook");
       }
-      add(file.filename, bytes, { category: "generated" });
+      add(file.filename, bytes, { category: "generated", kind: file.kind, pageCount, borrowerVisible: file.kind !== "credit_memo" });
     } catch (error) {
       if (error instanceof PackageArchiveError) throw error;
       throw new PackageArchiveError(`${file.label} could not be verified. Retry or prepare the package again.`);
@@ -68,7 +71,7 @@ export async function buildPackageArchive(args: {
       // Flatten paths, remove control characters, and prefix an ordinal to prevent duplicate names.
       const safeName = (doc.original_filename || "document").replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.{2,}/g, "_").replace(/^\.+/, "").slice(0, 150) || "document";
       add(`Source-documents/${String(index + 1).padStart(3, "0")}-${safeName}`, bytes, {
-        category: "source", documentId: doc.id, documentType: doc.canonical_type || doc.document_type || null,
+        category: "source", borrowerVisible: ["borrower", "borrower_portal"].includes(doc.source), documentId: doc.id, documentType: doc.canonical_type || doc.document_type || null,
         years: [...new Set([...(doc.doc_years || []), doc.doc_year].filter((year): year is number => Number.isInteger(year)))],
         reviewStatus: !/FAILED|REJECTED|ERROR/i.test(doc.quality_status || "") &&
           (doc.finalized_at || ["AUTO_CONFIRMED", "USER_CONFIRMED"].includes(doc.intake_status || "")) ? "confirmed" : "review_required",

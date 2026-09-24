@@ -9,7 +9,14 @@ let isolationError: Error | null;
 let committed: any;
 let gateCalls = 0;
 let commitError = false;
+let certificateError = false;
+let deferred: Array<() => Promise<void>> = [];
 const mockModule = (path: string, exports: any) => { require.cache[require.resolve(path)] = { exports } as any; };
+mockModule("next/server", { ...require("next/server"), after: (fn: () => Promise<void>) => deferred.push(fn) });
+mockModule("@/lib/brokerage/certifyCompletePackage", { certifyCompletePackage: async () => {
+  if (certificateError) throw new Error("source unavailable");
+  return { bundleId: "bundle-1", sha256: "verified-hash", inventory: { files: [{ kind: "business_plan", category: "generated", pageCount: 4 }, { category: "source" }] } };
+} });
 const sb = {
   from: () => { const q: any = { select: () => q, eq: () => q, is: () => q, maybeSingle: async () => ({ data: { spread_bps_over_prime: 275 }, error: null }) }; return q; },
   rpc: async (_name: string, args: any) => { committed = args; return { data: commitError ? [] : [{ sealed_package_id: "seal-1", listing_id: "listing-1" }], error: null }; },
@@ -31,7 +38,7 @@ mockModule("@/lib/brokerage/hostileInterrogation", { runHostileInterrogationForD
 mockModule("@/lib/brokerage/lenderComms", { queueLenderMessage: async () => { throw new Error("No live messages allowed in test"); } });
 const { POST } = require("../route");
 const submit = (body: any) => POST({ json: async () => body }, { params: Promise.resolve({ dealId: "deal-1" }) });
-test.beforeEach(() => { session = { deal_id: "deal-1", bank_id: "bank-1", claimed_email: "qa@example.invalid" }; isolationError = null; committed = null; gateCalls = 0; commitError = false; });
+test.beforeEach(() => { session = { deal_id: "deal-1", bank_id: "bank-1", claimed_email: "qa@example.invalid" }; isolationError = null; committed = null; gateCalls = 0; commitError = false; certificateError = false; deferred = []; });
 
 test("submission requires explicit, current sharing confirmation before any generation or write", async () => {
   for (const body of [null, {}, { sharingConfirmed: false }, { sharingConfirmed: "true" }, { sharingConfirmed: true, sharingConfirmationVersion: "obsolete" }]) {
@@ -73,4 +80,21 @@ test("confirmation cannot override QA isolation or unavailable isolation state",
     assert.equal(gateCalls, 0);
     assert.equal(committed, null);
   }
+});
+
+
+test("failed complete-package verification never creates a seal or listing", async () => {
+  certificateError = true;
+  const res = await submit({ sharingConfirmed: true, sharingConfirmationVersion: "1.0.0" });
+  assert.equal(res.status, 503);
+  assert.equal((await res.json()).error, "complete_package_verification_failed");
+  assert.equal(committed, null);
+  assert.equal(deferred.length, 0);
+});
+
+test("submission persists verified package evidence and returns before supplemental work", async () => {
+  const res = await submit({ sharingConfirmed: true, sharingConfirmationVersion: "1.0.0" });
+  assert.equal(res.status, 200);
+  assert.equal(committed.p_sealed_snapshot.packageCompletion.sha256, "verified-hash");
+  assert.equal(deferred.length, 1, "supplemental work is deferred until after the receipt");
 });
