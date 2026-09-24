@@ -144,6 +144,7 @@ export async function runHostileInterrogationForDeal(
     const ins = await sb.from("deal_conditions").insert({
       deal_id: dealId,
       bank_id: bankId,
+      code: sourceKey,
       title: q.question,
       description: q.rationale,
       category: "credit",

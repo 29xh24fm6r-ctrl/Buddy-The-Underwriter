@@ -7,6 +7,7 @@
  * Body:
  *   { title: string; description?: string; category?: string; due_date?: string }
  */
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveDealApiContext } from "@/lib/server/dealApiContext";
 
@@ -36,7 +37,7 @@ export async function POST(
 
   const title = String(body?.title ?? "").trim();
   const description = body?.description ? String(body.description).trim() : null;
-  const category = body?.category ? String(body.category).trim() : null;
+  const category = body?.category ? String(body.category).trim() : "other";
   const due_date = body?.due_date ? String(body.due_date) : null;
 
   if (!title) {
@@ -46,11 +47,16 @@ export async function POST(
     );
   }
 
+  if (!["policy", "credit", "legal", "closing", "other"].includes(category)) {
+    return NextResponse.json({ ok: false, error: "invalid_category" }, { status: 400 });
+  }
+
   const insertRes = await (sb as any)
     .from("deal_conditions")
     .insert({
       deal_id: dealId,
       bank_id: bankId,
+      code: `manual:${randomUUID()}`,
       title,
       description,
       category,

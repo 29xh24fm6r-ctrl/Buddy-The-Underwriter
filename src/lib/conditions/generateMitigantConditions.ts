@@ -90,6 +90,8 @@ export async function generateMitigantConditionsForDeal(
       .eq("source_key", mitigant_key)
       .maybeSingle();
 
+    if (exists.error) throw new Error("condition_lookup_failed");
+
     if (exists.data?.id) {
       skipped.push({ mitigant_key, reason: "already_exists", condition_id: exists.data.id });
       continue;
@@ -109,6 +111,7 @@ export async function generateMitigantConditionsForDeal(
       .insert({
         deal_id: dealId,
         bank_id: bankId,
+        code: mitigant_key,
         title: draft.title,
         description: draft.description ?? null,
         category: "policy",

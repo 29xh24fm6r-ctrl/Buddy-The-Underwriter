@@ -30,6 +30,10 @@ export async function generateConditionsForDeal(
     generateRuleConditionsForDeal(dealId, bankId, { sb: opts.sb }),
   ]);
 
+  if ([...mitigantResult.skipped, ...ruleResult.skipped].some(item => item.reason === "insert_failed")) {
+    throw new Error("conditions_persistence_failed");
+  }
+
   const totalCreated = mitigantResult.created.length + ruleResult.created.length;
 
   return {

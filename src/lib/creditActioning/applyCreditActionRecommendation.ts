@@ -68,6 +68,7 @@ export async function applyCreditActionRecommendation(input: ApplyInput): Promis
         newStatus = "implemented";
         // Create target record based on action type
         targetRecordId = await convertToTargetSystem(sb, {
+          actionId: input.actionId,
           dealId: input.dealId,
           bankId: input.bankId,
           actionType: rec.action_type,
@@ -119,6 +120,7 @@ export async function applyCreditActionRecommendation(input: ApplyInput): Promis
 async function convertToTargetSystem(
   sb: ReturnType<typeof supabaseAdmin>,
   opts: {
+    actionId: string;
     dealId: string;
     bankId: string;
     actionType: string;
@@ -132,11 +134,12 @@ async function convertToTargetSystem(
 
   // Convert to condition
   if (actionType === "add_condition" || actionType === "add_collateral_support" || actionType === "add_guaranty_support") {
-    const { data: cond } = await sb
+    const { data: cond, error: conditionError } = await sb
       .from("deal_conditions")
       .insert({
         deal_id: dealId,
         bank_id: bankId,
+        code: `credit_action:${opts.actionId}`,
         title: text,
         description: proposedTerms?.conditionText ?? text,
         category: category === "collateral" ? "closing" : "credit",
@@ -146,7 +149,8 @@ async function convertToTargetSystem(
       })
       .select("id")
       .single();
-    return cond?.id ?? null;
+    if (conditionError || !cond?.id) throw new Error("condition_insert_failed");
+    return cond.id;
   }
 
   // For other types, return null (deep-link only, no automatic record creation)

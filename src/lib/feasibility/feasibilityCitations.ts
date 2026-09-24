@@ -164,6 +164,7 @@ export async function flagUncitedFeasibilityFields(args: {
     const ins = await sb.from("deal_conditions").insert({
       deal_id: dealId,
       bank_id: bankId,
+      code: sourceKey,
       title: `Feasibility study section has no precise source citation: ${field}`,
       description: hasFallbackSources
         ? "This section makes market-data claims, but no research source's text specifically overlaps it — only the mission's general source list is available."

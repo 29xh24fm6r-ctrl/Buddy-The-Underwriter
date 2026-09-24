@@ -1,5 +1,6 @@
+import { generateRuleConditionsForDeal } from "./generateRuleConditions";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { CONDITION_RULES, EXPECTED_DOCS, type LoanProductType } from "./rules";
+import { EXPECTED_DOCS, type LoanProductType } from "./rules";
 
 type MissingDocRow = {
   deal_id: string;
@@ -28,6 +29,12 @@ export async function computeAndPersistForDeal(opts: {
 }) {
   const { supabase, dealId, product, hasRealEstateCollateral, isSba } = opts;
   const presentSet = new Set((opts.presentDocKeys ?? []).filter(Boolean));
+
+  // Use the same persisted document/signature evidence as package preparation.
+  // Caller-supplied presence hints above must not satisfy lender conditions.
+  const { data: deal, error: dealError } = await supabase.from("deals")
+    .select("bank_id").eq("id", dealId).maybeSingle();
+  if (dealError || !deal?.bank_id) throw new Error("condition_deal_unavailable");
 
   // 1) Compute expected docs list based on product context
   const expected = EXPECTED_DOCS.filter((d) =>
@@ -60,57 +67,9 @@ export async function computeAndPersistForDeal(opts: {
 
   const missingKeys = new Set(missingRows.filter((r) => r.status === "missing").map((r) => r.key));
 
-  // 3) Compute conditions from rules
-  for (const rule of CONDITION_RULES) {
-    const res = rule.predicate({
-      missingKeys,
-      product,
-      isSba,
-      hasRealEstateCollateral,
-    });
-
-    const status = res.open ? "open" : "satisfied";
-
-    // Upsert condition row
-    const { data: condRows, error: condErr } = await supabase
-      .from("deal_conditions")
-      .upsert(
-        [
-          {
-            deal_id: dealId,
-            code: rule.code,
-            title: rule.title,
-            description: null,
-            status,
-            severity: rule.severity,
-            source: "rules",
-          },
-        ],
-        { onConflict: "deal_id,code" }
-      )
-      .select("id")
-      .limit(1);
-
-    if (condErr) throw new Error(`conditions_upsert_failed(${rule.code}): ${condErr.message}`);
-
-    const conditionId = condRows?.[0]?.id as string | undefined;
-    if (!conditionId) continue;
-
-    // Replace evidence (simple approach: delete + insert)
-    await supabase.from("deal_condition_evidence").delete().eq("condition_id", conditionId);
-
-    if (res.evidence?.length) {
-      const evRows = res.evidence.map((e) => ({
-        condition_id: conditionId,
-        kind: e.kind,
-        label: e.label,
-        detail: e.detail ?? null,
-        payload: null,
-      }));
-
-      const { error: evErr } = await supabase.from("deal_condition_evidence").insert(evRows);
-      if (evErr) throw new Error(`condition_evidence_insert_failed(${rule.code}): ${evErr.message}`);
-    }
+  const conditions = await generateRuleConditionsForDeal(dealId, deal.bank_id, { sb: supabase });
+  if (conditions.skipped.some(item => item.reason !== "already_exists")) {
+    throw new Error("conditions_persistence_failed");
   }
 
   return { ok: true, missingCount: missingKeys.size };

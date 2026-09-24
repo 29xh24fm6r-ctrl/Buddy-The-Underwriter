@@ -91,6 +91,7 @@ export async function seedFranchiseChecklist(
     const results = await Promise.all(FRANCHISE_DOC_SPECS.map(spec => saveCondition(sb, {
       deal_id: dealId,
       bank_id: bankId,
+      code: spec.conditionSourceKey,
       title: spec.title,
       description: `${spec.description} Required because this deal is financing a ${brandName} franchise.`,
       category: "legal",
