@@ -87,13 +87,14 @@ const DEFAULT_BUDGETS: Record<GatewayRole, number> = {
   generator: 2_000_000,
   extractor: 1_000_000,
   research: 500_000,
-  // A 300k review/repair run must fit inside the 50% QA allocation.
-  verifier: 1_000_000,
+  // Supports repeated full-package validation within the 50% QA allocation.
+  // Per-package allowances and atomic reservations still bound each run.
+  verifier: 2_000_000,
   structurer: 500_000,
   interviewer: 1_000_000,
   translator: 500_000,
   evidence: 1_000_000,
-  underwriter: 1_000_000,
+  underwriter: 2_000_000,
 };
 
 function isGatewayProvider(v: string): v is GatewayProvider {

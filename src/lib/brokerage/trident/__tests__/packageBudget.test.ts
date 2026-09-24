@@ -37,7 +37,7 @@ function client(rows: any[], failTable?: string, isTest = true) {
 }
 test("ledger reads page beyond 1000 rows and count actual zero instead of reserved tokens", async () => {
   const c = client([]);
-  const rows = Array.from({length:1001}, (_,id) => ({ id, role:"verifier", is_qa:true, usage_day:c.day, actual_tokens:id < 1000 ? 0 : null, reserved_tokens:id < 1000 ? 999 : 318170 }));
+  const rows = Array.from({length:1001}, (_,id) => ({ id, role:"verifier", is_qa:true, usage_day:c.day, actual_tokens:id < 1000 ? 0 : null, reserved_tokens:id < 1000 ? 999 : 818170 }));
   const db = client(rows);
   await assert.rejects(assertPackageBudgetAvailable({dealId:"deal",bankId:"bank"}, db as any), /QA daily allowance/);
   assert.equal(db.reads.filter(t => t === "ai_gateway_budget_reservations").length, 2);

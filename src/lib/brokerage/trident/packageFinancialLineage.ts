@@ -1,3 +1,4 @@
+import { packageMemoFinancialPayload } from "@/lib/modelEngine/packageMemoFinancialPayload";
 import { deterministicHash } from "@/lib/modelEngine/hashing";
 import type { PackageFinancialSnapshot } from "@/lib/modelEngine/packageFinancialSnapshot";
 
@@ -14,16 +15,18 @@ export function assertPackageFinancialLineage(args: {
     throw new Error("release blocked: package documents reference different financial versions");
   }
   const expected = snapshot.output;
-  const pairs = [
-    [memo.metadata_json.financial_payload, { baseYear: expected.baseYear, annualProjections: expected.projectionModel.annualProjections, sourcesAndUses: expected.sourcesAndUses, balanceSheetProjections: expected.balanceSheetProjections, assumptions: expected.assumptions, globalCashFlow: expected.globalCashFlow }],
-    [spread.rendered_json.financialRenderInputHash, deterministicHash(expected.spreadInput)],
-    [pkg.projections_annual, expected.projectionModel.annualProjections],
-    [pkg.projections_monthly, expected.projectionModel.monthlyProjections],
-    [pkg.base_year_data, expected.baseYear],
-    [pkg.sources_and_uses, expected.sourcesAndUses],
-    [pkg.balance_sheet_projections, expected.balanceSheetProjections],
+  const pairs: Array<[string, unknown, unknown]> = [
+    ["memo.financial_payload", memo.metadata_json.financial_payload, packageMemoFinancialPayload(expected)],
+    ["spread.financialRenderInputHash", spread.rendered_json.financialRenderInputHash, deterministicHash(expected.spreadInput)],
+    ["package.projections_annual", pkg.projections_annual, expected.projectionModel.annualProjections],
+    ["package.projections_monthly", pkg.projections_monthly, expected.projectionModel.monthlyProjections],
+    ["package.base_year_data", pkg.base_year_data, expected.baseYear],
+    ["package.sources_and_uses", pkg.sources_and_uses, expected.sourcesAndUses],
+    ["package.balance_sheet_projections", pkg.balance_sheet_projections, expected.balanceSheetProjections],
   ];
-  if (pairs.some(([actual, saved]) => deterministicHash(actual) !== deterministicHash(saved))) {
-    throw new Error("release blocked: stored artifact figures differ from the authoritative financial output");
+  const mismatches = pairs.filter(([, actual, saved]) => deterministicHash(actual) !== deterministicHash(saved)).map(([field]) => field);
+  if (mismatches.length) {
+    // Field names only: financial values and borrower information stay out of errors.
+    throw new Error(`release blocked: stored artifact figures differ from the authoritative financial output (${mismatches.join(", ")})`);
   }
 }
