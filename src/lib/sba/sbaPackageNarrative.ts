@@ -1,4 +1,6 @@
 import "server-only";
+import { fundingScheduleText, downsideDisclosure, BASE_CASE_LIMITATION } from "@/lib/ai/packageNarrativeEvidence";
+import type { SourcesAndUsesResult } from "./sbaReadinessTypes";
 import { formatPackageInterview } from "@/lib/borrower/guidedPackage/interviewContext";
 import { PACKAGE_BORROWER_EVIDENCE_POLICY } from "./packageBorrowerContext";
 
@@ -414,6 +416,8 @@ export async function generateMarketingAndOperations(params: {
   sellerFinancingAmount: number;
   totalDebtService: number;
   dscrYear1: number;
+  sourcesAndUses?: SourcesAndUsesResult;
+  sensitivityScenarios?: SensitivityScenario[];
   // Phase 2 additions
   city?: string | null;
   state?: string | null;
@@ -443,6 +447,10 @@ Industry: ${params.industryDescription}
 Revenue streams: ${params.revenueStreamNames.join(", ") || "Not specified"}
 Planned hires: ${params.plannedHires.map((h) => `${h.role} ($${h.annualSalary.toLocaleString()}/yr)`).join("; ") || "None specified"}
 Use of proceeds: ${params.useOfProceedsDescription}
+${params.sourcesAndUses ? `Include this complete funding schedule verbatim in the Operations Plan, preserving every label and amount: ${fundingScheduleText(params.sourcesAndUses)}` : ""}
+${downsideDisclosure(params.sensitivityScenarios) ?? ""}
+${BASE_CASE_LIMITATION}
+When the downside fails, include its complete three-year DSCR disclosure in Operations alongside the base-case debt-service bridge.
 Existing annual debt service retained after closing: ${Math.round(params.existingDebtService).toLocaleString()}
 New financing annual debt service: ${Math.round(params.newDebtService).toLocaleString()}
 Seller financing principal: $${Math.round(params.sellerFinancingAmount).toLocaleString()}
@@ -492,6 +500,7 @@ export async function generateSWOTAnalysis(params: {
   revenueStreamNames: string[];
   dscrYear1: number;
   marginOfSafetyPct: number;
+  sensitivityScenarios?: SensitivityScenario[];
   // Phase 2 additions
   managementBios?: string;
   borrowerProfile?: string | null;
@@ -525,6 +534,9 @@ Industry: ${params.industryDescription}
 Revenue streams: ${params.revenueStreamNames.join(", ")}
 Year 1 DSCR: ${params.dscrYear1.toFixed(2)}x
 Break-even margin of safety: ${(params.marginOfSafetyPct * 100).toFixed(1)}%
+${downsideDisclosure(params.sensitivityScenarios) ?? ""}
+${BASE_CASE_LIMITATION}
+If a SWOT section cites DSCR or margin of safety while the downside fails, include the complete three-year downside disclosure in that section and qualify its conclusion. Alternatively focus Strengths on evidenced nonfinancial advantages.
 
 Management team detail:
 ${params.managementBios || JSON.stringify(params.managementTeam)}

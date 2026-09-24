@@ -20,6 +20,7 @@ export function assertPackageFinancialLineage(args: {
     ["spread.financialRenderInputHash", spread.rendered_json.financialRenderInputHash, deterministicHash(expected.spreadInput)],
     ["package.projections_annual", pkg.projections_annual, expected.projectionModel.annualProjections],
     ["package.projections_monthly", pkg.projections_monthly, expected.projectionModel.monthlyProjections],
+    ["package.sensitivity_scenarios", pkg.sensitivity_scenarios, expected.projectionModel.sensitivityScenarios],
     ["package.base_year_data", pkg.base_year_data, expected.baseYear],
     ["package.sources_and_uses", pkg.sources_and_uses, expected.sourcesAndUses],
     ["package.balance_sheet_projections", pkg.balance_sheet_projections, expected.balanceSheetProjections],

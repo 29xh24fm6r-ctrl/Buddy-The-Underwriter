@@ -1,4 +1,5 @@
 import { startupSpreadBlockers, startupOpeningRows, startupProjectionRows } from "./startupSpread";
+import { downsideDisclosure } from "@/lib/ai/packageNarrativeEvidence";
 import PDFDocument from "pdfkit";
 import type {
   CashFlowRow,
@@ -1118,6 +1119,13 @@ function renderStartupPages(doc: PDFKit.PDFDocument, input: ClassicSpreadInput) 
   s.y += 12;
   drawRatioSections(s, [{ title: "PROJECTED BUSINESS COVERAGE", rows: [{ label: "Business DSCR",
     values: startup.projections.map(year => year.dscr), format: "ratio", decimals: 2 }] }]);
+  const downside = downsideDisclosure(startup.sensitivityScenarios);
+  const coverageNote = [downside, startup.globalCashFlow?.evidenceNote].filter(Boolean).join(" ");
+  if (coverageNote) {
+    s.y += 8;
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).text(coverageNote, PAGE_MARGIN, s.y, { width: 530 });
+    s.y = doc.y + 8;
+  }
   drawPageFooter(s);
   if (input.personalIncome?.years.length) {
     doc.addPage();

@@ -262,10 +262,14 @@ export async function computePackageFinancialModel(dealId: string, bankId: strin
       businessStage: "pre_opening", confirmedAt: assumptions.confirmedAt ?? "",
       openingDate: opening.periodEnd, openingBalance: opening.balance,
       projections: annualProjections,
+      sensitivityScenarios,
+      globalCashFlow,
     };
     const { startupSpreadBlockers } = await import("@/lib/classicSpread/startupSpread");
     const blockers = startupSpreadBlockers(spreadInput.startup);
     if (blockers.length) throw new Error(`financial_input_required: ${blockers.join(" ")}`);
+    const { bindStartupSpreadAudit } = await import("@/lib/classicSpread/startupSpreadAudit");
+    bindStartupSpreadAudit(spreadInput);
   }
   const year1 = annualProjections[0];
   const metric = (value: number | null, basis: string) => ({ value, source: `ModelV2:${basis}`, updated_at: assumptions.confirmedAt ?? null });

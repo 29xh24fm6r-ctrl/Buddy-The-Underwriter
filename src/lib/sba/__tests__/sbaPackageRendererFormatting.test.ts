@@ -108,6 +108,7 @@ test("rendered startup PDF contains unavailable opening coverage and the reconci
     ...model, dealName: "QA Startup", loanType: "SBA", loanAmount: 950000,
     businessOverviewNarrative: "", sensitivityNarrative: "", useOfProceeds: [], managementTeam: [],
     projectionAccountingBasis: model.accountingBasis,
+    projectionsAssumptionsNarrative: "Reviewed projection assumptions: ongoing guarantor income remains unconfirmed.",
   });
   let text = "";
   for (const match of pdf.toString("binary").matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
@@ -120,4 +121,11 @@ test("rendered startup PDF contains unavailable opening coverage and the reconci
   assert.doesNotMatch(text, /99\.00x/);
   for (const label of ["Interest Expense", "Intangible Assets", "Cash Taxes", "Projection accounting basis"]) assert.ok(text.includes(label), label);
   for (const amount of ["1,245,936", "910,218", "335,717"]) assert.ok(text.includes(amount), amount);
+  assert.match(text, /Reviewed projection assumptions/);
+  assert.match(text, /fails the model's coverage threshold/);
+  assert.match(text, /Year 2 0.74x, Year 3 0.08x/);
+  if (process.env.PACKAGE_INTEGRITY_PDF_OUTPUT) {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(process.env.PACKAGE_INTEGRITY_PDF_OUTPUT, pdf);
+  }
 });

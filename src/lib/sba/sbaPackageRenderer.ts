@@ -1,4 +1,5 @@
 import "server-only";
+import { projectionSummaryText } from "@/lib/ai/packageNarrativeEvidence";
 import { displayProjectionDscr } from "./projectionDisplay";
 
 import PDFDocument from "pdfkit";
@@ -119,6 +120,7 @@ export interface SBAPackageRenderInput {
   sourcesAndUses?: SourcesAndUsesResult;
   balanceSheetProjections?: BalanceSheetYear[];
   projectionAccountingBasis?: string[];
+  projectionsAssumptionsNarrative?: string;
   globalCashFlow?: GlobalCashFlowResult;
   /** Sprint 3: when true, stamps a cosmetic preview watermark on every page. */
   previewWatermark?: boolean;
@@ -232,7 +234,8 @@ function checkPageBreak(s: DocState, neededHeight: number, sectionTitle: string)
 function renderInsightCallout(s: DocState, text: string, sectionTitle = "") {
   const { doc } = s;
   const maxWidth = doc.page.width - PAGE_MARGIN * 2;
-  const boxH = 50;
+  doc.font(FONT_NORMAL).fontSize(9);
+  const boxH = Math.max(50, 32 + doc.heightOfString(text, { width: maxWidth - 24, lineGap: 1 }));
   checkPageBreak(s, boxH + 10, sectionTitle);
 
   doc.rect(PAGE_MARGIN, s.y, maxWidth, boxH).fill("#eff6ff");
@@ -273,15 +276,15 @@ function renderKeyMetricsDashboard(s: DocState) {
     pass: boolean;
   }> = [
     {
-      label: "DSCR Year 1",
+      label: "Base DSCR Year 1",
       value: dscrY1 >= 99 ? "—" : fmtDscr(dscrY1),
       sub: `SBA Min: ${fmtDscr(dscrThreshold)}`,
       pass: dscrY1 >= dscrThreshold,
     },
     {
-      label: "Break-Even Safety",
+      label: "Base Break-Even Safety",
       value: fmtPct(breakEven.marginOfSafetyPct),
-      sub: breakEven.flagLowMargin ? "Below 10%" : "Adequate cushion",
+      sub: breakEven.flagLowMargin ? "Below 10%; base case" : "Base case only",
       pass: !breakEven.flagLowMargin,
     },
     {
@@ -1509,17 +1512,14 @@ export function renderSBAPackagePDF(input: SBAPackageRenderInput): Promise<Buffe
     tocEntries[6].page = s.pageNum;
     {
       const y1 = input.annualProjections[0];
-      const dscrY1 = y1?.dscr ?? 0;
       const dscrThreshold = resolveDscrThreshold(input);
-      const insight =
-        dscrY1 >= 1.5
-          ? `${input.dealName} generates $${fmtCurrency(Math.round(y1?.ebitda ?? 0))} in Year 1 EBITDA against $${fmtCurrency(Math.round(y1?.totalDebtService ?? 0))} in annual debt service — a ${fmtDscr(dscrY1)} coverage ratio providing ${Math.round((dscrY1 - 1) * 100)}% cushion above the SBA ${fmtDscr(dscrThreshold)} minimum.`
-          : dscrY1 >= dscrThreshold
-            ? `${input.dealName} meets the SBA ${fmtDscr(dscrThreshold)} DSCR threshold at ${fmtDscr(dscrY1)} in Year 1. Break-even margin of safety is ${fmtPct(input.breakEven.marginOfSafetyPct)}.`
-            : `Year 1 projected DSCR of ${fmtDscr(dscrY1)} falls below the SBA ${fmtDscr(dscrThreshold)} minimum. Assumption review is recommended before submission.`;
+      const insight = projectionSummaryText(y1, dscrThreshold, input.sensitivityScenarios);
       renderInsightCallout(s, insight, "7. Financial Projections");
     }
     renderSection2_Projections(s);
+    if (input.projectionsAssumptionsNarrative) {
+      renderNarrativeBody(s, input.projectionsAssumptionsNarrative, "7. Financial Projections (cont.)");
+    }
     // Per-stream breakdown — only rendered when there are 2+ streams.
     // Single-stream deals fall through to the existing total chart with
     // no layout change.

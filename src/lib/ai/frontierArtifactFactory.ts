@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { auditProjectionNarrative } from "./projectionNarrativeAudit";
+import { auditProjectionNarrative, auditFundingNarrative } from "./projectionNarrativeAudit";
 
 import { runRole } from "./gateway";
 import type { ArtifactType } from "./artifactVerification";
@@ -120,6 +120,7 @@ const REVIEW_SYSTEM = [
   "Find unsupported claims, numeric inconsistencies, missing repayment analysis, generic filler, policy gaps, and contradictions between sections.",
   "Do not rewrite the artifact and do not invent facts. Return no issue for a mere stylistic preference.",
   "A disclosed missing lender confirmation or supporting document is an advisory warning, unless the artifact falsely claims it exists. Never require a prose rewrite to create missing source evidence. Supplied model calculations are authoritative; request correction only for a demonstrable contradiction, not an alternative financial method.",
+  "Numeric inconsistencies and cross-artifact conflicts are repairable content defects and must be critical, even when the correct figures appear elsewhere. Reserve these categories for demonstrable contradictions. Use credit_policy for disclosed missing external evidence or lender confirmation. A funding allocation omitting working capital or mislabeling a franchise fee is a numeric inconsistency. A base-case cushion does not establish ramp or downside resilience; evaluate all three downside years wherever repayment strength is claimed.",
   "A pass requires decision-useful, borrower-specific analysis that clearly separates evidence, assumptions, and conclusions.",
 ].join(" ");
 
@@ -138,8 +139,9 @@ function parseIssues(text: string): ReviewIssue[] {
     if (Array.isArray(value.issues) && value.issues.every((issue) =>
       issue && typeof issue.sectionKey === "string" && typeof issue.reason === "string" &&
       typeof issue.claim === "string" && typeof issue.repairInstruction === "string" &&
-      ["info", "warning", "critical"].includes(issue.severity)
-    )) return value.issues;
+      ["info", "warning", "critical"].includes(issue.severity) &&
+      ["unsupported_fact", "numeric_inconsistency", "missing_analysis", "generic_language", "credit_policy", "cross_artifact_conflict"].includes(issue.category)
+    )) return enforceReviewSeverity(value.issues);
     // Backward-compatible with the original fact-checker contract while
     // deployments and tests move to the richer institutional review shape.
     if (Array.isArray(value.flaggedClaims)) {
@@ -163,6 +165,16 @@ function parseIssues(text: string): ReviewIssue[] {
       repairInstruction: "Regenerate the review before releasing the artifact.",
     }];
   }
+}
+
+function enforceReviewSeverity(issues: ReviewIssue[]): ReviewIssue[] {
+  return issues.map(issue => issue.severity !== "info" &&
+    ["numeric_inconsistency", "cross_artifact_conflict"].includes(issue.category)
+    ? { ...issue, severity: "critical" } : issue);
+}
+
+function auditFinancialNarratives(facts: Record<string, unknown> | string, sections: ArtifactSection[]) {
+  return [...auditProjectionNarrative(facts, sections), ...auditFundingNarrative(facts, sections)];
 }
 
 function parseSections(text: string, original: ArtifactSection[]): ArtifactSection[] | null {
@@ -268,7 +280,7 @@ export function reviewContentHash(input: {
       .map((s) => [s.key, s.text]),
   );
   return createHash("sha256")
-    .update(`review_rules_v4\u0000${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}`)
+    .update(`review_rules_v5\u0000${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}`)
     .digest("hex");
 }
 
@@ -288,7 +300,7 @@ export async function finishInstitutionalArtifact(input: {
   let sections = saved?.sections ?? input.sections;
   let repaired = saved?.repaired ?? false;
   let reviewPasses = saved?.reviewPasses ?? 0;
-  let remaining: ReviewIssue[] = saved?.remaining ?? [];
+  let remaining: ReviewIssue[] = enforceReviewSeverity(saved?.remaining ?? []);
   let phase: ReviewCheckpoint["phase"] = saved?.phase ?? "review";
   let completedBatches = saved?.completedBatches ?? {};
   const save = async (cycle: number) => {
@@ -301,7 +313,7 @@ export async function finishInstitutionalArtifact(input: {
   for (let cycle = saved?.cycle ?? 0; cycle <= 3; cycle += 1) {
     const sectionAudit = input.auditSections?.(sections);
     if (phase === "review") {
-      const issues = [...await review({ ...input, sections, npiTagged, sectionAudit }), ...auditProjectionNarrative(input.facts, sections)];
+      const issues = [...await review({ ...input, sections, npiTagged, sectionAudit }), ...auditFinancialNarratives(input.facts, sections)];
       reviewPasses += 1;
       remaining = issues.filter((issue) => issue.severity !== "info");
       phase = cycle === 3 || remaining.every(issue => issue.severity !== "critical") ? "done" : "repair";
@@ -318,7 +330,7 @@ export async function finishInstitutionalArtifact(input: {
     // Feasibility has seven long sections. Rewriting all of them in one
     // response repeatedly exhausted the 75s deadline. Bound each response to
     // two sections, and retain the independent whole-artifact review.
-    const batches: ArtifactSection[][] = input.artifactType === "feasibility"
+    const batches: ArtifactSection[][] = input.artifactType === "feasibility" || input.artifactType === "business_plan"
       ? Array.from({ length: Math.ceil(targets.length / 2) }, (_, i) => targets.slice(i * 2, i * 2 + 2))
       : [targets];
     // Serialize checkpoint writes, while allowing independent model batches to
@@ -403,7 +415,7 @@ export async function finishInstitutionalArtifact(input: {
   // are disclosed.
   // Also enforce on resumed terminal checkpoints; no cached model verdict can
   // override deterministic missing disclosure.
-  const audited = auditProjectionNarrative(input.facts, sections);
+  const audited = auditFinancialNarratives(input.facts, sections);
   for (const issue of audited) if (!remaining.some(r => r.sectionKey === issue.sectionKey && r.claim === issue.claim)) remaining.push(issue);
   const blocking = remaining.filter((issue) => issue.severity === "critical");
   const advisory = remaining.filter((issue) => issue.severity === "warning");

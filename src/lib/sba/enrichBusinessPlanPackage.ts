@@ -80,7 +80,7 @@ export async function enrichBusinessPlanPackage(args: {
     "business_overview_narrative", "executive_summary", "industry_analysis",
     "marketing_strategy", "operations_plan", "swot_strengths", "swot_weaknesses",
     "swot_opportunities", "swot_threats", "sensitivity_narrative", "plan_thesis",
-    "franchise_section",
+    "franchise_section", "projections_assumptions_narrative",
   ];
   const sections = narrativeKeys.flatMap((key) => {
     const text = typed[key];
@@ -114,7 +114,6 @@ export async function enrichBusinessPlanPackage(args: {
     projections_monthly: typed.projections_monthly,
     sensitivity_scenarios: typed.sensitivity_scenarios,
     balance_sheet_projections: typed.balance_sheet_projections,
-    projections_assumptions_narrative: typed.projections_assumptions_narrative,
     base_year_data: typed.base_year_data,
     borrower_confirmed_assumptions: confirmedAssumptions,
   };

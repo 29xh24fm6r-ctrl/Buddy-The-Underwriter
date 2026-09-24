@@ -98,7 +98,7 @@ test("the production checkpoint adapter reuses identity, resets changed facts an
   const sb = { rpc: reviewCheckpointRpc() };
   const scope = { sb, bankId: "bank", dealId: "deal", artifactType: input.artifactType, artifactId: "artifact", sections: input.sections };
   let calls = 0;
-  provider = async () => { calls++; return reply({ issues: [{ ...issue, severity: "warning" }] }); };
+  provider = async () => { calls++; return reply({ issues: [{ ...issue, severity: "warning", category: "credit_policy", claim: "Lender confirmation pending", reason: "Final pricing needs lender confirmation", repairInstruction: "Obtain lender confirmation" }] }); };
   const run = (facts = input.facts) => withReviewCheckpoint({ ...scope, inputHash: reviewContentHash({ ...input, facts }) }, checkpoint => finishInstitutionalArtifact({ ...input, facts, checkpoint }));
   assert.equal((await run()).advisoryIssues.length, 1);
   await run(); assert.equal(calls, 1);

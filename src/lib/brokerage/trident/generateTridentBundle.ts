@@ -1,6 +1,7 @@
 import "server-only";
 import { loadPackageFinancialSnapshot } from "@/lib/modelEngine/packageFinancialSnapshot";
 import { assertPackageFinancialLineage } from "./packageFinancialLineage";
+import { assertPackageNarrativeIntegrity } from "./packageNarrativeIntegrity";
 
 /**
  * Trident bundle orchestrator.
@@ -404,7 +405,7 @@ export async function generateTridentBundle(args: {
         .from("buddy_sba_packages")
         .select(
           "business_overview_narrative,executive_summary,industry_analysis,marketing_strategy,operations_plan," +
-            "swot_strengths,swot_weaknesses,swot_opportunities,swot_threats,sensitivity_narrative,franchise_section",
+            "swot_strengths,swot_weaknesses,swot_opportunities,swot_threats,sensitivity_narrative,franchise_section,projections_assumptions_narrative",
         )
         .eq("id", sbaResult.packageId)
         .single();
@@ -425,6 +426,7 @@ export async function generateTridentBundle(args: {
         swotThreats: reviewed.swot_threats ?? undefined,
         sensitivityNarrative: reviewed.sensitivity_narrative ?? "",
         franchiseSection: reviewed.franchise_section ?? undefined,
+        projectionsAssumptionsNarrative: reviewed.projections_assumptions_narrative ?? undefined,
       });
       reviewedBusinessPlanSource = await uploadReviewedPdf(sb, {
         dealId, artifact: "business_plan", buffer: reviewedBuffer,
@@ -822,7 +824,7 @@ export async function generateTridentBundle(args: {
       }
       const [{ data: releasePkg }, { data: releaseFeasibility }, { data: releaseMemo }, { data: releaseSpread }] = await Promise.all([
         sb.from("buddy_sba_packages")
-          .select("verification_verdict,projections_assumptions_narrative,sources_and_uses,financial_snapshot_id,projections_annual,projections_monthly,base_year_data,balance_sheet_projections")
+          .select("verification_verdict,projections_assumptions_narrative,sources_and_uses,financial_snapshot_id,projections_annual,projections_monthly,base_year_data,balance_sheet_projections,sensitivity_scenarios,business_overview_narrative,executive_summary,industry_analysis,marketing_strategy,operations_plan,swot_strengths,swot_weaknesses,swot_opportunities,swot_threats,sensitivity_narrative,plan_thesis,franchise_section")
           .eq("id", sbaResult.packageId).single(),
         sb.from("buddy_feasibility_studies")
           .select("verification_verdict,data_completeness,narrative_citations,market_demand_detail,financial_viability_detail,operational_readiness_detail,location_suitability_detail,projections_package_id")
@@ -840,6 +842,7 @@ export async function generateTridentBundle(args: {
       ]);
       if (!boundSources.financial_snapshot_id) throw new Error("release blocked: missing financial snapshot binding");
       const financialSnapshot = await loadPackageFinancialSnapshot({ dealId, bankId: admittedBankId, snapshotId: boundSources.financial_snapshot_id });
+      assertPackageNarrativeIntegrity(releasePkg ?? {}, financialSnapshot.output);
       assertPackageFinancialLineage({ snapshot: financialSnapshot, packageId: sbaResult.packageId,
         pkg: releasePkg, feasibility: releaseFeasibility, memo: releaseMemo, spread: releaseSpread });
       const citationEntries = releaseFeasibility?.narrative_citations && typeof releaseFeasibility.narrative_citations === "object"

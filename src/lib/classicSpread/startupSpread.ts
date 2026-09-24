@@ -1,4 +1,4 @@
-import type { AnnualProjectionYear } from "@/lib/sba/sbaReadinessTypes";
+import type { AnnualProjectionYear, SensitivityScenario, GlobalCashFlowResult } from "@/lib/sba/sbaReadinessTypes";
 import type { FinancialPeriod } from "@/lib/modelEngine/types";
 import type { FinancialRow } from "./types";
 import { startupProjectionChecks } from "@/lib/validation/startupProjectionChecks";
@@ -10,6 +10,10 @@ export type StartupSpread = {
   openingDate: string;
   openingBalance: FinancialPeriod["balance"];
   projections: AnnualProjectionYear[];
+  sensitivityScenarios?: SensitivityScenario[];
+  globalCashFlow?: GlobalCashFlowResult;
+  /** Historical diagnostics retained for traceability, not misattributed to forecast rows. */
+  historicalSourceAudit?: import("./certification/certifiedSpreadGateCore").ClassicSpreadCertificationAudit;
 };
 
 export function startupSpreadBlockers(input: StartupSpread): string[] {
@@ -31,7 +35,21 @@ export function startupSpreadBlockers(input: StartupSpread): string[] {
       year.totalDebtService, year.dscr].some(value => typeof value !== "number" || !Number.isFinite(value)))) {
     return ["Three complete, explicitly projected years are required."];
   }
-  return startupProjectionChecks(years, opening).filter(check => check.status === "BLOCK").map(check => check.message);
+  return [...startupProjectionChecks(years, opening).filter(check => check.status === "BLOCK").map(check => check.message),
+    ...startupAccountingChecks(input).filter(check => Math.abs(check.actual - check.expected) > check.tolerance)
+      .map(check => `${check.period} ${check.label} does not reconcile to the saved model components.`)];
+}
+
+export function startupAccountingChecks(input: StartupSpread) {
+  const b = input.openingBalance;
+  return [{ period: "Opening", label: "Total assets", actual: b.totalAssets!, expected: b.totalLiabilities! + b.equity!, tolerance: .01 },
+    ...input.projections.flatMap(y => [
+      { label: "Gross profit", actual: y.grossProfit, expected: y.revenue - y.cogs, tolerance: .01 },
+      { label: "EBITDA", actual: y.ebitda, expected: y.grossProfit - y.operatingExpenses, tolerance: .01 },
+      { label: "EBIT", actual: y.ebit, expected: y.ebitda - y.depreciation, tolerance: .01 },
+      { label: "Net income", actual: y.netIncome, expected: y.ebit - y.interestExpense - y.taxEstimate, tolerance: .01 },
+      { label: "Business DSCR", actual: y.dscr!, expected: y.ebitda / y.totalDebtService, tolerance: .005 },
+    ].map(check => ({ ...check, period: `Projected Year ${y.year}` })))];
 }
 
 const row = (label: string, values: (number | null)[]): FinancialRow =>
