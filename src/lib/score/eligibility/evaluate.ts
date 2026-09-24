@@ -216,9 +216,9 @@ export function evaluateBuddySbaEligibility(
   if (!entityTypeUpper) {
     checks.push(mkCheck("for_profit_unknown", "for_profit", false, SOP.for_profit,
       "business_entity_type missing — cannot verify for-profit status"));
-    failures.push(mkFail("for_profit_unknown", "for_profit",
-      "Business entity type not provided; SBA requires for-profit status verification",
-      SOP.for_profit));
+    unresolved.push({ check: "for_profit_unknown", category: "for_profit", state: "needs_information",
+      reason: "Business entity type not provided; for-profit status needs confirmation.",
+      nextAction: "Confirm the business entity type.", sopReference: SOP.for_profit });
   } else if (INELIGIBLE_ENTITY_TYPES.has(entityTypeUpper)) {
     checks.push(mkCheck("for_profit", "for_profit", false, SOP.for_profit,
       `entity type ${entityTypeUpper} is not SBA-eligible`));
@@ -323,7 +323,11 @@ export function evaluateBuddySbaEligibility(
       SOP.franchise,
       `sba_eligible=${inputs.franchiseSbaEligible}, status=${inputs.franchiseSbaCertificationStatus ?? "null"}`,
     ));
-    if (!passed) {
+    if (!passed && inputs.franchiseSbaEligible !== false && !["denied", "ineligible", "revoked"].includes(status)) {
+      unresolved.push({ check: "franchise_sba_eligible", category: "franchise", state: "needs_information",
+        reason: "Franchise eligibility has not been confirmed. A missing directory link is not a denial.",
+        nextAction: "Confirm the franchise identity and eligibility evidence.", sopReference: SOP.franchise });
+    } else if (!passed) {
       failures.push(mkFail(
         "franchise_sba_eligible",
         "franchise",

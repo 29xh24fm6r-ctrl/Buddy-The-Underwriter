@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
+import { auditProjectionNarrative } from "./projectionNarrativeAudit";
 
 import { runRole } from "./gateway";
 import type { ArtifactType } from "./artifactVerification";
@@ -267,7 +268,7 @@ export function reviewContentHash(input: {
       .map((s) => [s.key, s.text]),
   );
   return createHash("sha256")
-    .update(`review_rules_v2\u0000${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}`)
+    .update(`review_rules_v3\u0000${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}`)
     .digest("hex");
 }
 
@@ -300,7 +301,7 @@ export async function finishInstitutionalArtifact(input: {
   for (let cycle = saved?.cycle ?? 0; cycle <= 3; cycle += 1) {
     const sectionAudit = input.auditSections?.(sections);
     if (phase === "review") {
-      const issues = await review({ ...input, sections, npiTagged, sectionAudit });
+      const issues = [...await review({ ...input, sections, npiTagged, sectionAudit }), ...auditProjectionNarrative(input.facts, sections)];
       reviewPasses += 1;
       remaining = issues.filter((issue) => issue.severity !== "info");
       phase = cycle === 3 || remaining.every(issue => issue.severity !== "critical") ? "done" : "repair";
@@ -400,6 +401,10 @@ export async function finishInstitutionalArtifact(input: {
 
   // The repair budget is spent. Split what survived: criticals block, warnings
   // are disclosed.
+  // Also enforce on resumed terminal checkpoints; no cached model verdict can
+  // override deterministic missing disclosure.
+  const audited = auditProjectionNarrative(input.facts, sections);
+  for (const issue of audited) if (!remaining.some(r => r.sectionKey === issue.sectionKey && r.claim === issue.claim)) remaining.push(issue);
   const blocking = remaining.filter((issue) => issue.severity === "critical");
   const advisory = remaining.filter((issue) => issue.severity === "warning");
 

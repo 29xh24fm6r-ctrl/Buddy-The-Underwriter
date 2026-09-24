@@ -40,9 +40,12 @@ export interface GlobalCashFlowResult {
   totalNetPersonalCash: number;
   globalCashAvailable: number;
   globalDebtService: number;
-  globalDSCR: number;
+  globalDSCR: number | null;
   guarantorsWithNegativeCashFlow: number;
-  meetsSbaThreshold: boolean; // single source of truth: finengine's dscr_floor axis
+  meetsSbaThreshold: boolean | null; // null when evidence is incomplete
+  evidenceStatus?: "complete" | "needs_information";
+  evidenceNote?: string;
+  businessBasis?: "historical" | "projected_year_1";
 }
 
 export interface ComputeGlobalCashFlowInput {

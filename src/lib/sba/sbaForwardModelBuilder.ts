@@ -357,13 +357,13 @@ export function buildSensitivityScenarios(
     },
     {
       name: "upside" as const,
-      label: "Upside (+5% Revenue)",
+      label: "Upside (+5 percentage points annual revenue growth; −1 point COGS share)",
       revenueAdj: 0.05,
       cogsAdj: -0.01,
     },
     {
       name: "downside" as const,
-      label: "Downside (−15% Revenue)",
+      label: "Downside (−15 percentage points annual revenue growth; +2 points COGS share)",
       revenueAdj: -0.15,
       cogsAdj: 0.02,
     },

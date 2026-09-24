@@ -154,6 +154,9 @@ const nextConfig = {
       "/stitch-recovery/deals", "/stitch-recovery/deals-new", "/stitch-login",
     ];
     const entries = stitchPageRoutes.map((route) => [route, stitchExports]);
+    // Dynamic runtime filesystem reads cannot depend on automatic tracing.
+    // Scoring runs in both API and durable workflow functions.
+    entries.push(["/*", ["data/reference/sba-size-standards.json"]]);
     // Audit route also needs the registry + page files for verification
     entries.push(["/api/builder/stitch/audit", [
       ...stitchExports,

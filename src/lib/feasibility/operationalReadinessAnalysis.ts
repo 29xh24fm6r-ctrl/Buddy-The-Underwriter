@@ -95,13 +95,13 @@ export function analyzeOperationalReadiness(
     score: staffingScore,
     weight: 0.15,
     dataSource: "SBA assumption interview — planned hires",
-    dataAvailable: true,
+    dataAvailable: input.plannedHires.length > 0,
     detail: `${input.plannedHires.length} planned hire(s). ${
       input.plannedHires.length > 0
         ? `First hire in month ${Math.min(
             ...input.plannedHires.map((h) => h.startMonth),
           )}.`
-        : "No additional hires planned."
+        : "Detailed staffing schedule not supplied; this does not establish that no hiring is planned. Payroll may be included in fixed costs."
     }`,
   };
 

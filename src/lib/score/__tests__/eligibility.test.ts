@@ -78,9 +78,10 @@ test("for-profit: 501c3 fails", () => {
   assert.ok(r.failures.some((f) => f.check === "for_profit"));
 });
 
-test("for-profit: missing entity type produces for_profit_unknown failure", () => {
+test("for-profit: missing entity type is an outstanding requirement, not denial", () => {
   const r = evaluateBuddySbaEligibility(baseInputs({ businessEntityType: null }));
-  assert.ok(r.failures.some((f) => f.check === "for_profit_unknown"));
+  assert.ok(!r.failures.some((f) => f.check === "for_profit_unknown"));
+  assert.ok(r.unresolved?.some((f) => f.check === "for_profit_unknown" && f.state === "needs_information"));
 });
 
 // ─── 2. Size standard: default-deny on unknown NAICS (EXPLICIT TEST) ──
@@ -229,6 +230,13 @@ test("franchise: not eligible fails", () => {
     franchiseSbaCertificationStatus: "not_listed",
   }));
   assert.ok(r.failures.some((f) => f.check === "franchise_sba_eligible"));
+});
+
+test("franchise: missing verification remains outstanding and never becomes an eligibility denial", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({ isFranchise: true }));
+  assert.equal(r.failures.length, 0);
+  assert.equal(r.checks.find(c => c.check === "franchise_sba_eligible")?.passed, false);
+  assert.ok(r.unresolved?.some(u => u.check === "franchise_sba_eligible"));
 });
 
 test("franchise: non-franchise deal skips the check (passed=true, N/A detail)", () => {
@@ -470,5 +478,3 @@ test("passive_business: non-rental NAICS never flags", () => {
 });
 
 // ─── Size-standard table integrity ─────────────────────────────────────
-
-

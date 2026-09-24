@@ -201,4 +201,7 @@ test("declared franchise with no FDD support keeps its evidence gap", () => {
   const result = analyzeOperationalReadiness({ managementTeam: [], plannedHires: [], managementIntelligence: null, managementValidated: false, isFranchise: true, franchiseTrainingWeeks: null, franchiseOperationsManual: null, franchiseOngoingSupport: null });
   assert.equal(result.franchiseSupport.dataAvailable, false);
   assert.ok(result.coverage.missing.includes("franchiseSupport"));
+  assert.equal(result.staffingReadiness.dataAvailable, false);
+  assert.ok(result.coverage.missing.includes("staffingReadiness"));
+  assert.doesNotMatch(result.staffingReadiness.detail, /No additional hires planned/);
 });

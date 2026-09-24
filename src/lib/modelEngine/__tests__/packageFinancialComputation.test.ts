@@ -42,6 +42,8 @@ test("the existing model and projection calculators produce one complete saved-o
   if(!result.ok) return;
   const out=result.output;
   assert.equal(out.baseYear.revenue,2400000);
+  assert.equal(out.globalCashFlow.globalDSCR, null, "no guarantor schedules cannot become zero coverage");
+  assert.equal(out.globalCashFlow.evidenceStatus, "needs_information");
   assert.equal(out.baseYear.ebitda,360000);
   assert.equal(out.baseYear.totalDebtService,120000);
   assert.equal(out.balanceSheetProjections[0].totalAssets,1680000);
@@ -87,6 +89,9 @@ test("startup uses an interim opening statement and the real calculator without 
   const result=await computePackageFinancialOutput("deal-1","bank-1");
   assert.equal(result.ok,true); if(!result.ok)return;
   assert.equal(result.output.isNewBusiness,true);
+  assert.equal(result.output.globalCashFlow.businessBasis, "projected_year_1");
+  assert.equal(result.output.globalCashFlow.businessEbitda, result.output.projectionModel.annualProjections[0].ebitda);
+  assert.equal(result.output.globalCashFlow.globalDSCR, null);
   const { checkSpreadPreflight } = await import("../../spreads/preflight/spreadPreflightPure");
   const input = result.output.spreadInput;
   assert.equal(input.balanceSheet.length, 0, "reproduces the real interim loader output");

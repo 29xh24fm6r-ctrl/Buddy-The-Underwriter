@@ -29,7 +29,7 @@ export function scoreRepaymentCapacity(inputs: ScoreInputs): ComponentScore {
       rawScore: scoreStressDSCR(inputs.dscrStress),
       weight: 0.25,
       value: inputs.dscrStress,
-      source: "buddy_sba_packages.dscr_year1_downside",
+      source: "buddy_sba_packages.sensitivity_scenarios (minimum downside DSCR; legacy year-one fallback)",
       narrative: inputs.dscrStress != null
         ? `Stress DSCR ${inputs.dscrStress.toFixed(2)}`
         : "Stress DSCR not available",
