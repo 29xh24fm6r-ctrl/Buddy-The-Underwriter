@@ -93,11 +93,15 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "update_failed" }, { status: 500 });
   }
 
-  await seedFranchiseChecklist(sb, {
+  const checklist = await seedFranchiseChecklist(sb, {
     dealId: session.deal_id,
     bankId: session.bank_id,
     brandName: brand.brand_name,
   });
+  if (!checklist.ok) return NextResponse.json(
+    { ok: false, error: "franchise_checklist_unavailable", selectionSaved: true },
+    { status: 503 },
+  );
 
   try {
     await sb.from("ai_events").insert({

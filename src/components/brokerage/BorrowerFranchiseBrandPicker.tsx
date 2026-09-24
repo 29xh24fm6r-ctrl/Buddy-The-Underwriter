@@ -100,7 +100,9 @@ export default function BorrowerFranchiseBrandPicker({
       });
       const json = await res.json();
       if (!json.ok) {
-        setError("Couldn't save that — try again in a moment.");
+        setError(json.selectionSaved
+          ? "Your brand was saved, but its document requirements could not be refreshed. Select the same brand again to retry."
+          : "Couldn't save that — try again in a moment.");
         return;
       }
       setLinked({ id: json.brandId, name: json.brandName ?? brand.brand_name });
