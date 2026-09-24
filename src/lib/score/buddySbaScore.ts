@@ -31,7 +31,7 @@ import type {
   ScoreBand,
 } from "./types";
 
-export const SCORE_VERSION = "1.0.0";
+export const SCORE_VERSION = "1.1.0";
 
 export async function computeBuddySBAScore(params: {
   dealId: string;

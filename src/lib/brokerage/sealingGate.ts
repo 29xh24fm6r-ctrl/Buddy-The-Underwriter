@@ -55,7 +55,7 @@ export async function canSeal(dealId: string, sb: SupabaseClient): Promise<Seala
     documents,
   ] = await Promise.all([
     sb.from("buddy_sba_scores")
-      .select("score, band, eligibility_passed").eq("deal_id", dealId)
+      .select("score, band, eligibility_passed, input_snapshot").eq("deal_id", dealId)
       .eq("score_status", "locked").is("superseded_at", null).order("computed_at", { ascending: false }).limit(1).maybeSingle(),
     sb.from("buddy_sba_assumptions")
       .select("status, loan_impact").eq("deal_id", dealId).maybeSingle(),
@@ -80,6 +80,12 @@ export async function canSeal(dealId: string, sb: SupabaseClient): Promise<Seala
     if (s.score < 60) reasons.push(`Buddy SBA Score ${s.score} is below the 60 minimum.`);
     if (s.band === "not_eligible") reasons.push("Deal band is 'not_eligible' — cannot list.");
     if (!s.eligibility_passed) reasons.push("SBA eligibility checks did not pass.");
+    const unresolved = s.input_snapshot?.eligibilityUnresolved;
+    if (Array.isArray(unresolved)) {
+      for (const item of unresolved) {
+        reasons.push(typeof item?.reason === "string" ? item.reason : "An SBA eligibility requirement remains unresolved.");
+      }
+    }
   }
 
   if (!assumptions || (assumptions as any).status !== "confirmed") reasons.push("SBA assumptions not yet confirmed.");

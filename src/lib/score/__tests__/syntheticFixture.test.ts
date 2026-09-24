@@ -213,8 +213,8 @@ function evalFromInputs(inputs: ScoreInputs): EligibilityResult {
 
 // ─── Smoke tests ───────────────────────────────────────────────────────
 
-test("synthetic: SCORE_VERSION exported as 1.0.0", () => {
-  assert.equal(SCORE_VERSION, "1.0.0");
+test("synthetic: SCORE_VERSION exported as 1.1.0", () => {
+  assert.equal(SCORE_VERSION, "1.1.0");
 });
 
 test("synthetic: strong deal (max-ish everything) lands in institutional_prime", () => {

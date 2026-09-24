@@ -133,6 +133,15 @@ test("happy path passes all gates", async () => {
   assert.equal(r.ok, true);
 });
 
+test("a passing numerical score never bypasses unresolved eligibility evidence", async () => {
+  resetHappy();
+  state.score = { score: 85, band: "strong_fit", eligibility_passed: true,
+    input_snapshot: { eligibilityUnresolved: [{ check: "franchise_sba_eligible", state: "needs_information", reason: "Confirm franchise eligibility." }] } };
+  const result = await canSeal("deal-1", sbStub);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.ok(result.reasons.includes("Confirm franchise eligibility."));
+});
+
 test("missing locked score blocks", async () => {
   resetHappy();
   state.score = null;
