@@ -1,26 +1,14 @@
 import "server-only";
 
-/**
- * Sprint 5 sealed-snapshot assembler.
- *
- * Loads every relevant deal-state table and produces three outputs:
- *   full          — the immutable jsonb stored on buddy_sealed_packages
- *   forRedactor   — the typed subset that feeds redactForMarketplace
- *   piiContext    — known-bad tokens for the PII scanner backstop
- *
- * Round-5 contract:
- *   - Loan term + amount come from buddy_sba_assumptions.loan_impact
- *     (keys: termMonths, loanAmount), NOT from deals.term_months
- *     (that column does not exist).
- *   - Franchise detection uses buddy_feasibility_studies.is_franchise.
- *     When true, the snapshot's franchise block is a generic placeholder
- *     (brand_name=null, brand_unit_count=null). The redactor's ≥50-unit
- *     gate naturally produces "brand undisclosed" in the KFS.
- */
+/** Assemble the handoff from the certified final bundle and its frozen financial authority. */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SealedSnapshotInput } from "./redactForMarketplace";
 import type { PiiScanContext } from "./piiScanner";
+import { loadPackageFinancialSnapshot, PACKAGE_FINANCIAL_VERSION } from "@/lib/modelEngine/packageFinancialSnapshot";
+import { deterministicHash } from "@/lib/modelEngine/hashing";
+import { assertTridentInputSnapshot } from "./trident/tridentInputSnapshot";
+import { forecastCoverage } from "@/lib/sba/forecastCoverage";
 
 export type TridentDistributionBinding = {
   bundleId: string;
@@ -89,11 +77,8 @@ export async function buildSealedSnapshot(args: {
     scoreRes,
     appRes,
     financialsRes,
-    pkgRes,
-    feasRes,
     tridentRes,
     primaryOwnerRes,
-    assumptionsRes,
     conciergeRes,
   ] = await Promise.all([
     sb.from("deals").select("*").eq("id", dealId).single(),
@@ -102,6 +87,7 @@ export async function buildSealedSnapshot(args: {
       .select("*")
       .eq("deal_id", dealId)
       .eq("score_status", "locked")
+      .is("superseded_at", null)
       .order("computed_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -116,20 +102,6 @@ export async function buildSealedSnapshot(args: {
       .from("deal_financial_facts")
       .select("fact_key, fact_value_num")
       .eq("deal_id", dealId),
-    sb
-      .from("buddy_sba_packages")
-      .select("*")
-      .eq("deal_id", dealId)
-      .order("version_number", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    sb
-      .from("buddy_feasibility_studies")
-      .select("*")
-      .eq("deal_id", dealId)
-      .order("generated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
     sb
       .from("buddy_trident_bundles")
       .select("*")
@@ -156,28 +128,26 @@ export async function buildSealedSnapshot(args: {
       .limit(1)
       .maybeSingle(),
     sb
-      .from("buddy_sba_assumptions")
-      .select("loan_impact")
-      .eq("deal_id", dealId)
-      .maybeSingle(),
-    sb
       .from("borrower_concierge_sessions")
       .select("confirmed_facts, extracted_facts")
       .eq("deal_id", dealId)
       .maybeSingle(),
   ]);
 
+  if ([dealRes, scoreRes, appRes, financialsRes, tridentRes, primaryOwnerRes, conciergeRes].some(result => result.error)) {
+    throw new SealSnapshotError("source_state_unavailable");
+  }
   const deal = dealRes.data as any;
   const score = scoreRes.data as any;
   const app = appRes.data as any;
   const facts = (financialsRes.data ?? []) as any[];
-  const pkg = pkgRes.data as any;
-  const feasibility = feasRes.data as any;
   const concierge = conciergeRes.data as any;
   const trident = tridentRes.data as any;
 
   if (
-    !trident ||
+    !deal?.bank_id || !score || !trident ||
+    trident.bank_id !== deal.bank_id ||
+    !trident.source_sba_package_id || !trident.source_feasibility_id || !trident.financial_snapshot_id ||
     trident.release_gate_json?.ok !== true ||
     !trident.input_hash ||
     !trident.memo_input_hash ||
@@ -190,6 +160,29 @@ export async function buildSealedSnapshot(args: {
   ) {
     throw new SealSnapshotError("final_trident_not_release_ready");
   }
+
+  const [pkgRes, feasRes] = await Promise.all([
+    // Package tenancy is inherited through deal_id; this table has no bank_id column.
+    sb.from("buddy_sba_packages").select("*").eq("id", trident.source_sba_package_id).eq("deal_id", dealId).single(),
+    sb.from("buddy_feasibility_studies").select("*").eq("id", trident.source_feasibility_id).eq("deal_id", dealId).eq("bank_id", deal.bank_id).single(),
+  ]);
+  const pkg = pkgRes.data;
+  const feasibility = feasRes.data;
+  if (pkgRes.error || feasRes.error || !pkg || !feasibility ||
+      pkg.financial_snapshot_id !== trident.financial_snapshot_id || feasibility.projections_package_id !== pkg.id) {
+    throw new SealSnapshotError("final_source_binding_invalid");
+  }
+  let financialSnapshot;
+  try {
+    financialSnapshot = await loadPackageFinancialSnapshot({ sb, dealId, bankId: deal.bank_id, snapshotId: trident.financial_snapshot_id });
+    if (financialSnapshot.inputHash !== deterministicHash({ inputHash: trident.input_hash, version: PACKAGE_FINANCIAL_VERSION })) {
+      throw new Error("financial_input_binding_invalid");
+    }
+    await assertTridentInputSnapshot({ sb, dealId, expectedHash: trident.input_hash, expectedManifest: trident.snapshot_manifest_json });
+  } catch {
+    throw new SealSnapshotError("final_financial_evidence_unavailable_or_stale");
+  }
+  const financialOutput = financialSnapshot.output;
 
   const distributionBinding: TridentDistributionBinding = {
     bundleId: String(trident.id),
@@ -206,31 +199,29 @@ export async function buildSealedSnapshot(args: {
   };
 
   const primaryOwnerId = (primaryOwnerRes.data as { id?: string } | null)?.id ?? null;
-  const { data: borrowerFinData } = primaryOwnerId
+  const { data: borrowerFinData, error: borrowerFinError } = primaryOwnerId
     ? await sb.from("borrower_applicant_financials").select("*").eq("applicant_id", primaryOwnerId).maybeSingle()
-    : { data: null };
+    : { data: null, error: null };
+  if (borrowerFinError) throw new SealSnapshotError("borrower_financial_state_unavailable");
   const borrowerFin = borrowerFinData as any;
 
-  // Round-5: term + loan from loan_impact jsonb.
-  const loanImpact =
-    ((assumptionsRes.data as any)?.loan_impact ?? {}) as Record<
-      string,
-      unknown
-    >;
-  // Audit L2: do NOT fabricate a term/amount — a sealed listing must not
-  // advertise a made-up 10-year term or a $0 loan. Fail sealing instead; the
-  // seal route surfaces this as not_sealable so the borrower confirms the terms.
-  const loanAmount =
-    typeof loanImpact.loanAmount === "number"
-      ? (loanImpact.loanAmount as number)
-      : Number(deal?.loan_amount ?? 0);
-  if (typeof loanImpact.termMonths !== "number" || loanImpact.termMonths <= 0) {
-    throw new SealSnapshotError("missing_loan_term");
+  const loanImpact = financialOutput.assumptions.loanImpact;
+  const { loanAmount, termMonths } = loanImpact;
+  if (!Number.isFinite(termMonths) || termMonths <= 0) throw new SealSnapshotError("missing_loan_term");
+  if (!Number.isFinite(loanAmount) || loanAmount <= 0) throw new SealSnapshotError("missing_loan_amount");
+  const funding = financialOutput.sourcesAndUses;
+  if (!Number.isFinite(funding?.totalUses) || funding.totalUses <= 0 ||
+      !Number.isFinite(funding.equityInjection?.actualAmount) || funding.equityInjection.actualAmount < 0) {
+    throw new SealSnapshotError("funding_evidence_incomplete");
   }
-  if (!(loanAmount > 0)) {
-    throw new SealSnapshotError("missing_loan_amount");
+  const basePath = [financialOutput.dscrYear1Base, financialOutput.dscrYear2Base, financialOutput.dscrYear3Base];
+  const downside = financialOutput.projectionModel.sensitivityScenarios.find(scenario => scenario.name === "downside");
+  const downsidePath = [downside?.dscrYear1, downside?.dscrYear2, downside?.dscrYear3];
+  const threshold = financialOutput.projectedDscrThreshold;
+  if (!Number.isFinite(threshold) || threshold <= 0 ||
+      !forecastCoverage(basePath, threshold).complete || !forecastCoverage(downsidePath, threshold).complete) {
+    throw new SealSnapshotError("forecast_evidence_incomplete");
   }
-  const termMonths = loanImpact.termMonths as number;
 
   // Round-5: franchise resolution via feasibility.is_franchise.
   const isFranchise = feasibility?.is_franchise === true;
@@ -250,20 +241,25 @@ export async function buildSealedSnapshot(args: {
   };
 
   const dscrBaseHistorical = getFact("DSCR");
-  const dscrBaseProjected = pkg?.dscr_year1_base ?? 0;
-  const dscrStressProjected = pkg?.dscr_year1_downside ?? 0;
-  const globalCashFlowDscr = pkg?.global_dscr ?? null;
+  const dscrBaseProjected = basePath[0];
+  const dscrStressProjected = downsidePath[0];
+  const globalCashFlowDscr = financialOutput.globalCashFlow.globalDSCR;
 
+  // The borrower's saved business location is part of the verified admission
+  // manifest; deals.state is nullable on the borrower-led intake path.
+  const borrower = trident.snapshot_manifest_json?.sources?.formInputs?.borrower;
+  const state = String(borrower?.project_address_state || deal.state || borrower?.state || "").trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(state)) throw new SealSnapshotError("project_state_required");
+  const naics = String(app?.naics || borrower?.naics_code || "");
   const forRedactor: SealedSnapshotInput = {
     deal: {
       sba_program: inferProgramFromDeal(deal),
       loan_amount: Number(loanAmount),
       term_months: Number(termMonths),
-      state: String(deal?.state ?? ""),
-      use_of_proceeds: (pkg?.use_of_proceeds as any[]) ?? [],
-      equity_injection_amount: Number(
-        pkg?.sources_and_uses?.equityInjection?.amount ?? 0,
-      ),
+      state,
+      use_of_proceeds: financialOutput.useOfProceeds,
+      equity_injection_amount: funding.equityInjection.actualAmount,
+      total_project_cost: funding.totalUses,
     },
     score: {
       score: score?.score ?? 0,
@@ -295,10 +291,11 @@ export async function buildSealedSnapshot(args: {
       years_in_operation: getFact("YEARS_IN_BUSINESS"),
       industry_experience_years:
         borrowerFin?.industry_experience_years ?? null,
-      industry_naics: String(app?.naics ?? ""),
-      industry_description: String(app?.industry ?? ""),
+      industry_naics: naics,
+      industry_description: String(app?.industry || borrower?.naics_description || (naics ? `NAICS ${naics}` : "industry not specified")),
     },
     financials: {
+      forecastCoverage: { base: basePath, downside: downsidePath as number[], threshold },
       dscr_base_historical: dscrBaseHistorical,
       dscr_base_projected: Number(dscrBaseProjected),
       dscr_stress_projected: Number(dscrStressProjected),
@@ -343,6 +340,7 @@ export async function buildSealedSnapshot(args: {
     sbaPackage: pkg,
     feasibility,
     tridentFinal: distributionBinding,
+    financialSnapshot,
     borrowerFinancials: borrowerFin,
     loanImpact,
     franchise,
@@ -350,7 +348,7 @@ export async function buildSealedSnapshot(args: {
       confirmed: concierge?.confirmed_facts ?? {},
       extracted: concierge?.extracted_facts ?? {},
     },
-    snapshotVersion: "2.0.0",
+    snapshotVersion: "3.0.0",
     snapshottedAt: new Date().toISOString(),
   };
 

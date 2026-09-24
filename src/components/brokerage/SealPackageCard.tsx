@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { SHARING_CONFIRMATION_VERSION, SHARING_CONFIRMATION_STATEMENT } from "@/lib/brokerage/sharingConfirmation";
 
 type PackageResource = {
   type: string;
@@ -93,6 +94,8 @@ export function SealPackageCard({ dealId, onReviewDocuments }: { dealId: string;
       const res = await fetch(`/api/brokerage/deals/${dealId}/seal`, {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sharingConfirmed, sharingConfirmationVersion: SHARING_CONFIRMATION_VERSION }),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -372,8 +375,7 @@ export function SealPackageCard({ dealId, onReviewDocuments }: { dealId: string;
           onChange={(e) => setSharingConfirmed(e.target.checked)}
           className="mt-1 h-5 w-5"
         />
-        I have reviewed my application and want to submit it for lender matching
-        under the application’s sharing authorization.
+        {SHARING_CONFIRMATION_STATEMENT}
       </label>
       {status.canSeal ? (
         <>

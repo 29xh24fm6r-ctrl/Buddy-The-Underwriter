@@ -18,7 +18,7 @@ import "server-only";
  * downstream in buildKFS.ts. If this module has a bug, PII leaks.
  */
 
-export const KFS_REDACTION_VERSION = "1.0.0";
+export const KFS_REDACTION_VERSION = "1.1.0";
 
 export type KeyFactsSummary = {
   redactionVersion: string;
@@ -49,6 +49,7 @@ export type KeyFactsSummary = {
   sopEligibilityChecks: Array<{ requirement: string; passed: boolean }>;
   riskGrade: "low" | "medium" | "high" | "very_high";
 
+  forecastCoverage?: { base: number[]; downside: number[]; threshold: number };
   dscrBaseHistorical: number | null;
   dscrBaseProjected: number;
   dscrStressProjected: number;
@@ -96,6 +97,7 @@ export type SealedSnapshotInput = {
     state: string;
     use_of_proceeds: Array<{ category: string; amount: number }>;
     equity_injection_amount: number;
+    total_project_cost: number;
   };
   score: {
     score: number;
@@ -117,6 +119,7 @@ export type SealedSnapshotInput = {
     industry_description: string;
   };
   financials: {
+    forecastCoverage?: { base: number[]; downside: number[]; threshold: number };
     dscr_base_historical: number | null;
     dscr_base_projected: number;
     dscr_stress_projected: number;
@@ -195,10 +198,10 @@ export function redactForMarketplace(
       10_000,
     ),
     equityInjectionPct:
-      snapshot.deal.loan_amount > 0
+      snapshot.deal.total_project_cost > 0
         ? Math.round(
             (snapshot.deal.equity_injection_amount /
-              snapshot.deal.loan_amount) *
+              snapshot.deal.total_project_cost) *
               1000,
           ) / 10
         : 0,
@@ -227,6 +230,7 @@ export function redactForMarketplace(
     })),
     riskGrade: bandToRiskGrade(snapshot.score.band),
 
+    forecastCoverage: snapshot.financials.forecastCoverage,
     dscrBaseHistorical:
       snapshot.financials.dscr_base_historical != null
         ? Math.round(snapshot.financials.dscr_base_historical * 10) / 10

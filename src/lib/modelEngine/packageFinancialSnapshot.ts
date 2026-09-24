@@ -1,4 +1,5 @@
 import "server-only";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
 import type { CanonicalCreditMemoV1 } from "@/lib/creditMemo/canonical/types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -18,8 +19,8 @@ function decode(row: any): PackageFinancialSnapshot {
     outputHash: row.outputs_hash, output: row.package_output };
 }
 
-export async function loadPackageFinancialSnapshot(args: { dealId: string; bankId?: string; snapshotId: string }) {
-  let query = supabaseAdmin().from("deal_model_snapshots").select("*")
+export async function loadPackageFinancialSnapshot(args: { dealId: string; bankId?: string; snapshotId: string; sb?: SupabaseClient }) {
+  let query = (args.sb ?? supabaseAdmin()).from("deal_model_snapshots").select("*")
     .eq("id", args.snapshotId).eq("deal_id", args.dealId);
   if (args.bankId) query = query.eq("bank_id", args.bankId);
   const { data, error } = await query.single();
