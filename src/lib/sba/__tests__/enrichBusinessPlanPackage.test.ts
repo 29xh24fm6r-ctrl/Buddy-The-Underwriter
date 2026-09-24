@@ -323,7 +323,7 @@ test("missing required plan sections enter repair and the completed result is re
 test("cached acceptance cannot skip restoration of a removed protected funding schedule", async () => {
   const { withoutProtectedFundingSchedule } = await import("../../ai/protectedFundingSchedule");
   __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify({ issues: [] }), tokensIn: 1, tokensOut: 1 }));
-  const tables = { buddy_sba_packages: [basePkgRow({ sources_and_uses: {
+  const tables: Record<string, Row[]> = { buddy_sba_packages: [basePkgRow({ sources_and_uses: {
     sources: [{ label: "Loan", amount: 100 }], uses: [{ label: "Working capital", amount: 100 }], totalSources: 100, totalUses: 100,
   } })] };
   const args = { dealId: "deal-1", bankId: "bank-1", packageId: "pkg-1", sb: makeDb(tables) };
