@@ -14,6 +14,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
+import { SHARING_CONFIRMATION_VERSION, SHARING_CONFIRMATION_STATEMENT } from "@/lib/brokerage/sharingConfirmation";
 import { canSeal } from "@/lib/brokerage/sealingGate";
 import { matchLendersToDeal } from "@/lib/brokerage/matchLenders";
 import { DealIsolationError, assertNotTestDeal } from "@/lib/qaIdentity/isolation";
@@ -30,7 +31,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ dealId: string }> },
 ): Promise<NextResponse> {
   const { dealId } = await params;
@@ -64,6 +65,11 @@ export async function POST(
     );
   }
 
+  const body = await req.json().catch(() => null);
+  if (body?.sharingConfirmed !== true || body?.sharingConfirmationVersion !== SHARING_CONFIRMATION_VERSION) {
+    return NextResponse.json({ ok: false, error: "sharing_confirmation_required" }, { status: 400 });
+  }
+
   const gate = await canSeal(dealId, sb);
   if (!gate.ok) {
     return NextResponse.json(
@@ -85,6 +91,18 @@ export async function POST(
     }
     throw err;
   }
+
+  // Kept in the same immutable snapshot and transaction as the exact package.
+  // This records the submission action; it does not replace signed disclosures.
+  snapshot.full.sharingConfirmation = {
+    version: SHARING_CONFIRMATION_VERSION,
+    statement: SHARING_CONFIRMATION_STATEMENT,
+    confirmedAt: new Date().toISOString(),
+    dealId, bankId: session.bank_id,
+    bundleId: snapshot.distributionBinding.bundleId,
+    inputHash: snapshot.distributionBinding.inputHash,
+    actor: "authenticated_borrower_session",
+  };
 
   // ── All reads / pure compute FIRST, before any write ────────────────────
   // Previously the sealed-package row was inserted before the rate-card lookup,
@@ -132,7 +150,12 @@ export async function POST(
     snapshot: snapshot.forRedactor,
     piiContext: snapshot.piiContext,
   });
-  const matchResult = await matchLendersToDeal({ dealId, sb });
+  let matchResult;
+  try {
+    matchResult = await matchLendersToDeal({ dealId, sb, snapshot: snapshot.forRedactor });
+  } catch {
+    return NextResponse.json({ ok: false, error: "lender_matching_state_unavailable" }, { status: 503 });
+  }
   const { previewOpensAt, claimOpensAt, claimClosesAt } =
     computeListingCadence(new Date());
 

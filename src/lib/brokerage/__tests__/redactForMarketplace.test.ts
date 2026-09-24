@@ -21,6 +21,7 @@ function sampleInput(overrides: any = {}) {
         { category: "working capital", amount: 75_000 },
       ],
       equity_injection_amount: 123_456,
+      total_project_cost: 610_706,
     },
     score: {
       score: 78,
@@ -99,8 +100,8 @@ test("equity injection bucketed to nearest $10K", () => {
 
 test("equity injection pct computed to one decimal", () => {
   const r = redactForMarketplace(sampleInput());
-  // 123_456 / 487_250 = 0.2533 → 25.3%
-  assert.equal(r.equityInjectionPct, 25.3);
+  // Equity is a percentage of total project uses, including every funding source.
+  assert.equal(r.equityInjectionPct, 20.2);
 });
 
 test("DSCRs preserved to one decimal", () => {

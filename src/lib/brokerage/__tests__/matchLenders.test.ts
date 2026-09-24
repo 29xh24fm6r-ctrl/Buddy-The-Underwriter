@@ -176,3 +176,15 @@ test("happy path: all filters pass → matched populated", async () => {
   assert.equal(r.matchCount, 1);
   assert.equal(r.noMatchReasons, undefined);
 });
+
+
+test("sealing matches lenders against the verified handoff instead of stale deal or score rows", async () => {
+  resetBase();
+  state.deal!.state = null; state.score!.score = 0;
+  state.programs = [{ bank_id: "ga-bank", geography: ["GA"], score_threshold: 70, sba_only: true }];
+  const snapshot = { deal: { state: "GA" }, score: { score: 78 }, borrower: { industry_naics: "722515" } } as any;
+  const result = await matchLendersToDeal({ dealId: "deal-1", sb: sbStub, snapshot });
+  assert.deepEqual(result.matched, ["ga-bank"]);
+  const failed = { from: () => ({ select: async () => ({ data: null, error: { message: "read failed" } }) }) } as any;
+  await assert.rejects(matchLendersToDeal({ dealId: "deal-1", sb: failed, snapshot }), /lender_programs_unavailable/);
+});

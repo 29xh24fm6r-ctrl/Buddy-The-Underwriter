@@ -10,6 +10,7 @@ import "server-only";
  * Sprint 4 adds an LMA-active join; Sprint 5 explicitly does NOT.
  */
 
+import type { SealedSnapshotInput } from "./redactForMarketplace";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type MatchResult = {
@@ -21,10 +22,15 @@ export type MatchResult = {
 export async function matchLendersToDeal(args: {
   dealId: string;
   sb: SupabaseClient;
+  snapshot?: SealedSnapshotInput;
 }): Promise<MatchResult> {
   const { dealId, sb } = args;
 
-  const [dealRes, scoreRes, appRes] = await Promise.all([
+  const [dealRes, scoreRes, appRes] = args.snapshot ? [
+    { data: { deal_type: "SBA", state: args.snapshot.deal.state }, error: null },
+    { data: args.snapshot.score, error: null },
+    { data: { naics: args.snapshot.borrower.industry_naics }, error: null },
+  ] : await Promise.all([
     sb
       .from("deals")
       .select("id, deal_type, loan_amount, state")
@@ -47,6 +53,7 @@ export async function matchLendersToDeal(args: {
       .maybeSingle(),
   ]);
 
+  if (dealRes.error || scoreRes.error || appRes.error) throw new Error("lender_matching_state_unavailable");
   if (!dealRes.data || !scoreRes.data) {
     return {
       matched: [],
@@ -59,12 +66,13 @@ export async function matchLendersToDeal(args: {
   const score = scoreRes.data as any;
   const naics = (appRes.data as any)?.naics ?? null;
 
-  const { data: programs } = await sb
+  const { data: programs, error: programsError } = await sb
     .from("lender_programs")
     .select(
       "bank_id, min_dscr, max_ltv, asset_types, geography, sba_only, score_threshold, notes",
     );
 
+  if (programsError) throw new Error("lender_programs_unavailable");
   if (!programs || programs.length === 0) {
     return {
       matched: [],

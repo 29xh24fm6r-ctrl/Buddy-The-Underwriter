@@ -9,6 +9,11 @@ const require = createRequire(import.meta.url);
 const { evaluateTridentRelease } =
   require("../trident/tridentReleaseGate") as typeof import("../trident/tridentReleaseGate");
 const { canSeal } = require("../sealingGate") as typeof import("../sealingGate");
+let snapshotDrift = false;
+require.cache[require.resolve("../trident/tridentInputSnapshot")] = { exports: { assertTridentInputSnapshot: async () => { if (snapshotDrift) throw new Error("input_snapshot_changed"); } } } as any;
+const { deterministicHash } = require("../../modelEngine/hashing");
+const { PACKAGE_FINANCIAL_VERSION } = require("../../modelEngine/packageFinancialSnapshot");
+const { redactForMarketplace } = require("../redactForMarketplace");
 const { buildSealedSnapshot, sealedPackageArtifactColumns } =
   require("../buildSealedSnapshot") as typeof import("../buildSealedSnapshot");
 const { buildPackageManifest } =
@@ -56,6 +61,8 @@ function finalBundleAsProduced(overrides: Record<string, unknown> = {}) {
     memo_input_hash: "memo-hash",
     canonical_memo_input_hash: "memo-hash",
     source_credit_memo_id: "memo-1",
+    source_sba_package_id: "plan-1", source_feasibility_id: "feas-1", financial_snapshot_id: "financial-1",
+    snapshot_manifest_json: { version: 5, sources: {} },
     source_spread_id: "spread-1",
     credit_memo_pdf_path: "final/memo.pdf",
     spreads_pdf_path: "final/spreads.pdf",
@@ -153,6 +160,7 @@ class Query {
     return this;
   }
   eq(k: string, v: any) {
+    if (this.table === "buddy_sba_packages" && k === "bank_id") throw new Error("buddy_sba_packages has no bank_id column");
     this.filters.push({ t: "eq", k, v });
     return this;
   }
@@ -190,6 +198,14 @@ class Query {
 
 /** A deal in the exact state that should be sealable. */
 function sealableDb(bundleOverrides: Record<string, unknown> = {}) {
+  const output = {
+    assumptions: { loanImpact: { termMonths: 120, loanAmount: 850000 } },
+    sourcesAndUses: { totalUses: 1100000, equityInjection: { actualAmount: 250000, actualPct: 250000 / 1100000 } },
+    useOfProceeds: [{ category: "equipment", amount: 1100000 }],
+    dscrYear1Base: 2.65, dscrYear2Base: 2.90, dscrYear3Base: 3.17,
+    projectionModel: { sensitivityScenarios: [{ name: "downside", dscrYear1: 1.44, dscrYear2: .77, dscrYear3: .14 }] },
+    projectedDscrThreshold: 1.15, globalCashFlow: { globalDSCR: null },
+  };
   return new Db({
     deals: [
       { id: DEAL_ID, bank_id: "bank-1", state: "TX", loan_amount: 850_000, is_test: false },
@@ -216,8 +232,9 @@ function sealableDb(bundleOverrides: Record<string, unknown> = {}) {
     deal_checklist_items: [{deal_id:DEAL_ID,checklist_key:"FIN_STMT_BS_YTD",title:"Balance sheet",required:true}],
     deal_documents: [{deal_id:DEAL_ID,document_type:"BALANCE_SHEET",is_active:true,intake_status:"USER_CONFIRMED",quality_status:"PASSED",storage_path:"balance.pdf"}],
     borrower_applications: [{ deal_id: DEAL_ID, naics: "332710", industry: "Metal fabrication" }],
-    buddy_sba_packages: [{ deal_id: DEAL_ID, use_of_proceeds: [], sources_and_uses: {} }],
-    buddy_feasibility_studies: [{ deal_id: DEAL_ID, is_franchise: false, composite_score: 74 }],
+    deal_model_snapshots: [{ id: "financial-1", deal_id: DEAL_ID, bank_id: "bank-1", model_version: PACKAGE_FINANCIAL_VERSION, package_input_hash: deterministicHash({ inputHash: "a".repeat(64), version: PACKAGE_FINANCIAL_VERSION }), package_output: output, outputs_hash: deterministicHash(output) }],
+    buddy_sba_packages: [{ id: "plan-1", deal_id: DEAL_ID, financial_snapshot_id: "financial-1", use_of_proceeds: output.useOfProceeds, sources_and_uses: output.sourcesAndUses }],
+    buddy_feasibility_studies: [{ id: "feas-1", bank_id: "bank-1", projections_package_id: "plan-1", deal_id: DEAL_ID, is_franchise: false, composite_score: 74 }],
   });
 }
 
@@ -316,4 +333,66 @@ test("sealed-package columns round-trip: what seal writes is what delivery reads
   // exists here, so the resource is correctly reported unavailable rather
   // than pointing at the workbook.
   assert.equal(byType.projections_pdf.available, false);
+});
+
+
+test("handoff uses completed bundle sources and preserves total-project equity plus full downside", async () => {
+  const db = sealableDb();
+  db.tables.buddy_sba_packages.unshift({ id: "new-draft", deal_id: DEAL_ID, sources_and_uses: { equityInjection: { amount: 1 } } });
+  db.tables.buddy_feasibility_studies.unshift({ id: "new-feas", deal_id: DEAL_ID, composite_score: 99 });
+  db.tables.buddy_sba_scores.unshift({ deal_id: DEAL_ID, score_status: "locked", superseded_at: "2026-01-01", score: 99 });
+  const snapshot = await buildSealedSnapshot({ dealId: DEAL_ID, sb: db as any });
+  assert.equal((snapshot.full.sbaPackage as any).id, "plan-1");
+  assert.equal((snapshot.full.feasibility as any).id, "feas-1");
+  const kfs = redactForMarketplace(snapshot.forRedactor);
+  assert.equal(kfs.score, 78);
+  assert.equal(kfs.equityInjectionAmount, 250000);
+  assert.equal(kfs.equityInjectionPct, 22.7);
+  assert.deepEqual(kfs.forecastCoverage.downside, [1.44, .77, .14]);
+  assert.equal(kfs.forecastCoverage.threshold, 1.15);
+  assert.equal(kfs.globalCashFlowDscr, null);
+});
+
+test("handoff rejects missing, foreign, mismatched or corrupt frozen financial authority", async () => {
+  for (const mutate of [
+    (db: Db) => { db.tables.buddy_trident_bundles[0].financial_snapshot_id = null; },
+    (db: Db) => { db.tables.deal_model_snapshots[0].bank_id = "foreign"; },
+    (db: Db) => { db.tables.buddy_sba_packages[0].financial_snapshot_id = "other"; },
+    (db: Db) => { db.tables.buddy_feasibility_studies[0].projections_package_id = "other"; },
+    (db: Db) => { db.tables.deal_model_snapshots[0].package_output.sourcesAndUses.equityInjection.actualAmount = 0; },
+    (db: Db) => { db.tables.buddy_trident_bundles[0].input_hash = "b".repeat(64); },
+  ]) {
+    const db = sealableDb(); mutate(db);
+    await assert.rejects(buildSealedSnapshot({ dealId: DEAL_ID, sb: db as any }), /seal_snapshot_/);
+  }
+});
+
+test("handoff rejects changed inputs after package completion", async () => {
+  snapshotDrift = true;
+  try { await assert.rejects(buildSealedSnapshot({ dealId: DEAL_ID, sb: sealableDb() as any }), /seal_snapshot_/); }
+  finally { snapshotDrift = false; }
+});
+
+
+test("lender narrative preserves later-year shortfalls and unresolved global cash flow", async () => {
+  const { buildKFS } = require("../buildKFS");
+  const snapshot = await buildSealedSnapshot({ dealId: DEAL_ID, sb: sealableDb() as any });
+  const kfs = await buildKFS({ snapshot: snapshot.forRedactor, piiContext: snapshot.piiContext });
+  assert.match(kfs.anonymizedNarrative, /Year 2: 0.77x; Year 3: 0.14x/);
+  assert.match(kfs.anonymizedNarrative, /does not cover debt service/);
+  assert.match(kfs.anonymizedNarrative, /Global cash-flow coverage is not established/);
+  assert.match(kfs.anonymizedNarrative, /22.7% of total project cost/);
+  snapshot.forRedactor.borrower.industry_description = "Business of Jane Secret";
+  const redacted = await buildKFS({ snapshot: snapshot.forRedactor, piiContext: { borrowerFirstName: "Jane", borrowerLastName: "Secret" } });
+  assert.doesNotMatch(redacted.anonymizedNarrative, /Jane|Secret/);
+});
+
+
+test("borrower-led intake uses the verified business location when deals.state is empty", async () => {
+  const db = sealableDb({ snapshot_manifest_json: { sources: { formInputs: { borrower: { state: "GA" } } } } });
+  db.tables.deals[0].state = null;
+  const result = await buildSealedSnapshot({ dealId: DEAL_ID, sb: db as any });
+  assert.equal(result.forRedactor.deal.state, "GA");
+  db.tables.buddy_trident_bundles[0].snapshot_manifest_json = { sources: {} };
+  await assert.rejects(buildSealedSnapshot({ dealId: DEAL_ID, sb: db as any }), /project_state_required/);
 });
