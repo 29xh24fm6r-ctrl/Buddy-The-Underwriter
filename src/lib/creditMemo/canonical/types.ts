@@ -236,6 +236,7 @@ export type CommitteeCertification = {
 };
 
 export type CanonicalCreditMemoV1 = {
+  package_borrower_evidence?: Awaited<ReturnType<typeof import("./packageBorrowerEvidence").loadMemoBorrowerEvidence>>;
   package_financials?: { snapshotId: string; output: Record<string, unknown> };
   version: "canonical_v1";
   deal_id: string;

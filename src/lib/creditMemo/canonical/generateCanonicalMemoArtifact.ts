@@ -79,7 +79,7 @@ export async function generateCanonicalMemoArtifact(args: {
 
 
   const legacyInputHash = computeMemoInputHash(await fetchMemoHashInputs(sb, args.dealId));
-  const inputHash = args.financialSnapshotId ? deterministicHash({ legacyInputHash, financialSnapshotId: args.financialSnapshotId, reviewVersion: 2 }) : legacyInputHash;
+  const inputHash = args.financialSnapshotId ? deterministicHash({ legacyInputHash, financialSnapshotId: args.financialSnapshotId, reviewVersion: 3 }) : legacyInputHash;
   const evidenceHash = deterministicHash(buildNarrativeInput(built.memo));
   if (!args.forceRegenerate) {
     const { data: cached, error } = await sb.from("canonical_memo_narratives")
@@ -87,7 +87,7 @@ export async function generateCanonicalMemoArtifact(args: {
       .eq("bank_id", args.bankId).eq("input_hash", inputHash).maybeSingle();
     if (error) throw error;
     const meta = cached?.metadata_json as any;
-    if (cached && meta?.review_version === 2 && meta?.evidence_hash === evidenceHash &&
+    if (cached && meta?.review_version === 3 && meta?.evidence_hash === evidenceHash &&
         meta?.narratives_hash === deterministicHash(cached.narratives) && meta?.verification?.verdict === "pass") {
       const narratives = cached.narratives as unknown as MemoNarratives;
       return { ok: true as const, memo: { sections: compatibleSections(narratives) },
@@ -138,7 +138,7 @@ export async function generateCanonicalMemoArtifact(args: {
       narratives: envelope as any,
       metadata_json: { content_review: memoEvidenceReview(built.memo), financial_snapshot_id: args.financialSnapshotId ?? null,
         financial_payload: built.memo.package_financials?.output ?? null,
-        review_version: 2, evidence_hash: evidenceHash, narratives_hash: deterministicHash(envelope), verification },
+        review_version: 3, evidence_hash: evidenceHash, narratives_hash: deterministicHash(envelope), verification },
       model: MODEL_UNDERWRITER,
       generated_at: new Date().toISOString(),
       research_trace_json: researchTrace,

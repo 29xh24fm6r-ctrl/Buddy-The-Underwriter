@@ -1,8 +1,9 @@
+import { packageRecoveryItems } from "../../src/lib/borrower/guidedPackage/packageRecovery";
 import { test, expect, type Page } from "@playwright/test";
 import { buildGuidedSnapshot } from "../../src/lib/borrower/guidedPackage/questions";
 import { LENDER_PACKAGE_FILES } from "../../src/lib/brokerage/lenderPackageFiles";
 import { borrowerPackageFailure, packageFailureForCurrentCapacity } from "../../src/lib/borrower/guidedPackage/completion";
-async function setup(page: Page, preparePackage = false, testCompletion = false, testRecovery = false, packageState?: { released?: boolean; complete?: boolean; missingFile?: boolean; capacity?: boolean; check?: string; stale?: boolean; capacityFailure?: "preparation" | "bundle" }) {
+async function setup(page: Page, preparePackage = false, testCompletion = false, testRecovery = false, packageState?: { released?: boolean; complete?: boolean; missingFile?: boolean; capacity?: boolean; check?: string; stale?: boolean; operationalRecovery?: boolean; capacityFailure?: "preparation" | "bundle" }) {
   const facts: Record<string, any> = { package_answers: {} };
   const rows: Record<string, any[]> = { deals: [{}], deal_loan_requests: [{}] };
   let posterAcknowledged = false;
@@ -25,6 +26,7 @@ async function setup(page: Page, preparePackage = false, testCompletion = false,
     const respond = (json: unknown, status = 200) =>
       route.fulfill({ status, json });
     if (url.pathname === "/api/brokerage/concierge") {
+      if (body?.action === "guided_help") return respond({ok:true,buddyResponse:"A prepared package is not approval or submission. Your saved answers have not changed."});
       if (body?.action === "guided_ack_722" && body.confirmed === true) posterAcknowledged = true;
       if (body?.action === "guided_answer") {
         if (failNext) {
@@ -83,7 +85,7 @@ async function setup(page: Page, preparePackage = false, testCompletion = false,
     if (url.pathname.endsWith("/assumptions"))
       return respond({
         ok: true,
-        assumptions: preparePackage ? { revenueStreams: [] } : null,
+        assumptions: preparePackage ? { revenueStreams: [], ...(packageState?.operationalRecovery ? {costAssumptions:{plannedHires:[],fixedCostCategories:[]},managementTeam:[]} : {}) } : null,
         revision: packageState?.stale ? "2026-09-23T12:00:00Z" : null,
         status: preparePackage ? "confirmed" : "draft",
       });
@@ -102,7 +104,7 @@ async function setup(page: Page, preparePackage = false, testCompletion = false,
       return respond({ok:true,bundle:null,preparation,readiness:{readyToPrepare:completionItems.length===0,readyToGenerate:false,blockers:completionItems.map(i=>i.label),completionItems,warnings:[],packageFiles:[]}});
     }
     if (url.pathname.endsWith("/check-package")) return respond({ok:true,check:{
-      status:packageState?.check ?? "passed",checkedAt:"2026-09-23T12:00:00Z",recoveryItems:[],
+      status:packageState?.check ?? "passed",checkedAt:"2026-09-23T12:00:00Z",recoveryItems:packageState?.check === "blocked" ? packageRecoveryItems("feasibility_data_completeness_below_70_percent operational_readiness.staffingReadiness operational_readiness.managementExperience") : [],
       message: packageState?.check === "not_checked" ? "Financial validation and business research must finish first." : "Saved calculations passed. Generated documents have not been verified.",
     }});
     if (url.pathname.endsWith("/package-status")) {
@@ -166,7 +168,7 @@ for (const source of ["preparation", "bundle"] as const) test(`capacity recovery
   state.capacity = true;
   await page.getByRole("button",{name:"Refresh status",exact:true}).click();
   await expect(retry).toBeEnabled();
-  await expect(page.getByRole("heading",{name:"Your information is ready for package preparation",exact:true})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Initial preparation requirements complete",exact:true})).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("Capacity is available now");
   await expect(page.getByText(/wait for capacity to reset/i)).toHaveCount(0);
   await expect(page.getByRole("link",{name:"Download your application documents"})).toHaveCount(0);
@@ -442,4 +444,35 @@ test("package recovery shows the funding gap and returns to saved project costs 
   await expect(page.getByRole("heading",{name:"What will your entire project cost?",exact:true})).toBeVisible();
   await expect(page.getByText(/Include every project cost, whether paid by the loan/)).toBeVisible();
   expect(fixture.calls.filter(call=>call.endsWith("/build-package"))).toHaveLength(0);
+});
+
+
+test("evidence recovery opens the actual staffing and management inputs without running AI", async ({page}) => {
+  const state = {check:"blocked",operationalRecovery:true};
+  const fixture = await setup(page,true,false,false,state);
+  await page.getByRole("button",{name:/MISSION 4 Prepare your package/}).click();
+  await page.getByRole("button",{name:"Check saved package evidence — no AI",exact:true}).click();
+  await expect(page.getByText("Saved evidence needs attention",{exact:true})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Initial preparation requirements complete",exact:true})).toHaveCount(0);
+  await page.getByRole("button",{name:"Review costs and staffing",exact:true}).click();
+  await expect(page.getByRole("group",{name:"Planned Hires",exact:true})).toBeVisible();
+  await expect(page.getByText(/Planned hires add payroll to fixed expenses/)).toBeVisible();
+  await page.getByRole("button",{name:"Review management",exact:true}).click();
+  await expect(page.getByRole("group",{name:"Management Team",exact:true})).toBeVisible();
+  state.check = "passed";
+  await page.getByRole("button",{name:"Check saved package evidence — no AI",exact:true}).click();
+  await expect(page.getByText("Saved evidence check passed",{exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Review costs and staffing",exact:true})).toHaveCount(0);
+  expect(fixture.calls.filter(call=>/\/(build-package|draft-assumptions)$/.test(call))).toHaveLength(0);
+});
+
+ test("optional Ask Buddy questions use read-only help", async ({ page }) => {
+  const app = await setup(page);
+  await page.getByRole("button", { name: "Ask Buddy", exact: true }).click();
+  await page.getByRole("textbox", { name: "Ask Buddy anything…", exact: true }).fill("Am I approved? Do not change my answers.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByRole("log")).toContainText("A prepared package is not approval or submission.");
+  expect(app.calls).toContain("guided_help");
+  expect(app.calls).not.toContain("confirm_assumptions");
+  expect(app.calls).not.toContain("guided_answer");
 });

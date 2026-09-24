@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import BorrowerVoicePanel from "@/components/brokerage/BorrowerVoicePanel";
 import { consumeConciergeStream } from "@/lib/brokerage/consumeConciergeStream";
 
@@ -190,7 +190,7 @@ function DrawerChatPane({
       const res = await fetch("/api/brokerage/concierge", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ userMessage: text }),
+        body: JSON.stringify({ action: "guided_help", dealId, userMessage: text }),
         credentials: "include",
       });
       const ct = res.headers.get("content-type") ?? "";
@@ -212,7 +212,7 @@ function DrawerChatPane({
             { role: "assistant", content: data.buddyResponse },
           ]);
         } else {
-          setMessages((m) => [...m, { role: "assistant", content: FALLBACK }]);
+          setMessages((m) => [...m, { role: "assistant", content: data.error || FALLBACK }]);
         }
       }
     } catch {
@@ -274,6 +274,7 @@ function DrawerChatPane({
                 send();
               }
             }}
+            aria-label="Ask Buddy anything…"
             placeholder="Ask Buddy anything…"
             className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
             disabled={sending}

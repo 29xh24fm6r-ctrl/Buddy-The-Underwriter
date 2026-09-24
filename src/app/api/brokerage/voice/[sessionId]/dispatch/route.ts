@@ -30,7 +30,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { callGeminiJSON } from "@/lib/ai/geminiClient";
 import { MODEL_CONCIERGE_EXTRACTION } from "@/lib/ai/models";
-import { detectTridentIntent } from "@/lib/brokerage/trident/conciergeIntent";
+import { detectTridentIntent, isReadOnlyConciergeMessage } from "@/lib/brokerage/trident/conciergeIntent";
 import { startTridentGeneration } from "@/lib/brokerage/trident/startTridentGeneration";
 import { ensureAssumptionsForPreview } from "@/lib/sba/sbaAssumptionsBootstrap";
 import { secretEquals } from "@/lib/brokerage/secretEquals";
@@ -262,7 +262,7 @@ export async function POST(
       // concierge (@/lib/brokerage/borrowerConversation), so a fact a
       // borrower states by voice gets the same coverage as one typed in
       // chat, instead of the old narrow 12-key allow-list.
-      if (body.speaker === "borrower" && conciergeSessionId) {
+      if (body.speaker === "borrower" && conciergeSessionId && !isReadOnlyConciergeMessage(text)) {
         const extracted = await extractBorrowerFacts(text, conversationHistory);
         if (extracted && Object.keys(extracted).length > 0) {
           const { data: cs2 } = await sb

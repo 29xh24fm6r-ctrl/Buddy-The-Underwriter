@@ -95,8 +95,15 @@ const SOFT_NOUN_PATTERN =
 const REQUEST_CUE_PATTERN =
   /\b(?:show|see|view|preview|give|send|share|hand|fetch|grab|get|read|open|find|download|generate|build|create|make|prepare|where|what|how|can\s+(?:i|we|you)|could\s+(?:i|we|you)|may\s+i|would\s+(?:i|we|you|like)|please|let\s+me\s+see|look\s+(?:at)?|check\s+out|i\s+(?:want|need|would\s+like)|i'?d\s+like|ready\s+to\s+see)\b/i;
 
+/** Questions and explicit non-consent must never authorize financial writes. */
+export function isReadOnlyConciergeMessage(text: string): boolean {
+  return /\b(?:explain|clarify|difference between|tell me about|help me understand)\b/i.test(text)
+    || /(?:^|[.!?]\s*)(?:please\s+)?(?:what|why|how|where|when|is|are|am|does|do I|did I|have I)\b/i.test(text.trim())
+    || /\b(?:(?:do not|don['’]t|never)\s+(?:change|save|submit|confirm|approve|generate|build|prepare|update|edit|proceed|send|share)|not\s+(?:yet|approved|confirmed|ready|correct|right|good)|without (?:changing|saving|submitting|confirming)|no changes)\b/i.test(text);
+}
+
 export function detectTridentIntent(text: string): TridentIntentResult {
-  if (!text || typeof text !== "string") return { matched: false };
+  if (!text || typeof text !== "string" || isReadOnlyConciergeMessage(text)) return { matched: false };
 
   for (const { re, intent } of STRONG_NOUN_PATTERNS) {
     const m = text.match(re);
@@ -159,7 +166,7 @@ const ASSUMPTIONS_CONFIRM_PATTERNS: ReadonlyArray<RegExp> = [
 export function detectAssumptionsConfirmIntent(
   text: string,
 ): AssumptionsConfirmIntentResult {
-  if (!text || typeof text !== "string") return { matched: false };
+  if (!text || typeof text !== "string" || isReadOnlyConciergeMessage(text)) return { matched: false };
 
   for (const re of ASSUMPTIONS_CONFIRM_PATTERNS) {
     const m = text.match(re);

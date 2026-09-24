@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   detectTridentIntent,
+  isReadOnlyConciergeMessage,
   detectAssumptionsConfirmIntent,
   TRIDENT_PREVIEW_RESPONSE,
   ASSUMPTIONS_CONFIRMED_RESPONSE,
@@ -91,13 +92,10 @@ test("matches generic deliverable phrasings the borrower will actually use", () 
   for (const text of [
     "show me the business plan",
     "can I see the feasibility study",
-    "what does the plan look like",
     "give me the documents",
     "show me what we built",
     "can I see what you built",
     "I want to see the package",
-    "where is my plan",
-    "what did you build",
     "send me the deliverables",
     "preview the bundle",
     "ready to see the docs",
@@ -261,4 +259,23 @@ test("assumptions confirm: response constants are non-empty strings", () => {
   assert.ok(ASSUMPTIONS_CONFIRM_BLOCKED_PREFIX.length > 0);
   // The blocked prefix should not promise success.
   assert.equal(/locked\s*in/i.test(ASSUMPTIONS_CONFIRM_BLOCKED_PREFIX), false);
+});
+
+ test("informational questions and non-consent never authorize financial actions", () => {
+  for (const text of [
+    "For this synthetic QA application, explain the difference between a prepared lender package and being approved or submitted. Do not change any saved answers or submit anything.",
+    "Am I approved?", "What does confirmed mean?", "Explain my business plan",
+    "Do not generate my projections", "Don't confirm anything", "Please explain before you proceed",
+    "What does the plan look like?", "Where is my plan?", "What did you build?",
+    "How do I confirm assumptions?", "Never submit it", "Is everything correct?",
+  ]) {
+    assert.equal(detectTridentIntent(text).matched, false, text);
+    assert.equal(detectAssumptionsConfirmIntent(text).matched, false, text);
+  }
+});
+
+test("factual negative answers remain available to legacy intake extraction", () => {
+  assert.equal(isReadOnlyConciergeMessage("I don't have another business"), false);
+  assert.equal(isReadOnlyConciergeMessage("I do not owe any taxes"), false);
+  assert.equal(detectAssumptionsConfirmIntent("I have not approved it").matched, false);
 });

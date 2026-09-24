@@ -21,3 +21,13 @@ test("no invented threshold or fabricated downside data", () => {
   assert.deepEqual(auditProjectionNarrative({}, sections), []);
   assert.deepEqual(auditProjectionNarrative({ sensitivity_scenarios: [{ ...scenario, passesSBAThreshold: true }] }, sections), []);
 });
+
+test("credit memo repayment and income sections must disclose the available projection downside", () => {
+  const issues = auditProjectionNarrative({ projectionPackage: { sensitivityScenarios: [scenario] } }, [
+    { key: "income_analysis", text: "Strong coverage supports repayment." },
+    { key: "repayment_analysis", text: "All stress results are unavailable." },
+    { key: "guarantor_strength", text: "Ongoing personal income needs confirmation." },
+  ]);
+  assert.deepEqual(issues.map(issue => issue.sectionKey), ["income_analysis", "repayment_analysis"]);
+  assert.ok(issues.every(issue => issue.severity === "critical"));
+});

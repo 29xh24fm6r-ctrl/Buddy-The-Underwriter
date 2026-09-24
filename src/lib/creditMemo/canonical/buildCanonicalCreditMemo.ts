@@ -1,3 +1,4 @@
+import { loadMemoBorrowerEvidence } from "./packageBorrowerEvidence";
 import type { PackageFinancialOutput } from "@/lib/modelEngine/packageFinancialComputation";
 import "server-only";
 import { confirmedLoanTerms } from "./confirmedLoanTerms";
@@ -564,6 +565,7 @@ export async function buildCanonicalCreditMemo(args: {
     }
 
     const packageFinancial = args.financialOutput ?? null;
+    const packageBorrowerEvidence = packageFinancial ? await loadMemoBorrowerEvidence(sb, args.dealId, String(bankId)) : undefined;
 
     // Pull metrics from snapshot first, then fall back to spread-derived facts
     // when the snapshot hasn't been seeded from the FINANCIAL_ANALYSIS fact pipeline yet.
@@ -1828,9 +1830,11 @@ export async function buildCanonicalCreditMemo(args: {
     }
 
     const memo: CanonicalCreditMemoV1 = {
+      ...(packageBorrowerEvidence ? { package_borrower_evidence: packageBorrowerEvidence } : {}),
       ...(packageFinancial ? { package_financials: {
         snapshotId: args.financialSnapshotId ?? "pending_persistence",
         output: { baseYear: packageFinancial.baseYear, annualProjections: packageFinancial.projectionModel.annualProjections,
+          sensitivityScenarios: packageFinancial.projectionModel.sensitivityScenarios,
           sourcesAndUses: packageFinancial.sourcesAndUses, balanceSheetProjections: packageFinancial.balanceSheetProjections,
           assumptions: packageFinancial.assumptions, globalCashFlow: packageFinancial.globalCashFlow },
       } } : {}),
@@ -1879,7 +1883,7 @@ export async function buildCanonicalCreditMemo(args: {
           borrower_name: deal.borrower_name ?? null,
           name: deal.name ?? null,
         }),
-        borrower_name: String(deal.borrower_name ?? borrower?.legal_name ?? "—"),
+        borrower_name: String(packageBorrowerEvidence?.business.name ?? borrower?.legal_name ?? deal.borrower_name ?? "—"),
         // Elite: use buildMemoParties for committee-grade guarantor display
         guarantors: parties.guarantor_display,
         guarantor_details: parties.guarantors.map((g) => ({
