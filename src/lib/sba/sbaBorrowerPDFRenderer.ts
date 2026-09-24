@@ -1,5 +1,6 @@
 import "server-only";
 import { displayProjectionDscr } from "./projectionDisplay";
+import { downsideDisclosure } from "@/lib/ai/packageNarrativeEvidence";
 
 // src/lib/sba/sbaBorrowerPDFRenderer.ts
 // Phase 85-BPG-EXPERIENCE — Borrower-facing projection PDF.
@@ -383,7 +384,7 @@ function renderDSCRChart(s: DocState) {
     .fillColor(DSCR_RED)
     .font(FONT_BOLD)
     .fontSize(7)
-    .text("Target 1.25x", plotX + plotW - 80, thresholdY - 10, {
+    .text(`Target ${dscrThreshold.toFixed(2)}x`, plotX + plotW - 80, thresholdY - 10, {
       width: 80,
       align: "right",
     });
@@ -1103,7 +1104,7 @@ export function renderBorrowerProjectionPDF(
     s.y += 16;
     doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor(BRAND_GREY);
     doc.text(
-      "What happens if things go better — or worse — than expected? A coverage ratio of 1.25x or higher means your business can comfortably handle its loan payments.",
+      [`The model evaluates projected coverage against a ${resolveDscrThreshold(input).toFixed(2)}x threshold. These are conditional projections, not proof of repayment capacity.`, downsideDisclosure(input.sensitivityScenarios)].filter(Boolean).join(" "),
       PAGE_MARGIN,
       s.y,
       { width: doc.page.width - PAGE_MARGIN * 2, lineGap: 2 },

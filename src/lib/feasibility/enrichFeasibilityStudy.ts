@@ -15,6 +15,7 @@ import { loadDealGroundingSegments, attributeFeasibilityCitations, flagUncitedFe
 import { auditNarrativeFigures } from "./narrativeFigureAudit";
 import { finishInstitutionalArtifact, reviewContentHash, type ArtifactSection } from "@/lib/ai/frontierArtifactFactory";
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
+import { FEASIBILITY_REQUIREMENTS, includeRequiredNarrativeSections, narrativeCompletenessFindings } from "@/lib/brokerage/trident/narrativeAcceptance";
 import type { CompositeFeasibilityScore, FeasibilityNarratives } from "./types";
 
 import { withReviewCheckpoint, type ReviewCheckpointClient } from "@/lib/ai/reviewCheckpoint";
@@ -89,9 +90,9 @@ export async function enrichFeasibilityStudy(args: {
   const { segments, allUrls } = await loadDealGroundingSegments(dealId, sb);
   const citations = attributeFeasibilityCitations(narratives, segments, allUrls);
 
-  const sections = Object.entries(narratives).flatMap(([key, text]) =>
+  const sections = includeRequiredNarrativeSections(Object.entries(narratives).flatMap(([key, text]) =>
     typeof text === "string" && text.trim() ? [{ key, text }] : [],
-  );
+  ), FEASIBILITY_REQUIREMENTS);
   // The institutional reviewer must receive the same deterministic evidence
   // that produced the study. Supplying only summary scores causes the repair
   // model to delete valid borrower-specific facts as "unsupported."
@@ -300,12 +301,14 @@ export async function enrichFeasibilityStudy(args: {
     facts: serializedFacts,
     sections,
     sectionAudit: initialSectionAudit,
+    narrativeRequirements: FEASIBILITY_REQUIREMENTS,
   };
   const contentHash = reviewContentHash(reviewIdentity);
   if (
     studyRow?.verification_verdict === "pass" &&
     typeof studyRow?.verification_input_hash === "string" &&
-    studyRow.verification_input_hash === contentHash
+    studyRow.verification_input_hash === contentHash &&
+    narrativeCompletenessFindings(sections, FEASIBILITY_REQUIREMENTS).length === 0
   ) {
     await flagUncitedFeasibilityFields({ dealId, bankId, studyId, citations, sb });
     return { verdict: "pass" as const, repaired: false, advisoryCount: Array.isArray(studyRow.verification_flagged_claims) ? studyRow.verification_flagged_claims.filter((claim: { severity?: string }) => claim.severity === "warning").length : 0, reusedVerdict: true };

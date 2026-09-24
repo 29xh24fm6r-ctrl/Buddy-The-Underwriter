@@ -2,6 +2,8 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { auditProjectionNarrative, auditFundingNarrative } from "./projectionNarrativeAudit";
+import { auditNarrativeCompleteness } from "./narrativeCompletenessAudit";
+import { includeRequiredNarrativeSections, type NarrativeRequirements } from "@/lib/brokerage/trident/narrativeAcceptance";
 
 import { runRole } from "./gateway";
 import type { ArtifactType } from "./artifactVerification";
@@ -272,6 +274,7 @@ export function reviewContentHash(input: {
   facts: Record<string, unknown> | string;
   sections: ArtifactSection[];
   sectionAudit?: Record<string, unknown>;
+  narrativeRequirements?: NarrativeRequirements;
 }): string {
   const factsText = typeof input.facts === "string" ? input.facts : JSON.stringify(input.facts);
   const sectionsText = JSON.stringify(
@@ -280,7 +283,7 @@ export function reviewContentHash(input: {
       .map((s) => [s.key, s.text]),
   );
   return createHash("sha256")
-    .update(`review_rules_v5\u0000${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}`)
+    .update(`review_rules_v6\u0000${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}\u0000${JSON.stringify(input.narrativeRequirements ?? {})}`)
     .digest("hex");
 }
 
@@ -293,11 +296,12 @@ export async function finishInstitutionalArtifact(input: {
   checkpoint?: ReviewCheckpointStore;
   /** Recompute narrative-derived findings after every repair; never change source facts. */
   auditSections?: (sections: ArtifactSection[]) => Record<string, unknown>;
+  narrativeRequirements?: NarrativeRequirements;
 }): Promise<FrontierArtifactResult> {
   const npiTagged = input.npiTagged ?? true;
   const finalContentHash = () => reviewContentHash({ ...input, sections, sectionAudit: input.auditSections?.(sections) });
   const saved = input.checkpoint?.state;
-  let sections = saved?.sections ?? input.sections;
+  let sections = includeRequiredNarrativeSections(saved?.sections ?? input.sections, input.narrativeRequirements);
   let repaired = saved?.repaired ?? false;
   let reviewPasses = saved?.reviewPasses ?? 0;
   let remaining: ReviewIssue[] = enforceReviewSeverity(saved?.remaining ?? []);
@@ -313,7 +317,7 @@ export async function finishInstitutionalArtifact(input: {
   for (let cycle = saved?.cycle ?? 0; cycle <= 3; cycle += 1) {
     const sectionAudit = input.auditSections?.(sections);
     if (phase === "review") {
-      const issues = [...await review({ ...input, sections, npiTagged, sectionAudit }), ...auditFinancialNarratives(input.facts, sections)];
+      const issues = [...await review({ ...input, sections, npiTagged, sectionAudit }), ...auditFinancialNarratives(input.facts, sections), ...auditNarrativeCompleteness(sections, input.narrativeRequirements)];
       reviewPasses += 1;
       remaining = issues.filter((issue) => issue.severity !== "info");
       phase = cycle === 3 || remaining.every(issue => issue.severity !== "critical") ? "done" : "repair";
@@ -353,6 +357,8 @@ export async function finishInstitutionalArtifact(input: {
           ...(sectionAudit ? ["AUDIT OF THE CURRENT SECTIONS (not source evidence):", JSON.stringify(sectionAudit)] : []),
           "REQUESTED REPAIR SECTION KEYS:",
           JSON.stringify(batch.map((section) => section.key)),
+          "PUBLICATION REQUIREMENTS FOR REQUESTED SECTIONS (preserve these while repairing):",
+          JSON.stringify(Object.fromEntries(batch.flatMap(section => input.narrativeRequirements?.[section.key] ? [[section.key, { minimumWords: input.narrativeRequirements[section.key], format: "plain evidence-grounded prose" }]] : []))),
           "INDEPENDENT REVIEW FINDINGS:",
           JSON.stringify(remaining.filter((issue) => !sectionKeys.has(issue.sectionKey) || batch.some((s) => s.key === issue.sectionKey))),
           `REPAIR CYCLE: ${cycle + 1} OF 3`,
@@ -415,7 +421,7 @@ export async function finishInstitutionalArtifact(input: {
   // are disclosed.
   // Also enforce on resumed terminal checkpoints; no cached model verdict can
   // override deterministic missing disclosure.
-  const audited = auditFinancialNarratives(input.facts, sections);
+  const audited = [...auditFinancialNarratives(input.facts, sections), ...auditNarrativeCompleteness(sections, input.narrativeRequirements)];
   for (const issue of audited) if (!remaining.some(r => r.sectionKey === issue.sectionKey && r.claim === issue.claim)) remaining.push(issue);
   const blocking = remaining.filter((issue) => issue.severity === "critical");
   const advisory = remaining.filter((issue) => issue.severity === "warning");

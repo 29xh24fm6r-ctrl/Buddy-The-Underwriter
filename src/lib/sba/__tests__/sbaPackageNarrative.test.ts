@@ -12,6 +12,8 @@ const { parseNarrativeField } =
   require("../sbaPackageNarrative") as typeof import("../sbaPackageNarrative");
 const { generateMarketingAndOperations, generateSensitivityNarrative } =
   require("../sbaPackageNarrative") as typeof import("../sbaPackageNarrative");
+const { generatePlanThesis, generateExecutiveSummary, generateBusinessOverviewNarrative, narrativeCoverageEvidence } =
+  require("../sbaPackageNarrative") as typeof import("../sbaPackageNarrative");
 const { GEMINI_PRO } = require("../../ai/models") as typeof import("../../ai/models");
 const {
   __setProviderImplForTests,
@@ -73,6 +75,30 @@ test("sensitivity prompt keeps base cash separate and prohibits unsupported debt
   assert.match(prompt, /NOT proof that coverage is restored/);
   assert.match(prompt, /applicable DSCR threshold is 1.15x/);
   assert.doesNotMatch(prompt, /minimum DSCR is 1.25x/);
+});
+
+test("thesis, overview and executive summary use the saved threshold and complete downside path from the first draft", async () => {
+  const prompts: string[] = [];
+  __setProviderImplForTests("google", async req => {
+    prompts.push(req.prompt);
+    return okResult(JSON.stringify({ thesis: "A qualified thesis grounded in supplied assumptions and the complete downside path.", fullNarrative: "Qualified overview", executiveSummary: "Qualified summary" }));
+  });
+  for (const dscrThreshold of [1.15, 1.3]) {
+    const params = { dealName: "QA startup", loanType: "SBA_7A", loanAmount: 950000, story: null, dscrYear1: 2.66,
+      dscrThreshold, projectedRevenueYear1: 1500000, industryDescription: "Beverages", useOfProceedsDescription: "Startup project",
+      managementTeam: [], managementLeadNames: [], revenueStreamNames: [],
+      sensitivityScenarios: [{ name: "downside", dscrYear1: 1.44, dscrYear2: .77, dscrYear3: .14, passesSBAThreshold: false }] as any };
+    await generatePlanThesis(params);
+    await generateExecutiveSummary(params);
+    await generateBusinessOverviewNarrative(params);
+    for (const prompt of prompts.splice(0)) {
+      assert.ok(prompt.includes(`applicable coverage threshold is ${dscrThreshold.toFixed(2)}x`));
+      assert.match(prompt, /Year 1 1\.44x, Year 2 0\.77x, Year 3 0\.14x/);
+      assert.match(prompt, /conditional model results/);
+      assert.doesNotMatch(prompt, /1\.25x/);
+    }
+  }
+  assert.match(narrativeCoverageEvidence({ dscrYear1: 2.66 }), /No coverage threshold was supplied/);
 });
 
 test("missing GEMINI_API_KEY: returns empty string without calling the gateway", async () => {

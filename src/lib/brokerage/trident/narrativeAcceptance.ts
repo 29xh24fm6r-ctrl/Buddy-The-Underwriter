@@ -7,7 +7,7 @@
  * where a renderer produced a real PDF around placeholder text.
  */
 
-const BUSINESS_PLAN_FIELDS = [
+export const BUSINESS_PLAN_FIELDS = [
   "business_overview_narrative",
   "executive_summary",
   "industry_analysis",
@@ -20,20 +20,28 @@ const BUSINESS_PLAN_FIELDS = [
   "sensitivity_narrative",
 ] as const;
 
-function wordCount(value: unknown): number {
+export function narrativeWordCount(value: unknown): number {
   return typeof value === "string"
     ? value.trim().split(/\s+/).filter(Boolean).length
     : 0;
 }
 
-function isPresentationSafe(value: unknown): boolean {
+export function isPresentationSafe(value: unknown): boolean {
   if (typeof value !== "string") return false;
   return !/```(?:json)?|^\s*[\[{]\s*["']/im.test(value);
 }
 
 export function isSubstantiveNarrative(value: unknown): value is string {
-  return wordCount(value) >= 45 && isPresentationSafe(value);
+  return narrativeWordCount(value) >= 45 && isPresentationSafe(value);
 }
+
+/** Shared by repair and publication; changing a gate must change its repair contract. */
+export type NarrativeRequirements = Readonly<Record<string, number>>;
+export const BUSINESS_PLAN_REQUIREMENTS: NarrativeRequirements = {
+  ...Object.fromEntries(BUSINESS_PLAN_FIELDS.map(key => [key, 45])),
+  plan_thesis: 35,
+  projections_assumptions_narrative: 35,
+};
 
 export function assessBusinessPlanNarratives(
   pkg: Record<string, unknown> | null,
@@ -62,13 +70,41 @@ export function assessBusinessPlanNarratives(
  * dimensions blank, and the renderer prints each dimension narrative in its
  * own section, so the committee PDF shipped with visible gaps.
  */
-const FEASIBILITY_REQUIRED_NARRATIVES = [
+export const FEASIBILITY_REQUIRED_NARRATIVES = [
   "executiveSummary",
   "marketDemandNarrative",
   "financialViabilityNarrative",
   "operationalReadinessNarrative",
   "locationSuitabilityNarrative",
 ] as const;
+
+export const FEASIBILITY_REQUIREMENTS: NarrativeRequirements = Object.fromEntries(
+  FEASIBILITY_REQUIRED_NARRATIVES.map(key => [key, 45]),
+);
+
+export function narrativeCompletenessFindings(
+  sections: { key: string; text: string }[],
+  requirements: NarrativeRequirements = {},
+): { key: string; words: number; minimum: number; presentationSafe: boolean }[] {
+  const byKey = new Map(sections.map(section => [section.key, section.text]));
+  return Object.entries(requirements).flatMap(([key, minimum]) => {
+    const text = byKey.get(key);
+    const words = narrativeWordCount(text);
+    const presentationSafe = isPresentationSafe(text);
+    return words >= minimum && presentationSafe ? [] : [{ key, words, minimum, presentationSafe }];
+  });
+}
+
+/** A missing required section is a repair target, not an omitted optional section. */
+export function includeRequiredNarrativeSections(
+  sections: { key: string; text: string }[],
+  requirements: NarrativeRequirements = {},
+): { key: string; text: string }[] {
+  const existing = new Set(sections.map(section => section.key));
+  // Checkpoints require nonempty draft text. This explicit missing marker stays
+  // below every acceptance threshold and is never treated as source evidence.
+  return [...sections, ...Object.keys(requirements).filter(key => !existing.has(key)).map(key => ({ key, text: "Required narrative is missing." }))];
+}
 
 export function assessFeasibilityNarratives(
   narratives: Record<string, unknown> | null,
