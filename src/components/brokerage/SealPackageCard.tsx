@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { SHARING_CONFIRMATION_VERSION, SHARING_CONFIRMATION_STATEMENT } from "@/lib/brokerage/sharingConfirmation";
+import BorrowerFranchiseBrandPicker from "./BorrowerFranchiseBrandPicker";
 
 type PackageResource = {
   type: string;
@@ -28,6 +29,11 @@ type SealStatus = {
   sealed: boolean;
   canSeal: boolean;
   gateReasons: string[];
+  score?: {
+    isFranchise?: boolean;
+    eligibilityUnresolved?: Array<{ check: string; nextAction?: string | null }>;
+    topWeaknesses?: string[];
+  } | null;
   listing?: {
     id: string;
     status: string;
@@ -58,7 +64,7 @@ const DOWNLOADABLE_KINDS = new Set([
   "source_docs",
 ]);
 
-export function SealPackageCard({ dealId, onReviewDocuments }: { dealId: string; onReviewDocuments?: () => void }) {
+export function SealPackageCard({ dealId, onReviewDocuments, onQuestion }: { dealId: string; onReviewDocuments?: () => void; onQuestion?: (id: string) => void }) {
   const [status, setStatus] = useState<SealStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [sharingConfirmed, setSharingConfirmed] = useState(false);
@@ -212,7 +218,8 @@ export function SealPackageCard({ dealId, onReviewDocuments }: { dealId: string;
   if (!status) {
     return (
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-        Loading package status…
+        {error ?? "Loading package status…"}
+        {error && <button type="button" className="ml-3 underline" onClick={() => void load()}>Retry readiness checks</button>}
       </div>
     );
   }
@@ -399,6 +406,22 @@ export function SealPackageCard({ dealId, onReviewDocuments }: { dealId: string;
               <li key={i}>{reason}</li>
             ))}
           </ul>
+          {status.score?.eligibilityUnresolved?.some(item => item.check === "size_standard" && item.nextAction?.includes("annual receipts")) && onQuestion && (
+            <div className="mt-4 space-y-2 text-sm">
+              <p>Review the size evidence, then review and prepare your package again to update the checks.</p>
+              <button type="button" className="mr-4 underline" onClick={() => onQuestion("B13")}>Review average annual receipts</button>
+              <button type="button" className="underline" onClick={() => onQuestion("B14")}>Review receipts calculation and affiliates</button>
+            </div>
+          )}
+          {status.score?.isFranchise && <div className="mt-4"><BorrowerFranchiseBrandPicker startInSearchMode onChanged={() => void load()} /></div>}
+          {!!status.score?.topWeaknesses?.length && (
+            <details className="mt-4 text-sm text-slate-600">
+              <summary className="cursor-pointer font-medium">What is affecting the score?</summary>
+              <ul className="mt-2 list-disc pl-5">{status.score.topWeaknesses.map((item, i) => <li key={i}>{item}</li>)}</ul>
+              <p className="mt-2">Missing evidence and financial risks can both affect the score. Correcting missing information does not guarantee that the minimum will be met. A lender must review credit evidence.</p>
+            </details>
+          )}
+          {error && <p role="alert" className="mt-3 text-sm text-rose-600">{error}</p>}
           <div className="mt-4 flex gap-4">
             {onReviewDocuments && <button type="button" className="text-sm underline" onClick={onReviewDocuments}>Review my documents</button>}
             <button type="button" className="text-sm underline" onClick={() => void load()}>Refresh readiness</button>

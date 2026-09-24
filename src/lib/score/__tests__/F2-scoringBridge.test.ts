@@ -25,7 +25,7 @@ function makeEligibilityInputs(overrides: Record<string, unknown> = {}) {
     naics: "513210" as string | null,
     industry: "software ai business" as string | null,
     businessEntityType: "LLC" as string | null,
-    annualRevenueUsd: 0 as number | null,
+    annualReceiptsUsd: 0 as number | null,
     employeeCount: 2 as number | null,
     useOfProceeds: [{ category: "working_capital", description: "trademark the brand and launch it" }] as unknown[] | null,
     sourcesAndUses: null as unknown,

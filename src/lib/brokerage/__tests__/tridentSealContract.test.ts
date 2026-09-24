@@ -214,6 +214,7 @@ function sealableDb(bundleOverrides: Record<string, unknown> = {}) {
       {
         deal_id: DEAL_ID,
         score: 78,
+        score_version: "1.2.0",
         band: "strong_fit",
         eligibility_passed: true,
         score_status: "locked",

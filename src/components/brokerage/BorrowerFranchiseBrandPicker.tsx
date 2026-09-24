@@ -24,8 +24,10 @@ interface BrandResult {
 // financing a franchise?" and go straight to brand search.
 export default function BorrowerFranchiseBrandPicker({
   startInSearchMode = false,
+  onChanged,
 }: {
   startInSearchMode?: boolean;
+  onChanged?: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [linked, setLinked] = useState<{ id: string; name: string } | null>(null);
@@ -44,11 +46,15 @@ export default function BorrowerFranchiseBrandPicker({
     try {
       const res = await fetch("/api/brokerage/franchise");
       const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setError("Your saved franchise selection could not be loaded. Refresh before changing it.");
+        return;
+      }
       if (json.ok && json.brandId) {
         setLinked({ id: json.brandId, name: json.brandName ?? "Selected brand" });
       }
     } catch {
-      // Non-fatal — picker still usable.
+      setError("Your saved franchise selection could not be loaded. Refresh before changing it.");
     } finally {
       setLoading(false);
     }
@@ -101,12 +107,13 @@ export default function BorrowerFranchiseBrandPicker({
       setShowSearch(false);
       setQuery("");
       setResults([]);
+      onChanged?.();
     } catch {
       setError("Network error — try again in a moment.");
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [onChanged]);
 
   const changeBrand = useCallback(() => {
     setLinked(null);
@@ -125,6 +132,7 @@ export default function BorrowerFranchiseBrandPicker({
               Franchise brand
             </div>
             <div className="mt-0.5 text-sm font-medium text-slate-900">{linked.name}</div>
+            <p className="mt-2 text-xs text-slate-600">Brand selection is saved. Review and prepare your package again after changing it so eligibility checks use this brand.</p>
           </div>
           <button
             type="button"
@@ -178,6 +186,7 @@ export default function BorrowerFranchiseBrandPicker({
           </div>
           <input
             type="text"
+            aria-label="Search for your franchise brand"
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}

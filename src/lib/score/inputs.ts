@@ -13,6 +13,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadPackageBorrowerContext } from "@/lib/sba/packageBorrowerContext";
+import { loadFranchiseScoreEvidence } from "./franchiseEvidence";
 import {
   buildSBARiskProfile,
   type SBARiskProfile,
@@ -69,6 +70,7 @@ export type ScoreInputs = {
   // Business profile
   yearsInBusiness: number | null;
   annualRevenueUsd: number | null;
+  averageAnnualReceiptsUsd?: number | null;
   employeeCount: number | null;
   /** Total assets — used by the handful of depository-institution NAICS. */
   totalAssetsUsd?: number | null;
@@ -265,6 +267,7 @@ export async function loadScoreInputs(params: {
 
   const yearsInBusiness = borrowerContext.businessStage === "pre_opening" ? 0 : factNum("YEARS_IN_BUSINESS");
   const annualRevenueUsd = factNum("TOTAL_REVENUE", "ANNUAL_REVENUE");
+  const averageAnnualReceiptsUsd = borrowerContext.averageAnnualReceiptsUsd;
   const employeeCount = borrowerContext.employeeCount ?? factNum("EMPLOYEE_COUNT");
   const totalAssetsUsd = factNum("TOTAL_ASSETS");
   const tangibleNetWorthUsd = factNum("TANGIBLE_NET_WORTH");
@@ -344,42 +347,8 @@ export async function loadScoreInputs(params: {
   if (feasibilityError || (params.packageEvidence && !feasibility)) throw new Error("Package score feasibility evidence unavailable");
 
   // ─── Franchise ────────────────────────────────────────────────────────
-  const { data: franchiseLink } = await sb
-    .from("deal_franchises")
-    .select("brand_id")
-    .eq("deal_id", dealId)
-    .maybeSingle();
-
-  const isFranchise = borrowerContext.franchiseDeclared || Boolean(franchiseLink?.brand_id);
-  let franchise: ScoreInputs["franchise"] = null;
-
-  if (isFranchise && franchiseLink?.brand_id) {
-    const { data: brand } = await sb
-      .from("franchise_brands")
-      .select(
-        "id, unit_count, founding_year, sba_eligible, sba_certification_status, has_item_19",
-      )
-      .eq("id", franchiseLink.brand_id)
-      .maybeSingle();
-
-    // Use highest-percentile Item 19 metric as the representative tier.
-    const { data: item19 } = await sb
-      .from("fdd_item19_facts")
-      .select("percentile_rank")
-      .eq("brand_id", franchiseLink.brand_id)
-      .order("percentile_rank", { ascending: false })
-      .limit(1);
-
-    franchise = {
-      brandId: franchiseLink.brand_id,
-      unitCount: tryNumber(brand?.unit_count),
-      foundingYear: tryNumber(brand?.founding_year),
-      sbaEligible: brand?.sba_eligible ?? null,
-      sbaCertificationStatus: brand?.sba_certification_status ?? null,
-      hasItem19: brand?.has_item_19 ?? null,
-      item19PercentileRank: tryNumber(item19?.[0]?.percentile_rank),
-    };
-  }
+  const franchise = await loadFranchiseScoreEvidence(sb, dealId);
+  const isFranchise = borrowerContext.franchiseDeclared || franchise !== null;
 
   // ─── Management depth (buddy_sba_assumptions.management_team) ────────
   const { data: assumptions } = await sb
@@ -455,6 +424,7 @@ export async function loadScoreInputs(params: {
     feasibilityComposite: tryNumber(feasibility?.composite_score),
     yearsInBusiness,
     annualRevenueUsd,
+    averageAnnualReceiptsUsd,
     employeeCount,
     totalAssetsUsd,
     tangibleNetWorthUsd,
@@ -498,6 +468,7 @@ export async function loadScoreInputs(params: {
     },
     yearsInBusiness,
     annualRevenueUsd,
+    averageAnnualReceiptsUsd,
     employeeCount,
     totalAssetsUsd,
     tangibleNetWorthUsd,

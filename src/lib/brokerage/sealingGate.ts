@@ -3,6 +3,7 @@ import "server-only";
 import { readPackageDocumentReadiness } from "@/lib/borrower/documents/packageChecklist";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ownersNeedingIal2 } from "@/lib/brokerage/identityVerificationGate";
+import { SCORE_VERSION } from "@/lib/score/version";
 
 export type SealabilityResult = { ok: true } | { ok: false; reasons: string[] };
 
@@ -55,7 +56,7 @@ export async function canSeal(dealId: string, sb: SupabaseClient): Promise<Seala
     documents,
   ] = await Promise.all([
     sb.from("buddy_sba_scores")
-      .select("score, band, eligibility_passed, input_snapshot").eq("deal_id", dealId)
+      .select("score, score_version, band, eligibility_passed, input_snapshot").eq("deal_id", dealId)
       .eq("score_status", "locked").is("superseded_at", null).order("computed_at", { ascending: false }).limit(1).maybeSingle(),
     sb.from("buddy_sba_assumptions")
       .select("status, loan_impact").eq("deal_id", dealId).maybeSingle(),
@@ -77,6 +78,7 @@ export async function canSeal(dealId: string, sb: SupabaseClient): Promise<Seala
   if (!score) reasons.push("No locked Buddy SBA Score exists yet.");
   else {
     const s = score as any;
+    if (s.score_version !== SCORE_VERSION) reasons.push("Review and prepare your package again to apply the current eligibility checks.");
     if (s.score < 60) reasons.push(`Buddy SBA Score ${s.score} is below the 60 minimum.`);
     if (s.band === "not_eligible") reasons.push("Deal band is 'not_eligible' — cannot list.");
     if (!s.eligibility_passed) reasons.push("SBA eligibility checks did not pass.");

@@ -1,6 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildGuidedSnapshot, parseAnswer } from "../questions";
+import { packageInterviewAnswers } from "../interviewContext";
+test("size receipts has a numeric borrower control and preserves explicit zero in the package", () => {
+  const facts = { package_answers: { B13: { value: 0 }, B14: { value: "Pre-opening, no receipts or affiliates; supporting schedule supplied." } } };
+  const snapshot = buildGuidedSnapshot({ rows: {}, facts, revision: null });
+  const receipts = snapshot.questions.find(q => q.id === "B13");
+  assert.equal(receipts?.type, "currency");
+  assert.equal(receipts?.state, "saved");
+  assert.equal(receipts?.value, 0);
+  assert.ok(packageInterviewAnswers(facts).some(a => a.answer === "0"));
+});
 test("zero, explicit no, dates and invalid values stay distinct", () => {
   assert.equal(parseAnswer("0", "number"), 0);
   assert.equal(parseAnswer(false, "boolean"), false);
@@ -44,5 +54,5 @@ test("separate owners produce separate questions; unconfirmed character answers 
     "needs_confirmation",
   );
   assert.equal(new Set(s.questions.map((q) => q.id)).size, s.questions.length);
-  assert.equal(s.questions.filter((q) => /^[A-Z]\d\d$/.test(q.id)).length, 165);
+  assert.equal(s.questions.filter((q) => /^[A-Z]\d\d$/.test(q.id)).length, 167);
 });

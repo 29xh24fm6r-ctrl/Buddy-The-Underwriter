@@ -21,6 +21,12 @@ export function resolvePackageBorrowerContext(deal: Row, borrower: Row | null, a
     businessEntityType: text(borrower?.entity_type, app?.business_entity_type),
     businessStage: packageBusinessStage(facts),
     employeeCount: finiteNumber(borrower?.employee_count),
+    // Explicit receipts evidence is separate from historical or projected revenue.
+    // A startup label alone never establishes zero receipts, especially for affiliates.
+    averageAnnualReceiptsUsd: text(answers.B14?.value) &&
+      typeof answers.B13?.value === "number" && Number.isFinite(answers.B13.value) && answers.B13.value >= 0
+      ? answers.B13.value as number : null,
+    receiptsBasis: text(answers.B14?.value),
     staffingStatement: text(answers.L06?.value),
     inputSources: { business: "canonical borrower / saved interview / legacy application", owners: "saved owner personal financial statements", businessStage: "explicit saved B07 answer" },
     evidencePolicy: PACKAGE_BORROWER_EVIDENCE_POLICY,

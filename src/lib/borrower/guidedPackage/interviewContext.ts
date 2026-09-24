@@ -10,7 +10,8 @@ export function packageInterviewAnswers(
 ): PackageInterviewAnswer[] {
   const answers = facts.package_answers ?? {};
   return PACKAGE_QUESTIONS.flatMap((q) =>
-    typeof answers[q.id]?.value === "string" && answers[q.id].value.trim()
+    (typeof answers[q.id]?.value === "string" && answers[q.id].value.trim()) ||
+    (typeof answers[q.id]?.value === "number" && Number.isFinite(answers[q.id].value))
       ? [
           {
             question: q.question,

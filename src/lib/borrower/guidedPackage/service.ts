@@ -151,6 +151,8 @@ export async function saveGuidedAnswer(
       body.value,
       question.field?.registryEntry.type ?? question.type,
     );
+  if (question.id === "B13" && value !== null && (typeof value !== "number" || value < 0))
+    throw new Error("Enter nonnegative average annual receipts, or leave this unanswered for review.");
   if (question.id === "loan.sba_program" && value !== "7A" && value !== "504")
     throw new Error("Choose 7a or 504.");
   const entry = question.field?.registryEntry;

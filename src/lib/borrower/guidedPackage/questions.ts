@@ -263,10 +263,10 @@ export function buildGuidedSnapshot(input: {
       question: q.question,
       section: q.section,
       value: record?.value ?? null,
-      type: "textarea",
+      type: q.id === "B13" ? "currency" : "textarea",
       required: false,
       responsibility: "borrower",
-      state: record?.value ? "saved" : "unanswered",
+      state: record?.value !== undefined && record.value !== null && record.value !== "" ? "saved" : "unanswered",
       reason:
         record?.source === "voice"
           ? "Answered by voice"

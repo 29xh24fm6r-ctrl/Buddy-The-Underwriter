@@ -27,3 +27,14 @@ test("context loader rejects missing or cross-bank deals", async () => {
   const q: any = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: { bank_id: "other" } }) };
   await assert.rejects(loadPackageBorrowerContext({ from: () => q }, "deal", "bank"), /deal_mismatch/);
 });
+test("receipts requires an explicit nonnegative amount and calculation basis, never inferred startup zero", () => {
+  const context = (amount: unknown, basis: unknown) => resolvePackageBorrowerContext({}, null, null, {
+    package_answers: { B07: { value: "The business is preparing to open" }, B13: { value: amount }, B14: { value: basis } },
+  });
+  for (const amount of [undefined, null, "", "0", false, -1, NaN, Infinity]) {
+    assert.equal(context(amount, "Supporting schedule").averageAnnualReceiptsUsd, null);
+  }
+  assert.equal(context(0, "").averageAnnualReceiptsUsd, null);
+  assert.equal(context(0, "Pre-opening; no affiliate receipts").averageAnnualReceiptsUsd, 0);
+  assert.equal(context(2400000, "Applicant and affiliates; supporting calculation provided").averageAnnualReceiptsUsd, 2400000);
+});

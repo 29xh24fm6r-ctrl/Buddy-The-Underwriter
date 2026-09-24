@@ -1,4 +1,5 @@
 import "server-only";
+import { loadFranchiseScoreEvidence } from "@/lib/score/franchiseEvidence";
 
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -265,6 +266,7 @@ export async function computeTridentInputSnapshot(
     "buddy_guarantor_cashflow", "deal_ownership_entities", "deal_ownership_interests",
     "deal_management_profiles", "deal_methodology_choices", "deal_existing_debt_schedule",
   ].map(async table => [table, await requiredRows(sb, table, dealId)])));
+  const franchiseEvidence = await loadFranchiseScoreEvidence(sb, dealId);
   const manifest = canonicalize({
     version: TRIDENT_SNAPSHOT_VERSION,
     // Freeze only borrower and underwriting source-of-truth rows. Governed
@@ -274,6 +276,9 @@ export async function computeTridentInputSnapshot(
     sources: {
       packageFormat: "complete-lender-package-v9",
       financialDependencies,
+      // Keep unlinked packages compatible; linked brands must be frozen and
+      // compared on every retry and submission, including directory changes.
+      ...(franchiseEvidence ? { franchiseEvidence } : {}),
       formInputs,
       deal: dealResult.data,
       pricingDecisions,

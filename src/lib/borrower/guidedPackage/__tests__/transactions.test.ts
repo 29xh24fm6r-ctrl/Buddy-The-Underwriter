@@ -118,6 +118,11 @@ test("guided answer transaction persists form fields, mirrors and rejects stale 
       false,
     );
     await answer(db, "A01", null, null, "Expand our existing business");
+    await answer(db, "B13", null, null, 0);
+    await answer(db, "B14", null, null, "Pre-opening; applicant and affiliates have no receipts.");
+    const receipts = await db.query<{ value: unknown }>("SELECT confirmed_facts #> '{package_answers,B13,value}' AS value FROM borrower_concierge_sessions");
+    assert.equal(receipts.rows[0].value, 0, "numeric zero survives the actual answer transaction");
+    await assert.rejects(answer(db, "B13", null, null, 100, null), /changed/i);
     assert.equal(
       (
         await db.query<any>(
