@@ -1,3 +1,4 @@
+import { fundingScheduleText } from "@/lib/ai/packageNarrativeEvidence";
 import "server-only";
 import { loadPackageBorrowerContext } from "./packageBorrowerContext";
 import { preparePackageFinancialSnapshot, loadPackageFinancialSnapshot } from "@/lib/modelEngine/packageFinancialSnapshot";
@@ -104,19 +105,9 @@ export async function generateSBAPackage(
   ]);
   const researchSummary = research.industryOverview ?? undefined;
 
-  const proceedsLineItems =
-    useOfProceeds.length > 0
-      ? useOfProceeds
-          .map(
-            (p) =>
-              `${p.category}: $${Math.round(p.amount).toLocaleString()}`,
-          )
-          .join(", ")
-      : "General business purposes";
-  const proceedsDescription =
-    `${proceedsLineItems}. Total project uses: $${Math.round(sourcesAndUses.totalUses).toLocaleString()}; ` +
-    `SBA loan source: $${Math.round(assumptions.loanImpact.loanAmount).toLocaleString()}; ` +
-    `borrower equity source: $${Math.round(sourcesAndUses.equityInjection.actualAmount).toLocaleString()}. ` +
+  // Preserve actual source descriptions, especially specific uses categorized
+  // as "other", in every initial narrative rather than losing them to enum labels.
+  const proceedsDescription = fundingScheduleText(sourcesAndUses) + " " +
     (sourcesAndUses.balanced
       ? "Sources and uses balance."
       : `Sources and uses are not balanced; unresolved difference: $${Math.abs(Math.round(sourcesAndUses.imbalance)).toLocaleString()}. Do not describe the project as fully funded.`);

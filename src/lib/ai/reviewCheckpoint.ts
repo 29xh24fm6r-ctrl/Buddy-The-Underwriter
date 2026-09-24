@@ -26,7 +26,7 @@ const stateSchema = z.object({
   phase: z.enum(["review", "repair", "done"]), sections: z.array(section).min(1),
   repaired: z.boolean(), reviewPasses: z.number().int().min(0).max(4),
   remaining: z.array(z.object({
-    sectionKey: z.string(), claim: z.string(), reason: z.string(),
+    sectionKey: z.string(), repairSectionKeys: z.array(z.string()).min(1).optional(), claim: z.string(), reason: z.string(),
     severity: z.enum(["info", "warning", "critical"]),
     category: z.enum(["unsupported_fact", "numeric_inconsistency", "missing_analysis", "generic_language", "credit_policy", "cross_artifact_conflict"]),
     repairInstruction: z.string(),

@@ -1,3 +1,5 @@
+import { withoutProtectedFundingSchedule } from "@/lib/ai/protectedFundingSchedule";
+
 /**
  * Fail-closed acceptance checks for lender-facing narrative artifacts.
  *
@@ -22,7 +24,7 @@ export const BUSINESS_PLAN_FIELDS = [
 
 export function narrativeWordCount(value: unknown): number {
   return typeof value === "string"
-    ? value.trim().split(/\s+/).filter(Boolean).length
+    ? withoutProtectedFundingSchedule(value).trim().split(/\s+/).filter(Boolean).length
     : 0;
 }
 

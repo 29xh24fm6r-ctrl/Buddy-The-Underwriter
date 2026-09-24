@@ -1,5 +1,6 @@
 import type { ArtifactSection, ReviewIssue } from "./frontierArtifactFactory";
-import { downsideDisclosure, fundingScheduleText, BASE_CASE_LIMITATION } from "./packageNarrativeEvidence";
+import { savedFundingSchedule } from "./protectedFundingSchedule";
+import { downsideDisclosure, BASE_CASE_LIMITATION } from "./packageNarrativeEvidence";
 
 /** Mechanical coverage check, independent of the model review's severity
  * judgement. It never computes projections or invents a policy threshold. */
@@ -28,13 +29,8 @@ export function auditProjectionNarrative(factsInput: Record<string, unknown> | s
  * Exact anchors avoid accepting a repeated amount under the wrong use (or an
  * unrelated payroll number as the missing working-capital allocation). */
 export function auditFundingNarrative(factsInput: Record<string, unknown> | string, sections: ArtifactSection[]): ReviewIssue[] {
-  let facts: any;
-  try { facts = typeof factsInput === "string" ? JSON.parse(factsInput) : factsInput; } catch { return []; }
-  const schedule = facts?.authoritativeFinancials?.sourcesAndUses ?? facts?.sources_and_uses ?? facts?.projectionPackage?.sourcesAndUses ?? facts?.sourcesAndUses;
-  if (!schedule || !Array.isArray(schedule.sources) || !Array.isArray(schedule.uses) ||
-      ![schedule.totalSources, schedule.totalUses].every(Number.isFinite) ||
-      ![...schedule.sources, ...schedule.uses].every(row => typeof row.label === "string" && Number.isFinite(row.amount))) return [];
-  const anchor = fundingScheduleText(schedule);
+  const anchor = savedFundingSchedule(factsInput);
+  if (!anchor) return [];
   const normalize = (text: string) => text.replace(/\*|_/g, "").replace(/\s+/g, " ").trim().toLowerCase();
   return sections.filter(section => section.key === "operations_plan" && !normalize(section.text).includes(normalize(anchor))).map(section => ({
     sectionKey: section.key, claim: "Incomplete or mislabeled operations funding allocation",

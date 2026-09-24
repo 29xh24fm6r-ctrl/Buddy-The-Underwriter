@@ -272,7 +272,7 @@ export async function computeTridentInputSnapshot(
     // readiness/release, while asynchronous lifecycle convergence cannot make
     // an admitted factory invalidate itself.
     sources: {
-      packageFormat: "complete-lender-package-v8",
+      packageFormat: "complete-lender-package-v9",
       financialDependencies,
       formInputs,
       deal: dealResult.data,

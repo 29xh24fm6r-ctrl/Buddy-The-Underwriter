@@ -18,6 +18,7 @@ import { loadPackageBorrowerContext } from "./packageBorrowerContext";
 
 import type { BusinessPlanPackageForVerify } from "./verifyBusinessPlanPackage";
 import { finishInstitutionalArtifact, reviewContentHash } from "@/lib/ai/frontierArtifactFactory";
+import { protectFundingSchedule } from "@/lib/ai/protectedFundingSchedule";
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
 import { BUSINESS_PLAN_REQUIREMENTS, includeRequiredNarrativeSections, narrativeCompletenessFindings } from "@/lib/brokerage/trident/narrativeAcceptance";
 import type { FlaggedClaim } from "@/lib/ai/verify";
@@ -124,12 +125,13 @@ export async function enrichBusinessPlanPackage(args: {
   // roll of a ~39% die, which is why retries never accumulated. Only a `pass`
   // is reusable — a previous block must be re-examined, since the repair
   // budget may land differently.
-  const reviewIdentity = { artifactType: "business_plan" as const, facts, sections, narrativeRequirements: BUSINESS_PLAN_REQUIREMENTS };
+  const reviewIdentity = { artifactType: "business_plan" as const, facts, sections: protectFundingSchedule(facts, sections), narrativeRequirements: BUSINESS_PLAN_REQUIREMENTS };
   const contentHash = reviewContentHash(reviewIdentity);
   if (
     typed.verification_verdict === "pass" &&
     typeof typed.verification_input_hash === "string" &&
     typed.verification_input_hash === contentHash &&
+    sections.every((section, index) => section.text === reviewIdentity.sections[index]?.text) &&
     narrativeCompletenessFindings(sections, BUSINESS_PLAN_REQUIREMENTS).length === 0
   ) {
     const flaggedClaims = Array.isArray(typed.verification_flagged_claims)

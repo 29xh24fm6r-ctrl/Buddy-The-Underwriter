@@ -319,3 +319,19 @@ test("missing required plan sections enter repair and the completed result is re
   assert.equal((await enrichBusinessPlanPackage(args)).reusedVerdict, true);
   assert.equal(repairs, 1);
 });
+
+test("cached acceptance cannot skip restoration of a removed protected funding schedule", async () => {
+  const { withoutProtectedFundingSchedule } = await import("../../ai/protectedFundingSchedule");
+  __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify({ issues: [] }), tokensIn: 1, tokensOut: 1 }));
+  const tables: Record<string, Row[]> = { buddy_sba_packages: [basePkgRow({ sources_and_uses: {
+    sources: [{ label: "Loan", amount: 100 }], uses: [{ label: "Working capital", amount: 100 }], totalSources: 100, totalUses: 100,
+  } })] };
+  const args = { dealId: "deal-1", bankId: "bank-1", packageId: "pkg-1", sb: makeDb(tables) };
+  assert.equal((await enrichBusinessPlanPackage(args)).verdict, "pass");
+  const accepted = tables.buddy_sba_packages[0].operations_plan;
+  assert.match(accepted, /Funding schedule \(saved assumptions\)/);
+  assert.equal((await enrichBusinessPlanPackage(args)).reusedVerdict, true);
+  tables.buddy_sba_packages[0].operations_plan = withoutProtectedFundingSchedule(accepted);
+  assert.equal((await enrichBusinessPlanPackage(args)).reusedVerdict, false);
+  assert.equal(tables.buddy_sba_packages[0].operations_plan, accepted);
+});
