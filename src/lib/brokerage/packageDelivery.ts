@@ -135,7 +135,8 @@ export async function getLenderPackageAccess(accessId: string, lenderBankId: str
   if (!a) return { ok: false, error: "access_not_found" }; if (String(a.lender_bank_id) !== lenderBankId) return { ok: false, error: "access_lender_mismatch" }; if (a.revoked_at) return { ok: false, error: "access_revoked" };
   const dealId = String(a.deal_id); const level = str(a.access_level) === "full" ? "full" as const : "preview" as const;
   const { data: l, error: listingError } = await sb.from("marketplace_listings").select("sealed_package_id, loan_amount, sba_program, term_months, score, band, kfs").eq("id", a.listing_id).eq("deal_id", dealId).limit(1).maybeSingle();
-  if (listingError || !l || (level === "full" && l.sealed_package_id !== a.sealed_package_id)) return { ok: false, error: "package_state_unavailable" };
+  if (listingError) return { ok: false, error: "package_state_unavailable" };
+  if (!l || (level === "full" && l.sealed_package_id !== a.sealed_package_id)) return { ok: false, error: "package_state_unavailable" };
   if (level === "full" && !a.sealed_package_id) return { ok: false, error: "package_state_unavailable" };
   const manifest = await buildPackageManifest(dealId, level, sb, "lender", a.sealed_package_id);
   return { ok: true, access: { accessId: String(a.id), dealId, listingId: String(a.listing_id), claimId: String(a.claim_id), lenderBankId: String(a.lender_bank_id), accessLevel: str(a.access_level) ?? "full", grantedAt: str(a.granted_at), dealSummary: { loanAmount: num(l?.loan_amount), program: str(l?.sba_program), termMonths: num(l?.term_months), score: num(l?.score), band: str(l?.band), state: str(l?.kfs?.state) }, manifest } };
