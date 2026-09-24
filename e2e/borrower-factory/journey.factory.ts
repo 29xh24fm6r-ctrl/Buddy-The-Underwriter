@@ -26,6 +26,7 @@ async function setup(page: Page, preparePackage = false, testCompletion = false,
     const respond = (json: unknown, status = 200) =>
       route.fulfill({ status, json });
     if (url.pathname === "/api/brokerage/concierge") {
+      if (body?.action === "guided_help") return respond({ok:true,buddyResponse:"A prepared package is not approval or submission. Your saved answers have not changed."});
       if (body?.action === "guided_ack_722" && body.confirmed === true) posterAcknowledged = true;
       if (body?.action === "guided_answer") {
         if (failNext) {
@@ -463,4 +464,15 @@ test("evidence recovery opens the actual staffing and management inputs without 
   await expect(page.getByText("Saved evidence check passed",{exact:true})).toBeVisible();
   await expect(page.getByRole("button",{name:"Review costs and staffing",exact:true})).toHaveCount(0);
   expect(fixture.calls.filter(call=>/\/(build-package|draft-assumptions)$/.test(call))).toHaveLength(0);
+});
+
+ test("optional Ask Buddy questions use read-only help", async ({ page }) => {
+  const app = await setup(page);
+  await page.getByRole("button", { name: "Ask Buddy", exact: true }).click();
+  await page.getByRole("textbox", { name: "Ask Buddy anything…", exact: true }).fill("Am I approved? Do not change my answers.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByRole("log")).toContainText("A prepared package is not approval or submission.");
+  expect(app.calls).toContain("guided_help");
+  expect(app.calls).not.toContain("confirm_assumptions");
+  expect(app.calls).not.toContain("guided_answer");
 });

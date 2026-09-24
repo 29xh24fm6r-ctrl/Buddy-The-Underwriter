@@ -72,3 +72,10 @@ Recovery now targets actual staffing and management assumption editors, preserve
 franchise verification requirements, explains payroll double-counting, and
 replaces old findings with current check results. Package financial, publication
 format and review versions invalidate cached output from the incomplete adapter.
+
+
+### Optional AI help isolated from financial actions
+
+The live Ask Buddy test asked for the difference between a prepared package and approval/submission and explicitly prohibited changes. Legacy substring matching interpreted “approved” as confirmation. It returned “Locked in” and changed the assumptions confirmation timestamp at 05:05:48 UTC; saved costs and staffing remained intact. This is included in the same repair rather than merging an incomplete build.
+
+Optional help now sends an explicit, session-bound `guided_help` action to a read-only handler. It loads canonical saved answers, excludes protected identifying fields, uses the budgeted/audited interviewer gateway, and never enters extraction, fact propagation, assumptions confirmation or package generation. Informational/negated legacy text turns use that lane too; voice questions skip generation and fact extraction. Regression coverage exercises non-consent, approval questions, protected-answer exclusion, failed reads, and desktop/mobile Ask Buddy routing.

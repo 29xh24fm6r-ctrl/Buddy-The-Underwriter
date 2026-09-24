@@ -1,5 +1,6 @@
 import { acknowledgeForm722 } from '@/lib/sba/forms/form722/service';
 import "server-only";
+import { answerBorrowerHelp } from "@/lib/borrower/guidedPackage/help";
 import { guidedSchedules, loadGuidedPackage, saveGuidedAnswer } from "@/lib/borrower/guidedPackage/service";
 
 /**
@@ -33,6 +34,7 @@ import { runRole } from "@/lib/ai/gateway";
 import { computeBuddySBAScore } from "@/lib/score/buddySbaScore";
 import {
   detectTridentIntent,
+  isReadOnlyConciergeMessage,
   detectAssumptionsConfirmIntent,
   TRIDENT_PREVIEW_RESPONSE,
   ASSUMPTIONS_CONFIRMED_RESPONSE,
@@ -90,6 +92,8 @@ export const maxDuration = 300;
 type ConciergeRequest = {
   userMessage: string;
   source?: "text" | "voice";
+  action?: "guided_help";
+  dealId?: string;
 };
 
 type CorrectFactRequest = { factPath: string; value?: unknown };
@@ -197,6 +201,26 @@ export async function POST(req: NextRequest): Promise<Response> {
           headers: { "retry-after": String(rl.retryAfterSeconds) },
         },
       );
+    }
+
+    // Optional help has no access to extraction, confirmations, or generation.
+    // Legacy informational turns also stop here before any session/fact writes.
+    if (body.action === "guided_help" || isReadOnlyConciergeMessage(body.userMessage)) {
+      if (!session || (body.action === "guided_help" && body.dealId !== session.deal_id)) {
+        return NextResponse.json({ ok: false, error: "Application session unavailable. Reload and try again." }, { status: 404 });
+      }
+      try {
+        const buddyResponse = await answerBorrowerHelp(body.userMessage, {
+          load: () => loadGuidedPackage(supabaseAdmin(), session!),
+          answer: async prompt => (await runRole("interviewer", {
+            purpose: "borrower-read-only-help", dealId: session!.deal_id,
+            npiTagged: true, maxOutputTokens: 600, prompt,
+          })).text,
+        });
+        return NextResponse.json({ ok: true, buddyResponse });
+      } catch {
+        return NextResponse.json({ ok: false, error: "Buddy's help is temporarily unavailable. Your saved answers have not changed." }, { status: 503 });
+      }
     }
 
     // Tenant + admin-client setup is the most common preview failure point
