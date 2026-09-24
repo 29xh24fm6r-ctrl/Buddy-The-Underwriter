@@ -17,11 +17,14 @@ export function readPackageCompletion(snapshot: any, dealId: string, bankId: str
       !Number.isSafeInteger(p.sizeBytes) || p.sizeBytes <= 0 ||
       p.archivePath !== `${dealId}/final/${p.bundleId}/archives/lender/complete_package/${p.sha256}.zip` ||
       p.inventory?.version !== 1 || p.inventory.bundleId !== p.bundleId || p.inventory.actor !== "lender" ||
-      !Array.isArray(p.inventory.files) || !LENDER_PACKAGE_FILES.every(file =>
+      !Array.isArray(p.inventory.files) || !p.inventory.files.every(file => file && typeof file === "object") ||
+      p.inventory.files.filter(file => file.category === "generated").length !== LENDER_PACKAGE_FILES.length ||
+      !LENDER_PACKAGE_FILES.every(file =>
         p.inventory.files.some(item => item.category === "generated" && item.kind === file.kind && item.filename === file.filename))) return null;
   const names = new Set<string>();
   for (const file of p.inventory.files) {
-    if (names.has(file.filename) || !file.filename || !/^[a-f0-9]{64}$/.test(file.sha256) ||
+    if (names.has(file.filename) || !file.filename || !["generated", "source"].includes(file.category) ||
+        (file.kind === "credit_memo" && file.borrowerVisible !== false) || !/^[a-f0-9]{64}$/.test(file.sha256) ||
         !Number.isSafeInteger(file.sizeBytes) || file.sizeBytes <= 0 || typeof file.borrowerVisible !== "boolean") return null;
     names.add(file.filename);
   }

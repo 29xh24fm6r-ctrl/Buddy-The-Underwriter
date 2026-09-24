@@ -84,3 +84,14 @@ test("legacy seals remain visible without inventing a full-package verification 
   assert.equal(body.sealed, true);
   assert.equal(body.packageCompletion, null);
 });
+
+test("malformed completion inventories produce a retryable status instead of a server exception", async () => {
+  const proof = tables.buddy_sealed_packages[0].sealed_snapshot.packageCompletion;
+  const valid = proof.inventory.files;
+  for (const invalid of [[...valid, null], [...valid, valid[0]], valid.map((file: any) => ({ ...file, borrowerVisible: true }))]) {
+    proof.inventory.files = invalid;
+    const res = await get();
+    assert.equal(res.status, 503);
+    assert.equal((await res.json()).error, "package_completion_invalid");
+  }
+});
