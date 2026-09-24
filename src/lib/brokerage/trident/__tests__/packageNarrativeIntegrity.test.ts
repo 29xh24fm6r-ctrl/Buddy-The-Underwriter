@@ -1,4 +1,5 @@
 import test from "node:test";
+import { BUSINESS_PLAN_REQUIREMENTS } from "../narrativeAcceptance";
 import assert from "node:assert/strict";
 import { assertPackageNarrativeIntegrity } from "../packageNarrativeIntegrity";
 import { fundingScheduleText, downsideDisclosure } from "@/lib/ai/packageNarrativeEvidence";
@@ -10,7 +11,12 @@ test("publication rechecks saved narratives even if their AI verdict says pass",
   assert.throws(() => assertPackageNarrativeIntegrity(pkg, financial), /operations_plan, executive_summary/);
   pkg.operations_plan = fundingScheduleText(financial.sourcesAndUses);
   pkg.executive_summary = downsideDisclosure(financial.projectionModel.sensitivityScenarios)!;
-  assert.doesNotThrow(() => assertPackageNarrativeIntegrity(pkg, financial));
+  const complete = { ...Object.fromEntries(Object.keys(BUSINESS_PLAN_REQUIREMENTS).map(key => [key, Array(50).fill("evidence").join(" ") + " " + downsideDisclosure(financial.projectionModel.sensitivityScenarios)])), ...pkg };
+  complete.operations_plan += " " + downsideDisclosure(financial.projectionModel.sensitivityScenarios);
+  complete.operations_plan += " " + Array(45).fill("evidence").join(" ");
+  complete.executive_summary += " " + Array(45).fill("evidence").join(" ");
+  assert.doesNotThrow(() => assertPackageNarrativeIntegrity(complete, financial));
+  assert.throws(() => assertPackageNarrativeIntegrity({ ...complete, swot_opportunities: "Too short." }, financial), /sections are incomplete.*swot_opportunities/);
   pkg.operations_plan = pkg.operations_plan.replace("Working capital", "Equipment");
   assert.throws(() => assertPackageNarrativeIntegrity(pkg, financial), /operations_plan/);
 });

@@ -11,6 +11,18 @@ mockServerOnly();
 const require = createRequire(import.meta.url);
 const { normalizeNarrativeForPdf, renderSBAPackagePDF } =
   require("../sbaPackageRenderer") as typeof import("../sbaPackageRenderer");
+const { renderBorrowerProjectionPDF } =
+  require("../sbaBorrowerPDFRenderer") as typeof import("../sbaBorrowerPDFRenderer");
+
+function pdfText(pdf: Buffer): string {
+  let text = "";
+  for (const match of pdf.toString("binary").matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+    let body: string;
+    try { body = inflateSync(Buffer.from(match[1], "binary")).toString("binary"); } catch { continue; }
+    for (const literal of body.matchAll(/<([0-9a-fA-F]+)>/g)) text += Buffer.from(literal[1], "hex").toString("utf8");
+  }
+  return text;
+}
 
 test("normalizes fenced JSON and removes Markdown presentation syntax", () => {
   const raw = "```json\n" + JSON.stringify({
@@ -110,12 +122,7 @@ test("rendered startup PDF contains unavailable opening coverage and the reconci
     projectionAccountingBasis: model.accountingBasis,
     projectionsAssumptionsNarrative: "Reviewed projection assumptions: ongoing guarantor income remains unconfirmed.",
   });
-  let text = "";
-  for (const match of pdf.toString("binary").matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
-    let body: string;
-    try { body = inflateSync(Buffer.from(match[1], "binary")).toString("binary"); } catch { continue; }
-    for (const literal of body.matchAll(/<([0-9a-fA-F]+)>/g)) text += Buffer.from(literal[1], "hex").toString("utf8");
-  }
+  const text = pdfText(pdf);
   assert.match(text, /Pre-opening/);
   assert.match(text, /N\/A/);
   assert.doesNotMatch(text, /99\.00x/);
@@ -128,4 +135,18 @@ test("rendered startup PDF contains unavailable opening coverage and the reconci
     const { writeFile } = await import("node:fs/promises");
     await writeFile(process.env.PACKAGE_INTEGRITY_PDF_OUTPUT, pdf);
   }
+});
+
+test("borrower PDF chart and risk text use the supplied threshold and disclose later downside failures", async () => {
+  const model = reconciledStartup();
+  const pdf = await renderBorrowerProjectionPDF({
+    ...model, businessName: "QA Startup", loanType: "SBA", loanAmount: 950000,
+    dscrThreshold: 1.15, researchBriefing: "", actionableRoadmap: "", generatedDate: "2026-09-24",
+  });
+  const text = pdfText(pdf);
+  assert.match(text, /Target 1\.15x/);
+  assert.match(text, /1\.15x threshold/);
+  assert.doesNotMatch(text, /Target 1\.25x|comfortably handle/);
+  assert.match(text, /Year 2 0\.74x, Year 3 0\.08x/);
+  assert.match(text, /fails the model's coverage threshold/);
 });

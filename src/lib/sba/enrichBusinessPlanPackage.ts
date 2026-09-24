@@ -19,6 +19,7 @@ import { loadPackageBorrowerContext } from "./packageBorrowerContext";
 import type { BusinessPlanPackageForVerify } from "./verifyBusinessPlanPackage";
 import { finishInstitutionalArtifact, reviewContentHash } from "@/lib/ai/frontierArtifactFactory";
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
+import { BUSINESS_PLAN_REQUIREMENTS, includeRequiredNarrativeSections, narrativeCompletenessFindings } from "@/lib/brokerage/trident/narrativeAcceptance";
 import type { FlaggedClaim } from "@/lib/ai/verify";
 
 import { withReviewCheckpoint, type ReviewCheckpointClient } from "@/lib/ai/reviewCheckpoint";
@@ -82,17 +83,18 @@ export async function enrichBusinessPlanPackage(args: {
     "swot_opportunities", "swot_threats", "sensitivity_narrative", "plan_thesis",
     "franchise_section", "projections_assumptions_narrative",
   ];
-  const sections = narrativeKeys.flatMap((key) => {
+  const draftSections = narrativeKeys.flatMap((key) => {
     const text = typed[key];
     return typeof text === "string" && text.trim() ? [{ key, text }] : [];
   });
-  if (!sections.length) {
+  if (!draftSections.length) {
     await sb.from("buddy_sba_packages").update({
       verification_verdict: null,
       verification_flagged_claims: null,
     }).eq("id", packageId);
     return { verdict: null, repaired: false, flaggedClaims: [], advisoryCount: 0, reusedVerdict: false };
   }
+  const sections = includeRequiredNarrativeSections(draftSections, BUSINESS_PLAN_REQUIREMENTS);
 
   const financialSnapshotId = (pkg as Record<string, unknown>).financial_snapshot_id;
   const savedFinancial = typeof financialSnapshotId === "string"
@@ -100,7 +102,7 @@ export async function enrichBusinessPlanPackage(args: {
   const facts = {
     borrowerContext: await loadPackageBorrowerContext(sb, dealId, bankId),
     financialSnapshotId: savedFinancial?.id ?? null,
-    authoritativeFinancials: savedFinancial ? { projectionModel: savedFinancial.output.projectionModel, sourcesAndUses: savedFinancial.output.sourcesAndUses, assumptions: savedFinancial.output.assumptions } : null,
+    authoritativeFinancials: savedFinancial ? { projectionModel: savedFinancial.output.projectionModel, sourcesAndUses: savedFinancial.output.sourcesAndUses, assumptions: savedFinancial.output.assumptions, projectedDscrThreshold: savedFinancial.output.projectedDscrThreshold } : null,
     dscr_year1_base: typed.dscr_year1_base,
     dscr_year2_base: typed.dscr_year2_base,
     dscr_year3_base: typed.dscr_year3_base,
@@ -122,12 +124,13 @@ export async function enrichBusinessPlanPackage(args: {
   // roll of a ~39% die, which is why retries never accumulated. Only a `pass`
   // is reusable — a previous block must be re-examined, since the repair
   // budget may land differently.
-  const reviewIdentity = { artifactType: "business_plan" as const, facts, sections };
+  const reviewIdentity = { artifactType: "business_plan" as const, facts, sections, narrativeRequirements: BUSINESS_PLAN_REQUIREMENTS };
   const contentHash = reviewContentHash(reviewIdentity);
   if (
     typed.verification_verdict === "pass" &&
     typeof typed.verification_input_hash === "string" &&
-    typed.verification_input_hash === contentHash
+    typed.verification_input_hash === contentHash &&
+    narrativeCompletenessFindings(sections, BUSINESS_PLAN_REQUIREMENTS).length === 0
   ) {
     const flaggedClaims = Array.isArray(typed.verification_flagged_claims)
       ? typed.verification_flagged_claims as FlaggedClaim[] : [];

@@ -466,6 +466,7 @@ test("final happy path: redactor_version null, projections XLSX populated", asyn
     swot_threats: substantive,
     sensitivity_narrative: substantive,
     projections_assumptions_narrative: substantive,
+    plan_thesis: substantive,
     sources_and_uses: { balanced: true, imbalance: 0 },
     verification_verdict: "pass",
   });

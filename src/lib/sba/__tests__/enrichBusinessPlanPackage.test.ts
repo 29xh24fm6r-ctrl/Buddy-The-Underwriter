@@ -1,8 +1,11 @@
 import { reviewCheckpointRpc } from "../../../../test/utils/reviewCheckpointClient";
 import test from "node:test";
+import { BUSINESS_PLAN_REQUIREMENTS } from "@/lib/brokerage/trident/narrativeAcceptance";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
+
+const completeProse = "The proposed project depends on the borrower assumptions and deterministic calculations supplied for this review. Independent supporting evidence remains unavailable. The lender should verify the proposed operating arrangements and assess their effect on projected performance before reaching a credit decision. This analysis does not establish historical performance or approval of financing.";
 
 mockServerOnly();
 const require = createRequire(import.meta.url);
@@ -105,7 +108,8 @@ function basePkgRow(overrides: Record<string, unknown> = {}) {
     swot_threats: null,
     sensitivity_narrative: null,
     plan_thesis: null,
-    ...overrides,
+    ...Object.fromEntries(Object.keys(BUSINESS_PLAN_REQUIREMENTS).map(key => [key, completeProse])),
+    ...Object.fromEntries(Object.entries(overrides).map(([key, value]) => [key, key in BUSINESS_PLAN_REQUIREMENTS && typeof value === "string" ? `${value} ${completeProse}` : value])),
   };
 }
 
@@ -208,7 +212,7 @@ test("does not treat unconfirmed assumptions as immutable review evidence", asyn
 });
 
 test("leaves verification columns null when the package has no real narrative content", async () => {
-  const tables: Record<string, Row[]> = { buddy_sba_packages: [basePkgRow()] };
+  const tables: Record<string, Row[]> = { buddy_sba_packages: [basePkgRow(Object.fromEntries(Object.keys(BUSINESS_PLAN_REQUIREMENTS).map(key => [key, null])))] };
   const db = makeDb(tables);
 
   await enrichBusinessPlanPackage({ dealId: "deal-1", bankId: "bank-1", packageId: "pkg-1", sb: db });
@@ -221,7 +225,9 @@ test("leaves verification columns null when the package has no real narrative co
 test("opens a banker task when a critical claim is flagged, via the shared deal_conditions pattern", async () => {
   __setVendorApprovalForTests("openai", "APPROVED");
   __setProviderImplForTests("openai", async req => {
-    const sections = JSON.parse(req.prompt.split("SECTIONS TO REPAIR (claims here are not evidence):\n\n")[1].split("\n\n")[0]);
+    const allSections = JSON.parse(req.prompt.split("SECTIONS TO REPAIR (claims here are not evidence):\n\n")[1].split("\n\n")[0]);
+    const keys = JSON.parse(req.prompt.split("REQUESTED REPAIR SECTION KEYS:\n\n")[1].split("\n\n")[0]);
+    const sections = allSections.filter((section: { key: string }) => keys.includes(section.key));
     return { text: JSON.stringify({ sections }), tokensIn: 1, tokensOut: 1 };
   });
   __setProviderImplForTests("anthropic", async () => ({
@@ -262,7 +268,7 @@ test("saved interview reaches review, repair and cache identity without becoming
     assert.match(request.prompt, /250,000 annual transactions/);
     assert.match(request.prompt, /3 to 6 months/);
     assert.match(request.prompt, /not independently verified/);
-    return { text: JSON.stringify({ sections: [{ key: "operations_plan", text: "The borrower targets 3 to 6 months; this is not independently verified or contractually committed." }] }), tokensIn: 20, tokensOut: 10 };
+    return { text: JSON.stringify({ sections: [{ key: "operations_plan", text: `The borrower targets 3 to 6 months; this is not independently verified or contractually committed. ${completeProse}` }] }), tokensIn: 20, tokensOut: 10 };
   });
   const tables: Record<string, Row[]> = {
     buddy_sba_packages: [basePkgRow({ operations_plan: "No opening target was supplied." })],
@@ -294,4 +300,22 @@ test("business-plan review refuses a deal from another bank before any provider 
   __setProviderImplForTests("anthropic", async () => { calls++; throw new Error("must not call"); });
   await assert.rejects(enrichBusinessPlanPackage({ dealId: "deal-1", bankId: "bank-1", packageId: "pkg-1", sb: makeDb({ deals: [{ id: "deal-1", bank_id: "another-bank" }], buddy_sba_packages: [basePkgRow({ executive_summary: "Synthetic" })] }) }), /package_borrower_context_deal_mismatch/);
   assert.equal(calls, 0);
+});
+
+test("missing required plan sections enter repair and the completed result is reusable", async () => {
+  __setVendorApprovalForTests("openai", "APPROVED");
+  let repairs = 0;
+  __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify({ issues: [] }), tokensIn: 1, tokensOut: 1 }));
+  __setProviderImplForTests("openai", async req => {
+    repairs++;
+    const keys = JSON.parse(req.prompt.split("REQUESTED REPAIR SECTION KEYS:\n\n")[1].split("\n\n")[0]);
+    assert.deepEqual(keys, ["swot_opportunities"]);
+    return { text: JSON.stringify({ sections: [{ key: "swot_opportunities", text: completeProse }] }), tokensIn: 1, tokensOut: 1 };
+  });
+  const tables = { buddy_sba_packages: [basePkgRow({ swot_opportunities: null })] };
+  const args = { dealId: "deal-1", bankId: "bank-1", packageId: "pkg-1", sb: makeDb(tables) };
+  assert.equal((await enrichBusinessPlanPackage(args)).verdict, "pass");
+  assert.equal(tables.buddy_sba_packages[0].swot_opportunities, completeProse);
+  assert.equal((await enrichBusinessPlanPackage(args)).reusedVerdict, true);
+  assert.equal(repairs, 1);
 });

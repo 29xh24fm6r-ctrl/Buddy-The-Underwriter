@@ -45,6 +45,24 @@ function formatStreamsForPrompt(
 
 const GEMINI_MODEL = MODEL_SBA_NARRATIVE;
 
+/** Initial prose and its repair use the same saved model, never an invented policy floor. */
+export function narrativeCoverageEvidence(params: {
+  dscrYear1?: number;
+  dscrThreshold?: number;
+  sensitivityScenarios?: SensitivityScenario[];
+}): string {
+  const threshold = typeof params.dscrThreshold === "number"
+    ? `The supplied model's applicable coverage threshold is ${params.dscrThreshold.toFixed(2)}x. Do not assert a different policy minimum.`
+    : "No coverage threshold was supplied. Do not infer or state a policy minimum.";
+  return [
+    typeof params.dscrYear1 === "number" ? `Base-case Year 1 DSCR: ${params.dscrYear1.toFixed(2)}x.` : "",
+    threshold,
+    downsideDisclosure(params.sensitivityScenarios),
+    BASE_CASE_LIMITATION,
+    "Include the full failed downside path wherever this section claims repayment strength. Qualify the conclusion; do not imply that a strong base case cures failed downside coverage.",
+  ].filter(Boolean).join("\n");
+}
+
 // ─── BorrowerStory helpers ────────────────────────────────────────────────
 // A story is OPTIONAL. When present, it injects the borrower's own voice
 // into every prompt. When absent, the generators fall back to the older,
@@ -176,6 +194,9 @@ export async function generateBusinessOverviewNarrative(params: {
   dealName: string;
   loanType: string;
   loanAmount: number;
+  dscrYear1?: number;
+  dscrThreshold?: number;
+  sensitivityScenarios?: SensitivityScenario[];
   managementTeam: ManagementMember[];
   revenueStreamNames: string[];
   /**
@@ -212,6 +233,7 @@ ${params.planThesis ? `PLAN THESIS (every section must support this):\n${params.
 Borrower: ${params.dealName}
 Location: ${locationLine}
 Loan amount: $${params.loanAmount.toLocaleString()}
+${narrativeCoverageEvidence(params)}
 
 Management team with bios:
 ${params.managementBios || JSON.stringify(params.managementTeam)}
@@ -258,6 +280,8 @@ export async function generateExecutiveSummary(params: {
   managementLeadNames: string[];
   useOfProceedsDescription: string;
   dscrYear1: number;
+  dscrThreshold?: number;
+  sensitivityScenarios?: SensitivityScenario[];
   projectedRevenueYear1: number;
   yearsInBusiness?: number;
   // Phase 2 additions
@@ -274,7 +298,6 @@ export async function generateExecutiveSummary(params: {
   const locationLine = params.city
     ? `${params.city}${params.state ? `, ${params.state}` : ""}`
     : "Location not specified";
-  const dscrPasses = params.dscrYear1 >= 1.25;
   const storyBlock = formatStoryForPrompt(params.story);
   const storyPresent = storyBlock.length > 0;
 
@@ -311,7 +334,7 @@ Management team with bios:
 ${params.managementBios || "Bios not supplied"}
 
 Projected Year 1 revenue: $${Math.round(params.projectedRevenueYear1).toLocaleString()}
-Year 1 DSCR: ${params.dscrYear1.toFixed(2)}x (SBA minimum: 1.25x — ${dscrPasses ? "PASSES" : "BELOW THRESHOLD"})
+${narrativeCoverageEvidence(params)}
 Equity injection: ${params.equityInjectionPct !== undefined ? `${(params.equityInjectionPct * 100).toFixed(1)}%` : "Not specified"}
 
 ${params.borrowerProfile ? `Borrower research context:\n${params.borrowerProfile}\n` : ""}${params.creditThesis ? `Credit thesis:\n${params.creditThesis}\n` : ""}
@@ -320,8 +343,8 @@ Structure the narrative as:
 2. Business overview and operating history (2–3 sentences). ${storyPresent ? "Draw on the borrower's origin story for texture." : ""}
 3. Revenue model and Year 1 projected performance (2–3 sentences with actual numbers).
 4. Management strength — reference each team member by name with their relevant experience.
-5. Debt service capacity — state the projected DSCR as a fact, note the cushion above or the gap below SBA's 1.25x minimum.
-6. Closing statement on why this specific business is structured to succeed. ${storyPresent && (params.story?.personalVision ?? "").trim() ? "If appropriate, end with a single sentence that hints at the borrower's 3-year vision without overclaiming." : ""}
+5. Debt service capacity — state the projected DSCR against the supplied model threshold and disclose the complete failed downside path.
+6. Closing statement separating the supported base-case opportunity from unresolved evidence and downside repayment risks. ${storyPresent && (params.story?.personalVision ?? "").trim() ? "If appropriate, end with a single sentence that hints at the borrower's 3-year vision without overclaiming." : ""}
 
 Return ONLY valid JSON:
 { "executiveSummary": "..." }`;
@@ -522,7 +545,7 @@ export async function generateSWOTAnalysis(params: {
 
   const prompt = `You are writing a SWOT analysis for an SBA business plan.
 ${STANDARD_GUARDRAILS}
-Keep each section to 3-5 concise bullet-style sentences.
+Write at least 45 words of substantive plain prose in each of the four sections. Keep each section concise. If evidence is sparse, explain the specific missing evidence and its decision impact without inventing facts or adding filler.
 
 CRITICAL: Strengths and weaknesses must reference specific facts about THIS business — team members by name, specific DSCR numbers, specific margin of safety percentage. Generic SWOT items like "strong management team" without naming anyone are unacceptable. Opportunities and threats should cite the provided industry outlook or competitive landscape facts when available.
 ${hasInsight ? "The borrower's stated competitive insight MUST anchor the Strengths list — translate it into a concrete strength the reader can evaluate.\n" : ""}${hasGrowth ? "The borrower's growth strategy MUST inform the Opportunities list — each opportunity should tie to a named growth action.\n" : ""}${hasRisk ? "The borrower's stated biggest risk MUST be the first item in Threats. Confronting the risk the borrower themselves named (rather than hiding it) builds reader trust.\n" : ""}
@@ -678,6 +701,8 @@ export async function generatePlanThesis(params: {
   story: BorrowerStory | null;
   loanAmount: number;
   dscrYear1: number;
+  dscrThreshold?: number;
+  sensitivityScenarios?: SensitivityScenario[];
   projectedRevenueYear1: number;
   projectedRevenueYear3?: number;
   industryDescription: string;
@@ -686,9 +711,8 @@ export async function generatePlanThesis(params: {
   yearsInBusiness?: number;
 }): Promise<string | null> {
   const storyBlock = formatStoryForPrompt(params.story);
-  const dscrPasses = params.dscrYear1 >= 1.25;
 
-  const prompt = `You are the world's greatest business plan writer. Before drafting any section of the plan, you write a single THESIS — 2 to 3 sentences that express the core argument of the entire plan in plain language. Every later section will be written to support this thesis.
+  const prompt = `You are the world's greatest business plan writer. Before drafting any section of the plan, you write a concise THESIS — a short paragraph that expresses the core argument of the entire plan in plain language. Every later section will be written to support this thesis.
 
 ${STANDARD_GUARDRAILS}
 
@@ -696,9 +720,9 @@ REQUIREMENTS FOR THE THESIS:
 - Must name the business (${params.dealName}) and the loan amount ($${params.loanAmount.toLocaleString()}).
 - Must state the specific growth mechanism (how revenue grows — not "through marketing" but a named channel, partnership, customer type, or expansion step).
 - Must state what the loan specifically enables (the concrete thing that gets better, eliminated, built, or unlocked).
-- Must reference the Year 1 DSCR as a coverage/cushion claim (${params.dscrYear1.toFixed(2)}x, SBA min 1.25x — ${dscrPasses ? "cushion above the minimum" : "gap below the minimum"}).
+- Must state the Year 1 DSCR as a conditional base-case model result and include all three downside years when the saved downside fails.
 - Third person. No superlatives. No "will be the leading" or "positioned as the premier". No invented statistics.
-- 2 to 3 sentences total. Do not exceed 3.
+- At least 35 words. Use enough sentences to disclose the supported opportunity, complete failed downside path and its decision impact.
 
 ${storyBlock || "(No borrower story available — derive the growth mechanism from the use of proceeds and industry description.)\n"}
 
@@ -709,11 +733,11 @@ Loan amount: $${params.loanAmount.toLocaleString()}
 Use of proceeds: ${params.useOfProceedsDescription}
 Projected Year 1 revenue: $${Math.round(params.projectedRevenueYear1).toLocaleString()}
 ${params.projectedRevenueYear3 != null ? `Projected Year 3 revenue: $${Math.round(params.projectedRevenueYear3).toLocaleString()}` : ""}
-Year 1 DSCR: ${params.dscrYear1.toFixed(2)}x
+${narrativeCoverageEvidence(params)}
 Management leads: ${(params.managementLeadNames ?? []).join(", ") || "Not specified"}
 
 EXAMPLE (style only — do not copy facts):
-"Samaritus Management is positioned to grow from $1.36M to $1.72M in revenue over three years by adding 2–3 management contracts annually through broker referral partnerships. The $500K loan eliminates the company's largest cost vulnerability — maintenance equipment — while the management team's 15 years of operational experience provide the depth to execute. With a projected Year 1 DSCR of 1.87x, the business carries meaningful cushion above the SBA 1.25x minimum."
+"Samaritus Management is positioned to grow from $1.36M to $1.72M in revenue over three years by adding 2–3 management contracts annually through broker referral partnerships. The $500K loan eliminates the company's largest cost vulnerability — maintenance equipment — while the management team's 15 years of operational experience provide the depth to execute. The projected base-case performance remains conditional on the supplied assumptions; the complete downside path and unresolved evidence determine the limitations of this opportunity."
 
 Return ONLY valid JSON:
 { "thesis": "..." }`;
