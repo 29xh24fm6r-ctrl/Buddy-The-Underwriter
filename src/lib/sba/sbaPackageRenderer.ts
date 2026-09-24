@@ -77,7 +77,8 @@ function fmtPct(val: number): string {
   return `${(val * 100).toFixed(1)}%`;
 }
 
-function fmtDscr(val: number): string {
+function fmtDscr(val: number | null): string {
+  if (val == null) return "Not determined";
   return `${val.toFixed(2)}x`;
 }
 
@@ -293,7 +294,7 @@ function renderKeyMetricsDashboard(s: DocState) {
       label: "Global DSCR",
       value: gcf ? fmtDscr(gcf.globalDSCR) : "N/A",
       sub: "Business + Personal",
-      pass: gcf ? gcf.globalDSCR >= dscrThreshold : true,
+      pass: gcf?.globalDSCR != null ? gcf.globalDSCR >= dscrThreshold : false,
     },
   ];
 
@@ -1028,6 +1029,12 @@ function renderGlobalCashFlow(s: DocState) {
   }
   const maxWidth = doc.page.width - PAGE_MARGIN * 2;
 
+  if (gcf.evidenceStatus === "needs_information") {
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+    doc.text(gcf.evidenceNote ?? "Global cash flow evidence is incomplete.", PAGE_MARGIN, s.y, { width: maxWidth });
+    s.y = doc.y + 16;
+    return;
+  }
   const lines: Array<[string, string]> = [
     ["Business EBITDA", `$${fmtCurrency(Math.round(gcf.businessEbitda))}`],
     ["+ Total Net Personal Cash", `$${fmtCurrency(Math.round(gcf.totalNetPersonalCash))}`],
@@ -1575,7 +1582,7 @@ export function renderSBAPackagePDF(input: SBAPackageRenderInput): Promise<Buffe
     // === Page 14: Global Cash Flow ===
     newPage(s, "12. Global Cash Flow");
     tocEntries[11].page = s.pageNum;
-    if (input.globalCashFlow) {
+    if (input.globalCashFlow && input.globalCashFlow.globalDSCR != null) {
       const gcf = input.globalCashFlow;
       const insight = `Including personal cash flow, the combined coverage ratio is ${fmtDscr(gcf.globalDSCR)}. Business EBITDA of $${fmtCurrency(Math.round(gcf.businessEbitda))} plus net personal cash of $${fmtCurrency(Math.round(gcf.totalNetPersonalCash))} covers $${fmtCurrency(Math.round(gcf.globalDebtService))} of total debt service.`;
       renderInsightCallout(s, insight, "12. Global Cash Flow");

@@ -38,16 +38,16 @@ function makeInputs(overrides: Record<string, unknown> = {}) {
 }
 
 describe("V-M2 — for_profit_unknown resolves when businessEntityType is provided", () => {
-  it("null businessEntityType → for_profit_unknown failure", () => {
+  it("null businessEntityType → outstanding for_profit_unknown requirement", () => {
     const result = evaluateBuddySbaEligibility(makeInputs());
-    const unknown = result.failures.find((f) => f.check === "for_profit_unknown");
+    const unknown = result.unresolved?.find((f) => f.check === "for_profit_unknown");
     assert.ok(unknown, "for_profit_unknown must be present when businessEntityType is null");
-    assert.equal(result.passed, false, "eligibility must fail when entity type is missing");
+    assert.equal(result.checks.find(c => c.check === "for_profit_unknown")?.passed, false);
   });
 
-  it("empty string businessEntityType → for_profit_unknown failure", () => {
+  it("empty string businessEntityType → outstanding for_profit_unknown requirement", () => {
     const result = evaluateBuddySbaEligibility(makeInputs({ businessEntityType: "" }));
-    const unknown = result.failures.find((f) => f.check === "for_profit_unknown");
+    const unknown = result.unresolved?.find((f) => f.check === "for_profit_unknown");
     assert.ok(unknown, "for_profit_unknown must be present when businessEntityType is empty string");
   });
 
@@ -82,10 +82,10 @@ describe("V-M2 — for_profit_unknown resolves when businessEntityType is provid
   it("end-to-end chain proof: null → LLC mirrors production propagation", () => {
     // Before propagation: entity_type missing
     const before = evaluateBuddySbaEligibility(makeInputs());
-    const beforeFailures = before.failures.map((f) => f.check);
+    const beforeFailures = (before.unresolved ?? []).map((f) => f.check);
     assert.ok(
       beforeFailures.includes("for_profit_unknown"),
-      "BEFORE: for_profit_unknown must be in failures",
+      "BEFORE: for_profit_unknown must be an outstanding requirement",
     );
 
     // After propagation: entity_type = LLC (what C-0.2 does)

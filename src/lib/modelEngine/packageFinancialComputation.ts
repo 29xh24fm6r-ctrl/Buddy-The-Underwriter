@@ -230,13 +230,28 @@ export async function computePackageFinancialModel(dealId: string, bankId: strin
   );
 
   const globalCashFlow = computeGlobalCashFlow({
-    businessEbitda: baseYear.ebitda,
+    businessEbitda: preOpening ? annualProjections[0].ebitda : baseYear.ebitda,
     businessDebtService:
-      baseYear.totalDebtService > 0
+      !preOpening && baseYear.totalDebtService > 0
         ? baseYear.totalDebtService
         : annualProjections[0]?.totalDebtService ?? 0,
     guarantors,
   });
+  // Income statements disclose historical salary, not its continuation after
+  // opening; balance-sheet debt balances are not annual payment schedules.
+  // Only a complete, owner-linked cash-flow schedule supports global DSCR.
+  const cashFields = ["w2_salary", "other_personal_income", "mortgage_payment", "auto_payments", "student_loans", "credit_card_minimums", "other_personal_debt"] as const;
+  const requiredOwners = (interestRows ?? []).filter((i: any) => Number(i.ownership_pct) >= 20).map((i: any) => i.owner_entity_id);
+  const completeCashFlow = requiredOwners.length > 0 && requiredOwners.every((id: string) => {
+    const row = (guarantorRows ?? []).find((g: any) => g.entity_id === id);
+    return row && cashFields.every(key => row[key] != null && row[key] !== "" && Number.isFinite(Number(row[key])));
+  });
+  globalCashFlow.evidenceStatus = completeCashFlow ? "complete" : "needs_information";
+  globalCashFlow.businessBasis = preOpening ? "projected_year_1" : "historical";
+  globalCashFlow.evidenceNote = completeCashFlow
+    ? "Owner-linked personal income and annual debt-payment schedules supplied; confirm ongoing income and avoid double counting business distributions."
+    : "Global coverage is not determined. Confirm ongoing personal income and annual payment schedules for all required guarantors. Saved personal statements and historical tax income alone do not establish ongoing repayment cash flow.";
+  if (!completeCashFlow) { globalCashFlow.globalDSCR = null; globalCashFlow.meetsSbaThreshold = null; }
 
   // Materialize the existing audited historical spread once, as part of this output.
   // Document workers consume the stored render input and never load/recompute it.

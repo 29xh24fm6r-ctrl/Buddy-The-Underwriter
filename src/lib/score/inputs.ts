@@ -12,6 +12,7 @@ import "server-only";
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadPackageBorrowerContext } from "@/lib/sba/packageBorrowerContext";
 import {
   buildSBARiskProfile,
   type SBARiskProfile,
@@ -108,7 +109,7 @@ export type ScoreInputs = {
 };
 
 function tryNumber(value: unknown): number | null {
-  if (value == null) return null;
+  if (value == null || value === "" || typeof value === "boolean") return null;
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -159,6 +160,7 @@ export async function loadScoreInputs(params: {
   }
 
   if (params.packageEvidence && deal.bank_id !== params.packageEvidence.bankId) throw new Error("Package score tenant mismatch");
+  const borrowerContext = await loadPackageBorrowerContext(sb, dealId, deal.bank_id);
 
   // ─── Borrower application / applicants ────────────────────────────────
   const { data: application } = await sb
@@ -203,6 +205,23 @@ export async function loadScoreInputs(params: {
     }
   }
 
+  // The guided borrower path has canonical owner identities without a legacy
+  // application row. Never join different owners by array index or name.
+  {
+    const owners = await sb.from("ownership_entities").select("id").eq("deal_id", dealId);
+    if (owners.error) throw new Error("score_owner_evidence_unavailable");
+    const ids = (owners.data ?? []).map((o: { id: string }) => o.id);
+    if (ids.length) {
+      const financials = await sb.from("borrower_applicant_financials")
+        .select("applicant_id,fico_score,liquid_assets,net_worth,industry_experience_years").in("applicant_id", ids);
+      if (financials.error) throw new Error("score_owner_financials_unavailable");
+      applicants = ids.map((id: string) => {
+        const row = financials.data?.find((r: any) => r.applicant_id === id);
+        return { applicantId: id, ficoScore: tryNumber(row?.fico_score), liquidAssets: tryNumber(row?.liquid_assets),
+          netWorth: tryNumber(row?.net_worth), industryExperienceYears: tryNumber(row?.industry_experience_years) };
+      });
+    }
+  }
   if (applicants.length === 0) missing.push("applicants");
   if (!applicants.some((a) => a.ficoScore != null)) missing.push("fico_score");
   if (!applicants.some((a) => a.liquidAssets != null)) missing.push("liquid_assets");
@@ -215,7 +234,7 @@ export async function loadScoreInputs(params: {
   let packageQuery = sb
     .from("buddy_sba_packages")
     .select(
-      "dscr_year1_base, dscr_year1_downside, global_dscr, sba_guarantee_pct, sources_and_uses, use_of_proceeds, projections_annual",
+      "dscr_year1_base, dscr_year1_downside, global_dscr, sba_guarantee_pct, sources_and_uses, use_of_proceeds, projections_annual, sensitivity_scenarios",
     )
     .eq("deal_id", dealId);
   if (params.packageEvidence) packageQuery = packageQuery.eq("id", params.packageEvidence.packageId);
@@ -223,6 +242,11 @@ export async function loadScoreInputs(params: {
   if (packageError || (params.packageEvidence && !pkg)) throw new Error("Package score projection evidence unavailable");
 
   if (!pkg) missing.push("buddy_sba_packages");
+  const downside = Array.isArray(pkg?.sensitivity_scenarios)
+    ? pkg.sensitivity_scenarios.find((s: any) => s?.name === "downside") : null;
+  const downsideCoverage = downside ? [downside.dscrYear1, downside.dscrYear2, downside.dscrYear3].map(tryNumber) : [];
+  const dscrStress = downsideCoverage.length === 3 && downsideCoverage.every((n: number | null) => n != null)
+    ? Math.min(...downsideCoverage as number[]) : tryNumber(pkg?.dscr_year1_downside);
 
   // ─── Facts (for yearsInBusiness, revenue, employees) ─────────────────
   const { data: factRows } = await sb
@@ -239,9 +263,9 @@ export async function loadScoreInputs(params: {
     return null;
   }
 
-  const yearsInBusiness = factNum("YEARS_IN_BUSINESS");
+  const yearsInBusiness = borrowerContext.businessStage === "pre_opening" ? 0 : factNum("YEARS_IN_BUSINESS");
   const annualRevenueUsd = factNum("TOTAL_REVENUE", "ANNUAL_REVENUE");
-  const employeeCount = factNum("EMPLOYEE_COUNT");
+  const employeeCount = borrowerContext.employeeCount ?? factNum("EMPLOYEE_COUNT");
   const totalAssetsUsd = factNum("TOTAL_ASSETS");
   const tangibleNetWorthUsd = factNum("TANGIBLE_NET_WORTH");
   const avgNetIncomeTwoYearUsd = factNum("AVG_NET_INCOME_2YR");
@@ -326,7 +350,7 @@ export async function loadScoreInputs(params: {
     .eq("deal_id", dealId)
     .maybeSingle();
 
-  const isFranchise = Boolean(franchiseLink?.brand_id);
+  const isFranchise = borrowerContext.franchiseDeclared || Boolean(franchiseLink?.brand_id);
   let franchise: ScoreInputs["franchise"] = null;
 
   if (isFranchise && franchiseLink?.brand_id) {
@@ -360,7 +384,7 @@ export async function loadScoreInputs(params: {
   // ─── Management depth (buddy_sba_assumptions.management_team) ────────
   const { data: assumptions } = await sb
     .from("buddy_sba_assumptions")
-    .select("management_team")
+    .select("management_team,loan_impact,status")
     .eq("deal_id", dealId)
     .maybeSingle();
 
@@ -393,17 +417,22 @@ export async function loadScoreInputs(params: {
     value_numeric: tryNumber(r.fact_value_num),
     value_text: (r.fact_value_text as string | null) ?? null,
   }));
+  if (borrowerContext.businessStage === "pre_opening") {
+    for (let i = facts.length - 1; i >= 0; i--) if (["YEARS_IN_BUSINESS", "MONTHS_IN_BUSINESS"].includes(facts[i].fact_key)) facts.splice(i, 1);
+    facts.push({ fact_key: "YEARS_IN_BUSINESS", value_numeric: 0, value_text: null });
+  }
 
   const riskProfile = await buildSBARiskProfile({
     dealId,
     loanType: (deal as any).loan_type ?? "7a",
-    naicsCode: application?.naics ?? null,
-    termMonths: null, // Sprint 0: term lives on buddy_sba_packages or equivalents; pass null to let profile treat as medium.
+    naicsCode: borrowerContext.naics,
+    termMonths: assumptions?.status === "confirmed" ? tryNumber(assumptions.loan_impact?.termMonths) : null,
     urbanRural: null as UrbanRuralClassification | null,
-    state: null,
+    state: borrowerContext.state,
     zip: null,
     facts,
-    managementYearsInIndustry: null,
+    managementYearsInIndustry: Array.isArray(assumptions?.management_team) && assumptions.management_team.length
+      ? Math.max(...assumptions.management_team.map((m: any) => tryNumber(m.yearsInIndustry) ?? 0)) : null,
     hasBusinessPlan: true,
     sb,
   });
@@ -413,9 +442,11 @@ export async function loadScoreInputs(params: {
     dealId,
     bankId: (deal as any).bank_id,
     loanAmount: tryNumber((deal as any).loan_amount),
-    naics: application?.naics ?? null,
-    industry: application?.industry ?? null,
-    businessEntityType: application?.business_entity_type ?? null,
+    naics: borrowerContext.naics,
+    industry: borrowerContext.industry,
+    businessEntityType: borrowerContext.businessEntityType,
+    inputSources: borrowerContext.inputSources,
+    businessStage: borrowerContext.businessStage,
     compositeRiskScore: riskProfile.compositeRiskScore,
     compositeRiskTier: riskProfile.compositeRiskTier,
     industryTier: riskProfile.industryFactor.tier,
@@ -440,12 +471,12 @@ export async function loadScoreInputs(params: {
     program: (deal as any).loan_type ?? "7a",
     isFranchise,
     riskProfile,
-    naics: application?.naics ?? null,
-    industry: application?.industry ?? null,
-    businessEntityType: application?.business_entity_type ?? null,
+    naics: borrowerContext.naics,
+    industry: borrowerContext.industry,
+    businessEntityType: borrowerContext.businessEntityType,
     applicants,
     dscrBase: tryNumber(pkg?.dscr_year1_base),
-    dscrStress: tryNumber(pkg?.dscr_year1_downside),
+    dscrStress,
     dscrGlobal: tryNumber(pkg?.global_dscr),
     sbaGuarantyPct: tryNumber(pkg?.sba_guarantee_pct),
     sourcesAndUses: pkg?.sources_and_uses ?? null,

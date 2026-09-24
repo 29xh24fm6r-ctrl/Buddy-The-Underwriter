@@ -59,7 +59,10 @@ function load(): DatasetLoadResult {
 }
 
 export function getDataset(): DatasetLoadResult {
-  if (!cached) cached = load();
+  if (!cached) {
+    cached = load();
+    if (!cached.ok) console.error("[sba-size-standard] reference load failed", cached.error);
+  }
   return cached;
 }
 

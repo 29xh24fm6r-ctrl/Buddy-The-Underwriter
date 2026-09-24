@@ -187,6 +187,7 @@ export async function enrichFeasibilityStudy(args: {
           ),
           sourcesAndUses: projectionPackage.sources_and_uses,
           globalCashFlow: pick(projectionPackage.global_cash_flow, [
+            "evidenceStatus", "evidenceNote", "businessBasis",
             "globalDSCR", "globalCashAvailable", "globalDebtService",
             "businessEbitda", "businessDebtService",
             "totalPersonalIncome", "totalPersonalObligations",

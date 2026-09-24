@@ -54,13 +54,13 @@ describe("F-2 — scoring input bridge: concierge facts reach the scorer", () =>
     assert.equal(result.failures.length, 0, "No eligibility failures expected");
   });
 
-  it("before fix: null entity_type → for_profit_unknown failure", () => {
+  it("null entity_type → unresolved requirement, not borrower denial", () => {
     const inputs = makeEligibilityInputs({ businessEntityType: null });
     const result = evaluateBuddySbaEligibility(inputs);
 
-    assert.equal(result.passed, false, "Must fail eligibility with null entity_type");
-    const forProfitFailure = result.failures.find((f: { check: string }) => f.check === "for_profit_unknown");
-    assert.ok(forProfitFailure, "Must have for_profit_unknown failure");
+    assert.equal(result.failures.length, 0);
+    assert.equal(result.checks.find(c => c.check === "for_profit_unknown")?.passed, false);
+    assert.ok(result.unresolved?.some(f => f.check === "for_profit_unknown"));
   });
 
   it("before fix: null useOfProceeds → use_of_proceeds_unknown failure", () => {
