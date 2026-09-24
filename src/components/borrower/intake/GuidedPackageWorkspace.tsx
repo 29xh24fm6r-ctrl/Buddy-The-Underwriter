@@ -694,7 +694,7 @@ function JourneyPanels({
           </section>
 
           <IdentityVerificationPanel token={dealId} />
-          <SealPackageCard dealId={dealId} onReviewDocuments={onReviewDocuments} />
+          <SealPackageCard dealId={dealId} onReviewDocuments={onReviewDocuments} onQuestion={onQuestion} />
           <SigningPanel dealId={dealId} />
         </div>
       )}

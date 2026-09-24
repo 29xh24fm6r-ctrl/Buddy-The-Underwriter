@@ -22,21 +22,24 @@ export async function GET(): Promise<NextResponse> {
   }
 
   const sb = supabaseAdmin();
-  const { data: link } = await sb
+  const { data: link, error: linkError } = await sb
     .from("deal_franchises")
     .select("brand_id")
     .eq("deal_id", session.deal_id)
     .maybeSingle();
 
+  if (linkError) return NextResponse.json({ ok: false, error: "franchise_state_unavailable" }, { status: 503 });
   if (!link?.brand_id) {
     return NextResponse.json({ ok: true, brandId: null, brandName: null });
   }
 
-  const { data: brand } = await sb
+  const { data: brand, error: brandError } = await sb
     .from("franchise_brands")
     .select("brand_name")
     .eq("id", link.brand_id)
     .maybeSingle();
+
+  if (brandError || !brand) return NextResponse.json({ ok: false, error: "franchise_state_unavailable" }, { status: 503 });
 
   return NextResponse.json({
     ok: true,

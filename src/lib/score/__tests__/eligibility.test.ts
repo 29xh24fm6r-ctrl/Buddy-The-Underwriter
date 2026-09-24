@@ -11,7 +11,7 @@ function baseInputs(overrides: Partial<BuddyEligibilityInputs> = {}): BuddyEligi
     naics: "722513", // limited-service restaurants (revenue threshold $12.5M)
     industry: "Food service",
     businessEntityType: "LLC",
-    annualRevenueUsd: 2_000_000,
+    annualReceiptsUsd: 2_000_000,
     employeeCount: 25,
     useOfProceeds: [{ category: "equipment", amount: 100_000 }],
     sourcesAndUses: null,
@@ -115,7 +115,7 @@ test("size-standard: null NAICS is unresolved, not a denial and not a pass", () 
 test("size-standard: known revenue-based NAICS under threshold passes", () => {
   const r = evaluateBuddySbaEligibility(baseInputs({
     naics: "722513",
-    annualRevenueUsd: 5_000_000,
+    annualReceiptsUsd: 5_000_000,
   }));
   const check = r.checks.find((c) => c.check === "size_standard")!;
   assert.equal(check.passed, true);
@@ -127,7 +127,7 @@ test("size-standard: over threshold with no alternative-standard data is unresol
   // ineligibility here would repeat the old bug in a new place.
   const r = evaluateBuddySbaEligibility(baseInputs({
     naics: "722513",
-    annualRevenueUsd: 50_000_000,
+    annualReceiptsUsd: 50_000_000,
   }));
   assert.equal(r.failures.some((f) => f.check === "size_standard"), false);
   const item = (r.unresolved ?? []).find((u) => u.check === "size_standard");
@@ -137,7 +137,7 @@ test("size-standard: over threshold with no alternative-standard data is unresol
 test("size-standard: over BOTH standards is a real eligibility failure", () => {
   const r = evaluateBuddySbaEligibility(baseInputs({
     naics: "722513",
-    annualRevenueUsd: 50_000_000,
+    annualReceiptsUsd: 50_000_000,
     tangibleNetWorthUsd: 40_000_000,
     avgNetIncomeTwoYearUsd: 12_000_000,
   }));
@@ -148,7 +148,7 @@ test("size-standard: over BOTH standards is a real eligibility failure", () => {
 test("size-standard: alternative size standard rescues an over-threshold applicant", () => {
   const r = evaluateBuddySbaEligibility(baseInputs({
     naics: "722513",
-    annualRevenueUsd: 50_000_000,
+    annualReceiptsUsd: 50_000_000,
     tangibleNetWorthUsd: 15_000_000,
     avgNetIncomeTwoYearUsd: 4_000_000,
   }));
@@ -159,7 +159,7 @@ test("size-standard: alternative size standard rescues an over-threshold applica
 test("size-standard: employee-based NAICS uses employee count, not revenue", () => {
   const underEmployees = evaluateBuddySbaEligibility(baseInputs({
     naics: "332710", // machine shops — 500-employee standard
-    annualRevenueUsd: 999_999_999, // huge revenue irrelevant
+    annualReceiptsUsd: 999_999_999, // huge revenue irrelevant
     employeeCount: 100,
   }));
   assert.equal(
@@ -169,7 +169,7 @@ test("size-standard: employee-based NAICS uses employee count, not revenue", () 
 
   const overEmployees = evaluateBuddySbaEligibility(baseInputs({
     naics: "332710",
-    annualRevenueUsd: 100,
+    annualReceiptsUsd: 100,
     employeeCount: 2000,
   }));
   assert.equal(
@@ -371,7 +371,7 @@ test("a fully clean compliance disclosure does not by itself block an otherwise-
 test("lending_investment: NAICS 522 triggers failure even if NAICS isn't in top-50", () => {
   const r = evaluateBuddySbaEligibility(baseInputs({
     naics: "522110",
-    annualRevenueUsd: 100_000,
+    annualReceiptsUsd: 100_000,
   }));
   assert.ok(r.failures.some((f) => f.check === "lending_investment"));
 });

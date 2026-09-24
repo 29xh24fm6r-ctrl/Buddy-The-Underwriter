@@ -17,7 +17,7 @@ test("canonical-only startup loads borrower and same-owner PFS without legacy ap
     ownership_entities: [{ id: "owner" }],
     borrower_applicant_financials: [{ applicant_id: "owner", liquid_assets: 350000, net_worth: 750000 }],
     buddy_sba_assumptions: { status: "confirmed", loan_impact: { termMonths: 120 }, management_team: [{ yearsInIndustry: 8 }] },
-    deal_financial_facts: [], deal_collateral_items: [],
+    deal_financial_facts: [{ fact_key: "TOTAL_REVENUE", fact_value_num: 5000000 }], deal_collateral_items: [],
     buddy_sba_packages: { dscr_year1_downside: 1.44, sensitivity_scenarios: [{ name: "downside", dscrYear1: 1.44, dscrYear2: .74, dscrYear3: .08 }] },
   };
   const reads: string[] = [];
@@ -34,4 +34,11 @@ test("canonical-only startup loads borrower and same-owner PFS without legacy ap
   assert.equal(riskInput.termMonths, 120); assert.equal(riskInput.managementYearsInIndustry, 8);
   assert.ok(riskInput.facts.some((f: any) => f.fact_key === "YEARS_IN_BUSINESS" && f.value_numeric === 0));
   assert.ok(!reads.includes("borrower_applicants"));
+  assert.equal(input.annualRevenueUsd, 5000000);
+  assert.equal(input.averageAnnualReceiptsUsd, null, "single-year revenue cannot satisfy the size receipts test");
+  rows.borrower_concierge_sessions.confirmed_facts.package_answers.B13 = { value: 0 };
+  rows.borrower_concierge_sessions.confirmed_facts.package_answers.B14 = { value: "Pre-opening applicant; no affiliates; supporting records reviewed" };
+  const updated = await loadScoreInputs({ dealId: "d", sb });
+  assert.equal(updated.averageAnnualReceiptsUsd, 0);
+  assert.equal(updated.annualRevenueUsd, 5000000, "receipts must not overwrite historical revenue used for repayment analysis");
 });

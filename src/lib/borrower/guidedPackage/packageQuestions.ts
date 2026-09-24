@@ -127,6 +127,16 @@ export const PACKAGE_QUESTIONS = [
       "What entities are co-borrowers, property owners, operating companies, or affiliates?",
   },
   {
+    id: "B13",
+    section: " Business identity and organization",
+    question: "What are the business's average annual receipts for SBA size evaluation, including all applicable affiliates?",
+  },
+  {
+    id: "B14",
+    section: " Business identity and organization",
+    question: "Explain the receipts calculation period, included affiliates, and supporting records. If pre-opening, explain whether the business or any affiliate has receipts.",
+  },
+  {
     id: "C01",
     section: " Owners, management, and related businesses",
     question:

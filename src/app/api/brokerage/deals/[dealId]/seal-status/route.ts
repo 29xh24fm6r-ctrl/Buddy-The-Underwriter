@@ -279,6 +279,7 @@ async function loadScoreForResponse(
         "top_strengths, top_weaknesses, narrative, computed_at",
     )
     .eq("deal_id", dealId)
+    .is("superseded_at", null)
     .order("computed_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -288,6 +289,7 @@ async function loadScoreForResponse(
     score: row.score,
     band: row.band,
     eligibilityPassed: row.eligibility_passed,
+    isFranchise: row.input_snapshot?.isFranchise === true,
     eligibilityFailures: row.eligibility_failures ?? [],
     // Outstanding Items: what the borrower still needs to supply. Distinct
     // from eligibilityFailures, which are actual SBA findings. Surfacing

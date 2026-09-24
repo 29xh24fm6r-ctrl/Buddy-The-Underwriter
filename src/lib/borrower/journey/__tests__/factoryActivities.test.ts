@@ -6,13 +6,13 @@ import { buildGuidedSnapshot } from "../../guidedPackage/questions";
 import { recommendedQuestions } from "../presentation";
 import { saveActivityAnswers, type ActivityDrafts } from "../saveActivity";
 
-test("all 165 original questions have exactly one of 24 activity destinations", () => {
+test("all 167 original questions have exactly one of 24 activity destinations", () => {
   const ids = FACTORY_ACTIVITIES.flatMap(a => [...a.questionIds]);
   assert.equal(FACTORY_ACTIVITIES.length, 24);
-  assert.equal(ids.length, 165);
-  assert.equal(new Set(ids).size, 165);
+  assert.equal(ids.length, 167);
+  assert.equal(new Set(ids).size, 167);
   assert.deepEqual([...ids].sort(), PACKAGE_QUESTIONS.map(q => q.id).sort());
-  assert.equal(Object.keys(QUESTION_TREATMENTS).length, 165);
+  assert.equal(Object.keys(QUESTION_TREATMENTS).length, 167);
 });
 test("7 Brew franchise intent exposes franchise follow-ups without assuming an acquisition", () => {
   const snapshot = buildGuidedSnapshot({ rows: {}, facts: { package_answers: {

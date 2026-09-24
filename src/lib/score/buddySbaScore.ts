@@ -31,7 +31,8 @@ import type {
   ScoreBand,
 } from "./types";
 
-export const SCORE_VERSION = "1.1.0";
+import { SCORE_VERSION } from "./version";
+export { SCORE_VERSION } from "./version";
 
 export async function computeBuddySBAScore(params: {
   dealId: string;
@@ -46,7 +47,7 @@ export async function computeBuddySBAScore(params: {
     naics: inputs.naics,
     industry: inputs.industry,
     businessEntityType: inputs.businessEntityType,
-    annualRevenueUsd: inputs.annualRevenueUsd,
+    annualReceiptsUsd: inputs.averageAnnualReceiptsUsd ?? null,
     employeeCount: inputs.employeeCount,
     totalAssetsUsd: inputs.totalAssetsUsd ?? null,
     tangibleNetWorthUsd: inputs.tangibleNetWorthUsd ?? null,

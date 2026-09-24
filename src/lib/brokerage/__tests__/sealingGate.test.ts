@@ -95,9 +95,17 @@ require.cache[checklistModule] = { loaded: true, exports: { readPackageDocumentR
 
 const { canSeal } = require("../sealingGate") as typeof import("../sealingGate");
 
+test("outdated eligibility evidence requires a rebuilt package, even with a passing score", async () => {
+  resetHappy();
+  state.score!.score_version = "1.1.0";
+  const result = await canSeal("deal-1", sbStub);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.ok(result.reasons.some(reason => reason.includes("current eligibility checks")));
+});
+
 function resetHappy() {
   documentResult = { ok: true, reasons: [], items: [] };
-  state.score = { score: 75, band: "selective_fit", eligibility_passed: true };
+  state.score = { score: 75, score_version: "1.2.0", band: "selective_fit", eligibility_passed: true };
   state.assumptions = {
     status: "confirmed",
     loan_impact: { termMonths: 120, loanAmount: 500_000 },

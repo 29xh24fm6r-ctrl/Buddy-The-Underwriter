@@ -146,6 +146,8 @@ export function questionHelp(q: GuidedQuestion) {
     return "You can leave this for now. The options in Your plan explain possible paths; choosing a program here changes the forms in your application and does not establish eligibility.";
   if (q.id === "loan.amount_requested")
     return "Enter your current requested amount in USD. If you are unsure, choose Return later; you can organize the project budget first.";
+  if (q.id === "B13" || q.id === "B14")
+    return "Use actual receipts and explain the applicable calculation period and affiliates. Do not use projected sales. A pre-opening business must still account for affiliate receipts. If unsure, leave the amount unanswered and describe what needs review. After changes, review and prepare your package again.";
   if (q.ownerName)
     return `This answer belongs to ${q.ownerName}. Check the person before saving.`;
   return CHAPTERS.find((c) => c.id === chapterFor(q))!.help;
@@ -175,6 +177,8 @@ const MISSION_QUESTION_IDS: Record<Chapter, ReadonlySet<string>> = {
   business: new Set([
     "B05",
     "B07",
+    "B13",
+    "B14",
     "C05",
     "C06",
     "D02",

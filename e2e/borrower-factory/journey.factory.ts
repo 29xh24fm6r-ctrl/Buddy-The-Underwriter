@@ -1,6 +1,6 @@
 import { packageRecoveryItems } from "../../src/lib/borrower/guidedPackage/packageRecovery";
 import { test, expect, type Page } from "@playwright/test";
-import { buildGuidedSnapshot } from "../../src/lib/borrower/guidedPackage/questions";
+import { buildGuidedSnapshot, parseAnswer } from "../../src/lib/borrower/guidedPackage/questions";
 import { LENDER_PACKAGE_FILES } from "../../src/lib/brokerage/lenderPackageFiles";
 import { borrowerPackageFailure, packageFailureForCurrentCapacity } from "../../src/lib/borrower/guidedPackage/completion";
 async function setup(page: Page, preparePackage = false, testCompletion = false, testRecovery = false, packageState?: { released?: boolean; complete?: boolean; missingFile?: boolean; capacity?: boolean; check?: string; stale?: boolean; operationalRecovery?: boolean; capacityFailure?: "preparation" | "bundle" }) {
@@ -46,7 +46,7 @@ async function setup(page: Page, preparePackage = false, testCompletion = false,
         if (q.field)
           rows.deal_loan_requests[0][q.field.registryEntry.sourceColumn] =
             body.value;
-        else facts.package_answers[body.questionId] = { value: body.value };
+        else facts.package_answers[body.questionId] = { value: parseAnswer(body.value, q.type) };
       }
       if (url.searchParams.get("view") === "schedules")
         return respond({ ok: true, owners: [], schedules: {} });
@@ -144,6 +144,41 @@ async function setup(page: Page, preparePackage = false, testCompletion = false,
     },
   };
 }
+test("eligibility recovery saves explicit receipts and selected franchise without claiming submission", async ({ page }) => {
+  const fixture = await setup(page);
+  let selected = false;
+  await page.route("**/seal-status", route => route.fulfill({ json: {
+    ok: true, sealed: false, canSeal: false, gateReasons: ["Average annual receipts and franchise evidence need review."],
+    score: { isFranchise: true, eligibilityUnresolved: [{ check: "size_standard", nextAction: "Provide average annual receipts, including any affiliates." }], topWeaknesses: ["Downside debt coverage is weak"] },
+  } }));
+  await page.route("**/api/brokerage/franchise", route => {
+    if (route.request().method() === "PATCH") {
+      expect(route.request().postDataJSON()).toEqual({ brand_id: "brand-7-brew" });
+      selected = true;
+    }
+    return route.fulfill({ json: { ok: true, brandId: selected ? "brand-7-brew" : null, brandName: selected ? "7 BREW" : null } });
+  });
+  await page.route("**/api/franchise/search?*", route => route.fulfill({ json: { brands: [{ id: "brand-7-brew", brand_name: "7 BREW", sba_certification_status: "certified" }] } }));
+  await page.getByRole("button", { name: /MISSION 5 Make it ready/ }).click();
+  await page.getByRole("textbox", { name: "Search for your franchise brand" }).fill("7 Brew");
+  await page.getByRole("button", { name: /7 BREW/ }).click();
+  expect(selected).toBe(true);
+  await expect(page.getByText(/Brand selection is saved/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Submit for lender matching", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Review average annual receipts", exact: true }).click();
+  await page.getByRole("textbox", { name: /average annual receipts for SBA size evaluation/ }).fill("0");
+  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
+  expect(fixture.facts.package_answers.B13.value).toBe(0);
+  await page.getByRole("button", { name: /MISSION 5 Make it ready/ }).click();
+  await page.getByRole("button", { name: "Review receipts calculation and affiliates", exact: true }).click();
+  await page.getByRole("textbox", { name: /Explain the receipts calculation period/ }).fill("Pre-opening; no receipts from the applicant or affiliates. Supporting records supplied.");
+  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
+  await page.reload();
+  await page.getByRole("button", { name: /MISSION 5 Make it ready/ }).click();
+  await page.getByRole("button", { name: "Review average annual receipts", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: /average annual receipts for SBA size evaluation/ })).toHaveValue("0");
+  expect(fixture.calls.filter(call => /\/(build-package|seal)$/.test(call))).toHaveLength(0);
+});
 for (const released of [false,true]) test(`completed package uses safe file status with release ${released}`, async ({page}) => {
   await setup(page,true,false,false,{complete:true,released});
   await page.getByRole("button",{name:/MISSION 4 Prepare your package/}).click();

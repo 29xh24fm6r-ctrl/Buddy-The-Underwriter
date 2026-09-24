@@ -193,7 +193,7 @@ function evalFromInputs(inputs: ScoreInputs): EligibilityResult {
     naics: inputs.naics,
     industry: inputs.industry,
     businessEntityType: inputs.businessEntityType,
-    annualRevenueUsd: inputs.annualRevenueUsd,
+    annualReceiptsUsd: inputs.annualRevenueUsd,
     employeeCount: inputs.employeeCount,
     useOfProceeds: inputs.useOfProceeds,
     sourcesAndUses: inputs.sourcesAndUses,
@@ -213,8 +213,8 @@ function evalFromInputs(inputs: ScoreInputs): EligibilityResult {
 
 // ─── Smoke tests ───────────────────────────────────────────────────────
 
-test("synthetic: SCORE_VERSION exported as 1.1.0", () => {
-  assert.equal(SCORE_VERSION, "1.1.0");
+test("synthetic: SCORE_VERSION exported as 1.2.0", () => {
+  assert.equal(SCORE_VERSION, "1.2.0");
 });
 
 test("synthetic: strong deal (max-ish everything) lands in institutional_prime", () => {

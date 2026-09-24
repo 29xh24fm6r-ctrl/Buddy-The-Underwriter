@@ -120,7 +120,7 @@ export type BuddyEligibilityInputs = {
   naics: string | null;
   industry: string | null;
   businessEntityType: string | null;
-  annualRevenueUsd: number | null;
+  annualReceiptsUsd: number | null;
   employeeCount: number | null;
   /**
    * Total assets. Required only by the handful of depository-institution
@@ -239,7 +239,7 @@ export function evaluateBuddySbaEligibility(
   // 52-code placeholder did to every deal in production).
   const sizeOutcome = evaluateSizeEligibility({
     naics: inputs.naics,
-    annualReceiptsUsd: inputs.annualRevenueUsd,
+    annualReceiptsUsd: inputs.annualReceiptsUsd,
     employeeCount: inputs.employeeCount,
     totalAssetsUsd: inputs.totalAssetsUsd ?? null,
     tangibleNetWorthUsd: inputs.tangibleNetWorthUsd ?? null,

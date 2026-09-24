@@ -18,7 +18,7 @@ function makeInputs(overrides: Record<string, unknown> = {}) {
     naics: null as string | null,
     industry: null as string | null,
     businessEntityType: null as string | null,
-    annualRevenueUsd: null as number | null,
+    annualReceiptsUsd: null as number | null,
     employeeCount: null as number | null,
     useOfProceeds: null as unknown[] | null,
     sourcesAndUses: null as unknown,

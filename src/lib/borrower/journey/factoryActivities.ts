@@ -1,6 +1,6 @@
 import type { GuidedQuestion } from "../guidedPackage/questions";
 
-/** All 165 original prompts retain a destination. Activity completion is not loan approval. */
+/** All package prompts retain a destination. Activity completion is not loan approval. */
 export const FACTORY_ACTIVITIES = [
   {
     "id": 1,
@@ -50,7 +50,9 @@ export const FACTORY_ACTIVITIES = [
       "B02",
       "B04",
       "B09",
-      "B12"
+      "B12",
+      "B13",
+      "B14"
     ]
   },
   {
@@ -365,6 +367,8 @@ export const QUESTION_TREATMENTS: Record<string, string> = {
   "B10": "Conditional",
   "B11": "Merge",
   "B12": "Merge",
+  "B13": "Keep",
+  "B14": "Review",
   "C01": "Keep",
   "C02": "Conditional",
   "C03": "Conditional",
