@@ -66,7 +66,6 @@ buddy_action_recommendations.category
 buddy_action_recommendations.visibility
 buddy_banker_trust_events.payload
 buddy_experiments.definition
-buddy_feasibility_studies.generated_at
 buddy_feedback_events.normalized
 buddy_ledger_events.created_at
 buddy_ledger_events.event_category
