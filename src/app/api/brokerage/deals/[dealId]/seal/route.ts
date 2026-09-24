@@ -11,7 +11,7 @@ import "server-only";
  *   hasn't hit the marketplace preview window yet.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { SHARING_CONFIRMATION_VERSION, SHARING_CONFIRMATION_STATEMENT } from "@/lib/brokerage/sharingConfirmation";
@@ -25,10 +25,12 @@ import {
   sealedPackageArtifactColumns,
   SealSnapshotError,
 } from "@/lib/brokerage/buildSealedSnapshot";
+import { certifyCompletePackage } from "@/lib/brokerage/certifyCompletePackage";
+import { PackageArchiveError } from "@/lib/brokerage/packageArchive";
 import { runHostileInterrogationForDeal } from "@/lib/brokerage/hostileInterrogation";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(
   req: NextRequest,
@@ -146,6 +148,23 @@ export async function POST(
     );
   }
 
+  // Certify the entire package, including source uploads, before publishing it.
+  try {
+    const completion = await certifyCompletePackage({ sb, dealId, bankId: session.bank_id, binding: snapshot.distributionBinding });
+    snapshot.full.packageCompletion = completion;
+    const files = completion.inventory.files;
+    snapshot.forRedactor.packageManifest = {
+      businessPlanPages: files.find(f => f.kind === "business_plan")?.pageCount ?? 0,
+      projectionsPages: 0, // The final projections are an XLSX workbook.
+      feasibilityPages: files.find(f => f.kind === "feasibility")?.pageCount ?? 0,
+      formsIncluded: ["Combined applicable SBA forms"],
+      sourceDocumentsCount: files.filter(f => f.category === "source").length,
+    };
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: "complete_package_verification_failed",
+      detail: error instanceof PackageArchiveError ? error.message : "Package evidence changed or could not be verified. Refresh and retry." }, { status: 503 });
+  }
+
   const kfs = await buildKFS({
     snapshot: snapshot.forRedactor,
     piiContext: snapshot.piiContext,
@@ -215,39 +234,37 @@ export async function POST(
     );
   }
 
-  // Notify matched lenders that a preview is open (best-effort, non-fatal).
-  try {
-    const { queueLenderMessage } = await import("@/lib/brokerage/lenderComms");
-    for (const lenderBankId of matchResult.matched) {
-      await queueLenderMessage(
-        "marketplace_preview_open",
-        { dealId, listingId, lenderBankId, stage: "preview" },
-        "email",
-        sb,
-      );
+  // Next keeps this callback alive after sending the durable submission receipt.
+  after(async () => {
+    // Notify matched lenders that a preview is open (best-effort, non-fatal).
+    try {
+      const { queueLenderMessage } = await import("@/lib/brokerage/lenderComms");
+      for (const lenderBankId of matchResult.matched) {
+        await queueLenderMessage(
+          "marketplace_preview_open",
+          { dealId, listingId, lenderBankId, stage: "preview" },
+          "email",
+          sb,
+        );
+      }
+    } catch (err) {
+      console.warn("[seal] lender preview notify failed (non-fatal)", {
+        dealId,
+        listingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
-  } catch (err) {
-    console.warn("[seal] lender preview notify failed (non-fatal)", {
-      dealId,
-      listingId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
 
-  // SPEC-M6 ANTICIPATED-INTERROGATION-1 — best-effort, non-fatal. Awaited
-  // (not truly fire-and-forget) because a serverless function isn't
-  // guaranteed to keep running after the response is sent; wrapped so the
-  // verifier role's single-provider, no-failover call (Invariant #4) can
-  // never fail a seal that has already fully succeeded. Also re-runnable
-  // on demand via POST /api/brokerage/deals/[dealId]/committee-interrogation.
-  try {
-    await runHostileInterrogationForDeal(dealId, session.bank_id, sb);
-  } catch (err) {
-    console.warn("[seal] hostile interrogation failed (non-fatal)", {
-      dealId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
+    // Supplemental analysis is best-effort and must not delay the committed receipt.
+    try {
+      await runHostileInterrogationForDeal(dealId, session.bank_id, sb);
+    } catch (err) {
+      console.warn("[seal] hostile interrogation failed (non-fatal)", {
+        dealId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
 
   return NextResponse.json({
     ok: true,

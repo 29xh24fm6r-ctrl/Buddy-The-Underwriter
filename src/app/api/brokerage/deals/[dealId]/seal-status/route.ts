@@ -25,6 +25,7 @@ import { TERMINAL_SUCCESS_STATUSES } from "@/lib/identity/kyc/service";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
+import { readPackageCompletion, packageCompletionSummary } from "@/lib/brokerage/packageCompletion";
 import { canSeal } from "@/lib/brokerage/sealingGate";
 import { deepMerge } from "@/lib/brokerage/borrowerConversation";
 import { buildBorrowerPackageManifest, type PackageManifest } from "@/lib/brokerage/packageDelivery";
@@ -135,8 +136,8 @@ export async function GET(
   // Start them together so the gate's two bounded database waves determine
   // latency instead of accumulating behind more serial polling reads.
   const [
-    { data: franchiseLink },
-    { data: listing },
+    { data: franchiseLink, error: franchiseError },
+    { data: listing, error: listingError },
     gate,
     score,
   ] = await Promise.all([
@@ -148,7 +149,7 @@ export async function GET(
     sb
       .from("marketplace_listings")
       .select(
-        "id, status, score, band, published_rate_bps, preview_opens_at, claim_opens_at, claim_closes_at, matched_lender_bank_ids",
+        "id, sealed_package_id, status, score, band, published_rate_bps, preview_opens_at, claim_opens_at, claim_closes_at, matched_lender_bank_ids",
       )
       .eq("deal_id", dealId)
       .not("status", "eq", "expired")
@@ -158,6 +159,8 @@ export async function GET(
     canSeal(dealId, sb),
     loadScoreForResponse(dealId, sb),
   ]);
+
+  if (listingError || franchiseError) return NextResponse.json({ ok: false, error: "package_state_unavailable" }, { status: 503 });
 
   let franchiseMatched = false;
   if (franchiseLink?.brand_id) {
@@ -174,11 +177,18 @@ export async function GET(
 
   if (listing) {
     const row = listing as any;
+    const sealed = await sb.from("buddy_sealed_packages").select("sealed_snapshot")
+      .eq("id", row.sealed_package_id).eq("deal_id", dealId).eq("bank_id", session.bank_id)
+      .is("unsealed_at", null).maybeSingle();
+    if (sealed.error || !sealed.data) return NextResponse.json({ ok: false, error: "package_state_unavailable" }, { status: 503 });
+    const completion = readPackageCompletion(sealed.data.sealed_snapshot, dealId, session.bank_id);
+    if (sealed.data.sealed_snapshot?.packageCompletion && !completion)
+      return NextResponse.json({ ok: false, error: "package_completion_invalid" }, { status: 503 });
     // Begin the picked-package manifest immediately; claim presentation is
     // independent and should not delay it.
     const manifestPromise: Promise<PackageManifest | null> =
       row.status === "picked"
-        ? buildBorrowerPackageManifest(dealId, "full", sb as any)
+        ? buildBorrowerPackageManifest(dealId, "full", sb as any).catch(() => null)
         : Promise.resolve(null);
 
     // Active claims — the lenders who have claimed this listing. The borrower
@@ -188,21 +198,23 @@ export async function GET(
     // other direction.
     let claims: Array<{ id: string; lenderName: string; claimedAt: string | null }> = [];
     if (["claiming", "awaiting_borrower_pick"].includes(row.status)) {
-      const { data: claimRows } = await sb
+      const { data: claimRows, error: claimsError } = await sb
         .from("marketplace_claims")
         .select("id, lender_bank_id, created_at, status")
         .eq("listing_id", row.id)
         .eq("status", "active")
         .order("created_at", { ascending: true });
 
+      if (claimsError) return NextResponse.json({ ok: false, error: "claim_state_unavailable" }, { status: 503 });
       const rows = (claimRows ?? []) as any[];
       const bankIds = Array.from(new Set(rows.map((c) => c.lender_bank_id).filter(Boolean)));
       const nameById = new Map<string, string>();
       if (bankIds.length) {
-        const { data: banks } = await sb
+        const { data: banks, error: banksError } = await sb
           .from("banks")
           .select("id, name")
           .in("id", bankIds);
+        if (banksError) return NextResponse.json({ ok: false, error: "lender_state_unavailable" }, { status: 503 });
         for (const b of (banks ?? []) as any[]) nameById.set(b.id, b.name);
       }
       claims = rows.map((c) => ({
@@ -218,6 +230,7 @@ export async function GET(
     // stay under this repo's Vercel serverless-function slot budget (see
     // routeConsolidationGuard.test.ts).
     const manifest = await manifestPromise;
+    if (row.status === "picked" && !manifest) return NextResponse.json({ ok: false, error: "package_state_unavailable" }, { status: 503 });
 
     return NextResponse.json({
       ok: true,
@@ -230,6 +243,7 @@ export async function GET(
       facts,
       fieldProgress,
       sealed: true,
+      packageCompletion: packageCompletionSummary(completion),
       listing: {
         id: row.id,
         status: row.status,

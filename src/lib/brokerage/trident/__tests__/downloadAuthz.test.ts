@@ -11,6 +11,10 @@ import { mockServerOnly } from "../../../../../test/utils/mockServerOnly";
 mockServerOnly();
 const require = createRequire(import.meta.url);
 let borrowerReleased = true;
+let admissionChanged = false;
+require.cache[require.resolve("@/lib/brokerage/trident/tridentInputSnapshot")] = {
+  exports: { assertTridentInputSnapshot: async () => { if (admissionChanged) throw new Error("stale input"); } },
+} as any;
 require.cache[require.resolve("@/lib/brokerage/borrowerArtifactRelease")] = {
   id: "release-stub", filename: "release-stub", loaded: true,
   exports: { getBorrowerArtifactRelease: async () => ({ released: borrowerReleased, reason: borrowerReleased ? "released" : "bank_selection_required", sealedPackageId: "seal-1" }) },
@@ -24,6 +28,7 @@ let lenderIdentity: any = null;
 let seals: any[] = [];
 let grants: any[] = [];
 let uploadError = false;
+let lostStoredWrite = false;
 let onUpload: (() => void) | null = null;
 let signedPaths: string[] = [];
 require.cache[require.resolve("@/lib/brokerage/lenderAuth")] = {
@@ -45,8 +50,8 @@ const state: {
 };
 
 function resetState() {
-  borrowerReleased = true;
-  lenderIdentity = null; seals = []; grants = []; uploadError = false; onUpload = null; signedPaths = [];
+  borrowerReleased = true; admissionChanged = false;
+  lenderIdentity = null; seals = [{ id: "seal-1", deal_id: "deal-1", bank_id: "bank-1", unsealed_at: null, sealed_snapshot: { tridentFinal: { bundleId: "bundle-1" } } }]; grants = []; uploadError = false; lostStoredWrite = false; onUpload = null; signedPaths = [];
   state.session = null;
   state.bundles = [];
   state.signedUrlReturns = { signedUrl: "https://signed.example/path" };
@@ -121,7 +126,7 @@ require.cache[require.resolve("@/lib/supabase/admin")] = {
               onUpload?.();
               if (uploadError) return { data: null, error: { message: "write unavailable" } };
               if (storedFiles.has(filePath)) return { data: null, error: { message: "duplicate" } };
-              storedFiles.set(filePath, Buffer.from(bytes));
+              if (!lostStoredWrite) storedFiles.set(filePath, Buffer.from(bytes));
               return { data: { path: filePath }, error: null };
             },
             async createSignedUrl(_p: string, _ttl: number) {
@@ -177,7 +182,7 @@ async function call(dealId: string, kind: string) {
 test("borrower previews and complete package stay locked before bank claim plus selection", async () => {
   resetState();
   borrowerReleased = false;
-  state.session = { deal_id: "deal-1", tokenHash: "h" };
+  state.session = { deal_id: "deal-1", bank_id: "bank-1", tokenHash: "h" };
   for (const kind of ["business_plan", "projections_pdf", "projections_xlsx", "feasibility", "spreads", "complete_package"]) {
     const { status, body } = await call("deal-1", kind);
     assert.equal(status, 403);
@@ -203,22 +208,23 @@ test("cookie present but deal_id mismatches URL → 404 (never 403)", async () =
 
 test("invalid kind → 404", async () => {
   resetState();
-  state.session = { deal_id: "deal-1", tokenHash: "h" };
+  state.session = { deal_id: "deal-1", bank_id: "bank-1", tokenHash: "h" };
   const { status } = await call("deal-1", "not_a_kind");
   assert.equal(status, 404);
 });
 
 test("cookie + matching deal but no current bundle → 404", async () => {
   resetState();
-  state.session = { deal_id: "deal-1", tokenHash: "h" };
+  state.session = { deal_id: "deal-1", bank_id: "bank-1", tokenHash: "h" };
   const { status } = await call("deal-1", "business_plan");
   assert.equal(status, 404);
 });
 
 test("cookie + matching deal + current final bundle → 200 with signed URL", async () => {
   resetState();
-  state.session = { deal_id: "deal-1", tokenHash: "h" };
+  state.session = { deal_id: "deal-1", bank_id: "bank-1", tokenHash: "h" };
   state.bundles.push({
+    id: "bundle-1", bank_id: "bank-1",
     deal_id: "deal-1",
     mode: "final",
     status: "succeeded",
@@ -232,10 +238,11 @@ test("cookie + matching deal + current final bundle → 200 with signed URL", as
   assert.equal(body.mode, "final");
 });
 
-test("cookie + matching deal + only preview bundle → 200 with preview URL", async () => {
+test("released borrower cannot fall back to a preview when the sealed final is missing", async () => {
   resetState();
-  state.session = { deal_id: "deal-1", tokenHash: "h" };
+  state.session = { deal_id: "deal-1", bank_id: "bank-1", tokenHash: "h" };
   state.bundles.push({
+    id: "bundle-1", bank_id: "bank-1",
     deal_id: "deal-1",
     mode: "preview",
     status: "succeeded",
@@ -243,14 +250,15 @@ test("cookie + matching deal + only preview bundle → 200 with preview URL", as
     business_plan_pdf_path: "deal-1/preview/1_business_plan.pdf",
   });
   const { status, body } = await call("deal-1", "business_plan");
-  assert.equal(status, 200);
-  assert.equal(body.mode, "preview");
+  assert.equal(status, 404);
+  assert.equal(body.url, undefined);
 });
 
 test("bundle exists but artifact path missing → 404", async () => {
   resetState();
-  state.session = { deal_id: "deal-1", tokenHash: "h" };
+  state.session = { deal_id: "deal-1", bank_id: "bank-1", tokenHash: "h" };
   state.bundles.push({
+    id: "bundle-1", bank_id: "bank-1",
     deal_id: "deal-1",
     mode: "final",
     status: "succeeded",
@@ -275,6 +283,7 @@ test("signed artifact is withheld when download audit persistence fails", async 
   resetState();
   state.session = { deal_id: "deal-1", bank_id: "bank-1", tokenHash: "h" };
   state.bundles.push({
+    id: "bundle-1", bank_id: "bank-1",
     deal_id: "deal-1",
     mode: "final",
     status: "succeeded",
@@ -532,4 +541,94 @@ test("browser anchor receives a private redirect instead of a large function res
   assert.equal(response.headers.get("cache-control"), "private, no-store");
   assert.equal(await response.text(), "");
   assert.equal(response.headers.get("location"), "https://signed.example/path");
+});
+
+
+const { certifyCompletePackage } = require("../../certifyCompletePackage");
+const { readPackageCompletion, packageCompletionSummary } = require("../../packageCompletion");
+async function certifyFixture() {
+  const fixture = await archiveFixture();
+  const { bundle } = fixture;
+  bundle.input_hash = "frozen-input"; bundle.release_gate_json = { ok: true };
+  const binding = { bundleId: bundle.id, inputHash: bundle.input_hash, artifacts: {
+    businessPlan: bundle.business_plan_pdf_path, projectionsXlsx: bundle.projections_xlsx_path,
+    feasibility: bundle.feasibility_pdf_path, creditMemo: bundle.credit_memo_pdf_path,
+    spreads: bundle.spreads_pdf_path, sbaForms: bundle.sba_forms_pdf_path,
+  } };
+  seals[0].sealed_snapshot.tridentFinal = binding;
+  const certify = () => certifyCompletePackage({ sb: require("@/lib/supabase/admin").supabaseAdmin(), dealId: "deal-1", bankId: "bank-1", binding });
+  return { ...fixture, binding, certify };
+}
+
+test("complete submission certificate proves six generated files and all frozen source evidence before delivery", async () => {
+  const f = await certifyFixture();
+  const proof = await f.certify();
+  seals[0].sealed_snapshot.packageCompletion = proof;
+  assert.ok(readPackageCompletion(seals[0].sealed_snapshot, "deal-1", "bank-1"));
+  assert.equal(proof.inventory.files.filter((file: any) => file.category === "generated").length, 6);
+  assert.equal(proof.inventory.files.filter((file: any) => file.category === "source").length, 6);
+  assert.equal(packageCompletionSummary(proof).sourceDocumentCount, 5);
+  assert.deepEqual(await f.certify().then((p: any) => p.sha256), proof.sha256, "repeat storage verification reuses the identical archive");
+  for (const doc of f.documents) storedFiles.delete(doc.storage_path);
+  for (const file of LENDER_PACKAGE_FILES) storedFiles.delete(f.bundle[file.column]);
+  state.bundles.unshift({ ...f.bundle, id: "newer-run", business_plan_pdf_path: "wrong-plan.pdf" });
+  for (const file of LENDER_PACKAGE_FILES.filter(file => file.kind !== "credit_memo")) {
+    assert.equal((await archiveCall(file.kind)).status, 200, `${file.kind} is delivered from saved evidence even after source files change`);
+    const expected = proof.inventory.files.find((item: any) => item.kind === file.kind);
+    assert.equal(createHash("sha256").update(storedFiles.get(signedPaths.at(-1)!)!).digest("hex"), expected.sha256);
+  }
+  assert.equal((await archiveCall()).status, 200);
+  const borrower = await savedArchive();
+  assert.equal(borrower.zip.file("05-credit-memo.pdf"), null);
+  assert.equal(borrower.inventory.files.length, 10);
+  assert.ok(!JSON.stringify(borrower.inventory).includes("private-lender-evidence"));
+  state.session = null; lenderIdentity = { lenderBankId: "lender-bank", userId: "lender-user" };
+  assert.equal((await archiveCall("complete_package", "?accessId=grant")).status, 200);
+  assert.ok(storedFiles.get(signedPaths.at(-1)!)!.equals(storedFiles.get(proof.archivePath)!));
+});
+
+for (const [name, mutate] of [
+  ["missing source", (f: any) => storedFiles.delete(f.documents[0].storage_path)],
+  ["altered source", (f: any) => storedFiles.set(f.documents[0].storage_path, Buffer.alloc(f.bytes.length, 65))],
+  ["corrupt generated PDF", (f: any) => storedFiles.set(f.bundle.credit_memo_pdf_path, Buffer.from("corrupt"))],
+  ["missing generated forms", (f: any) => storedFiles.delete(f.bundle.sba_forms_pdf_path)],
+  ["missing generated workbook", (f: any) => storedFiles.delete(f.bundle.projections_xlsx_path)],
+  ["wrong artifact binding", (f: any) => { f.binding.artifacts.spreads = "other.pdf"; }],
+  ["wrong tenant", (f: any) => { f.bundle.bank_id = "other-bank"; }],
+  ["storage write failure", () => { uploadError = true; }],
+  ["acknowledged write with missing readback", () => { lostStoredWrite = true; }],
+  ["input edit during archive verification", () => { onUpload = () => { admissionChanged = true; }; }],
+] as const) test(`submission certificate is refused for ${name}`, async () => {
+  const f = await certifyFixture(); mutate(f);
+  await assert.rejects(f.certify);
+  assert.equal(signedPaths.length, 0);
+});
+
+test("certified downloads fail closed for corrupt saved archive, invalid certificate, and revocation", async () => {
+  const f = await certifyFixture(); const proof = await f.certify();
+  seals[0].sealed_snapshot.packageCompletion = proof;
+  const original = storedFiles.get(proof.archivePath)!;
+  storedFiles.set(proof.archivePath, Buffer.alloc(original.length, 65));
+  assert.equal((await archiveCall("business_plan")).status, 503);
+  assert.equal(signedPaths.length, 0);
+  storedFiles.set(proof.archivePath, original);
+  proof.inputHash = "changed";
+  assert.equal((await archiveCall()).status, 409);
+  proof.inputHash = f.binding.inputHash;
+  onUpload = () => { borrowerReleased = false; };
+  assert.equal((await archiveCall("business_plan")).status, 403);
+  assert.equal(signedPaths.length, 0);
+});
+
+test("every historical final document is tied to its active seal, including pre-selection forms", async () => {
+  const { bundle } = await archiveFixture();
+  state.bundles.unshift({ ...bundle, id: "other-run", business_plan_pdf_path: "wrong.pdf", sba_forms_pdf_path: "wrong-forms.pdf" });
+  for (const kind of ["business_plan", "sba_forms"]) {
+    assert.equal((await archiveCall(kind)).status, 200);
+    assert.ok(!signedPaths.at(-1)!.includes("wrong"));
+  }
+  seals[0].sealed_snapshot.tridentFinal.bundleId = "missing-run";
+  for (const kind of ["business_plan", "sba_forms"]) assert.equal((await archiveCall(kind)).status, 404);
+  seals = [];
+  assert.equal((await archiveCall("business_plan")).status, 409);
 });

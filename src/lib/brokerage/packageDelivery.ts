@@ -1,6 +1,7 @@
 /**
  * BRK-10G Package Delivery — controlled delivery for borrowers and lenders.
  */
+import { readPackageCompletion } from "./packageCompletion";
 import { packageSourceDocuments } from "./packageEvidence";
 import { LENDER_PACKAGE_FILES } from "./lenderPackageFiles";
 import { getBorrowerArtifactRelease } from "./borrowerArtifactRelease";
@@ -52,30 +53,43 @@ export async function buildPackageManifest(dealId: string, accessLevel: "full"|"
   const { data: sp, error: sealedPackageError } = await sealedQuery.limit(1).maybeSingle();
   if (sealedPackageError) throw new Error(`package_state_unavailable:sealed_package:${sealedPackageError.message}`);
   if (!sp) return { dealId, sealedAt: null, accessLevel, resources: [] };
+  if (sp.sealed_snapshot?.packageCompletion && accessLevel === "full") {
+    const proof = readPackageCompletion(sp.sealed_snapshot, dealId, sp.bank_id);
+    if (!proof) throw new Error("package_state_unavailable:invalid_completion");
+    const visible = proof.inventory.files.filter(file => actor === "lender" || file.borrowerVisible);
+    const resources = LENDER_PACKAGE_FILES.filter(file => visible.some(item => item.kind === file.kind))
+      .map(file => res(file.kind, file.label, file.kind));
+    resources.push(res("complete_package", "Download complete lender package", "complete_package"));
+    resources.push(res("source_docs", "Source Documents (ZIP)", visible.some(file => file.category === "source") ? "source_docs" : null));
+    return { dealId, sealedAt: str(sp.sealed_at), accessLevel, resources };
+  }
+  const boundBundleId = sp.sealed_snapshot?.tridentFinal?.bundleId;
   // These resources are independent after the sealed package is known.
   // Resolve them concurrently because this manifest is part of the frequently
   // polled seal-status response for picked listings.
   const [b, form159Result, assembledRun] = await Promise.all([
-    latestSucceededBundle(dealId, sb, sp.sealed_snapshot?.tridentFinal?.bundleId),
+    latestSucceededBundle(dealId, sb, boundBundleId),
     sb.from("sba_form_159_records").select("generated_pdf_path, status").eq("deal_id", dealId).in("status", ["generated","borrower_acknowledged","fully_acknowledged","locked"]).limit(1).maybeSingle(),
     // final_forms_path is not populated for every historical package. Fall
     // back to the latest assembled 10-tab package when necessary.
-    sp.final_forms_path ? Promise.resolve(null) : getLatestAssembledPackageRun(dealId, sb),
+    sp.final_forms_path || boundBundleId ? Promise.resolve(null) : getLatestAssembledPackageRun(dealId, sb),
   ]);
   if (form159Result.error) throw new Error(`package_state_unavailable:form_159:${form159Result.error.message}`);
+  if (boundBundleId && (!b || b.bank_id !== sp.bank_id))
+    return { dealId, sealedAt: str(sp.sealed_at), accessLevel, resources: [] };
   const f = form159Result.data;
   const r: PackageResource[] = [
-    res("business_plan", "Business Plan", str(sp.final_business_plan_path) ?? str(b?.business_plan_pdf_path as string | null | undefined)),
+    res("business_plan", "Business Plan", (boundBundleId ? null : str(sp.final_business_plan_path)) ?? str(b?.business_plan_pdf_path as string | null | undefined)),
     // Final mode produces only the XLSX workbook (no redacted summary PDF —
     // that's preview-only), so once a deal is picked this resource is
     // legitimately unavailable; the live preview bundle (if still present)
     // is the only possible source before that.
     res("projections_pdf", "Projections (PDF)", str(b?.projections_pdf_path as string | null | undefined)),
-    res("projections_xlsx", "Projections (XLSX)", str(sp.final_projections_path) ?? str(b?.projections_xlsx_path as string | null | undefined)),
-    res("feasibility", "Feasibility Study", str(sp.final_feasibility_path) ?? str(b?.feasibility_pdf_path as string | null | undefined)),
+    res("projections_xlsx", "Projections (XLSX)", (boundBundleId ? null : str(sp.final_projections_path)) ?? str(b?.projections_xlsx_path as string | null | undefined)),
+    res("feasibility", "Feasibility Study", (boundBundleId ? null : str(sp.final_feasibility_path)) ?? str(b?.feasibility_pdf_path as string | null | undefined)),
     res("credit_memo", "Credit Memo for Lender Review", str(b?.credit_memo_pdf_path)),
     res("spreads", "Financial Spreads", str(b?.spreads_pdf_path)),
-    res("sba_forms", "SBA Forms", str(b?.sba_forms_pdf_path) ?? str(sp.final_forms_path) ?? assembledRun?.storagePath ?? null),
+    res("sba_forms", "SBA Forms", str(b?.sba_forms_pdf_path) ?? (boundBundleId ? null : str(sp.final_forms_path) ?? assembledRun?.storagePath ?? null)),
     res("form_159", "Form 159", str(f?.generated_pdf_path)),
   ];
   if (accessLevel === "full") {
@@ -120,8 +134,8 @@ export async function getLenderPackageAccess(accessId: string, lenderBankId: str
   if (accessError) return { ok: false, error: "package_state_unavailable" };
   if (!a) return { ok: false, error: "access_not_found" }; if (String(a.lender_bank_id) !== lenderBankId) return { ok: false, error: "access_lender_mismatch" }; if (a.revoked_at) return { ok: false, error: "access_revoked" };
   const dealId = String(a.deal_id); const level = str(a.access_level) === "full" ? "full" as const : "preview" as const;
-  const { data: l, error: listingError } = await sb.from("marketplace_listings").select("loan_amount, sba_program, term_months, score, band, kfs").eq("deal_id", dealId).limit(1).maybeSingle();
-  if (listingError) return { ok: false, error: "package_state_unavailable" };
+  const { data: l, error: listingError } = await sb.from("marketplace_listings").select("sealed_package_id, loan_amount, sba_program, term_months, score, band, kfs").eq("id", a.listing_id).eq("deal_id", dealId).limit(1).maybeSingle();
+  if (listingError || !l || (level === "full" && l.sealed_package_id !== a.sealed_package_id)) return { ok: false, error: "package_state_unavailable" };
   if (level === "full" && !a.sealed_package_id) return { ok: false, error: "package_state_unavailable" };
   const manifest = await buildPackageManifest(dealId, level, sb, "lender", a.sealed_package_id);
   return { ok: true, access: { accessId: String(a.id), dealId, listingId: String(a.listing_id), claimId: String(a.claim_id), lenderBankId: String(a.lender_bank_id), accessLevel: str(a.access_level) ?? "full", grantedAt: str(a.granted_at), dealSummary: { loanAmount: num(l?.loan_amount), program: str(l?.sba_program), termMonths: num(l?.term_months), score: num(l?.score), band: str(l?.band), state: str(l?.kfs?.state) }, manifest } };

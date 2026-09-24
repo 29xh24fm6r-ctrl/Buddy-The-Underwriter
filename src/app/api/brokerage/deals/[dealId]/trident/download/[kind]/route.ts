@@ -1,6 +1,8 @@
 import "server-only";
 
 /** Download the immutable files from one completed package run. */
+import { persistPackageBytes, readCertifiedPackage } from "@/lib/brokerage/certifyCompletePackage";
+import { readPackageCompletion } from "@/lib/brokerage/packageCompletion";
 import { buildPackageArchive, PackageArchiveError } from "@/lib/brokerage/packageArchive";
 import { getBorrowerArtifactRelease } from "@/lib/brokerage/borrowerArtifactRelease";
 import {
@@ -218,22 +220,79 @@ export async function GET(
     );
   }
 
-  const archiveRequest = kind === "complete_package" || kind === "source_docs";
+  // Forms remain reviewable before submission; once sealed they use the same
+  // immutable binding as every other final document.
+  if (actorInfo.actorScope === "borrower" && kind === "sba_forms") {
+    const active = await sb.from("buddy_sealed_packages").select("id")
+      .eq("deal_id", dealId).eq("bank_id", actorInfo.bankId).is("unsealed_at", null).maybeSingle();
+    if (active.error) return NextResponse.json({ ok: false, error: "package_state_unavailable" }, { status: 503 });
+    actorInfo.sealedPackageId = active.data?.id;
+  }
   let boundBundleId: string | null = null;
-  if (archiveRequest) {
+  let sealedSnapshot: any = null;
+  const bindingRequired = actorInfo.accessLevel === "full" &&
+    !(actorInfo.actorScope === "borrower" && kind === "sba_forms" && !actorInfo.sealedPackageId);
+  if (bindingRequired) {
     if (!actorInfo.sealedPackageId) return NextResponse.json({ ok: false, error: "Package release binding is unavailable." }, { status: 409 });
     const sealed = await sb.from("buddy_sealed_packages").select("sealed_snapshot")
       .eq("id", actorInfo.sealedPackageId).eq("deal_id", dealId).eq("bank_id", actorInfo.bankId)
       .is("unsealed_at", null).maybeSingle();
     if (sealed.error) return NextResponse.json({ ok: false, error: "package_state_unavailable" }, { status: 503 });
-    boundBundleId = sealed.data?.sealed_snapshot?.tridentFinal?.bundleId ?? null;
+    sealedSnapshot = sealed.data?.sealed_snapshot;
+    boundBundleId = sealedSnapshot?.tridentFinal?.bundleId ?? null;
     if (!boundBundleId) return NextResponse.json({ ok: false, error: "Package release binding is unavailable." }, { status: 409 });
   }
-  // Prefer final, fall back to preview. Two small queries are clearer than a
-  // clever ORDER BY. A preview-tier grant skips the final lookup entirely so
-  // it can only ever be served the redacted preview bundle.
+
+  async function recheckRelease() {
+    try {
+      const current = await resolveActor(req, dealId);
+      const release = actorInfo!.actorScope === "borrower" && kind !== "sba_forms" ? await getBorrowerArtifactRelease(dealId, sb) : null;
+      if (!current || current.actor !== actorInfo!.actor || current.actorScope !== actorInfo!.actorScope ||
+          current.bankId !== actorInfo!.bankId || current.accessLevel !== actorInfo!.accessLevel ||
+          (current.actorScope === "lender" && current.sealedPackageId !== actorInfo!.sealedPackageId) ||
+          (release && (!release.released || release.sealedPackageId !== actorInfo!.sealedPackageId)))
+        return NextResponse.json({ ok: false, error: "Package access changed. Refresh before downloading." }, { status: release?.reason === "state_unavailable" ? 503 : 403 });
+      if (boundBundleId) {
+        const seal = await sb.from("buddy_sealed_packages").select("sealed_snapshot")
+          .eq("id", actorInfo!.sealedPackageId).eq("deal_id", dealId).eq("bank_id", actorInfo!.bankId).is("unsealed_at", null).maybeSingle();
+        if (seal.error) return NextResponse.json({ ok: false, error: "package_state_unavailable" }, { status: 503 });
+        if (seal.data?.sealed_snapshot?.tridentFinal?.bundleId !== boundBundleId)
+          return NextResponse.json({ ok: false, error: "Package release changed. Refresh before downloading." }, { status: 409 });
+      }
+      return null;
+    } catch { return NextResponse.json({ ok: false, error: "package_state_unavailable" }, { status: 503 }); }
+  }
+
+  if (sealedSnapshot?.packageCompletion) {
+    const proof = readPackageCompletion(sealedSnapshot, dealId, actorInfo.bankId);
+    if (!proof) return NextResponse.json({ ok: false, error: "Package completion evidence is invalid." }, { status: 409 });
+    if (kind === "projections_pdf") return NextResponse.json({ ok: false }, { status: 404 });
+    try {
+      const file = await readCertifiedPackage(sb, proof, actorInfo.actorScope, kind);
+      const path = `${dealId}/final/${proof.bundleId}/archives/${actorInfo.actorScope}/${kind}/${file.sha256}/${file.filename}`;
+      const contentType = file.filename.endsWith(".zip") ? "application/zip" : file.filename.endsWith(".xlsx")
+        ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/pdf";
+      await persistPackageBytes(sb, path, file.bytes, contentType);
+      const changed = await recheckRelease();
+      if (changed) return changed;
+      const audit = await auditPackageDownload({ actor: actorInfo.actor, actorScope: actorInfo.actorScope, dealId,
+        action: "package_download", resourceType: kind, metadata: { bundleId: proof.bundleId,
+          sealedPackageId: actorInfo.sealedPackageId, sha256: file.sha256, fileCount: file.fileCount } }, sb);
+      if (!audit.ok) return NextResponse.json({ ok: false, error: "download_audit_persistence_failed" }, { status: 503 });
+      const signed = await sb.storage.from("trident-bundles").createSignedUrl(path, 60, { download: file.filename });
+      if (signed.error || !signed.data?.signedUrl) throw new PackageArchiveError("The download link could not be created. Please retry.");
+      if (req.nextUrl.searchParams.get("redirect") === "1")
+        return new NextResponse(null, { status: 303, headers: { location: signed.data.signedUrl, "cache-control": "private, no-store" } });
+      return NextResponse.json({ ok: true, url: signed.data.signedUrl, mode: "final", bundleId: proof.bundleId,
+        fileCount: file.fileCount, sha256: file.sha256 }, { headers: { "cache-control": "private, no-store" } });
+    } catch (error) {
+      return NextResponse.json({ ok: false, error: error instanceof PackageArchiveError ? error.message : "The saved package could not be verified. Please retry." }, { status: 503 });
+    }
+  }
+
+  // Historical releases retain exact bundle delivery; preview grants stay redacted.
   let finalQuery = sb.from("buddy_trident_bundles").select("*")
-    .eq("deal_id", dealId).eq("mode", "final").eq("status", "succeeded").is("superseded_at", null);
+    .eq("deal_id", dealId).eq("bank_id", actorInfo.bankId).eq("mode", "final").eq("status", "succeeded").is("superseded_at", null);
   if (boundBundleId) finalQuery = finalQuery.eq("id", boundBundleId).eq("bank_id", actorInfo.bankId);
   const finalResult = actorInfo.accessLevel === "full" ? await finalQuery.maybeSingle() : { data: null, error: null };
   if (finalResult.error) {
@@ -245,7 +304,7 @@ export async function GET(
 
   let bundle = finalResult.data;
   if (
-    !bundle &&
+    !bundle && !boundBundleId &&
     ![
       "credit_memo",
       "spreads",
@@ -259,6 +318,7 @@ export async function GET(
       .from("buddy_trident_bundles")
       .select("*")
       .eq("deal_id", dealId)
+      .eq("bank_id", actorInfo.bankId)
       .eq("mode", "preview")
       .eq("status", "succeeded")
       .is("superseded_at", null)
@@ -273,7 +333,7 @@ export async function GET(
   }
 
   if (!bundle) {
-    if (kind === "sba_forms") return handleSbaFormsDownload(dealId, actorInfo);
+    if (kind === "sba_forms" && !bindingRequired) return handleSbaFormsDownload(dealId, actorInfo);
     return NextResponse.json(
       { ok: false, error: "Generate the complete lender package first." },
       { status: 404 },
@@ -297,19 +357,8 @@ export async function GET(
         if (existing.error || !existing.data || !Buffer.from(await existing.data.arrayBuffer()).equals(archive.bytes))
           throw new PackageArchiveError("The package could not be saved for download. Please retry.");
       }
-      // Recheck release after storage work: revocation while assembling must withhold the URL.
-      const currentActor = await resolveActor(req, dealId);
-      const currentRelease = actorInfo.actorScope === "borrower" ? await getBorrowerArtifactRelease(dealId, sb) : null;
-      if (!currentActor || currentActor.actor !== actorInfo.actor || currentActor.bankId !== actorInfo.bankId ||
-          currentActor.accessLevel !== "full" ||
-          (actorInfo.actorScope === "lender" && currentActor.sealedPackageId !== actorInfo.sealedPackageId) ||
-          (currentRelease && (!currentRelease.released || currentRelease.sealedPackageId !== actorInfo.sealedPackageId)))
-        return NextResponse.json({ ok: false, error: "Package access changed. Refresh before downloading." }, { status: 403 });
-      const currentSeal = await sb.from("buddy_sealed_packages").select("sealed_snapshot")
-        .eq("id", actorInfo.sealedPackageId).eq("deal_id", dealId).eq("bank_id", actorInfo.bankId)
-        .is("unsealed_at", null).maybeSingle();
-      if (currentSeal.error || currentSeal.data?.sealed_snapshot?.tridentFinal?.bundleId !== bundle.id)
-        return NextResponse.json({ ok: false, error: "Package release changed. Refresh before downloading." }, { status: 409 });
+      const changed = await recheckRelease();
+      if (changed) return changed;
       const audit = await auditPackageDownload({ actor: actorInfo.actor, actorScope: actorInfo.actorScope,
         dealId, action: "package_download", resourceType: kind,
         metadata: { bundleId: bundle.id, sealedPackageId: actorInfo.sealedPackageId,
@@ -336,6 +385,9 @@ export async function GET(
   if (!storagePath) {
     return NextResponse.json({ ok: false }, { status: 404 });
   }
+
+  const changed = await recheckRelease();
+  if (changed) return changed;
 
   const { data: signed, error } = await sb.storage
     .from("trident-bundles")
@@ -371,5 +423,6 @@ export async function GET(
     ok: true,
     url: signed.signedUrl,
     mode: bundle.mode as "preview" | "final",
-  });
+    bundleId: bundle.id,
+  }, { headers: { "cache-control": "private, no-store" } });
 }

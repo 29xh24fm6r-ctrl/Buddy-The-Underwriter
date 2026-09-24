@@ -29,6 +29,7 @@ type SealStatus = {
   sealed: boolean;
   canSeal: boolean;
   gateReasons: string[];
+  packageCompletion?: { verified: boolean; generatedDocumentCount: number; sourceDocumentCount: number; verifiedAt: string } | null;
   score?: {
     isFranchise?: boolean;
     eligibilityUnresolved?: Array<{ check: string; nextAction?: string | null }>;
@@ -78,19 +79,28 @@ export function SealPackageCard({ dealId, onReviewDocuments, onQuestion }: { dea
       });
       if (!res.ok) {
         setError("Could not load seal status");
-        return;
+        return null;
       }
       const data = (await res.json()) as SealStatus;
+      if (!data.ok) throw new Error("Status unavailable");
       setStatus(data);
       setError(null);
+      return data;
     } catch {
-      setError("Network error");
+      setError("Could not confirm current package status. Refresh to retry.");
+      return null;
     }
   }, [dealId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!status?.sealed || status.listing?.status === "picked") return;
+    const timer = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 30_000);
+    return () => clearInterval(timer);
+  }, [load, status?.sealed, status?.listing?.status]);
 
   const seal = async () => {
     if (busy || !sharingConfirmed) return;
@@ -105,18 +115,23 @@ export function SealPackageCard({ dealId, onReviewDocuments, onQuestion }: { dea
       });
       const data = await res.json();
       if (!data.ok) {
+        const recovered = await load();
+        if (recovered?.sealed) return;
         setError(
           data.error === "test_application_distribution_blocked"
             ? "This is a test application. It cannot be sent to lenders."
             : data.error === "not_sealable"
               ? "Some required items still need attention. Review the tasks below before submitting."
+              : data.error === "complete_package_verification_failed" && typeof data.detail === "string"
+                ? data.detail
               : "We could not confirm submission. Your saved application is available; check its status before trying again.",
         );
       } else {
         await load();
       }
     } catch {
-      setError("Network error");
+      const recovered = await load();
+      if (!recovered?.sealed) setError("The submission response was interrupted. Refresh package status before submitting again.");
     } finally {
       setBusy(false);
     }
@@ -230,12 +245,17 @@ export function SealPackageCard({ dealId, onReviewDocuments, onQuestion }: { dea
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold text-slate-900">
-            Package sealed — on the marketplace
+            {status.packageCompletion?.verified ? "Complete package saved for lender matching" : "Package sealed — on the marketplace"}
           </h3>
           <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
             {l.status}
           </span>
         </div>
+        {status.packageCompletion?.verified && <div className="mb-4 rounded-lg bg-emerald-50 p-4 text-sm text-emerald-900" role="status">
+          <p>{status.packageCompletion.generatedDocumentCount} prepared documents and {status.packageCompletion.sourceDocumentCount} borrower source documents verified and saved.</p>
+          <p className="mt-1">{l.status === "picked" ? "Shared with your selected lender." : l.matchedLenderCount > 0 ? "Your complete package is awaiting lender pickup and your lender selection." : "Your complete package is saved. No lender match is available yet."}</p>
+          <p className="mt-1">This completes package submission, not credit approval or closing.</p>
+        </div>}
         <dl className="grid grid-cols-2 gap-y-2 text-sm text-slate-700">
           <dt>Buddy SBA Score</dt>
           <dd className="text-slate-900 font-medium">
@@ -360,7 +380,8 @@ export function SealPackageCard({ dealId, onReviewDocuments, onQuestion }: { dea
             </button>
           </div>
         )}
-        {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
+        <button type="button" className="mt-4 text-sm underline" onClick={() => void load()}>Refresh package status</button>
+        {error && <p role="alert" className="mt-3 text-sm text-rose-600">{error}</p>}
       </div>
     );
   }
@@ -394,7 +415,8 @@ export function SealPackageCard({ dealId, onReviewDocuments, onQuestion }: { dea
           >
             {busy ? "Submitting…" : "Submit for lender matching"}
           </button>
-          {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
+          <button type="button" className="ml-4 text-sm underline" onClick={() => void load()}>Refresh package status</button>
+          {error && <p role="alert" className="mt-3 text-sm text-rose-600">{error}</p>}
         </>
       ) : (
         <>
