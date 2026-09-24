@@ -47,6 +47,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: TypeScript check
+        # Match the main CI typecheck; a cold compiler exceeded the 4 GB job heap.
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
         run: pnpm typecheck
 
       - name: Build Next.js app
