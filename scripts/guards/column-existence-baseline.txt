@@ -95,7 +95,6 @@ deal_builder_sections.section_data
 deal_checklist_items.category
 deal_checklist_items.label
 deal_checklist_items.satisfied
-deal_conditions.due_at
 deal_consolidations.bridge_json
 deal_document_audit_certificates.corroboration_score
 deal_document_audit_certificates.identity_status
@@ -116,8 +115,6 @@ deal_financial_facts.updated_at
 deal_financial_facts.value_num
 deal_intake.id
 deal_message_drafts.meta
-deal_mitigants.due_at
-deal_mitigants.title
 deal_model_snapshots.created_at
 deal_outbound_settings.sla_minutes
 deal_owners.is_primary

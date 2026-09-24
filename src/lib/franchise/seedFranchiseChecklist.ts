@@ -9,7 +9,7 @@ import "server-only";
 //  - deal_portal_checklist_items: what /portal/[token]/checklist renders
 //    to the borrower (grouped by group_name).
 //  - deal_conditions: the banker-facing Conditions-to-Close list.
-// Both are idempotent upserts keyed off a stable code, so re-linking the
+// Both are idempotent writes keyed off a stable code, so re-linking the
 // same or a different brand does not create duplicates.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -48,13 +48,33 @@ const FRANCHISE_DOC_SPECS: FranchiseDocSpec[] = [
 
 const CHECKLIST_GROUP = "Franchise Documents";
 
+/** PostgREST cannot infer the partial (deal_id,source,source_key) index for
+ * an upsert without its predicate. Update only this tenant's existing row,
+ * insert when absent, and recover a concurrent insert's unique violation.
+ * Never reset status, verified documents, or other lender review evidence. */
+async function saveCondition(sb: SupabaseClient, row: Record<string, any>): Promise<boolean> {
+  const update = () => sb.from("deal_conditions").update(row)
+    .eq("deal_id", row.deal_id).eq("bank_id", row.bank_id)
+    .eq("source", row.source).eq("source_key", row.source_key)
+    .select("id").maybeSingle();
+  const existing = await update();
+  if (existing.error) return false;
+  if (existing.data) return true;
+  const inserted = await sb.from("deal_conditions").insert(row).select("id").single();
+  if (!inserted.error) return Boolean(inserted.data);
+  if (inserted.error.code !== "23505") return false;
+  const raced = await update();
+  return !raced.error && Boolean(raced.data);
+}
+
 export async function seedFranchiseChecklist(
   sb: SupabaseClient,
   params: { dealId: string; bankId: string; brandName: string },
-): Promise<void> {
+): Promise<{ ok: boolean }> {
   const { dealId, bankId, brandName } = params;
-
   try {
+    const deal = await sb.from("deals").select("id").eq("id", dealId).eq("bank_id", bankId).maybeSingle();
+    if (deal.error || !deal.data) return { ok: false };
     const checklistRows = FRANCHISE_DOC_SPECS.map((spec, index) => ({
       deal_id: dealId,
       code: spec.checklistCode,
@@ -65,38 +85,23 @@ export async function seedFranchiseChecklist(
       match_hints: spec.matchHints,
       required: true,
     }));
-
-    const { error: checklistErr } = await sb
-      .from("deal_portal_checklist_items")
+    const checklist = await sb.from("deal_portal_checklist_items")
       .upsert(checklistRows, { onConflict: "deal_id,code" });
-
-    if (checklistErr) {
-      console.error("[seedFranchiseChecklist] checklist upsert failed", checklistErr);
-    }
-  } catch (error) {
-    console.error("[seedFranchiseChecklist] checklist upsert threw", error);
-  }
-
-  try {
-    const conditionRows = FRANCHISE_DOC_SPECS.map((spec) => ({
+    if (checklist.error) return { ok: false };
+    const results = await Promise.all(FRANCHISE_DOC_SPECS.map(spec => saveCondition(sb, {
       deal_id: dealId,
       bank_id: bankId,
+      code: spec.conditionSourceKey,
       title: spec.title,
       description: `${spec.description} Required because this deal is financing a ${brandName} franchise.`,
-      category: "legal" as const,
-      source: "system" as const,
+      category: "legal",
+      source: "system",
       source_key: spec.conditionSourceKey,
       required_docs: [{ key: spec.checklistCode, label: spec.title, optional: false }],
-    }));
-
-    const { error: conditionsErr } = await sb
-      .from("deal_conditions")
-      .upsert(conditionRows, { onConflict: "deal_id,source,source_key" });
-
-    if (conditionsErr) {
-      console.error("[seedFranchiseChecklist] deal_conditions upsert failed", conditionsErr);
-    }
+    })));
+    return { ok: results.every(Boolean) };
   } catch (error) {
-    console.error("[seedFranchiseChecklist] deal_conditions upsert threw", error);
+    console.error("[seedFranchiseChecklist] requirements unavailable", error);
+    return { ok: false };
   }
 }

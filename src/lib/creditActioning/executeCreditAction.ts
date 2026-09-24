@@ -129,11 +129,12 @@ async function routeToTargetSystem(
     case "request_supporting_document":
     case "add_collateral_support":
     case "add_guaranty_support": {
-      const { data: cond } = await sb
+      const { data: cond, error: conditionError } = await sb
         .from("deal_conditions")
         .insert({
           deal_id: dealId,
           bank_id: input.bankId,
+          code: `credit_action:${input.actionId}`,
           title: recommendedText,
           description: (proposedTerms as any)?.conditionText ?? recommendedText,
           category: mapConditionCategory(category),
@@ -142,6 +143,7 @@ async function routeToTargetSystem(
         })
         .select("id")
         .single();
+      if (conditionError || !cond?.id) return { ok: false, error: "condition_insert_failed" };
       return { ok: true, targetSystem: "conditions", targetRecordId: cond?.id ?? null, executionStatus: "created" };
     }
 

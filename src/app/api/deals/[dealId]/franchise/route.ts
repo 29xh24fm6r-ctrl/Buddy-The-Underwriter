@@ -106,7 +106,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
       meta: { deal_id: dealId, brand_id: brand.id, brand_name: brand.brand_name },
     });
 
-    await seedFranchiseChecklist(sb, { dealId, bankId: access.bankId, brandName: brand.brand_name });
+    const checklist = await seedFranchiseChecklist(sb, { dealId, bankId: access.bankId, brandName: brand.brand_name });
+    if (!checklist.ok) return NextResponse.json(
+      { ok: false, error: "franchise_checklist_unavailable", selectionSaved: true },
+      { status: 503 },
+    );
 
     return NextResponse.json({ ok: true, brandId: brand.id, brandName: brand.brand_name });
   } catch (error) {

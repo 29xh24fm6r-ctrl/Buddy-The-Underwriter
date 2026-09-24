@@ -13,7 +13,7 @@ before(async () => {
   ({ generateConditionsForDeal } = await import("../generateConditionsForDeal"));
 });
 
-function makeFakeSb(tables: Record<string, any[]> = {}) {
+function makeFakeSb(tables: Record<string, any[]> = {}, failConditions = false) {
   const state: Record<string, any[]> = { ...tables };
 
   function table(name: string) {
@@ -36,7 +36,13 @@ function makeFakeSb(tables: Record<string, any[]> = {}) {
         resolve({ data: rows, error: null });
       },
       insert(rows: any) {
+        if (name === "deal_conditions" && failConditions) return { select: () => ({ maybeSingle: async () => ({ data: null, error: { message: "unavailable" } }) }) };
         const arr = Array.isArray(rows) ? rows : [rows];
+        if (name === "deal_conditions") for (const row of arr) {
+          assert.ok(row.code, "production requires a condition code");
+          assert.ok(row.bank_id);
+          assert.ok(["policy", "system", "manual"].includes(row.source));
+        }
         const inserted = arr.map((r, i) => ({ id: `${name}-${state[name].length + i}`, ...r }));
         state[name].push(...inserted);
         return {
@@ -101,7 +107,7 @@ test("generateMitigantConditionsForDeal: already-existing condition -> skipped, 
 
 test("generateRuleConditionsForDeal: no documents on file -> all applicable rules open", async () => {
   const { client, state } = makeFakeSb({
-    deals: [{ id: "deal-1", deal_type: "sba_7a_standard" }],
+    deals: [{ id: "deal-1", bank_id: "bank-1", deal_type: "sba_7a_standard" }],
   });
   const result = await generateRuleConditionsForDeal("deal-1", "bank-1", { sb: client as any });
 
@@ -116,7 +122,7 @@ test("generateRuleConditionsForDeal: no documents on file -> all applicable rule
 
 test("generateRuleConditionsForDeal: all docs present -> no conditions created, rules satisfied", async () => {
   const { client, state } = makeFakeSb({
-    deals: [{ id: "deal-1", deal_type: "conventional" }],
+    deals: [{ id: "deal-1", bank_id: "bank-1", deal_type: "conventional" }],
     deal_documents: [
       { deal_id: "deal-1", canonical_type: "PFS", doc_year: null },
       { deal_id: "deal-1", canonical_type: "BUSINESS_TAX_RETURN", doc_year: 2024 },
@@ -134,7 +140,7 @@ test("generateRuleConditionsForDeal: all docs present -> no conditions created, 
 
 test("generateRuleConditionsForDeal: real estate collateral + missing rent roll -> rule fires", async () => {
   const { client, state } = makeFakeSb({
-    deals: [{ id: "deal-1", deal_type: "conventional" }],
+    deals: [{ id: "deal-1", bank_id: "bank-1", deal_type: "conventional" }],
     deal_collateral_items: [{ deal_id: "deal-1", item_type: "real_estate" }],
     deal_documents: [
       { deal_id: "deal-1", canonical_type: "PFS", doc_year: null },
@@ -152,7 +158,7 @@ test("generateRuleConditionsForDeal: real estate collateral + missing rent roll 
 
 test("generateRuleConditionsForDeal: rerun is idempotent -> no duplicate rows", async () => {
   const { client, state } = makeFakeSb({
-    deals: [{ id: "deal-1", deal_type: "sba_7a_standard" }],
+    deals: [{ id: "deal-1", bank_id: "bank-1", deal_type: "sba_7a_standard" }],
   });
   await generateRuleConditionsForDeal("deal-1", "bank-1", { sb: client as any });
   const firstCount = state.deal_conditions.length;
@@ -165,7 +171,7 @@ test("generateRuleConditionsForDeal: rerun is idempotent -> no duplicate rows", 
 
 test("generateConditionsForDeal: unifies both generators with a combined count", async () => {
   const { client } = makeFakeSb({
-    deals: [{ id: "deal-1", deal_type: "sba_7a_standard" }],
+    deals: [{ id: "deal-1", bank_id: "bank-1", deal_type: "sba_7a_standard" }],
     deal_mitigants: [{ deal_id: "deal-1", mitigant_key: "stronger_guarantor", mitigant_label: "Guarantor", status: "open" }],
   });
   const result = await generateConditionsForDeal("deal-1", "bank-1", { sb: client as any });
@@ -173,4 +179,10 @@ test("generateConditionsForDeal: unifies both generators with a combined count",
   assert.equal(result.from_mitigants, 1);
   assert.ok(result.from_rules > 0);
   assert.equal(result.total_created, result.from_mitigants + result.from_rules);
+});
+
+
+test("pipeline condition stage rejects a failed condition insert instead of reporting no requirements", async () => {
+  const { client } = makeFakeSb({ deals: [{ id: "deal-1", bank_id: "bank-1", deal_type: "sba_7a_standard" }] }, true);
+  await assert.rejects(generateConditionsForDeal("deal-1", "bank-1", { sb: client as any }), /conditions_persistence_failed/);
 });

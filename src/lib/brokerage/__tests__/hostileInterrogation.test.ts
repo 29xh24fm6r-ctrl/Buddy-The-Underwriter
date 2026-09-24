@@ -25,7 +25,7 @@ type Row = Record<string, any>;
 function makeDb(tables: Record<string, Row[]>) {
   function builder(tableName: string) {
     const rows = tables[tableName] ?? (tables[tableName] = []);
-    let filters: Array<[string, any]> = [];
+    const filters: Array<[string, any]> = [];
     let op: "select" | "insert" | "upsert" = "select";
     let payload: any = null;
     let conflictKeys: string[] = [];
@@ -69,6 +69,7 @@ function makeDb(tables: Record<string, Row[]>) {
 
     function exec(): { data: Row | null; error: null } {
       if (op === "insert") {
+        if (tableName === "deal_conditions") assert.ok(payload.code, "production requires condition code");
         rows.push({ id: `gen-${rows.length + 1}`, ...payload });
         return { data: null, error: null };
       }

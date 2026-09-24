@@ -37,17 +37,23 @@ export async function POST(
   if (dealErr || !deal)
     return NextResponse.json({ error: "Deal not found" }, { status: 404 });
 
-  const { data: conditions = [] } = await sb
+  const { data: conditions = [], error: conditionsError } = await sb
     .from("deal_conditions")
-    .select("id,title,status,due_at")
+    .select("id,title,status,due_date")
     .eq("deal_id", dealId)
-    .neq("status", "satisfied");
+    .eq("bank_id", deal.bank_id)
+    .eq("status", "open");
 
-  const { data: mitigants = [] } = await sb
+  const { data: mitigants = [], error: mitigantsError } = await sb
     .from("deal_mitigants")
-    .select("id,title,status,due_at")
+    .select("id,mitigant_label,status")
     .eq("deal_id", dealId)
-    .neq("status", "satisfied");
+    .eq("bank_id", deal.bank_id)
+    .eq("status", "open");
+
+  if (conditionsError || mitigantsError) {
+    return NextResponse.json({ error: "Requirements unavailable" }, { status: 503 });
+  }
 
   const desired = [
     ...(conditions ?? []).map((c: any) => ({
@@ -57,24 +63,26 @@ export async function POST(
       description: "Requested due to a deal condition.",
       category: "condition",
       status: "requested",
-      due_at: c.due_at ?? null,
+      due_at: c.due_date ?? null,
     })),
     ...(mitigants ?? []).map((m: any) => ({
       deal_id: dealId,
       bank_id: deal.bank_id,
-      title: m.title,
+      title: m.mitigant_label,
       description: "Requested due to a deal mitigant.",
       category: "mitigant",
       status: "requested",
-      due_at: m.due_at ?? null,
+      due_at: null,
     })),
   ];
 
   // Fetch existing titles
-  const { data: existing = [] } = await sb
+  const { data: existing = [], error: existingError } = await sb
     .from("borrower_document_requests")
     .select("id,title")
     .eq("deal_id", dealId);
+
+  if (existingError) return NextResponse.json({ error: "Requests unavailable" }, { status: 503 });
 
   const existingTitles = new Set(
     (existing || []).map((r: any) => String(r.title)),

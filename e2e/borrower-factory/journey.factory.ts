@@ -147,6 +147,7 @@ async function setup(page: Page, preparePackage = false, testCompletion = false,
 test("eligibility recovery saves explicit receipts and selected franchise without claiming submission", async ({ page }) => {
   const fixture = await setup(page);
   let selected = false;
+  let selectionAttempts = 0;
   await page.route("**/seal-status", route => route.fulfill({ json: {
     ok: true, sealed: false, canSeal: false, gateReasons: ["Average annual receipts and franchise evidence need review."],
     score: { isFranchise: true, eligibilityUnresolved: [{ check: "size_standard", nextAction: "Provide average annual receipts, including any affiliates." }], topWeaknesses: ["Downside debt coverage is weak"] },
@@ -155,12 +156,15 @@ test("eligibility recovery saves explicit receipts and selected franchise withou
     if (route.request().method() === "PATCH") {
       expect(route.request().postDataJSON()).toEqual({ brand_id: "brand-7-brew" });
       selected = true;
+      if (++selectionAttempts === 1) return route.fulfill({ status: 503, json: { ok: false, selectionSaved: true, error: "franchise_checklist_unavailable" } });
     }
     return route.fulfill({ json: { ok: true, brandId: selected ? "brand-7-brew" : null, brandName: selected ? "7 BREW" : null } });
   });
   await page.route("**/api/franchise/search?*", route => route.fulfill({ json: { brands: [{ id: "brand-7-brew", brand_name: "7 BREW", sba_certification_status: "certified" }] } }));
   await page.getByRole("button", { name: /MISSION 5 Make it ready/ }).click();
   await page.getByRole("textbox", { name: "Search for your franchise brand" }).fill("7 Brew");
+  await page.getByRole("button", { name: /7 BREW/ }).click();
+  await expect(page.getByText(/Your brand was saved, but its document requirements could not be refreshed/)).toBeVisible();
   await page.getByRole("button", { name: /7 BREW/ }).click();
   expect(selected).toBe(true);
   await expect(page.getByText(/Brand selection is saved/)).toBeVisible();

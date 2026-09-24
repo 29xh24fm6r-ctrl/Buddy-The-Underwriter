@@ -18,13 +18,9 @@ function makeDb(tables: Record<string, Row[]>) {
   function builder(tableName: string) {
     const stored = tables[tableName] ?? (tables[tableName] = []);
     let rows = [...stored];
-    let filters: Array<[string, any]> = [];
+    const filters: Array<[string, any]> = [];
     let op: "select" | "insert" = "select";
     let payload: any = null;
-
-    function matches(row: Row) {
-      return filters.every(([k, v]) => row[k] === v);
-    }
 
     const q: any = {
       select() {
@@ -62,6 +58,7 @@ function makeDb(tables: Record<string, Row[]>) {
 
     function exec() {
       if (op === "insert") {
+        if (tableName === "deal_conditions") assert.ok(payload.code, "production requires condition code");
         stored.push({ id: `gen-${stored.length + 1}`, ...payload });
         return { data: null, error: null };
       }

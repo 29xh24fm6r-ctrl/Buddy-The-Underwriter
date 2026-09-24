@@ -12,13 +12,9 @@ export type GenerateRuleConditionsResult = {
 };
 
 /**
- * Salvaged from src/lib/conditions/computeAndPersist.ts (dead code — it
- * wrote to deal_missing_docs/deal_condition_evidence, tables that don't
- * exist, and a deal_conditions shape with code/severity/source:"rules"
- * columns the real schema doesn't have). Only CONDITION_RULES's rule
- * *content* is reused here; the persistence path below targets the real
- * deal_conditions schema (title/description/category/status/source/
- * source_key, unique on deal_id+source+source_key).
+ * Shared by pipeline preparation and borrower document recomputation.
+ * Condition codes remain required by the legacy production table; source_key
+ * identifies canonical rules without resetting existing lender review status.
  *
  * Real presence signals per ExpectedDocKey — confirmed live against this
  * project's Supabase instance before writing this mapping:
@@ -52,6 +48,8 @@ async function deriveMissingDocKeys(
       .eq("deal_id", dealId)
       .eq("bank_id", bankId),
   ]);
+
+  if (docsRes.error || signedRes.error) throw new Error("condition_evidence_unavailable");
 
   const docs = (docsRes.data ?? []) as { canonical_type: string | null; doc_year: number | null }[];
   const signed = (signedRes.data ?? []) as { form_code: string | null; signature_completed_at: string | null }[];
@@ -115,16 +113,21 @@ export async function generateRuleConditionsForDeal(
 ): Promise<GenerateRuleConditionsResult> {
   const sb: ConditionsSupabaseClient = opts.sb ?? supabaseAdmin();
 
-  const { data: deal } = await sb
+  const { data: deal, error: dealError } = await sb
     .from("deals")
     .select("deal_type")
     .eq("id", dealId)
+    .eq("bank_id", bankId)
     .maybeSingle();
 
-  const { data: collateralItems } = await sb
+  if (dealError || !deal) throw new Error("condition_deal_unavailable");
+
+  const { data: collateralItems, error: collateralError } = await sb
     .from("deal_collateral_items")
     .select("item_type")
     .eq("deal_id", dealId);
+
+  if (collateralError) throw new Error("condition_collateral_unavailable");
 
   const hasRealEstateCollateral = ((collateralItems ?? []) as { item_type: string }[]).some(
     (c) => c.item_type === "real_estate",
@@ -153,6 +156,8 @@ export async function generateRuleConditionsForDeal(
       .eq("source_key", rule.code)
       .maybeSingle();
 
+    if (existing.error) throw new Error("condition_lookup_failed");
+
     if (existing.data?.id) {
       skipped.push({ rule_code: rule.code, reason: "already_exists", detail: existing.data.id });
       continue;
@@ -165,6 +170,7 @@ export async function generateRuleConditionsForDeal(
       .insert({
         deal_id: dealId,
         bank_id: bankId,
+        code: rule.code,
         title: rule.title,
         description: evidenceText || null,
         category: categoryForRule(rule.code),
