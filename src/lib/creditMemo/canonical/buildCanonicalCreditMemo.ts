@@ -1,3 +1,4 @@
+import { packageMemoFinancialPayload } from "@/lib/modelEngine/packageMemoFinancialPayload";
 import { loadMemoBorrowerEvidence } from "./packageBorrowerEvidence";
 import type { PackageFinancialOutput } from "@/lib/modelEngine/packageFinancialComputation";
 import "server-only";
@@ -1833,10 +1834,7 @@ export async function buildCanonicalCreditMemo(args: {
       ...(packageBorrowerEvidence ? { package_borrower_evidence: packageBorrowerEvidence } : {}),
       ...(packageFinancial ? { package_financials: {
         snapshotId: args.financialSnapshotId ?? "pending_persistence",
-        output: { baseYear: packageFinancial.baseYear, annualProjections: packageFinancial.projectionModel.annualProjections,
-          sensitivityScenarios: packageFinancial.projectionModel.sensitivityScenarios,
-          sourcesAndUses: packageFinancial.sourcesAndUses, balanceSheetProjections: packageFinancial.balanceSheetProjections,
-          assumptions: packageFinancial.assumptions, globalCashFlow: packageFinancial.globalCashFlow },
+        output: packageMemoFinancialPayload(packageFinancial),
       } } : {}),
       version: "canonical_v1",
       deal_id: String(deal.id),
