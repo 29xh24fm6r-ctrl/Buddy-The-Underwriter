@@ -258,3 +258,64 @@ test("a disclosed advisory condition does not spend three repair cycles", async 
   assert.equal(result.repaired, false);
   assert.equal(reviews, 1);
 });
+
+test("production funding regression: an otherwise correct rewrite cannot erase the authoritative schedule", async () => {
+  const schedule = { sources: [{ label: "SBA loan", amount: 950000 }, { label: "Owner equity", amount: 250000 }], uses: [
+    { label: "Working capital per startup budget. Total costs $1,200,000 funded by loan and equity.", amount: 175000 },
+    { label: "Opening inventory", amount: 25000 }, { label: "Equipment", amount: 350000 },
+    { label: "Illustrative franchise fee; not an actual brand quote", amount: 50000 },
+    { label: "Leasehold construction; no real-estate purchase", amount: 600000 },
+  ], totalSources: 1200000, totalUses: 1200000 };
+  const { fundingScheduleText } = await import("../packageNarrativeEvidence");
+  const anchor = fundingScheduleText(schedule);
+  let reviews = 0;
+  __setProviderImplForTests("anthropic", async req => {
+    reviews++;
+    assert.ok(req.prompt.includes(anchor));
+    return { text: JSON.stringify({ issues: reviews === 1 ? [{ sectionKey: "operations_plan",
+      claim: "Unsupported operating guarantee", reason: "The scenario is conditional", severity: "critical",
+      category: "unsupported_fact", repairInstruction: "Qualify the operating assumptions" }] : [] }), tokensIn: 1, tokensOut: 1 };
+  });
+  const prose = Array(50).fill("Conditional operating assumptions need borrower confirmation.").join(" ");
+  __setProviderImplForTests("openai", async () => ({ text: JSON.stringify({ sections: [{ key: "operations_plan", text: prose }] }), tokensIn: 1, tokensOut: 1 }));
+  const result = await finishInstitutionalArtifact({ artifactType: "business_plan", dealId: "qa",
+    facts: { sources_and_uses: schedule }, sections: [{ key: "operations_plan", text: prose }], narrativeRequirements: { operations_plan: 45 } });
+  assert.equal(result.verdict, "pass"); assert.equal(result.reviewPasses, 2);
+  assert.equal(result.sections[0].text.split(anchor).length, 2, "one exact protected schedule after a rewrite that omitted it");
+  assert.ok(result.sections[0].text.startsWith(prose));
+});
+
+test("cross-section findings repair their explicit targets rather than repeatedly rewriting the correct quoted section", async () => {
+  let reviews = 0;
+  __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify({ issues: ++reviews === 1 ? [{
+    sectionKey: "operations_plan", repairSectionKeys: ["business_overview_narrative", "executive_summary"],
+    claim: "Franchise fee $50,000", reason: "The other two sections call the franchise fee other expenses.", severity: "critical",
+    category: "cross_artifact_conflict", repairInstruction: "Identify the franchise fee in business_overview_narrative and executive_summary.",
+  }] : [] }), tokensIn: 1, tokensOut: 1 }));
+  __setProviderImplForTests("openai", async req => {
+    assert.match(req.prompt, /REQUESTED REPAIR SECTION KEYS:\n\n\["business_overview_narrative","executive_summary"\]/);
+    assert.match(req.prompt, /The other two sections/);
+    return { text: JSON.stringify({ sections: ["business_overview_narrative", "executive_summary"].map(key => ({ key, text: "Illustrative franchise fee $50,000; lender confirmation remains pending." })) }), tokensIn: 1, tokensOut: 1 };
+  });
+  const result = await finishInstitutionalArtifact({ artifactType: "business_plan", dealId: "qa", facts: {}, sections: [
+    { key: "operations_plan", text: "Franchise fee $50,000" },
+    { key: "business_overview_narrative", text: "Other expenses $50,000" },
+    { key: "executive_summary", text: "Other initial costs $50,000" },
+  ] });
+  assert.equal(result.verdict, "pass"); assert.equal(reviews, 2);
+  assert.equal(result.sections[0].text, "Franchise fee $50,000");
+});
+
+test("protected funding evidence never suppresses a contradiction in surrounding prose", async () => {
+  __setProviderImplForTests("anthropic", async () => ({ text: JSON.stringify({ issues: [{
+    sectionKey: "operations_plan", repairSectionKeys: ["operations_plan"], claim: "Equipment $900",
+    reason: "Saved use is working capital $100", severity: "critical", category: "numeric_inconsistency",
+    repairInstruction: "Correct the contradictory use in the prose",
+  }] }), tokensIn: 1, tokensOut: 1 }));
+  __setProviderImplForTests("openai", async () => ({ text: JSON.stringify({ sections: [{ key: "operations_plan", text: "Equipment $900" }] }), tokensIn: 1, tokensOut: 1 }));
+  const result = await finishInstitutionalArtifact({ artifactType: "business_plan", dealId: "qa",
+    facts: { sourcesAndUses: { sources: [{ label: "Loan", amount: 100 }], uses: [{ label: "Working capital", amount: 100 }], totalSources: 100, totalUses: 100 } },
+    sections: [{ key: "operations_plan", text: "Equipment $900" }] });
+  assert.equal(result.verdict, "flagged"); assert.equal(result.reviewPasses, 4);
+  assert.equal(result.reviewIssues[0].claim, "Equipment $900");
+});

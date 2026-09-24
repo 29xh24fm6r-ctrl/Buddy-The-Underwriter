@@ -1,9 +1,14 @@
-import type { SensitivityScenario, SourcesAndUsesResult } from "@/lib/sba/sbaReadinessTypes";
+import type { SensitivityScenario } from "@/lib/sba/sbaReadinessTypes";
 
 const dollars = (value: number) => `$${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
 /** Textual anchors copy the saved model; no second financial calculation. */
-export function fundingScheduleText(schedule: Pick<SourcesAndUsesResult, "sources" | "uses" | "totalSources" | "totalUses">): string {
+export function fundingScheduleText(schedule: {
+  sources: { label: string; amount: number }[];
+  uses: { label: string; amount: number }[];
+  totalSources: number;
+  totalUses: number;
+}): string {
   const lines = (rows: { label: string; amount: number }[]) => rows.filter(row => row.amount !== 0)
     .map(row => `${row.label}: ${dollars(row.amount)}`).join("; ");
   return `Sources: ${lines(schedule.sources)}. Total sources: ${dollars(schedule.totalSources)}. Uses: ${lines(schedule.uses)}. Total uses: ${dollars(schedule.totalUses)}.`;

@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { auditProjectionNarrative, auditFundingNarrative } from "./projectionNarrativeAudit";
+import { protectFundingSchedule } from "./protectedFundingSchedule";
 import { auditNarrativeCompleteness } from "./narrativeCompletenessAudit";
 import { includeRequiredNarrativeSections, type NarrativeRequirements } from "@/lib/brokerage/trident/narrativeAcceptance";
 
@@ -42,6 +43,8 @@ export type FrontierArtifactResult = {
 
 export type ReviewIssue = {
   sectionKey: string;
+  /** Sections requiring edits; the quoted claim can be in a different section. */
+  repairSectionKeys?: string[];
   claim: string;
   reason: string;
   severity: "info" | "warning" | "critical";
@@ -64,6 +67,7 @@ const REVIEW_SCHEMA: Record<string, unknown> = {
         type: "object",
         properties: {
           sectionKey: { type: "string" },
+          repairSectionKeys: { type: "array", items: { type: "string" }, minItems: 1 },
           claim: { type: "string" },
           reason: { type: "string" },
           severity: { type: "string", enum: ["info", "warning", "critical"] },
@@ -82,6 +86,7 @@ const REVIEW_SCHEMA: Record<string, unknown> = {
         },
         required: [
           "sectionKey",
+          "repairSectionKeys",
           "claim",
           "reason",
           "severity",
@@ -121,6 +126,8 @@ const REVIEW_SYSTEM = [
   "Review the artifact against the immutable evidence and deterministic calculations supplied.",
   "Find unsupported claims, numeric inconsistencies, missing repayment analysis, generic filler, policy gaps, and contradictions between sections.",
   "Do not rewrite the artifact and do not invent facts. Return no issue for a mere stylistic preference.",
+  "For every issue, repairSectionKeys must list the exact section keys that need changes. A quoted claim may be in a correct section while the conflicting text is elsewhere: target the sections that are actually wrong. Include every affected section so one repair can resolve the conflict.",
+  "The appended Funding schedule (saved assumptions) is copied from the authoritative model. Do not request stylistic rewrites of its source labels or confuse a category such as other with the described use such as an illustrative franchise fee. Still flag demonstrable contradictions in surrounding prose.",
   "A disclosed missing lender confirmation or supporting document is an advisory warning, unless the artifact falsely claims it exists. Never require a prose rewrite to create missing source evidence. Supplied model calculations are authoritative; request correction only for a demonstrable contradiction, not an alternative financial method.",
   "Numeric inconsistencies and cross-artifact conflicts are repairable content defects and must be critical, even when the correct figures appear elsewhere. Reserve these categories for demonstrable contradictions. Use credit_policy for disclosed missing external evidence or lender confirmation. A funding allocation omitting working capital or mislabeling a franchise fee is a numeric inconsistency. A base-case cushion does not establish ramp or downside resilience; evaluate all three downside years wherever repayment strength is claimed.",
   "A pass requires decision-useful, borrower-specific analysis that clearly separates evidence, assumptions, and conclusions.",
@@ -132,6 +139,7 @@ const REPAIR_SYSTEM = [
   "Follow every repair instruction that is supported by the evidence.",
   "Never invent a number, person, credential, market fact, or policy conclusion.",
   "If evidence is absent, state the limitation concisely instead of filling space.",
+  "The application restores the authoritative funding schedule after each repair; edit the analysis and any contradictory prose, not the copied schedule. Preserve source descriptions and qualifications wherever funding uses are discussed.",
   "Return only the requested repair section keys, exactly once each. Unaffected sections are read-only context and must not be returned or changed.",
 ].join(" ");
 
@@ -140,6 +148,7 @@ function parseIssues(text: string): ReviewIssue[] {
     const value = JSON.parse(text) as { issues?: ReviewIssue[]; flaggedClaims?: FlaggedClaim[] };
     if (Array.isArray(value.issues) && value.issues.every((issue) =>
       issue && typeof issue.sectionKey === "string" && typeof issue.reason === "string" &&
+      (issue.repairSectionKeys === undefined || (Array.isArray(issue.repairSectionKeys) && issue.repairSectionKeys.length > 0 && issue.repairSectionKeys.every(key => typeof key === "string"))) &&
       typeof issue.claim === "string" && typeof issue.repairInstruction === "string" &&
       ["info", "warning", "critical"].includes(issue.severity) &&
       ["unsupported_fact", "numeric_inconsistency", "missing_analysis", "generic_language", "credit_policy", "cross_artifact_conflict"].includes(issue.category)
@@ -283,7 +292,7 @@ export function reviewContentHash(input: {
       .map((s) => [s.key, s.text]),
   );
   return createHash("sha256")
-    .update(`review_rules_v6\u0000${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}\u0000${JSON.stringify(input.narrativeRequirements ?? {})}`)
+    .update(`review_rules_v7\u0000${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}\u0000${JSON.stringify(input.narrativeRequirements ?? {})}`)
     .digest("hex");
 }
 
@@ -301,7 +310,9 @@ export async function finishInstitutionalArtifact(input: {
   const npiTagged = input.npiTagged ?? true;
   const finalContentHash = () => reviewContentHash({ ...input, sections, sectionAudit: input.auditSections?.(sections) });
   const saved = input.checkpoint?.state;
-  let sections = includeRequiredNarrativeSections(saved?.sections ?? input.sections, input.narrativeRequirements);
+  const prepareSections = (values: ArtifactSection[]) => input.artifactType === "business_plan"
+    ? protectFundingSchedule(input.facts, values) : values;
+  let sections = prepareSections(includeRequiredNarrativeSections(saved?.sections ?? input.sections, input.narrativeRequirements));
   let repaired = saved?.repaired ?? false;
   let reviewPasses = saved?.reviewPasses ?? 0;
   let remaining: ReviewIssue[] = enforceReviewSeverity(saved?.remaining ?? []);
@@ -328,9 +339,10 @@ export async function finishInstitutionalArtifact(input: {
     const sectionKeys = new Set(sections.map((section) => section.key));
     // Legacy/artifact-wide findings require the whole set. Otherwise preserve
     // unaffected sections byte-for-byte and request only the diagnosed edits.
-    const artifactWide = remaining.some((issue) => !sectionKeys.has(issue.sectionKey));
-    const targets = artifactWide ? sections : sections.filter((section) =>
-      remaining.some((issue) => issue.sectionKey === section.key));
+    const issueKeys = (issue: ReviewIssue) => issue.repairSectionKeys ?? [issue.sectionKey];
+    const artifactWide = remaining.some(issue => issueKeys(issue).some(key => !sectionKeys.has(key)));
+    const targets = artifactWide ? sections : sections.filter(section =>
+      remaining.some(issue => issueKeys(issue).includes(section.key)));
     // Feasibility has seven long sections. Rewriting all of them in one
     // response repeatedly exhausted the 75s deadline. Bound each response to
     // two sections, and retain the independent whole-artifact review.
@@ -360,7 +372,7 @@ export async function finishInstitutionalArtifact(input: {
           "PUBLICATION REQUIREMENTS FOR REQUESTED SECTIONS (preserve these while repairing):",
           JSON.stringify(Object.fromEntries(batch.flatMap(section => input.narrativeRequirements?.[section.key] ? [[section.key, { minimumWords: input.narrativeRequirements[section.key], format: "plain evidence-grounded prose" }]] : []))),
           "INDEPENDENT REVIEW FINDINGS:",
-          JSON.stringify(remaining.filter((issue) => !sectionKeys.has(issue.sectionKey) || batch.some((s) => s.key === issue.sectionKey))),
+          JSON.stringify(remaining.filter(issue => issueKeys(issue).some(key => !sectionKeys.has(key) || batch.some(s => s.key === key)))),
           `REPAIR CYCLE: ${cycle + 1} OF 3`,
           input.artifactType === "feasibility"
             ? "Return only the requested repaired sections. Remove unsupported claims; do not pad the response. Keep each section concise (normally 150-250 words)."
@@ -410,7 +422,7 @@ export async function finishInstitutionalArtifact(input: {
     }
     const repairedSections = repairs.flatMap((result) => result.status === "fulfilled" ? result.value : []);
     const replacements = new Map(repairedSections.map((section) => [section.key, section]));
-    sections = sections.map((section) => replacements.get(section.key) ?? section);
+    sections = prepareSections(sections.map((section) => replacements.get(section.key) ?? section));
     repaired = true;
     phase = "review";
     completedBatches = {};
