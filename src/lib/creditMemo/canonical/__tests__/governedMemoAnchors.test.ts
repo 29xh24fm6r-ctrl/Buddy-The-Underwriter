@@ -217,3 +217,13 @@ test("structured review exposes missing terms and unbridged cash flow despite lo
   assert.ok(review.findings.some(f => f.includes("adjustment bridge")));
   assert.ok(review.findings.some(f => f.includes("Management")));
 });
+
+test("package borrower statements and projected downside reach generator and verifier without certifying historical stress", () => {
+  const scenario = { name: "downside", dscrYear1: 1.44, dscrYear2: .77, dscrYear3: .14, passesSBAThreshold: false };
+  const evidence = { business: { name: "Canonical Coffee LLC", businessEntityType: "llc" }, owners: [{ ownerId: "one", personalStatement: { netWorth: 750000, ongoingIncomeConfirmed: false } }] };
+  const input = buildNarrativeInput(memo({ package_financials: { snapshotId: "frozen", output: { sensitivityScenarios: [scenario] } }, package_borrower_evidence: evidence }));
+  assert.deepEqual(input.package_borrower_evidence, evidence);
+  assert.deepEqual(input.projectionPackage.sensitivityScenarios, [scenario]);
+  assert.equal(input.stress, null);
+  assert.match(input.projectionPackage.basis, /not certified historical stress/);
+});

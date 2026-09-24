@@ -241,6 +241,7 @@ export function LenderPackageReview({
   const [error, setError] = useState("");
   const [bundle, setBundle] = useState<Record<string, any> | null>(null);
   const [preparation, setPreparation] = useState<PackagePreparationStatus | null>(null);
+  const assumptionSections = useRef<Record<string, HTMLDetailsElement | null>>({});
   const [recoveryItems, setRecoveryItems] = useState<PackageRecoveryItem[]>([]);
   const [released, setReleased] = useState(false);
   const [packageCheck, setPackageCheck] = useState<BorrowerPackageCheck | null>(null);
@@ -326,6 +327,19 @@ export function LenderPackageReview({
     }, 15000);
     return () => clearInterval(timer);
   }, [running, refresh]);
+  function recoveryAction(item: PackageRecoveryItem) {
+    if (item.assumptionGroup) return <button type="button" disabled={dirty || !!busy || !!running}
+      className="ml-2 text-sky-700 underline" onClick={() => {
+        const section = assumptionSections.current[item.assumptionGroup!];
+        if (!section) return;
+        section.open = true;
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+        section.querySelector("summary")?.focus();
+      }}>Review {groups[item.assumptionGroup].toLowerCase()}</button>;
+    if (item.questionId && onQuestion) return <button type="button" disabled={dirty || !!busy || !!running}
+      className="ml-2 text-sky-700 underline" onClick={() => onQuestion(item.questionId!)}>Review this detail</button>;
+    return null;
+  }
   async function discardDraft() {
     setBusy("reload");
     setError("");
@@ -457,9 +471,10 @@ export function LenderPackageReview({
       {assumptions && (
         <fieldset disabled={!!busy || !!running} className="mt-4 space-y-3">
           {Object.entries(groups).map(([key, title]) => (
-            <details key={key} className="rounded-xl border p-4">
+            <details key={key} ref={node => { assumptionSections.current[key] = node; }} className="rounded-xl border p-4">
               <summary className="cursor-pointer font-medium">{title}</summary>
               <div className="mt-4">
+                {key === "costAssumptions" && <p className="mb-3 text-sm text-slate-600">Planned hires add payroll to fixed expenses. If payroll is already in a fixed-cost category, separate it before adding those hires so it is counted once.</p>}
                 <Field
                   name={key}
                   value={assumptions[key] ?? []}
@@ -502,11 +517,11 @@ export function LenderPackageReview({
       <div className="mt-6 border-t pt-4">
         {readiness && !running && (
           <section
-            className={`mb-5 rounded-xl border p-4 ${readiness.readyToPrepare ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}
+            className={`mb-5 rounded-xl border p-4 ${readiness.readyToPrepare && packageCheck?.status !== "blocked" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}
           >
             <h4 className="font-semibold">
-              {readiness.readyToPrepare
-                ? "Your information is ready for package preparation"
+              {readiness.readyToPrepare && packageCheck?.status !== "blocked"
+                ? "Initial preparation requirements complete"
                 : "Here’s what Buddy still needs"}
             </h4>
             {readiness.budget && <p className="mt-3 text-sm">
@@ -514,12 +529,11 @@ export function LenderPackageReview({
               {" · Project costs: "}{readiness.budget.totalUses.toLocaleString("en-US", { style: "currency", currency: "USD" })}
               {readiness.budget.balanced && " · Matched"}
             </p>}
-            {recoveryItems.length > 0 && <div className="mt-4">
+            {(!packageCheck || packageCheck.status === "not_checked") && recoveryItems.length > 0 && <div className="mt-4">
               <p className="text-sm font-medium">What the last preparation found</p>
               <ul className="mt-2 space-y-3 text-sm">{recoveryItems.map(item => <li key={item.id}>
                 <span>{item.label}</span>
-                {item.questionId && onQuestion && <button type="button" disabled={dirty || !!busy}
-                  className="ml-2 text-sky-700 underline" onClick={() => onQuestion(item.questionId!)}>Review this detail</button>}
+                {recoveryAction(item)}
               </li>)}</ul>
               <p className="mt-3 text-xs text-slate-600">Previous findings stay here until the next check. Your saved answers and documents remain available.</p>
             </div>}
@@ -561,7 +575,7 @@ export function LenderPackageReview({
             <p className="font-medium">{packageCheck.status === "passed" ? "Saved evidence check passed" : packageCheck.status === "not_checked" ? "Saved evidence check is incomplete" : "Saved evidence needs attention"}</p>
             <p className="mt-1">{packageCheck.message}</p>
             {packageCheck.recoveryItems.length > 0 && <ul className="mt-2 space-y-2">{packageCheck.recoveryItems.map(item => <li key={item.id}>
-              {item.label}{item.questionId && onQuestion && <button type="button" className="ml-2 underline" onClick={() => onQuestion(item.questionId!)}>Review this detail</button>}
+              {item.label}{recoveryAction(item)}
             </li>)}</ul>}
             <p className="mt-2 text-xs text-slate-600">This check uses saved evidence without AI. It does not prepare documents, verify identity, sign forms or release the package. Changes require another check.</p>
           </div>

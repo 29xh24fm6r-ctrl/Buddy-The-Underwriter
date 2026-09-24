@@ -53,3 +53,13 @@ test("budget recovery never tells the borrower to retry immediately or exposes r
   assert.match(message, /wait for capacity/);
   assert.doesNotMatch(message, /private-secret|250000|Retry once/);
 });
+
+test("operational gaps lead to the actual assumptions and franchise evidence without inventing market gaps", () => {
+  const items = packageRecoveryItems("feasibility_data_completeness_below_70_percent operational_readiness.staffingReadiness operational_readiness.managementExperience operational_readiness.franchiseSupport private-secret");
+  assert.deepEqual(items.map(item => item.id), ["feasibility", "staffing", "management", "franchise-support"]);
+  assert.equal(items[1].assumptionGroup, "costAssumptions");
+  assert.equal(items[2].assumptionGroup, "managementTeam");
+  assert.equal(items[3].questionId, "K06");
+  assert.match(items[1].label, /without counting it twice/);
+  assert.doesNotMatch(JSON.stringify(items), /private-secret/);
+});

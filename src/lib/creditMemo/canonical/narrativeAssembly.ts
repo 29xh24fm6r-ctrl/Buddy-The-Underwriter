@@ -120,6 +120,11 @@ export function buildNarrativeInput(
 
   return {
     package_financials: memo.package_financials ?? null,
+    package_borrower_evidence: memo.package_borrower_evidence ?? null,
+    projectionPackage: memo.package_financials ? {
+      sensitivityScenarios: memo.package_financials.output.sensitivityScenarios ?? [],
+      basis: "Borrower-confirmed projection assumptions, not certified historical stress or lender approval",
+    } : null,
     // ── Header / deal identity ──────────────────────────────────────────
     deal_name: memo.header.deal_name,
     borrower_name: memo.header.borrower_name,
@@ -397,6 +402,8 @@ export async function assembleNarratives(args: {
     "Every section must pass this test: if a committee member reads only this section, they must know (1) the borrower by name, (2) the specific numeric value being discussed, and (3) what that value means for whether this loan gets repaid.",
     "Generic language like \"strong profitability\" or \"adequate liquidity\" without the specific dollar amount or ratio value FAILS this test.",
     "",
+    "PACKAGE EVIDENCE: Use package_borrower_evidence for canonical business identity, stage, ownership and saved personal statements. Preserve its evidencePolicy; do not call supplied statements missing merely because the governed sponsors list is empty. Do not call proposed funding verified or documented cash at closing.",
+    "PROJECTION DOWNSIDE: projectionPackage.sensitivityScenarios is a separate, calculated borrower-assumption scenario, not the certified historical/rate stress engine. In executive_summary, income_analysis and repayment_analysis disclose all three downside DSCR values, the scenario label and any saved coverage-threshold failure. When historical/rate stress is unavailable, state that limitation WITHOUT withholding the available projection downside. Do not invent a common threshold or equate the two stress bases.",
     "ABSOLUTE RULES — violating any of these is a failure:",
     "1. Always use the borrower's name, never \"the borrower\" or \"the company\" alone.",
     "2. Every ratio mentioned MUST include its value: not \"strong DSCR\" but \"DSCR of 1.42x\".",

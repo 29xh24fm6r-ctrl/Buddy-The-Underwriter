@@ -268,7 +268,7 @@ export function reviewContentHash(input: {
       .map((s) => [s.key, s.text]),
   );
   return createHash("sha256")
-    .update(`review_rules_v3\u0000${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}`)
+    .update(`review_rules_v4\u0000${input.artifactType}\u0000${factsText}\u0000${sectionsText}${input.sectionAudit ? `\u0000${JSON.stringify(input.sectionAudit)}` : ""}`)
     .digest("hex");
 }
 

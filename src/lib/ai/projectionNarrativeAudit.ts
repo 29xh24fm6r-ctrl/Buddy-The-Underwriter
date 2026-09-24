@@ -12,7 +12,7 @@ export function auditProjectionNarrative(factsInput: Record<string, unknown> | s
   const values = [downside.dscrYear1, downside.dscrYear2, downside.dscrYear3];
   if (!values.every((v: unknown) => typeof v === "number" && Number.isFinite(v))) return [];
   const disclosure = `Downside DSCR: Year 1 ${values[0].toFixed(2)}x, Year 2 ${values[1].toFixed(2)}x, Year 3 ${values[2].toFixed(2)}x. The saved downside scenario fails the model's coverage threshold; base-case strength does not eliminate this repayment risk.`;
-  return sections.filter(s => /recommendation|executive|financial|risk/i.test(s.key)).flatMap(section => {
+  return sections.filter(s => /recommendation|executive|financial|risk|repayment|income_analysis/i.test(s.key)).flatMap(section => {
     const hasNumbers = values.every((v: number) => new RegExp(`(?<![\\d.])${v.toFixed(2).replace(".", "\\.")}(?!\\d)`).test(section.text));
     const hasFailure = /(?:fail|below|breach|shortfall|insufficient|not\s+(?:meet|cover)|cannot\s+(?:meet|cover))/i.test(section.text);
     return hasNumbers && hasFailure ? [] : [{ sectionKey: section.key, claim: "Incomplete downside repayment disclosure",
