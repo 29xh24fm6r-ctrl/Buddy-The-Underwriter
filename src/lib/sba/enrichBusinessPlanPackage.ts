@@ -21,7 +21,9 @@ import { finishInstitutionalArtifact, reviewContentHash } from "@/lib/ai/frontie
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
 import type { FlaggedClaim } from "@/lib/ai/verify";
 
-type SB = { from: (t: string) => any };
+import { withReviewCheckpoint, type ReviewCheckpointClient } from "@/lib/ai/reviewCheckpoint";
+
+type SB = { from: (t: string) => any } & ReviewCheckpointClient;
 
 const PACKAGE_COLUMNS =
   "dscr_year1_base, dscr_year2_base, dscr_year3_base, dscr_year1_downside, dscr_below_threshold, " +
@@ -35,7 +37,7 @@ const PACKAGE_COLUMNS =
   // silently excluded from verifyBusinessPlanPackage.ts's fact-check.
   "franchise_section, " +
   // Needed to reuse a verdict already recorded against identical content.
-  "verification_verdict, verification_input_hash, financial_snapshot_id";
+  "verification_verdict, verification_flagged_claims, verification_input_hash, financial_snapshot_id";
 
 export async function enrichBusinessPlanPackage(args: {
   dealId: string;
@@ -139,29 +141,32 @@ export async function enrichBusinessPlanPackage(args: {
     };
   }
 
-  const finished = await finishInstitutionalArtifact({
-    ...reviewIdentity, dealId, npiTagged: true,
-  });
-  await persistArtifactFlags({
-    dealId, bankId, artifactType: "business_plan", sectionKey: "narratives",
-    flaggedClaims: finished.flaggedClaims, sb,
-  });
-  const repairedFields = Object.fromEntries(finished.sections.map((section) => [section.key, section.text]));
+  return withReviewCheckpoint({ sb, bankId, dealId, artifactType: "business_plan", artifactId: packageId, inputHash: contentHash, sections }, async checkpoint => {
+    const finished = await finishInstitutionalArtifact({
+      ...reviewIdentity, checkpoint, dealId, npiTagged: true,
+    });
+    await persistArtifactFlags({
+      dealId, bankId, artifactType: "business_plan", sectionKey: "narratives",
+      flaggedClaims: finished.flaggedClaims, sb,
+    });
+    const repairedFields = Object.fromEntries(finished.sections.map((section) => [section.key, section.text]));
 
-  await sb
-    .from("buddy_sba_packages")
-    .update({
-      ...repairedFields,
-      verification_verdict: finished.verdict,
-      verification_flagged_claims: finished.flaggedClaims,
-      verification_input_hash: finished.contentHash,
-    })
-    .eq("id", packageId);
-  return {
-    verdict: finished.verdict,
-    advisoryCount: finished.advisoryIssues.length,
-    repaired: finished.repaired,
-    flaggedClaims: finished.flaggedClaims,
-    reusedVerdict: false,
-  };
+    const saved = await sb
+      .from("buddy_sba_packages")
+      .update({
+        ...repairedFields,
+        verification_verdict: finished.verdict,
+        verification_flagged_claims: finished.flaggedClaims,
+        verification_input_hash: finished.contentHash,
+      })
+      .eq("id", packageId);
+    if (saved.error) throw new Error(`Business plan evidence save failed: ${saved.error.message}`);
+    return {
+      verdict: finished.verdict,
+      advisoryCount: finished.advisoryIssues.length,
+      repaired: finished.repaired,
+      flaggedClaims: finished.flaggedClaims,
+      reusedVerdict: false,
+    };
+  });
 }

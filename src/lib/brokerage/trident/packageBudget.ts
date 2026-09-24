@@ -2,9 +2,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getRoleConfig, type GatewayRole } from "@/lib/ai/roleConfig";
-import { PACKAGE_ROLE_HEADROOM, packageBudgetBlockers } from "./packageBudgetPolicy";
+import { packageBudgetBlockers } from "./packageBudgetPolicy";
 import type { PackageCapacity } from "../borrowerPackageCheckState";
-export { PACKAGE_ROLE_HEADROOM } from "./packageBudgetPolicy";
 
 /** Borrower-safe, current availability. This does not reserve or reset capacity. */
 export async function readPackageCapacity(args: { dealId: string; bankId: string }, sb: SupabaseClient = supabaseAdmin()): Promise<PackageCapacity> {
@@ -49,9 +48,14 @@ export async function assertPackageBudgetAvailable(args: {
     deal.is_test === true ? totals("qa") : Promise.resolve({} as Record<string, number>),
     args.bundleId ? totals("run") : Promise.resolve({} as Record<string, number>),
   ]);
-  const blockers = Object.entries(PACKAGE_ROLE_HEADROOM).flatMap(([role, required]) => {
+  const { data: policy, error: policyError } = await sb.rpc("trident_package_budget_policy");
+  const roles = ["generator", "underwriter", "verifier"] as const;
+  if (policyError || !policy || roles.some(role => !Number.isSafeInteger(policy[role]) || policy[role] <= 0))
+    throw new Error("budget_unavailable: package budget policy could not be checked");
+  const blockers = roles.flatMap(role => {
+    const required = Number(policy[role]);
     const used = data?.find(row => row.role === role);
-    return packageBudgetBlockers({ role, required, isTest: deal.is_test === true,
+    return packageBudgetBlockers({ role, required, runAllowance: required, isTest: deal.is_test === true,
       dailyLimit: getRoleConfig(role as GatewayRole).dailyTokenBudget,
       consumed: Number(used?.tokens_consumed ?? 0), reserved: Number(used?.tokens_reserved ?? 0),
       qaUsed: qa[role] ?? 0, runUsed: run[role] ?? 0 });

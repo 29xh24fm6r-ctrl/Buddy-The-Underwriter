@@ -17,7 +17,9 @@ import { finishInstitutionalArtifact, reviewContentHash, type ArtifactSection } 
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
 import type { CompositeFeasibilityScore, FeasibilityNarratives } from "./types";
 
-type SB = { from: (t: string) => any };
+import { withReviewCheckpoint, type ReviewCheckpointClient } from "@/lib/ai/reviewCheckpoint";
+
+type SB = { from: (t: string) => any } & ReviewCheckpointClient;
 
 type JsonRecord = Record<string, any>;
 
@@ -76,7 +78,7 @@ export async function enrichFeasibilityStudy(args: {
   const { data: studyRow } = await sb
     .from("buddy_feasibility_studies")
     .select(
-      "narratives, projections_package_id, market_demand_detail, financial_viability_detail, operational_readiness_detail, location_suitability_detail, flags, data_completeness, verification_verdict, verification_input_hash",
+      "narratives, projections_package_id, market_demand_detail, financial_viability_detail, operational_readiness_detail, location_suitability_detail, flags, data_completeness, verification_verdict, verification_flagged_claims, verification_input_hash",
     )
     .eq("id", studyId)
     .maybeSingle();
@@ -305,43 +307,45 @@ export async function enrichFeasibilityStudy(args: {
     studyRow.verification_input_hash === contentHash
   ) {
     await flagUncitedFeasibilityFields({ dealId, bankId, studyId, citations, sb });
-    return { verdict: "pass" as const, repaired: false, advisoryCount: 0, reusedVerdict: true };
+    return { verdict: "pass" as const, repaired: false, advisoryCount: Array.isArray(studyRow.verification_flagged_claims) ? studyRow.verification_flagged_claims.filter((claim: { severity?: string }) => claim.severity === "warning").length : 0, reusedVerdict: true };
   }
 
-  const finished = await finishInstitutionalArtifact({
-    ...reviewIdentity,
-    dealId,
-    npiTagged: true,
-    auditSections,
-  });
-  await persistArtifactFlags({
-    dealId, bankId, artifactType: "feasibility", sectionKey: "narratives",
-    flaggedClaims: finished.flaggedClaims, sb,
-  });
-  const repairedNarratives = Object.fromEntries(
-    finished.sections.map((section) => [section.key, section.text]),
-  ) as unknown as FeasibilityNarratives;
+  return withReviewCheckpoint({ sb, bankId, dealId, artifactType: "feasibility", artifactId: studyId, inputHash: contentHash, sections }, async checkpoint => {
+    const finished = await finishInstitutionalArtifact({
+      ...reviewIdentity, checkpoint,
+      dealId,
+      npiTagged: true,
+      auditSections,
+    });
+    await persistArtifactFlags({
+      dealId, bankId, artifactType: "feasibility", sectionKey: "narratives",
+      flaggedClaims: finished.flaggedClaims, sb,
+    });
+    const repairedNarratives = Object.fromEntries(
+      finished.sections.map((section) => [section.key, section.text]),
+    ) as unknown as FeasibilityNarratives;
 
-  const finalCitations = attributeFeasibilityCitations(repairedNarratives, segments, allUrls);
-  await flagUncitedFeasibilityFields({ dealId, bankId, studyId, citations: finalCitations, sb });
-  const saved = await sb
-    .from("buddy_feasibility_studies")
-    .update({
-      narrative_citations: finalCitations,
-      narratives: repairedNarratives,
-      verification_verdict: finished.verdict,
-      verification_flagged_claims: finished.flaggedClaims,
-      verification_input_hash: finished.contentHash,
-    })
-    .eq("id", studyId);
-  if (saved.error) throw new Error(`Feasibility evidence save failed: ${saved.error.message}`);
-  // Warnings that survived repair publish with the study and are disclosed as
-  // conditions; the count travels so the release manifest can say the study
-  // shipped with N advisories rather than leaving that only in the flag rows.
-  return {
-    verdict: finished.verdict,
-    repaired: finished.repaired,
-    advisoryCount: finished.advisoryIssues.length,
-    reusedVerdict: false,
-  };
+    const finalCitations = attributeFeasibilityCitations(repairedNarratives, segments, allUrls);
+    await flagUncitedFeasibilityFields({ dealId, bankId, studyId, citations: finalCitations, sb });
+    const saved = await sb
+      .from("buddy_feasibility_studies")
+      .update({
+        narrative_citations: finalCitations,
+        narratives: repairedNarratives,
+        verification_verdict: finished.verdict,
+        verification_flagged_claims: finished.flaggedClaims,
+        verification_input_hash: finished.contentHash,
+      })
+      .eq("id", studyId);
+    if (saved.error) throw new Error(`Feasibility evidence save failed: ${saved.error.message}`);
+    // Warnings that survived repair publish with the study and are disclosed as
+    // conditions; the count travels so the release manifest can say the study
+    // shipped with N advisories rather than leaving that only in the flag rows.
+    return {
+      verdict: finished.verdict,
+      repaired: finished.repaired,
+      advisoryCount: finished.advisoryIssues.length,
+      reusedVerdict: false,
+    };
+  });
 }

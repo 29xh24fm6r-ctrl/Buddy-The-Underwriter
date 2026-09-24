@@ -763,5 +763,25 @@
     "name": "ensure_borrower_doc_extraction_handoff",
     "type": "function",
     "migration": "20260923010000_ensure_borrower_doc_extraction_handoff.sql"
+  },
+  {
+    "name": "trident_package_budget_policy",
+    "type": "function",
+    "migration": "20260923224841_durable_package_review.sql"
+  },
+  {
+    "name": "institutional_review_checkpoints",
+    "type": "table",
+    "migration": "20260923224841_durable_package_review.sql"
+  },
+  {
+    "name": "institutional_review_checkpoint",
+    "type": "function",
+    "migration": "20260923224841_durable_package_review.sql"
+  },
+  {
+    "name": "reserve_trident_gateway_tokens",
+    "type": "function",
+    "migration": "20260923224841_durable_package_review.sql"
   }
 ]

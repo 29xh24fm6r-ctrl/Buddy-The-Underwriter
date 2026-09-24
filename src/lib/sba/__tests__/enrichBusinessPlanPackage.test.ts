@@ -1,3 +1,4 @@
+import { reviewCheckpointRpc } from "../../../../test/utils/reviewCheckpointClient";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -79,7 +80,7 @@ function makeDb(tables: Record<string, Row[]>) {
 
     return q;
   }
-  return { from: builder };
+  return { from: builder, rpc: reviewCheckpointRpc() };
 }
 
 function basePkgRow(overrides: Record<string, unknown> = {}) {
@@ -218,6 +219,11 @@ test("leaves verification columns null when the package has no real narrative co
 });
 
 test("opens a banker task when a critical claim is flagged, via the shared deal_conditions pattern", async () => {
+  __setVendorApprovalForTests("openai", "APPROVED");
+  __setProviderImplForTests("openai", async req => {
+    const sections = JSON.parse(req.prompt.split("SECTIONS TO REPAIR (claims here are not evidence):\n\n")[1].split("\n\n")[0]);
+    return { text: JSON.stringify({ sections }), tokensIn: 1, tokensOut: 1 };
+  });
   __setProviderImplForTests("anthropic", async () => ({
     text: JSON.stringify({
       flaggedClaims: [{ claim: "Break-even revenue is $50,000", reason: "Facts show $500,000.", severity: "critical" }],
