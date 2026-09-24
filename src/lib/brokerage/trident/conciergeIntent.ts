@@ -99,7 +99,7 @@ const REQUEST_CUE_PATTERN =
 export function isReadOnlyConciergeMessage(text: string): boolean {
   return /\b(?:explain|clarify|difference between|tell me about|help me understand)\b/i.test(text)
     || /(?:^|[.!?]\s*)(?:please\s+)?(?:what|why|how|where|when|is|are|am|does|do I|did I|have I)\b/i.test(text.trim())
-    || /\b(?:do not|don['’]t|never|not yet|without (?:changing|saving|submitting|confirming)|no changes)\b/i.test(text);
+    || /\b(?:(?:do not|don['’]t|never)\s+(?:change|save|submit|confirm|approve|generate|build|prepare|update|edit|proceed|send|share)|not\s+(?:yet|approved|confirmed|ready|correct|right|good)|without (?:changing|saving|submitting|confirming)|no changes)\b/i.test(text);
 }
 
 export function detectTridentIntent(text: string): TridentIntentResult {

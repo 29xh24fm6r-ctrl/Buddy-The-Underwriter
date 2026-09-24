@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   detectTridentIntent,
+  isReadOnlyConciergeMessage,
   detectAssumptionsConfirmIntent,
   TRIDENT_PREVIEW_RESPONSE,
   ASSUMPTIONS_CONFIRMED_RESPONSE,
@@ -271,4 +272,10 @@ test("assumptions confirm: response constants are non-empty strings", () => {
     assert.equal(detectTridentIntent(text).matched, false, text);
     assert.equal(detectAssumptionsConfirmIntent(text).matched, false, text);
   }
+});
+
+test("factual negative answers remain available to legacy intake extraction", () => {
+  assert.equal(isReadOnlyConciergeMessage("I don't have another business"), false);
+  assert.equal(isReadOnlyConciergeMessage("I do not owe any taxes"), false);
+  assert.equal(detectAssumptionsConfirmIntent("I have not approved it").matched, false);
 });
