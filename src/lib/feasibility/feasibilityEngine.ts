@@ -28,7 +28,7 @@ import { generateFeasibilityNarratives } from "./feasibilityNarrative";
 import { renderFeasibilityPDF } from "./feasibilityRenderer";
 import { runFranchiseComparison } from "./franchiseComparator";
 import { extractBIEMarketData } from "./bieMarketExtractor";
-import { readCanonicalEquityInjectionPct, readCanonicalReserveMonths } from "./canonicalProjectionInputs";
+import { readCanonicalDownsideCoverage, readCanonicalEquityInjectionPct, readCanonicalReserveMonths } from "./canonicalProjectionInputs";
 import type {
   CompositeFeasibilityScore,
   FeasibilityResult,
@@ -249,20 +249,8 @@ export async function generateFeasibilityStudy(params: {
   );
   const projY1 = projAnnual[0] ?? null;
 
-  const sensScenarios = pickArray<{
-    name?: string;
-    scenario?: string;
-    dscrYear1?: number;
-    dscr_year1?: number;
-  }>(sbaPackage?.sensitivity_scenarios);
-  const downside = sensScenarios.find(
-    (s) =>
-      (s.name ?? "").toLowerCase() === "downside" ||
-      (s.scenario ?? "").toLowerCase() === "downside",
-  );
-  const downsideDscrY1 = downside
-    ? pickNumber(downside.dscrYear1 ?? downside.dscr_year1)
-    : null;
+  const [downsideDscrYear1, downsideDscrYear2, downsideDscrYear3] =
+    readCanonicalDownsideCoverage(sbaPackage?.sensitivity_scenarios);
 
   const breakEvenObj = pickObject(sbaPackage?.break_even);
   const sourcesAndUsesObj = pickObject(sbaPackage?.sources_and_uses);
@@ -387,11 +375,10 @@ export async function generateFeasibilityStudy(params: {
     dscrYear1Base: pickNumber(sbaPackage?.dscr_year1_base),
     dscrYear2Base: pickNumber(sbaPackage?.dscr_year2_base),
     dscrYear3Base: pickNumber(sbaPackage?.dscr_year3_base),
-    dscrYear1Downside: downsideDscrY1,
     breakEvenRevenue: pickNumber(breakEvenObj.breakEvenRevenue),
     projectedRevenueYear1: pickNumber(projY1?.revenue),
     marginOfSafetyPct: pickNumber(breakEvenObj.marginOfSafetyPct),
-    downsideDscrYear1: downsideDscrY1,
+    downsideDscrYear1, downsideDscrYear2, downsideDscrYear3,
     equityInjectionPct: readCanonicalEquityInjectionPct(sourcesAndUsesObj),
     totalProjectCost: pickNumber(sourcesAndUsesObj.totalUses),
     workingCapitalReserveMonths: readCanonicalReserveMonths(sbaPackage?.sources_and_uses, sbaPackage?.projections_annual),

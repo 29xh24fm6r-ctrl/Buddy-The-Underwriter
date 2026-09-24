@@ -5,15 +5,15 @@ import { useState, useEffect } from "react";
 interface DSCRAlertBannerProps {
   dealId: string;
   dscrBelowThreshold: boolean;
-  failingYears: number[];
-  lowestDscr: number;
+  baseCoverage: Array<number | null | undefined>;
+  downsideCoverage: Array<number | null | undefined>;
 }
 
 export default function DSCRAlertBanner({
   dealId,
   dscrBelowThreshold,
-  failingYears,
-  lowestDscr,
+  baseCoverage,
+  downsideCoverage,
 }: DSCRAlertBannerProps) {
   const [dismissed, setDismissed] = useState(false);
 
@@ -26,7 +26,8 @@ export default function DSCRAlertBanner({
 
   if (!dscrBelowThreshold || dismissed) return null;
 
-  const yearLabels = failingYears.map((y) => `Year ${y}`).join(", ");
+  const describe = (values: Array<number | null | undefined>) => values.map((value, index) =>
+    `Year ${index + 1}: ${typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}x` : "not available"}`).join("; ");
 
   return (
     <div className="rounded-lg border border-amber-500/30 bg-amber-600/10 px-4 py-3 flex items-start justify-between gap-3">
@@ -38,9 +39,9 @@ export default function DSCRAlertBanner({
           warning
         </span>
         <p className="text-sm text-amber-200">
-          {yearLabels} DSCR of {lowestDscr.toFixed(2)}x falls below the SBA
-          1.25x guideline under the base scenario. Consider adjusting loan
-          structure or assumptions before submission.
+          Coverage requires review across the three-year forecast.
+          Base case: {describe(baseCoverage)}. Downside: {describe(downsideCoverage)}.
+          Review the sensitivity analysis and confirm lender requirements before submission.
         </p>
       </div>
       <button

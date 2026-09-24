@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
+import { projectionFixture } from "../../sba/__tests__/projectionLedger.fixture";
 import { buildFinancialModel } from "../buildFinancialModel";
 mockServerOnly();
 const require = createRequire(import.meta.url);
 let facts = JSON.parse(readFileSync("src/lib/modelEngine/__tests__/packageFinancialFacts.fixture.json", "utf8"));
 let reads = 0;
+let startupFixture: ReturnType<typeof projectionFixture> | null = null;
 let stage: string | null = null;
 let reportStatus = "PASS";
 let savedReports: any[] = [];
@@ -28,6 +30,12 @@ const client = { from(table: string) {
   const values: Record<string,unknown> = { buddy_validation_reports:savedReports.at(-1) ?? {overall_status:reportStatus}, deal_financial_facts:facts, borrower_concierge_sessions:{confirmed_facts:{package_answers:{B07:{value:stage}}}}, buddy_sba_assumptions:reviewedAssumptions,
     deals:{name:"Synthetic Manufacturer",bank_id:"bank-1",deal_type:"SBA",loan_amount:1000000},
     deal_proceeds_items:[{category:"equipment",description:"Equipment",amount:1000000}],buddy_guarantor_cashflow:[],deal_ownership_entities:[],deal_ownership_interests:[] };
+  if (startupFixture) {
+    const a = startupFixture.assumptions;
+    values.buddy_sba_assumptions = { ...assumptions, revenue_streams: a.revenueStreams, cost_assumptions: a.costAssumptions,
+      working_capital: a.workingCapital, loan_impact: a.loanImpact };
+    values.deal_proceeds_items = startupFixture.useOfProceeds;
+  }
   const result = { data: values[table] ?? null,error:null };
   const q:any = { insert:(row:any)=>{writeTables.push(table);if(table==="buddy_validation_reports")savedReports.push(row);return q;}, select:()=>q,eq:()=>q,neq:()=>q,order:()=>q,limit:()=>q,maybeSingle:async()=>result,single:async()=>result,
     then:(resolve:any)=>Promise.resolve(result).then(resolve) }; return q;
@@ -81,7 +89,7 @@ function openingFacts() {
 }
 test.afterEach(()=>{
   assert.deepEqual(writeTables.filter(table=>table!=="buddy_validation_reports"),[],"read-only engine computation cannot insert snapshots or telemetry");
-  facts=structuredClone(historicalFixture); stage=null; reportStatus="PASS"; savedReports=[]; writeTables=[]; assumptions.status="confirmed";
+  startupFixture=null; facts=structuredClone(historicalFixture); stage=null; reportStatus="PASS"; savedReports=[]; writeTables=[]; assumptions.status="confirmed";
 });
 
 test("startup uses an interim opening statement and the real calculator without inventing historical earnings",async()=>{
@@ -182,4 +190,15 @@ test("real startup validator retains blocking opening-balance inconsistencies",a
   const report=await runBuddyValidationPass("deal-1");
   assert.equal(report.overallStatus,"FAIL");
   assert.ok(report.checks.some((c:any)=>c.status==="BLOCK"&&/imbalance/.test(c.message)));
+});
+
+test("package coverage warning includes later downside years without changing projection calculations", async () => {
+  facts = openingFacts(); stage = "The business is preparing to open"; startupFixture = projectionFixture();
+  const result = await computePackageFinancialOutput("deal-1", "bank-1");
+  assert.equal(result.ok, true); if (!result.ok) return;
+  const output = result.output;
+  const downside = output.projectionModel.sensitivityScenarios.find(s => s.name === "downside")!;
+  assert.deepEqual([downside.dscrYear1, downside.dscrYear2, downside.dscrYear3].map(v => Number(v.toFixed(2))), [1.44, .74, .08]);
+  assert.ok([output.dscrYear1Base, output.dscrYear2Base, output.dscrYear3Base, output.dscrYear1Downside].every(v => v >= output.projectedDscrThreshold));
+  assert.equal(output.dscrBelowThreshold, true, "later-year failure must activate the package warning");
 });

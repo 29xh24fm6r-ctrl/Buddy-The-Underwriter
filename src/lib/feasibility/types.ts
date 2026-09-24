@@ -111,11 +111,12 @@ export interface FinancialViabilityInput {
   dscrYear1Base: number | null;
   dscrYear2Base: number | null;
   dscrYear3Base: number | null;
-  dscrYear1Downside: number | null;
   breakEvenRevenue: number | null;
   projectedRevenueYear1: number | null;
   marginOfSafetyPct: number | null;
   downsideDscrYear1: number | null;
+  downsideDscrYear2: number | null;
+  downsideDscrYear3: number | null;
   equityInjectionPct: number | null;
   totalProjectCost: number | null;
   workingCapitalReserveMonths: number | null;
@@ -131,8 +132,7 @@ export interface FinancialViabilityInput {
    *  in rather than re-derived from isNewBusiness so this file has exactly
    *  one source of truth for the floor value. */
   equityInjectionFloor: number;
-  /** 1.25 for a new business (projected DSCR), 1.10 for an established one
-   *  (historical DSCR) — computed by assessNewBusinessRisk. */
+  /** Deal-specific model coverage floor computed by assessNewBusinessRisk. */
   projectedDscrThreshold: number;
   loanAmount: number;
   loanTermMonths: number;

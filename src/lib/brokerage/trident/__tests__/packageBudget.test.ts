@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mockServerOnly } from "../../../../../test/utils/mockServerOnly";
 import { packageBudgetBlockers } from "../packageBudgetPolicy";
+import { getRoleConfig } from "@/lib/ai/roleConfig";
 mockServerOnly();
 const require = createRequire(import.meta.url);
 require.cache[require.resolve("@/lib/supabase/admin")] = { exports: { supabaseAdmin: () => { throw new Error("Use isolated client"); } }, loaded: true } as any;
@@ -37,7 +38,8 @@ function client(rows: any[], failTable?: string, isTest = true) {
 }
 test("ledger reads page beyond 1000 rows and count actual zero instead of reserved tokens", async () => {
   const c = client([]);
-  const rows = Array.from({length:1001}, (_,id) => ({ id, role:"verifier", is_qa:true, usage_day:c.day, actual_tokens:id < 1000 ? 0 : null, reserved_tokens:id < 1000 ? 999 : 818170 }));
+  const overAdmission = Math.floor(getRoleConfig("verifier").dailyTokenBudget / 2) - 181830;
+  const rows = Array.from({length:1001}, (_,id) => ({ id, role:"verifier", is_qa:true, usage_day:c.day, actual_tokens:id < 1000 ? 0 : null, reserved_tokens:id < 1000 ? 999 : overAdmission }));
   const db = client(rows);
   await assert.rejects(assertPackageBudgetAvailable({dealId:"deal",bankId:"bank"}, db as any), /QA daily allowance/);
   assert.equal(db.reads.filter(t => t === "ai_gateway_budget_reservations").length, 2);

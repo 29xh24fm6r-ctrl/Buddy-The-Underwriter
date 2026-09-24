@@ -183,7 +183,6 @@ export async function POST(
   }
 
   const downsideScenario = scenarios.find((s) => s.name === "downside");
-  const dscrDownside = downsideScenario?.dscrYear1 ?? year1.dscr;
 
   const roadmap = await generateActionableRoadmap({
     businessName: deal?.name ?? "Your Business",
@@ -192,7 +191,9 @@ export async function POST(
     breakEvenRevenue: breakEven.breakEvenRevenue,
     marginOfSafetyPct: breakEven.marginOfSafetyPct,
     dscrYear1: year1.dscr,
-    dscrDownside,
+    dscrYear2: annual[1]?.dscr ?? null,
+    dscrYear3: annual[2]?.dscr ?? null,
+    downsideCoverage: [downsideScenario?.dscrYear1 ?? null, downsideScenario?.dscrYear2 ?? null, downsideScenario?.dscrYear3 ?? null],
     monthlyDebtService: year1.totalDebtService / 12,
     grossMarginPct: year1.grossMarginPct,
     cogsPercent: assumptions.costAssumptions.cogsPercentYear1 ?? 0.3,

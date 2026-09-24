@@ -341,6 +341,8 @@ export async function generateSBAPackage(
   const sensitivityScenariosForRisk = sensitivityScenarios.map((s) => ({
     name: s.name,
     dscrYear1: s.dscrYear1,
+    dscrYear2: s.dscrYear2,
+    dscrYear3: s.dscrYear3,
     revenueYear1: s.revenueYear1,
   }));
 
@@ -375,6 +377,7 @@ export async function generateSBAPackage(
       biggestRisk: borrowerStory?.biggestRisk ?? null,
       dscrYear1: dscrYear1Base,
       dscrDownside: dscrYear1Downside,
+      projectedDscrThreshold,
       breakEvenRevenue: breakEven.breakEvenRevenue,
       projectedRevenueYear1: annualProjections[0]?.revenue ?? 0,
       monthlyDebtService,

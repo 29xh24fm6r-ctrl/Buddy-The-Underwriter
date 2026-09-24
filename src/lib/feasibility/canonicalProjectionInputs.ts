@@ -51,3 +51,17 @@ export function readCanonicalEquityInjectionPct(
   // nested its equity result. This is still a direct read, never a re-derive.
   return ratio(payload.equityInjectionPct);
 }
+
+/** Read all years from the saved scenario, including legacy field names.
+ * Absent downside evidence must never fall back to the base case. */
+export function readCanonicalDownsideCoverage(scenarios: unknown): [number | null, number | null, number | null] {
+  const downside = Array.isArray(scenarios) ? scenarios.map(record).find(row =>
+    [row?.name, row?.scenario].some(name => typeof name === "string" && name.trim().toLowerCase() === "downside")) : null;
+  const finite = (value: unknown): number | null => {
+    if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const year = (n: number) => finite(downside?.[`dscrYear${n}`] ?? downside?.[`dscr_year${n}`]);
+  return [year(1), year(2), year(3)];
+}

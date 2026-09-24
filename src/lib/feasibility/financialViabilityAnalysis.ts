@@ -5,6 +5,7 @@ import "server-only";
 // Pure function. Consumes EXISTING projections (never recomputes them) and
 // evaluates whether the financials support the proposed venture.
 
+import { forecastCoverage } from "@/lib/sba/forecastCoverage";
 import { computeDimensionCompleteness } from "./dimensionCompleteness";
 import type {
   DimensionScore,
@@ -20,72 +21,30 @@ export function analyzeFinancialViability(
 
   // ── DSCR Coverage ──────────────────────────────────────────────────
 
-  let dscrScore: DimensionScore;
-  if (input.dscrYear1Base != null) {
-    const dscr = input.dscrYear1Base;
-    let score = 0;
-    if (dscr >= 2.0) score = 95;
-    else if (dscr >= 1.5) score = 85;
-    else if (dscr >= 1.25) score = 70;
-    else if (dscr >= 1.1) score = 45;
-    else if (dscr >= 1.0) score = 25;
-    else score = 10;
-
-    if (input.dscrYear2Base != null && input.dscrYear3Base != null) {
-      if (input.dscrYear2Base > dscr && input.dscrYear3Base > input.dscrYear2Base) {
-        score = Math.min(100, score + 5);
-      }
-      if (input.dscrYear2Base < dscr) {
-        score = Math.max(0, score - 5);
-        flags.push({
-          severity: "warning",
-          dimension: "debtServiceCoverage",
-          message: `DSCR declines from ${dscr.toFixed(2)}x in Year 1 to ${input.dscrYear2Base.toFixed(2)}x in Year 2. Verify revenue assumptions.`,
-        });
-      }
-    }
-
-    if (dscr < input.projectedDscrThreshold) {
-      flags.push({
-        severity: "critical",
-        dimension: "debtServiceCoverage",
-        message: `Year 1 DSCR of ${dscr.toFixed(2)}x is below the SBA minimum threshold of ${input.projectedDscrThreshold.toFixed(2)}x${
-          input.isNewBusiness ? " (projected-DSCR standard for a new business)" : ""
-        }.`,
-      });
-    }
-
-    dscrScore = {
-      score,
-      weight: 0.3,
-      dataSource: "SBA projection model — base case",
-      dataAvailable: true,
-      detail: `Year 1 DSCR: ${dscr.toFixed(2)}x.${
-        input.dscrYear2Base != null
-          ? ` Year 2: ${input.dscrYear2Base.toFixed(2)}x.`
-          : ""
-      }${
-        input.dscrYear3Base != null
-          ? ` Year 3: ${input.dscrYear3Base.toFixed(2)}x.`
-          : ""
-      } SBA minimum: ${input.projectedDscrThreshold.toFixed(2)}x.`,
-    };
-  } else {
-    dscrScore = {
-      score: 0,
-      weight: 0.3,
-      dataSource: "Projections not available",
-      dataAvailable: false,
-      detail:
-        "Financial projections have not been generated. DSCR cannot be evaluated.",
-    };
-    flags.push({
-      severity: "critical",
-      dimension: "debtServiceCoverage",
-      message:
-        "No financial projections available. Generate projections before running feasibility analysis.",
-    });
+  const base = forecastCoverage([input.dscrYear1Base, input.dscrYear2Base, input.dscrYear3Base], input.projectedDscrThreshold);
+  let baseScore = 0;
+  if (base.complete && base.minimum !== null) {
+    const dscr = base.minimum;
+    baseScore = dscr >= 2 ? 95 : dscr >= 1.5 ? 85 : dscr >= 1.25 ? 70 : dscr >= 1.1 ? 45 : dscr >= 1 ? 25 : 10;
+    if (base.increasing && !base.belowThreshold.length) baseScore = Math.min(100, baseScore + 5);
+    if (base.declining) baseScore = Math.max(0, baseScore - 5);
+    if (base.belowThreshold.length) baseScore = Math.min(baseScore, 45);
   }
+  if (base.belowThreshold.length || !base.complete) {
+    flags.push({ severity: "critical", dimension: "debtServiceCoverage", message: [
+      base.belowThreshold.length ? `Base-case coverage is below the model's ${input.projectedDscrThreshold.toFixed(2)}x threshold in ${base.failures}.` : "",
+      base.belowDebtService.length ? `Projected cash flow cannot cover debt service in ${base.shortfalls}.` : "",
+      !base.complete ? `Base-case coverage is missing for ${base.missing.join(", ")}; the three-year forecast cannot be fully evaluated.` : "",
+    ].filter(Boolean).join(" ") });
+  } else if (base.declining) {
+    flags.push({ severity: "warning", dimension: "debtServiceCoverage",
+      message: `Base-case DSCR declines within the forecast: ${base.path}. Verify revenue assumptions.` });
+  }
+  const dscrScore: DimensionScore = {
+    score: baseScore, weight: 0.3, dataSource: "SBA projection model — three-year base case",
+    dataAvailable: base.complete,
+    detail: `${base.path}. Model coverage threshold: ${input.projectedDscrThreshold.toFixed(2)}x. ${base.complete ? "Score reflects the weakest forecast year and the coverage trend." : "Incomplete forecast; full-horizon coverage is not established."}`,
+  };
 
   // ── Break-Even Margin ──────────────────────────────────────────────
 
@@ -210,42 +169,33 @@ export function analyzeFinancialViability(
 
   // ── Downside Resilience ────────────────────────────────────────────
 
-  let downsideScore: DimensionScore;
-  if (input.downsideDscrYear1 != null) {
-    const dd = input.downsideDscrYear1;
-    let score = 0;
-    if (dd >= 1.25) score = 95;
-    else if (dd >= 1.1) score = 75;
-    else if (dd >= 1.0) score = 55;
-    else if (dd >= 0.8) score = 30;
-    else score = 10;
-
-    if (dd < 1.0) {
-      flags.push({
-        severity: "critical",
-        dimension: "downsideResilience",
-        message: `In the downside scenario, DSCR falls to ${dd.toFixed(2)}x — the business cannot cover debt service if revenue underperforms.`,
-      });
-    }
-
-    downsideScore = {
-      score,
-      weight: 0.2,
-      dataSource: "Sensitivity analysis — downside scenario",
-      dataAvailable: true,
-      detail: `Downside DSCR: ${dd.toFixed(2)}x. The business ${
-        dd >= 1.0 ? "can" : "CANNOT"
-      } service its debt if revenue underperforms by 15% with 2% cost pressure.`,
-    };
-  } else {
-    downsideScore = {
-      score: 0,
-      weight: 0.2,
-      dataSource: "Not available",
-      dataAvailable: false,
-      detail: "Sensitivity analysis not available.",
-    };
+  const downside = forecastCoverage([input.downsideDscrYear1, input.downsideDscrYear2, input.downsideDscrYear3], input.projectedDscrThreshold);
+  let resilienceScore = 0;
+  if (downside.complete && downside.minimum !== null) {
+    const dd = downside.minimum;
+    resilienceScore = dd >= 1.25 ? 95 : dd >= 1.1 ? 75 : dd >= 1 ? 55 : dd >= 0.8 ? 30 : 10;
+    if (downside.belowThreshold.length) resilienceScore = Math.min(resilienceScore, 55);
   }
+  // One flag describes the scenario, not a separate critical risk per year.
+  if (downside.belowThreshold.length || !downside.complete) {
+    flags.push({ severity: "critical", dimension: "downsideResilience", message: [
+      downside.belowThreshold.length ? `Saved downside coverage is below the model's ${input.projectedDscrThreshold.toFixed(2)}x threshold in ${downside.failures}.` : "",
+      downside.belowDebtService.length ? `Projected cash flow cannot cover debt service in ${downside.shortfalls}.` : "",
+      !downside.complete ? `Downside coverage is missing for ${downside.missing.join(", ")}; resilience across the three-year forecast is not established.` : "",
+    ].filter(Boolean).join(" ") });
+  }
+  const downsideConclusion = downside.belowDebtService.length
+    ? `The saved downside scenario cannot cover debt service in ${downside.shortfalls}.`
+    : downside.belowThreshold.length
+      ? `The saved downside scenario falls below the model's ${input.projectedDscrThreshold.toFixed(2)}x threshold in ${downside.failures}.`
+      : downside.complete
+        ? `The saved downside scenario meets the model's ${input.projectedDscrThreshold.toFixed(2)}x threshold in all three years; this remains a conditional projection.`
+        : "Full-horizon downside resilience is not established.";
+  const downsideScore: DimensionScore = {
+    score: resilienceScore, weight: 0.2, dataSource: "Sensitivity analysis — three-year downside scenario",
+    dataAvailable: downside.complete,
+    detail: `Downside DSCR: ${downside.path}. ${downsideConclusion}${!downside.complete ? ` Missing coverage: ${downside.missing.join(", ")}.` : " Score reflects the weakest forecast year."}`,
+  };
 
   // ── Composite ──────────────────────────────────────────────────────
 

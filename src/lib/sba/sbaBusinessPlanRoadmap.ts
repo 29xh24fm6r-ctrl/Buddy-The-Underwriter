@@ -349,6 +349,7 @@ export async function generateRiskContingencyMatrix(params: {
   biggestRisk: string | null; // from BorrowerStory — duplicated for prompt convenience
   dscrYear1: number;
   dscrDownside: number;
+  projectedDscrThreshold: number;
   breakEvenRevenue: number;
   projectedRevenueYear1: number;
   monthlyDebtService: number;
@@ -357,6 +358,8 @@ export async function generateRiskContingencyMatrix(params: {
   sensitivityScenarios: Array<{
     name: string;
     dscrYear1: number;
+    dscrYear2: number;
+    dscrYear3: number;
     revenueYear1: number;
   }>;
 }): Promise<RiskContingency[] | null> {
@@ -376,7 +379,7 @@ export async function generateRiskContingencyMatrix(params: {
   const scenariosList = params.sensitivityScenarios
     .map(
       (s) =>
-        `- ${s.name}: DSCR Y1 ${s.dscrYear1.toFixed(2)}x, revenue Y1 $${Math.round(s.revenueYear1).toLocaleString()}`,
+        `- ${s.name}: DSCR Y1/Y2/Y3 ${s.dscrYear1.toFixed(2)}x/${s.dscrYear2.toFixed(2)}x/${s.dscrYear3.toFixed(2)}x, revenue Y1 $${Math.round(s.revenueYear1).toLocaleString()}`,
     )
     .join("\n");
 
@@ -385,8 +388,9 @@ export async function generateRiskContingencyMatrix(params: {
 REQUIREMENTS:
 - Produce 3 to 5 risks.
 - ${params.biggestRisk?.trim() ? "The FIRST risk MUST be the borrower's own stated biggest risk. Paraphrase into a clear risk statement, then derive the trigger, impact, and actions." : ""}
-- Derive the remaining risks from the sensitivity scenarios and the business's actual cost/hire structure.
-- trigger MUST be a specific observable threshold with a number: "Monthly revenue below $X for 2 consecutive months", "DSCR drops below 1.10x", "Gross margin falls below X%". Never "revenue drops" or "demand weakens" without a number.
+- Derive the remaining risks from the full three-year sensitivity scenarios and the business's actual cost/hire structure.
+- Disclose every later-year coverage shortfall. Strong Year 1 coverage does not establish full-horizon resilience. The model coverage threshold is ${params.projectedDscrThreshold.toFixed(2)}x; use this supplied threshold, not an invented minimum.
+- trigger MUST be a specific observable threshold with a number: "Monthly revenue below $X for 2 consecutive months", "DSCR drops below ${params.projectedDscrThreshold.toFixed(2)}x", "Gross margin falls below X%". Never "revenue drops" or "demand weakens" without a number.
 - impact MUST cite a specific dollar or ratio consequence: "Annual cash shortfall of approximately $X", "DSCR drops from Y to Z".
 - actions MUST be 2–4 specific, executable, DOLLAR-DENOMINATED contingencies that reference the actual fixed cost line items or planned hires the borrower has listed. Example: "Defer [actual role] hire by 90 days (saves $X)", "Reduce [actual cost line] by 30% (saves $Y/month)". Never "cut costs" or "raise prices" without specificity.
 - severity must be one of: low, medium, high.

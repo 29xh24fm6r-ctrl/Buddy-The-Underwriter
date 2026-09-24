@@ -87,12 +87,9 @@ export default function SBAPackageViewer({
   onRegenerate,
   onSubmit,
 }: Props) {
-  const failingYears = [1, 2, 3].filter((y) => {
-    const dscr = y === 1 ? pkg.dscrYear1Base : y === 2 ? pkg.dscrYear2Base : pkg.dscrYear3Base;
-    return dscr < 1.25;
-  });
-
-  const lowestDscr = Math.min(pkg.dscrYear1Base, pkg.dscrYear2Base, pkg.dscrYear3Base);
+  const baseCoverage = [pkg.dscrYear1Base, pkg.dscrYear2Base, pkg.dscrYear3Base];
+  const downside = pkg.sensitivityScenarios.find(s => s.name === "downside");
+  const downsideCoverage = [downside?.dscrYear1, downside?.dscrYear2, downside?.dscrYear3];
 
   const breakEven = pkg.breakEven;
 
@@ -173,9 +170,9 @@ export default function SBAPackageViewer({
       {/* DSCR Alert Banner */}
       <DSCRAlertBanner
         dealId={dealId}
-        dscrBelowThreshold={pkg.dscrBelowThreshold}
-        failingYears={failingYears}
-        lowestDscr={lowestDscr}
+        dscrBelowThreshold={pkg.dscrBelowThreshold || downside?.passesSBAThreshold === false}
+        baseCoverage={baseCoverage}
+        downsideCoverage={downsideCoverage}
       />
 
       {/* Phase BPG — Global DSCR card */}
