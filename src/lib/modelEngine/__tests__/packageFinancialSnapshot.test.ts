@@ -70,6 +70,6 @@ test("snapshots from before universal opening-source reconciliation cannot be lo
     const count=computations;
     await preparePackageFinancialSnapshot({dealId:"deal-1",bankId:"bank-1",inputHash});
     assert.equal(computations,count+1,"same source evidence must recompute under the corrected model");
-    assert.equal(saved.model_version,"model_v2_package_9");
+    assert.equal(saved.model_version,"model_v2_package_10");
   }
 });

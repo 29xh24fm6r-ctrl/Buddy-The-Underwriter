@@ -26,7 +26,7 @@ stub("@/lib/supabase/admin", { supabaseAdmin: () => ({ from(table: string) {
   return q;
 } }) });
 const { generateFeasibilityStudy } = require("../feasibilityEngine") as typeof import("../feasibilityEngine");
-const snapshot:any = {id:"snapshot",dealId:"deal",bankId:"bank",output:{ assumptionsId:"a", projectionModel:{ annualProjections:[], sensitivityScenarios:[], breakEven:{} }, sourcesAndUses:{}, useOfProceeds:[], balanceSheetProjections:[], globalCashFlow:{}, newBusinessAssessment:{flags:{isNewBusiness:true,blockers:[],warnings:[]}} }};
+const snapshot:any = {id:"snapshot",dealId:"deal",bankId:"bank",output:{ assumptionsId:"a", projectionModel:{ annualProjections:[], sensitivityScenarios:[], breakEven:{} }, sourcesAndUses:{}, useOfProceeds:[], balanceSheetProjections:[], globalCashFlow:{}, newBusinessAssessment:{flags:{isNewBusiness:true,equityInjectionFloor:.1,projectedDscrThreshold:1.15,blockers:[],warnings:[]}} }};
 test("real feasibility analyses identify evidence gaps before any model, renderer or write",async()=>{
   const result=await generateFeasibilityStudy({dealId:"deal",bankId:"bank",preflightSnapshot:snapshot});
   assert.equal(result.ok,false);
@@ -41,4 +41,18 @@ test("preflight refuses a financial snapshot from a different tenant", async()=>
 test("publication and preflight use one threshold including percentage-form input",()=>{
   for(const n of [0,.5,50,69,NaN,Infinity,101]) assert.ok(feasibilityCompletenessBlocker(n,["market_demand.demandTrend"]), String(n));
   for(const n of [.7,.9,1,70,100]) assert.equal(feasibilityCompletenessBlocker(n,[]),null,String(n));
+});
+
+test("real preflight propagates all saved downside years into composite risk flags", async () => {
+  const financial = { ...snapshot, output: { ...snapshot.output,
+    dscrYear1Base: 2.66, dscrYear2Base: 2.90, dscrYear3Base: 3.17,
+    projectionModel: { ...snapshot.output.projectionModel, sensitivityScenarios: [
+      { name: "downside", dscrYear1: 1.44, dscrYear2: .77, dscrYear3: .14 },
+    ] },
+  } };
+  const result = await generateFeasibilityStudy({ dealId: "deal", bankId: "bank", preflightSnapshot: financial });
+  const risk = result.composite!.allFlags.find(f => f.dimension === "downsideResilience")!;
+  assert.equal(risk.severity, "critical");
+  assert.match(risk.message, /Year 2 0.77x, Year 3 0.14x/);
+  assert.equal(paid, 0); assert.equal(writes, 0);
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readCanonicalEquityInjectionPct, readCanonicalReserveMonths } from "@/lib/feasibility/canonicalProjectionInputs";
+import { readCanonicalDownsideCoverage, readCanonicalEquityInjectionPct, readCanonicalReserveMonths } from "@/lib/feasibility/canonicalProjectionInputs";
 
 test("reads the canonical nested equity percentage emitted by the projection engine", () => {
   assert.equal(
@@ -52,4 +52,17 @@ test("missing, invalid and unreconciled reserve inputs remain unknown", () => {
     assert.equal(readCanonicalReserveMonths(budget, a), null);
   }
   assert.equal(readCanonicalEquityInjectionPct({ equityInjection: { actualPct: null } }), null);
+});
+
+test("downside adapter preserves all three years from canonical and legacy saved scenarios", () => {
+  assert.deepEqual(readCanonicalDownsideCoverage([{ name: "downside", dscrYear1: 1.44, dscrYear2: .77, dscrYear3: .14 }]), [1.44, .77, .14]);
+  assert.deepEqual(readCanonicalDownsideCoverage([{ scenario: " Downside ", dscr_year1: "1.44", dscr_year2: "0.77", dscr_year3: "-0.14" }]), [1.44, .77, -.14]);
+});
+test("missing downside values do not inherit base-case coverage or become zero", () => {
+  for (const input of [null, {}, [], [null, { name: "base", dscrYear1: 3, dscrYear2: 3, dscrYear3: 3 }]]) {
+    assert.deepEqual(readCanonicalDownsideCoverage(input), [null, null, null]);
+  }
+  for (const value of [undefined, null, "", " ", NaN, Infinity, "NaN", true, {}]) {
+    assert.deepEqual(readCanonicalDownsideCoverage([{ name: "downside", dscrYear1: 1.44, dscrYear2: value, dscrYear3: 0 }]), [1.44, null, 0]);
+  }
 });

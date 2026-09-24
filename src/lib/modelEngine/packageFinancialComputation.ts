@@ -1,4 +1,5 @@
 import "server-only";
+import { forecastCoverage } from "@/lib/sba/forecastCoverage";
 import { assertPackageHistoricalConsistency } from "./packageHistoricalConsistency";
 import { loadClassicSpreadData } from "@/lib/classicSpread/classicSpreadLoader";
 import type { DebtCoverageRow } from "@/lib/creditMemo/canonical/types";
@@ -155,13 +156,11 @@ export async function computePackageFinancialModel(dealId: string, bankId: strin
   const dscrYear1Base = annualProjections[0]?.dscr ?? 0;
   const dscrYear2Base = annualProjections[1]?.dscr ?? 0;
   const dscrYear3Base = annualProjections[2]?.dscr ?? 0;
-  const dscrYear1Downside =
-    sensitivityScenarios.find((s) => s.name === "downside")?.dscrYear1 ?? 0;
-  const dscrBelowThreshold =
-    dscrYear1Base < projectedDscrThreshold ||
-    dscrYear2Base < projectedDscrThreshold ||
-    dscrYear3Base < projectedDscrThreshold ||
-    dscrYear1Downside < projectedDscrThreshold;
+  const downside = sensitivityScenarios.find((s) => s.name === "downside");
+  const dscrYear1Downside = downside?.dscrYear1 ?? 0;
+  const baseCoverage = forecastCoverage([dscrYear1Base, dscrYear2Base, dscrYear3Base], projectedDscrThreshold);
+  const downsideCoverage = forecastCoverage([downside?.dscrYear1, downside?.dscrYear2, downside?.dscrYear3], projectedDscrThreshold);
+  const dscrBelowThreshold = [baseCoverage, downsideCoverage].some(coverage => !coverage.complete || coverage.belowThreshold.length > 0);
 
   const balanceSheetProjections = projectionModel.balanceSheetProjections;
 

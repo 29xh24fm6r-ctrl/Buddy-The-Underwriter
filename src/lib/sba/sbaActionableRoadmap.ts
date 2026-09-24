@@ -11,7 +11,8 @@ import "server-only";
 // GEMINI_FLASH — "Pro for deal-specific prose", per MODEL_SBA_NARRATIVE's
 // own comment in models.ts).
 
-import { resolvePolicy } from "@/lib/finengine/policyRegistry";
+import { forecastCoverage } from "./forecastCoverage";
+import { auditProjectionNarrative } from "@/lib/ai/projectionNarrativeAudit";
 import { runRole } from "@/lib/ai/gateway";
 
 export interface RoadmapInput {
@@ -21,18 +22,29 @@ export interface RoadmapInput {
   breakEvenRevenue: number;
   marginOfSafetyPct: number;
   dscrYear1: number;
-  dscrDownside: number;
+  dscrYear2: number | null;
+  dscrYear3: number | null;
+  downsideCoverage: [number | null, number | null, number | null];
   monthlyDebtService: number;
   grossMarginPct: number;
   cogsPercent: number;
   revenueGrowthY1: number;
-  /**
-   * DSCR floor this deal must clear — single source of truth is finengine's
-   * dscr_floor policy axis (SPEC-BUDDY-FINANCIAL-ENGINE-ELITE-1 / directive
-   * 2026-07-14). Falls back to finengine's flat resolution when the caller
-   * hasn't been updated to pass the deal-specific value.
-   */
-  dscrThreshold?: number;
+  /** Deal-specific coverage floor supplied by the authoritative model. */
+  dscrThreshold: number;
+}
+
+function coverageEvidence(input: RoadmapInput) {
+  const threshold = input.dscrThreshold;
+  const base = forecastCoverage([input.dscrYear1, input.dscrYear2, input.dscrYear3], threshold);
+  const downside = forecastCoverage(input.downsideCoverage, threshold);
+  const risk = downside.belowDebtService.length
+    ? `The saved downside scenario cannot cover debt service in ${downside.shortfalls}.`
+    : downside.belowThreshold.length
+      ? `The saved downside scenario falls below the model's ${threshold.toFixed(2)}x threshold in ${downside.failures}.`
+      : downside.complete
+        ? `The saved downside scenario meets the model's ${threshold.toFixed(2)}x threshold in all three years, subject to the assumptions.`
+        : "Downside repayment coverage is not established across all three years.";
+  return { threshold, base, downside, text: `Base-case coverage: ${base.path}. Downside coverage: ${downside.path}. ${risk}` };
 }
 
 export async function generateActionableRoadmap(
@@ -46,6 +58,7 @@ export async function generateActionableRoadmap(
     return buildFallbackRoadmap(input);
   }
 
+  const evidence = coverageEvidence(input);
   const monthlyRevTarget = Math.round(input.revenue / 12);
   const monthlyBreakEven = Math.round(input.breakEvenRevenue / 12);
 
@@ -59,8 +72,8 @@ PROJECTION DATA:
 - Monthly loan payment: $${Math.round(input.monthlyDebtService).toLocaleString()}
 - Gross margin: ${(input.grossMarginPct * 100).toFixed(1)}%
 - Cost of goods: ${(input.cogsPercent * 100).toFixed(0)}% of revenue
-- Debt coverage: ${input.dscrYear1.toFixed(2)}x (${input.dscrYear1 >= 1.25 ? "above" : "below"} SBA minimum)
-- Worst case coverage: ${input.dscrDownside.toFixed(2)}x
+- Model coverage threshold: ${evidence.threshold.toFixed(2)}x
+- ${evidence.text}
 - Revenue growth assumption: ${(input.revenueGrowthY1 * 100).toFixed(0)}% Year 1
 
 Write a 3-4 paragraph roadmap in second person ("you", "your"). Include:
@@ -71,14 +84,16 @@ Write a 3-4 paragraph roadmap in second person ("you", "your"). Include:
 
 3. RISK AWARENESS: One paragraph about what could go wrong and how to prepare. Use the downside scenario data. Be honest but not alarming.
 
-4. THE BOTTOM LINE: One confident closing sentence about their business's financial health.
+4. CLOSING ASSESSMENT: State the conditional outlook and any unresolved repayment shortfall. Never infer full-horizon resilience from Year 1 alone.
 
 RULES:
 - Use actual dollar amounts, not percentages where possible
 - Sound like a trusted advisor, not a textbook
 - No banking jargon (no "DSCR", no "debt service coverage ratio")
 - No bullet points — flowing paragraphs
-- Don't mention SBA, loans, or banking terms — this is about their BUSINESS
+- Explain coverage ratios in plain English and retain the three-year downside values and any shortfall.
+- Do not describe the saved downside as a one-time 15% revenue drop; the scenario compounds its growth assumptions across years.
+- Do not claim proposed mitigations restore coverage unless a saved scenario demonstrates that result.
 - Maximum 400 words
 
 Return ONLY the roadmap text. No JSON. No markdown headers.`;
@@ -92,7 +107,11 @@ Return ONLY the roadmap text. No JSON. No markdown headers.`;
     });
 
     const trimmed = result.text.trim();
-    return trimmed || buildFallbackRoadmap(input);
+    const issues = auditProjectionNarrative({ sensitivityScenarios: [{
+      name: "downside", dscrYear1: input.downsideCoverage[0], dscrYear2: input.downsideCoverage[1], dscrYear3: input.downsideCoverage[2],
+      passesSBAThreshold: evidence.downside.complete && evidence.downside.belowThreshold.length === 0,
+    }] }, [{ key: "risk_roadmap", text: trimmed }]);
+    return trimmed && evidence.base.complete && evidence.downside.complete && !issues.length ? trimmed : buildFallbackRoadmap(input);
   } catch {
     return buildFallbackRoadmap(input);
   }
@@ -105,8 +124,7 @@ function buildFallbackRoadmap(input: RoadmapInput): string {
   const reserveGoal = Math.round(input.monthlyDebtService * 2);
   const earlyTarget = Math.round(monthlyRev * 0.8);
   const safetyPct = Math.round(input.marginOfSafetyPct * 100);
-  const dscrThreshold = input.dscrThreshold ?? resolvePolicy("dscr_floor").effective ?? 1.25;
-  const downsideOk = input.dscrDownside >= dscrThreshold;
+  const evidence = coverageEvidence(input);
 
   return [
     `Your business is projected to generate $${monthlyRev.toLocaleString()} per month in Year 1. ` +
@@ -117,10 +135,12 @@ function buildFallbackRoadmap(input: RoadmapInput): string {
       `Second, reach roughly $${earlyTarget.toLocaleString()} in monthly revenue by Month 3 so you're trending toward your annual goal. ` +
       `Third, build a cash reserve equal to at least two months of loan payments — around $${reserveGoal.toLocaleString()} — so you have runway if any one month is slow.`,
     ``,
-    downsideOk
-      ? `Even in a stress scenario where revenue drops 15%, your projections show you can still comfortably cover all your obligations. That's a strong foundation — but don't get complacent. Watch your monthly revenue closely in the first two quarters; that's when the surprises show up.`
-      : `If revenue came in 15% below projection, cash flow would get tight. That doesn't mean disaster — it means you should build reserves early, keep a close eye on monthly revenue, and have a plan for trimming costs if you see two months in a row fall short.`,
+    `${evidence.text} Monitor actual revenue and costs, build reserves, and review the plan if performance falls short. Proposed cost reductions do not establish restored coverage until they are modeled.`,
     ``,
-    `Your financial foundation is ${input.dscrYear1 >= dscrThreshold * 1.2 ? "strong" : input.dscrYear1 >= dscrThreshold ? "solid" : "under pressure but workable with discipline"} — stick to the numbers in this plan and you'll have the visibility you need to run the business with confidence.`,
+    `These projections depend on the saved assumptions. ${!evidence.base.complete || !evidence.downside.complete
+      ? "Complete the missing forecast evidence before assessing repayment resilience."
+      : evidence.base.belowThreshold.length || evidence.downside.belowThreshold.length
+        ? "Resolve the projected coverage shortfalls before relying on this plan for repayment."
+        : "All modeled years meet the coverage threshold; actual results and lender review remain necessary."}`,
   ].join("\n");
 }
