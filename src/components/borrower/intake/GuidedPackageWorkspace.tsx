@@ -623,6 +623,7 @@ function JourneyPanels({
   onQuestion: (id: string) => void;
 }) {
   const [visited, setVisited] = useState<Chapter[]>([chapter]);
+  const [selectedDocument, setSelectedDocument] = useState<{ key: string; title: string } | null>(null);
   if (!visited.includes(chapter)) setVisited([...visited, chapter]);
   return (
     <>
@@ -657,11 +658,13 @@ function JourneyPanels({
               statement, and a balance sheet if available. You can add more
               later. Uploading is separate from processing and acceptance.
             </p>
-            <RequiredDocuments refreshKey={uploadVersion} />
+            <RequiredDocuments refreshKey={uploadVersion} onChooseDocument={setSelectedDocument} />
             <PortalUploadDropzone
               dealId={dealId}
               token={dealId}
               onUploadComplete={onUpload}
+              selectedDocument={selectedDocument}
+              onClearSelection={() => setSelectedDocument(null)}
             />
             <DocumentHelper dealId={dealId} />
             <UploadedDocumentsList token={dealId} refreshKey={uploadVersion} />

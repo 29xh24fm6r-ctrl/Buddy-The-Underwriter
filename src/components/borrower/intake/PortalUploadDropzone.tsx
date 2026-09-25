@@ -13,12 +13,15 @@ type Props = {
   token: string;
   dealId: string;
   onUploadComplete?: () => void;
+  selectedDocument?: { key: string; title: string } | null;
+  onClearSelection?: () => void;
 };
 
 type UploadedFile = {
   id: string;
   file: File;
   name: string;
+  checklistKey: string | null;
   status: "uploading" | "success" | "error";
   error?: string;
   /** Real byte-level percentage from uploadBorrowerFile's onProgress callback — not a fake animation. */
@@ -50,23 +53,24 @@ export function reconcileCompletedUpload(
       completed &&
       upload.id !== id &&
       upload.status === "error" &&
-      sameFile(upload.file, completed.file)
+      sameFile(upload.file, completed.file) && upload.checklistKey === completed.checklistKey
     ));
 }
 
 let uploadIdCounter = 0;
 
-export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
+export function PortalUploadDropzone({ token, onUploadComplete, selectedDocument, onClearSelection }: Props) {
   const [uploads, setUploads] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [selectionError, setSelectionError] = useState("");
 
   const runUpload = useCallback(
-    async (id: string, file: File) => {
+    async (id: string, file: File, checklistKey: string | null) => {
       setUploads((prev) =>
         prev.map((u) => (u.id === id ? { ...u, status: "uploading", error: undefined, pct: 0 } : u)),
       );
       try {
-        const result = await uploadBorrowerFile(token, file, null, (pct) => {
+        const result = await uploadBorrowerFile(token, file, checklistKey, (pct) => {
           setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, pct } : u)));
         });
         setUploads((prev) => reconcileCompletedUpload(prev, id, result));
@@ -82,27 +86,33 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
   const handleFiles = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
+      if (selectedDocument && files.length > 1) {
+        setSelectionError("Choose one file for the selected document request.");
+        return;
+      }
+      setSelectionError("");
 
       const newUploads: UploadedFile[] = files.map((f) => ({
         id: `up-${++uploadIdCounter}`,
         file: f,
         name: f.name,
+        checklistKey: selectedDocument?.key ?? null,
         status: "uploading",
         pct: 0,
       }));
       setUploads((prev) => [...prev, ...newUploads]);
 
       for (const u of newUploads) {
-        void runUpload(u.id, u.file);
+        void runUpload(u.id, u.file, u.checklistKey);
       }
     },
-    [runUpload],
+    [runUpload, selectedDocument],
   );
 
   const retryUpload = useCallback(
     (id: string) => {
       const target = uploads.find((u) => u.id === id);
-      if (target) void runUpload(id, target.file);
+      if (target) void runUpload(id, target.file, target.checklistKey);
     },
     [uploads, runUpload],
   );
@@ -133,6 +143,11 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
 
   return (
     <div className="space-y-4">
+      {selectedDocument && <div role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-slate-700">
+        Uploading for: <strong>{selectedDocument.title}</strong>. Choose one file for this request.
+        <button type="button" className="ml-3 underline" onClick={onClearSelection}>Choose a different document</button>
+      </div>}
+      {selectionError && <p role="alert" className="text-sm text-rose-700">{selectionError}</p>}
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -185,7 +200,7 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
                 Choose Files
                 <input
                   type="file"
-                  multiple
+                  multiple={!selectedDocument}
                   accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx"
                   onChange={handleFileSelect}
                   className="hidden"

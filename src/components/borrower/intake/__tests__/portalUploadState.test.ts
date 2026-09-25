@@ -28,3 +28,13 @@ test("success does not hide a failure for a different file with the same name", 
   assert.equal(result[0].status, "error");
   assert.equal(result[1].status, "success");
 });
+
+test("a successful document request does not hide a failed upload for another request", () => {
+  const file = fixture("franchise.pdf", 200, 1);
+  const uploads: any[] = [
+    { id: "fdd", file, checklistKey: "FRANCHISE_DISCLOSURE_DOCUMENT", status: "error", pct: 0 },
+    { id: "agreement", file, checklistKey: "FRANCHISE_AGREEMENT", status: "uploading", pct: 80 },
+  ];
+  const result = reconcileCompletedUpload(uploads, "agreement", { ok: true });
+  assert.deepEqual(result.map(upload => [upload.id, upload.status]), [["fdd", "error"], ["agreement", "success"]]);
+});

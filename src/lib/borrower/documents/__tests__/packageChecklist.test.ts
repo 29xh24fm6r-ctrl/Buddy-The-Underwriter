@@ -41,3 +41,40 @@ test("database failure returns a blocker rather than an empty successful checkli
  const result=await readPackageDocumentReadiness("deal",sb);
  assert.equal(result.ok,false);assert.match(result.reasons[0],/could not be verified/);
 });
+
+const franchiseItems = [
+ {code:"FRANCHISE_DISCLOSURE_DOCUMENT",title:"Franchise Disclosure Document",required:true},
+ {code:"FRANCHISE_AGREEMENT",title:"Franchise Agreement",required:true},
+ {code:"SBA_FRANCHISE_ADDENDUM",title:"SBA Franchise Addendum",required:true},
+];
+test("franchise requests appear during preparation and prevent sealing until their actual files are confirmed",()=>{
+ const prepare=evaluatePackageDocuments([{...request,checklist_key:"FIN_STMT_BS_YTD",required_years:null}],
+  [{...document,checklist_key:"FIN_STMT_BS_YTD"}],{},[],"prepare",franchiseItems);
+ assert.equal(prepare.ok,true);
+ assert.equal(prepare.items.filter(item=>item.state==="missing").length,3);
+ const submit=evaluatePackageDocuments([{...request,checklist_key:"FIN_STMT_BS_YTD",required_years:null}],
+  [{...document,checklist_key:"FIN_STMT_BS_YTD"}],{},[],"submit",franchiseItems);
+ assert.equal(submit.ok,false);assert.equal(submit.reasons.length,3);
+ const franchiseDocs=franchiseItems.map(({code})=>({...document,checklist_key:code}));
+ assert.equal(evaluatePackageDocuments([{...request,checklist_key:"FIN_STMT_BS_YTD",required_years:null}],
+  [{...document,checklist_key:"FIN_STMT_BS_YTD"},...franchiseDocs],{},[],"submit",franchiseItems).ok,true);
+ for(const patch of [{is_active:false},{storage_path:null},{intake_status:"PENDING",finalized_at:null},{quality_status:"REJECTED"}]) {
+  const docs=franchiseDocs.map((d,i)=>i===0?{...d,...patch}:d);
+  assert.equal(evaluatePackageDocuments([{...request,checklist_key:"FIN_STMT_BS_YTD",required_years:null}],
+   [{...document,checklist_key:"FIN_STMT_BS_YTD"},...docs],{},[],"submit",franchiseItems).ok,false);
+ }
+});
+
+test("linked franchise with incomplete seeding fails closed; unlinked deal ignores stale portal requests",async()=>{
+ const rows:Record<string,any>={deal_checklist_items:[{...request,checklist_key:"FIN_STMT_BS_YTD",required_years:null}],
+  deal_documents:[{...document,checklist_key:"FIN_STMT_BS_YTD"}],borrower_concierge_sessions:{confirmed_facts:{}},
+  sba_package_runs:null,deal_franchises:{brand_id:"brand"},deal_portal_checklist_items:franchiseItems.slice(0,2)};
+ const sb={from(table:string){const q:any={select(){return q},eq(){return q},order(){return q},limit(){return q},
+  maybeSingle(){return Promise.resolve({data:rows[table],error:null})},
+  then(resolve:any,reject:any){return Promise.resolve({data:rows[table],error:null}).then(resolve,reject)}};return q}};
+ const incomplete=await readPackageDocumentReadiness("deal",sb,"submit");
+ assert.equal(incomplete.ok,false);assert.match(incomplete.reasons.join(" "),/requests could not be verified/);
+ rows.deal_franchises=null;
+ const unlinked=await readPackageDocumentReadiness("deal",sb,"submit");
+ assert.equal(unlinked.ok,true);assert.equal(unlinked.items.length,1);
+});

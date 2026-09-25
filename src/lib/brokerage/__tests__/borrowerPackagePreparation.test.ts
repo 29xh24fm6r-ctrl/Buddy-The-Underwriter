@@ -123,6 +123,7 @@ test.beforeEach(() => {
     deals: [{ id: "deal", bank_id: "bank", is_test: false, entity_type: "operating_company" }],
     buddy_sba_assumptions: [{ deal_id: "deal", status: "confirmed", confirmed_at: new Date().toISOString(), revenue_streams: [{}], management_team: [{}], cost_assumptions: {}, working_capital: {}, loan_impact: {} }],
     deal_checklist_items: [{deal_id:"deal",checklist_key:"FIN_STMT_BS_YTD",title:"Balance sheet",required:true}],
+    deal_franchises: [], deal_portal_checklist_items: [],
     sba_package_runs: [],
     deal_documents: [1, 2].map(id => ({ id, deal_id: "deal", bank_id: "bank", document_type:"BALANCE_SHEET",is_active:true,intake_status:"USER_CONFIRMED",quality_status:"PASSED",storage_path:"stored.pdf" })),
     deal_financial_facts: Object.entries(facts).map(([fact_key, fact_value_num]) => ({ deal_id: "deal", bank_id: "bank", is_superseded: false, fact_key, fact_value_num })),

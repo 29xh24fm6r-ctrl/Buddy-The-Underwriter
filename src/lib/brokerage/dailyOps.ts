@@ -13,9 +13,11 @@ type Row = Record<string, any>;
 export type DailyOpsInput = { now: Date; sessions: Row[]; deals: Row[]; concierges: Row[]; stories: Row[]; documents: Row[]; scores: Row[]; tridents: Row[]; sealedPackages: Row[]; listings: Row[]; claims: Row[]; picks: Row[]; accesses: Row[]; closingWorkflows: Row[]; closingConditions: Row[]; fundingVerifications: Row[]; feeLedger: Row[]; disclosures: Row[]; form159Records: Row[] };
 function str(v: unknown): string | null { return typeof v === "string" && v.trim() ? v.trim() : null; }
 function num(v: unknown): number | null { return typeof v === "number" && Number.isFinite(v) ? v : null; }
-function sod(d: Date): string { return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString(); }
-function som(d: Date): string { return new Date(d.getFullYear(), d.getMonth(), 1).toISOString(); }
-function soy(d: Date): string { return new Date(d.getFullYear(), 0, 1).toISOString(); }
+// The report's event timestamps are UTC. Local midnight shifts the reporting
+// day with the server's region and can omit valid funded fees at month edges.
+function sod(d: Date): string { return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString(); }
+function som(d: Date): string { return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString(); }
+function soy(d: Date): string { return new Date(Date.UTC(d.getUTCFullYear(), 0, 1)).toISOString(); }
 
 export function buildDailyOpsReport(input: DailyOpsInput): DailyOpsReport {
   const start = Date.now(), today = sod(input.now), ms = som(input.now), ys = soy(input.now), nowMs = input.now.getTime();
