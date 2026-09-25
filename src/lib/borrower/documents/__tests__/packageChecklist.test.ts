@@ -78,3 +78,13 @@ test("linked franchise with incomplete seeding fails closed; unlinked deal ignor
  const unlinked=await readPackageDocumentReadiness("deal",sb,"submit");
  assert.equal(unlinked.ok,true);assert.equal(unlinked.items.length,1);
 });
+
+test("a waived canonical row cannot waive the same franchise evidence request",()=>{
+ const canonical=[{...request,checklist_key:"FRANCHISE_AGREEMENT",status:"waived",required_years:null}];
+ const franchise=[{code:"FRANCHISE_AGREEMENT",title:"Signed franchise agreement",required:true}];
+ const missing=evaluatePackageDocuments(canonical,[],{},[],"submit",franchise);
+ assert.equal(missing.ok,false);
+ assert.match(missing.reasons.join(" "),/Signed franchise agreement/);
+ const confirmed=evaluatePackageDocuments(canonical,[{...document,checklist_key:"FRANCHISE_AGREEMENT"}],{},[],"submit",franchise);
+ assert.equal(confirmed.ok,true);
+});

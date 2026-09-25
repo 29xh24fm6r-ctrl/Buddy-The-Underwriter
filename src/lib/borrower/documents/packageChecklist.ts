@@ -67,7 +67,7 @@ export function evaluatePackageDocuments(checklist: Row[], documents: Row[], fac
   });
   const canonicalReasons = items.filter(i => i.state === "missing").map(i => `${i.title}: ${i.detail}`);
   const supplementalItems: PackageDocumentItem[] = supplemental
-    .filter(row => row.required === true && !checklist.some(item => item.checklist_key === row.code))
+    .filter(row => row.required === true)
     .map(row => {
       const key = String(row.code);
       // Portal receipt state is filename-based and must never certify a lender
