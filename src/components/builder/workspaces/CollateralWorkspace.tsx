@@ -65,6 +65,8 @@ export function CollateralWorkspace({ collateral, requestedAmount, onAdd, onUpda
           <div className="space-y-2">
             {normalized.map((item) => {
               const advRate = item.effective_advance_rate ?? getEffectiveAdvanceRate(item);
+              // null = this system has no rate it can defend for the type;
+              // the item lends nothing until a banker enters one.
               const statusStyle = STATUS_STYLES[item.policy_status] ?? STATUS_STYLES.incomplete;
               return (
                 <div key={item.id} className={`${glass} flex items-center justify-between`}>
@@ -88,7 +90,9 @@ export function CollateralWorkspace({ collateral, requestedAmount, onAdd, onUpda
                       <div className="flex items-center gap-3 mt-0.5">
                         <span className="text-sm font-semibold text-white">${Number(item.estimated_value).toLocaleString()}</span>
                         <span className="text-[10px] text-white/40">
-                          Adv. {Math.round(advRate * 100)}%{item.auto_filled.includes("advance_rate") ? " (default)" : ""} = ${Math.round(item.estimated_value * advRate).toLocaleString()}
+                          {advRate === null
+                            ? "Adv. rate required — not counted as lendable"
+                            : `Adv. ${Math.round(advRate * 100)}%${item.auto_filled.includes("advance_rate") ? " (default)" : ""} = $${Math.round(item.estimated_value * advRate).toLocaleString()}`}
                         </span>
                       </div>
                     )}
